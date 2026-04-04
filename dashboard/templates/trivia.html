@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set active_page = "trivia" %}
+
+{% block title %}Botson — טריוויה{% endblock %}
+
+{% block content %}
+<div class="mb-8 flex items-center justify-between">
+    <div>
+        <h2 class="text-2xl font-bold text-gray-800">טריוויה</h2>
+        <p class="text-gray-500 mt-1">ניהול שאלות וניקוד</p>
+    </div>
+    <button onclick="resetTrivia()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
+        אפס ניקוד
+    </button>
+</div>
+
+<!-- Leaderboard -->
+<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-4">🏆 טבלת ניקוד</h3>
+    {% if leaders %}
+    <div class="space-y-3">
+        {% for m in leaders %}
+        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-gray-100{% endif %}">
+            <div class="flex items-center gap-3">
+                <span class="text-lg">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
+                <span class="text-gray-700">{{ m.display_name }}</span>
+            </div>
+            <div class="text-left">
+                <span class="font-bold text-gray-800">{{ m.total_score }} נק'</span>
+                <span class="text-sm text-gray-400 mr-2">{{ m.correct_answers }}/{{ m.total_answers }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-gray-400">אין ניקוד עדיין</p>
+    {% endif %}
+</div>
+
+<!-- Questions -->
+<div class="bg-white rounded-xl shadow-sm p-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-4">📝 שאלות ({{ questions|length }})</h3>
+    <div class="space-y-4" id="questions-list">
+        {% for q in questions %}
+        <div class="border border-gray-200 rounded-lg p-4">
+            <div class="font-medium text-gray-800 mb-2">{{ loop.index }}. {{ q.text }}</div>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+                {% for opt in q.options %}
+                <div class="px-3 py-1 rounded {% if loop.index0 == q.correct %}bg-green-100 text-green-700 font-medium{% else %}bg-gray-50 text-gray-600{% endif %}">
+                    {{ opt }}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="text-xs text-gray-400 mt-2">{{ q.category }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function resetTrivia() {
+    if (!confirm('בטוח? זה יאפס את כל ניקוד הטריוויה!')) return;
+    try {
+        await apiCall('/api/trivia/reset');
+        showToast('הניקוד אופס');
+        setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+        showToast('שגיאה באיפוס', 'error');
+    }
+}
+</script>
+{% endblock %}

@@ -1,4 +1,4 @@
-# Elhoriim Bot (אלהוריים בוט)
+# Botson – Elhoriim Community Bot
 
 A Telegram bot for the "אלהוריים וזה" (Elhoriim and This) childfree community. The bot fosters engagement through welcome messages, daily goal tracking, peer recognition, spam protection, and weekly activity summaries. All user-facing messages are in Hebrew.
 
@@ -102,7 +102,7 @@ The bot will connect to Telegram and start handling messages. Press Ctrl+C to st
 
 1. Open Telegram and message @BotFather
 2. Send `/newbot`
-3. Choose a display name (e.g., "אלהוריים בוט")
+3. Choose a display name (e.g., "Botson")
 4. Choose a username (must be unique, e.g., `elhoriim_community_bot`)
 5. Copy the API token (looks like `123456:ABC-DEF1234567890`)
 6. Save this token to your `.env` file as `BOT_TOKEN`

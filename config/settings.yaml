@@ -1,6 +1,6 @@
 # Bot settings for אלהוריים וזה
 bot:
-  name: "אלהוריים בוט"
+  name: "Botson"
 
 # Forum topic IDs (update after adding bot to group)
 # Get topic IDs by sending a message in each topic and checking the message_thread_id
@@ -8,6 +8,17 @@ topics:
   welcome: null       # מצטרפים חדשים + עדכונים
   general: null       # כל מה שאין לו ערוץ
   goals: null         # הישגים ומטרות 🌟 (also set GOALS_TOPIC_ID env var)
+  discussions:        # Topic IDs for discussion prompts (set after adding bot)
+    general: null
+    geek: null
+    gaming: null
+    movies: null
+    cute: null
+    singles: null
+    funny: null
+    vegan: null
+    art: null
+    politics: null
 
 # Schedule (Israel time)
 schedule:
@@ -15,6 +26,7 @@ schedule:
   evening_prompt: "21:00"
   weekly_roundup: "friday 18:00"
   weekly_leaderboard: "friday 18:00"
+  discussion_prompt: "10:00,14:00,18:00"  # 3 times per day, picks random channel each time
 
 # Anti-spam thresholds
 antispam:

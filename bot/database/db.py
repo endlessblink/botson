@@ -252,3 +252,141 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    # ── Events ───────────────────────────────────────────────
+
+    async def create_event(self, title: str, description: str, event_date: str,
+                           event_time: str | None, location: str | None,
+                           created_by: int) -> int:
+        """Create a new event. Returns event ID."""
+        async with self._db.execute(
+            """INSERT INTO events (title, description, event_date, event_time, location, created_by)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (title, description, event_date, event_time, location, created_by),
+        ) as cursor:
+            event_id = cursor.lastrowid
+        await self._db.commit()
+        return event_id
+
+    async def get_event(self, event_id: int) -> dict | None:
+        """Get an event by ID."""
+        async with self._db.execute(
+            "SELECT * FROM events WHERE id = ? AND active = 1", (event_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def get_upcoming_events(self, limit: int = 10) -> list[dict]:
+        """Get upcoming active events."""
+        today = date.today().isoformat()
+        async with self._db.execute(
+            """SELECT * FROM events WHERE active = 1 AND event_date >= ?
+               ORDER BY event_date ASC, event_time ASC LIMIT ?""",
+            (today, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_all_events(self) -> list[dict]:
+        """Get all events (for dashboard)."""
+        async with self._db.execute(
+            "SELECT * FROM events ORDER BY event_date DESC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def update_event_rsvp(self, event_id: int, user_id: int, status: str):
+        """Update RSVP for an event. Status: 'yes' or 'maybe'."""
+        import json
+        event = await self.get_event(event_id)
+        if not event:
+            return
+
+        yes_list = json.loads(event["rsvp_yes"])
+        maybe_list = json.loads(event["rsvp_maybe"])
+
+        # Remove from both lists first
+        yes_list = [uid for uid in yes_list if uid != user_id]
+        maybe_list = [uid for uid in maybe_list if uid != user_id]
+
+        if status == "yes":
+            yes_list.append(user_id)
+        elif status == "maybe":
+            maybe_list.append(user_id)
+
+        await self._db.execute(
+            "UPDATE events SET rsvp_yes = ?, rsvp_maybe = ? WHERE id = ?",
+            (json.dumps(yes_list), json.dumps(maybe_list), event_id),
+        )
+        await self._db.commit()
+
+    async def delete_event(self, event_id: int):
+        """Soft-delete an event."""
+        await self._db.execute(
+            "UPDATE events SET active = 0 WHERE id = ?", (event_id,)
+        )
+        await self._db.commit()
+
+    async def update_event(self, event_id: int, **fields):
+        """Update event fields."""
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [event_id]
+        await self._db.execute(
+            f"UPDATE events SET {set_clause} WHERE id = ?", values
+        )
+        await self._db.commit()
+
+    # ── Trivia ───────────────────────────────────────────────
+
+    async def add_trivia_score(self, user_id: int, correct: bool):
+        """Update trivia score for a user."""
+        # Ensure row exists
+        await self._db.execute(
+            """INSERT INTO trivia_scores (user_id, total_score, correct_answers, total_answers)
+               VALUES (?, 0, 0, 0)
+               ON CONFLICT(user_id) DO NOTHING""",
+            (user_id,),
+        )
+        if correct:
+            await self._db.execute(
+                """UPDATE trivia_scores
+                   SET total_score = total_score + 10, correct_answers = correct_answers + 1,
+                       total_answers = total_answers + 1
+                   WHERE user_id = ?""",
+                (user_id,),
+            )
+        else:
+            await self._db.execute(
+                "UPDATE trivia_scores SET total_answers = total_answers + 1 WHERE user_id = ?",
+                (user_id,),
+            )
+        await self._db.commit()
+
+    async def get_trivia_leaderboard(self, limit: int = 10) -> list[dict]:
+        """Get top trivia scorers."""
+        async with self._db.execute(
+            """SELECT t.user_id, m.display_name, t.total_score, t.correct_answers, t.total_answers
+               FROM trivia_scores t JOIN members m ON t.user_id = m.user_id
+               ORDER BY t.total_score DESC LIMIT ?""",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_trivia_score(self, user_id: int) -> dict:
+        """Get trivia score for a user."""
+        async with self._db.execute(
+            "SELECT total_score, correct_answers, total_answers FROM trivia_scores WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {"score": row[0], "correct": row[1], "total": row[2]}
+            return {"score": 0, "correct": 0, "total": 0}
+
+    async def reset_trivia_scores(self):
+        """Reset all trivia scores."""
+        await self._db.execute("DELETE FROM trivia_scores")
+        await self._db.commit()

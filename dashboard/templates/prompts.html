@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set active_page = "prompts" %}
+
+{% block title %}Botson — הודעות ושאלות{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h2 class="text-2xl font-bold text-gray-800">הודעות ושאלות</h2>
+    <p class="text-gray-500 mt-1">ניהול הודעות יומיות ושאלות לדיון</p>
+</div>
+
+<!-- Daily Goals Prompts -->
+<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-2">☀️ הודעות בוקר</h3>
+    <p class="text-sm text-gray-500 mb-4">{{ prompts.morning|length }} הודעות — נשלחות ב-08:00</p>
+    <textarea id="morning-prompts" rows="8" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" dir="rtl">{% for p in prompts.morning %}{{ p }}
+{% endfor %}</textarea>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-2">🌙 הודעות ערב</h3>
+    <p class="text-sm text-gray-500 mb-4">{{ prompts.evening|length }} הודעות — נשלחות ב-21:00</p>
+    <textarea id="evening-prompts" rows="8" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" dir="rtl">{% for p in prompts.evening %}{{ p }}
+{% endfor %}</textarea>
+</div>
+
+<button onclick="saveGoalsPrompts()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition mb-8">
+    שמור הודעות יומיות
+</button>
+
+<!-- Discussion Prompts -->
+<div class="mb-8 mt-4">
+    <h2 class="text-xl font-bold text-gray-800">💬 שאלות לדיון בערוצים</h2>
+    <p class="text-gray-500 mt-1">נשלחות 3 פעמים ביום לערוצים אקראיים</p>
+</div>
+
+{% for category, questions in discussions.items() %}
+<div class="bg-white rounded-xl shadow-sm p-6 mb-4">
+    <h3 class="text-lg font-bold text-gray-800 mb-2">{{ category }}</h3>
+    <p class="text-sm text-gray-500 mb-3">{{ questions|length }} שאלות</p>
+    <textarea data-category="{{ category }}" rows="5" class="discussion-textarea w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" dir="rtl">{% for q in questions %}{{ q }}
+{% endfor %}</textarea>
+</div>
+{% endfor %}
+
+<button onclick="saveDiscussions()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+    שמור שאלות לדיון
+</button>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function textareaToArray(id) {
+    return document.getElementById(id).value.split('\n').map(l => l.trim()).filter(l => l);
+}
+
+async function saveGoalsPrompts() {
+    try {
+        await apiCall('/api/prompts/save', {
+            type: 'goals',
+            content: {
+                morning: textareaToArray('morning-prompts'),
+                evening: textareaToArray('evening-prompts'),
+            }
+        });
+        showToast('הודעות יומיות נשמרו');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
+async function saveDiscussions() {
+    try {
+        const content = {};
+        document.querySelectorAll('.discussion-textarea').forEach(ta => {
+            const cat = ta.dataset.category;
+            content[cat] = ta.value.split('\n').map(l => l.trim()).filter(l => l);
+        });
+        await apiCall('/api/prompts/save', {
+            type: 'discussions',
+            content: content,
+        });
+        showToast('שאלות לדיון נשמרו');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+</script>
+{% endblock %}

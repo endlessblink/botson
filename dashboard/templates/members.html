@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% set active_page = "members" %}
+
+{% block title %}Botson — חברים{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h2 class="text-2xl font-bold text-gray-800">חברים</h2>
+    <p class="text-gray-500 mt-1">{{ members|length }} חברים רשומים</p>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <table class="w-full">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">שם</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">שם משתמש</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">הצטרף/ה</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">קארמה</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for m in members %}
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 font-medium text-gray-800">{{ m.display_name }}</td>
+                <td class="px-6 py-4 text-gray-500">{% if m.username %}@{{ m.username }}{% else %}—{% endif %}</td>
+                <td class="px-6 py-4 text-gray-500 text-sm">{{ m.joined_at[:10] if m.joined_at else '—' }}</td>
+                <td class="px-6 py-4 stat-number">{{ m.karma_points }}</td>
+            </tr>
+            {% endfor %}
+            {% if not members %}
+            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400">אין חברים רשומים עדיין</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

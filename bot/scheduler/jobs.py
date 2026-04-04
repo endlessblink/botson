@@ -18,6 +18,9 @@ def setup_jobs(app: Application) -> None:
     from ..handlers.goals import send_morning_prompt, send_evening_prompt
     from ..handlers.karma import send_weekly_leaderboard
     from ..handlers.roundup import send_weekly_roundup
+    from ..handlers.discussions import send_discussion_prompt
+    from ..handlers.events import send_event_reminder
+    from ..handlers.trivia import send_scheduled_trivia
 
     jq = app.job_queue
     if not jq:
@@ -53,5 +56,29 @@ def setup_jobs(app: Application) -> None:
         days=(4,),  # 4 = Friday
         name="weekly_roundup",
     )
+
+    # Discussion prompts — 3 times daily, random channel each time
+    for hour in (10, 14, 18):
+        jq.run_daily(
+            send_discussion_prompt,
+            time=time(hour=hour, minute=0, tzinfo=_tz),
+            name=f"discussion_prompt_{hour}",
+        )
+
+    # Event reminders — daily at 09:00, reminds about tomorrow's events
+    jq.run_daily(
+        send_event_reminder,
+        time=time(hour=9, minute=0, tzinfo=_tz),
+        name="event_reminder",
+    )
+
+    # Scheduled trivia — Wednesday and Saturday evenings
+    for day in (2, 5):  # Wednesday=2, Saturday=5
+        jq.run_daily(
+            send_scheduled_trivia,
+            time=time(hour=20, minute=0, tzinfo=_tz),
+            days=(day,),
+            name=f"trivia_day_{day}",
+        )
 
     logger.info("Scheduled %d jobs via JobQueue", len(jq.jobs()))

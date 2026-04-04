@@ -42,4 +42,28 @@ CREATE TABLE IF NOT EXISTS streaks (
     last_post_date DATE,
     FOREIGN KEY (user_id) REFERENCES members(user_id)
 );
+
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    event_date TEXT NOT NULL,
+    event_time TEXT,
+    location TEXT,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    message_id INTEGER,
+    rsvp_yes TEXT DEFAULT '[]',
+    rsvp_maybe TEXT DEFAULT '[]',
+    active INTEGER DEFAULT 1,
+    FOREIGN KEY (created_by) REFERENCES members(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS trivia_scores (
+    user_id INTEGER PRIMARY KEY,
+    total_score INTEGER DEFAULT 0,
+    correct_answers INTEGER DEFAULT 0,
+    total_answers INTEGER DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES members(user_id)
+);
 """

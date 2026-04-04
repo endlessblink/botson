@@ -6,7 +6,7 @@ import sys
 from telegram.ext import Application, CommandHandler
 
 from .database.db import Database
-from .handlers import welcome, goals, karma, antispam
+from .handlers import welcome, goals, karma, antispam, discussions, events, trivia
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_prompts
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def start_command(update, context):
     """Handle /start command (DM only)."""
     await update.message.reply_text(
-        "שלום! אני הבוט של אלהוריים וזה 🌟\n"
+        "שלום! אני Botson, הבוט של אלהוריים וזה 🌟\n"
         "הוסיפו אותי לקבוצה כדי שאוכל לעזור.\n"
         "שלחו /help לרשימת פקודות."
     )
@@ -108,6 +108,9 @@ def main():
     welcome.register(app)    # Default group
     goals.register(app)      # Group 2
     karma.register(app)      # Group 3
+    discussions.register(app)
+    events.register(app)     # Event management
+    trivia.register(app)     # Trivia questions
 
     # Setup scheduled jobs (uses built-in JobQueue)
     setup_jobs(app)

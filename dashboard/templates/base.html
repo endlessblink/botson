@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Botson Dashboard{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .nav-link { transition: all 0.2s; }
+        .nav-link:hover { background-color: rgba(255,255,255,0.1); }
+        .nav-link.active { background-color: rgba(255,255,255,0.15); border-right: 3px solid #60a5fa; }
+        .card { transition: transform 0.2s, box-shadow 0.2s; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+        .stat-number { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-gray-900 text-white flex flex-col fixed h-full">
+            <div class="p-6 border-b border-gray-700">
+                <h1 class="text-xl font-bold">🤖 Botson</h1>
+                <p class="text-gray-400 text-sm mt-1">לוח בקרה</p>
+            </div>
+            <nav class="flex-1 p-4 space-y-1">
+                <a href="/" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'home' %}active{% endif %}">
+                    <span>📊</span> סקירה כללית
+                </a>
+                <a href="/settings" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'settings' %}active{% endif %}">
+                    <span>⚙️</span> הגדרות
+                </a>
+                <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'prompts' %}active{% endif %}">
+                    <span>💬</span> הודעות ושאלות
+                </a>
+                <a href="/karma" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'karma' %}active{% endif %}">
+                    <span>⭐</span> קארמה
+                </a>
+                <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'events' %}active{% endif %}">
+                    <span>🎉</span> אירועים
+                </a>
+                <a href="/trivia" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'trivia' %}active{% endif %}">
+                    <span>🧠</span> טריוויה
+                </a>
+                <a href="/spam" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'spam' %}active{% endif %}">
+                    <span>🛡️</span> ספאם
+                </a>
+                <a href="/members" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'members' %}active{% endif %}">
+                    <span>👥</span> חברים
+                </a>
+            </nav>
+            <div class="p-4 border-t border-gray-700">
+                <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800">
+                    <span>🚪</span> התנתק
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main content -->
+        <main class="flex-1 mr-64 p-8">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script>
+        // Generic API call helper
+        async function apiCall(url, data = null) {
+            const opts = {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+            };
+            if (data) opts.body = JSON.stringify(data);
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            return res.json();
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 left-4 px-6 py-3 rounded-lg shadow-lg text-white z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

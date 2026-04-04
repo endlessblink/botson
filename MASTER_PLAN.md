@@ -23,6 +23,19 @@
 | T-015 | 4 | Weekly roundup handler (scheduled) | DONE | P2 | T-005, T-012, T-002 |
 | T-016 | — | README.md with setup guide | DONE | P1 | T-006 |
 | T-017 | — | End-to-end testing & verification | TODO | P1 | All |
+| T-018 | 5 | Discussion prompts in topic channels | DONE | P1 | T-005, T-003 |
+| T-019 | 5 | Discussion prompts YAML (per-channel questions) | DONE | P1 | T-003 |
+| T-020 | 6 | Events/activities system — create & announce | DONE | P1 | T-004, T-002 |
+| T-021 | 6 | Events DB table + RSVP tracking | DONE | P1 | T-020 |
+| T-022 | 6 | Event reminders (scheduled) | DONE | P2 | T-020, T-005 |
+| T-023 | 7 | Trivia game engine | DONE | P1 | T-004, T-002 |
+| T-024 | 7 | Trivia questions YAML (Hebrew) | DONE | P1 | T-003 |
+| T-025 | 7 | Trivia scoring + leaderboard | DONE | P1 | T-023 |
+| T-026 | 7 | Scheduled trivia sessions | DONE | P2 | T-023, T-005 |
+| T-027 | 8 | Dashboard — FastAPI backend + API routes | DONE | P1 | T-002 |
+| T-028 | 8 | Dashboard — HTML templates (9 pages) | DONE | P1 | T-027 |
+| T-029 | 8 | Dashboard — auth (password login) | DONE | P1 | T-027 |
+| T-030 | — | VPS deployment config (Docker Compose) | TODO | P1 | T-006 |
 
 ## Detailed Tasks
 
