@@ -1,0 +1,18 @@
+# Regex patterns for spam detection (case-insensitive)
+patterns:
+  # Crypto scams
+  - "(?i)\\b(bitcoin|btc|ethereum|eth|crypto|nft|web3|defi|airdrop)\\b.*(invest|profit|earn|free|guaranteed)"
+  - "(?i)(invest|earn|profit).*(bitcoin|btc|ethereum|eth|crypto)"
+  - "(?i)\\b(binance|coinbase|metamask)\\b.*(free|bonus|airdrop)"
+  # Betting/gambling
+  - "(?i)\\b(bet|betting|casino|poker|slots|gambling)\\b.*(free|bonus|win|guaranteed)"
+  - "(?i)(1xbet|betwinner|mostbet|melbet)"
+  # Adult content
+  - "(?i)(onlyfans|18\\+|xxx|porn|sex chat|hookup).*(link|click|join|free)"
+  # Generic spam
+  - "(?i)(make money|earn money|work from home).*(click|link|join|free|guaranteed)"
+  - "(?i)(whatsapp|telegram).*(group|channel).*(join|click|free)"
+  - "(?i)\\b(giveaway|free gift|you won|congratulations you)\\b"
+
+# Whitelisted patterns (won't trigger spam detection)
+whitelist: []

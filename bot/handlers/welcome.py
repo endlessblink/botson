@@ -1,0 +1,112 @@
+"""Welcome handler for new members joining the group."""
+
+import asyncio
+import logging
+from datetime import datetime
+
+from telegram import Update
+from telegram.ext import ContextTypes, MessageHandler, filters
+
+from ..database.db import Database
+from ..utils.config import get_settings
+from ..utils.helpers import get_display_name, is_bot_user
+
+logger = logging.getLogger(__name__)
+
+# Pending joins for batching
+_pending_joins: list[dict] = []
+_batch_task: asyncio.Task | None = None
+
+
+WELCOME_TEMPLATE = """היי {names}! ברוך/ה הבא/ה לאלהוריים וזה! 🌟
+אנחנו קהילה של אנשים חופשיים שבחרו לחיות בלי ילדים.
+הנה כמה ערוצים שאפשר להציץ בהם:
+🎨 אומנות ויצירה | 🎮 גיימינג | 📺 סרטים וסדרות | 😂 מצחיק
+💚 טבעוניות | 💌 פנויים/ות | 🌟 הישגים ומטרות | ועוד...
+ספר/י לנו קצת על עצמך בערוץ הכללי! 👋"""
+
+WELCOME_TEMPLATE_MULTI = """היי {names}! ברוכים/ות הבאים/ות לאלהוריים וזה! 🌟
+אנחנו קהילה של אנשים חופשיים שבחרו לחיות בלי ילדים.
+הנה כמה ערוצים שאפשר להציץ בהם:
+🎨 אומנות ויצירה | 🎮 גיימינג | 📺 סרטים וסדרות | 😂 מצחיק
+💚 טבעוניות | 💌 פנויים/ות | 🌟 הישגים ומטרות | ועוד...
+ספרו לנו קצת על עצמכם בערוץ הכללי! 👋"""
+
+
+async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic_id: int | None):
+    """Send batched welcome message for accumulated joins."""
+    global _pending_joins, _batch_task
+
+    if not _pending_joins:
+        return
+
+    names = [j["name"] for j in _pending_joins]
+    joins = list(_pending_joins)
+    _pending_joins = []
+    _batch_task = None
+
+    # Register members in DB
+    db: Database = context.bot_data["db"]
+    for join in joins:
+        await db.upsert_member(join["user_id"], join["username"], join["name"])
+
+    if len(names) == 1:
+        text = WELCOME_TEMPLATE.format(names=names[0])
+    else:
+        names_str = ", ".join(names[:-1]) + " ו" + names[-1]
+        text = WELCOME_TEMPLATE_MULTI.format(names=names_str)
+
+    kwargs = {"chat_id": chat_id, "text": text}
+    if topic_id:
+        kwargs["message_thread_id"] = topic_id
+
+    try:
+        await context.bot.send_message(**kwargs)
+        logger.info("Sent welcome message for: %s", ", ".join(names))
+    except Exception as e:
+        logger.error("Failed to send welcome message: %s", e)
+
+
+async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle new members joining the group."""
+    global _batch_task
+
+    if not update.message or not update.message.new_chat_members:
+        return
+
+    settings = get_settings()
+    batch_window = settings.get("welcome", {}).get("batch_window_seconds", 30)
+    topic_id = settings.get("topics", {}).get("welcome")
+
+    for member in update.message.new_chat_members:
+        if is_bot_user(member):
+            logger.debug("Skipping bot: %s", member.username)
+            continue
+
+        name = get_display_name(member)
+        _pending_joins.append({
+            "user_id": member.id,
+            "username": member.username,
+            "name": name,
+            "joined_at": datetime.now(),
+        })
+        logger.info("New member queued: %s (ID: %d)", name, member.id)
+
+    # Cancel existing batch timer and start a new one
+    if _batch_task and not _batch_task.done():
+        _batch_task.cancel()
+
+    chat_id = update.effective_chat.id
+
+    async def _delayed_flush():
+        await asyncio.sleep(batch_window)
+        await _flush_pending(context, chat_id, topic_id)
+
+    _batch_task = asyncio.create_task(_delayed_flush())
+
+
+def register(app):
+    """Register welcome handlers."""
+    app.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members)
+    )

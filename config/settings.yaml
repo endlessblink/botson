@@ -1,0 +1,38 @@
+# Bot settings for אלהוריים וזה
+bot:
+  name: "אלהוריים בוט"
+
+# Forum topic IDs (update after adding bot to group)
+# Get topic IDs by sending a message in each topic and checking the message_thread_id
+topics:
+  welcome: null       # מצטרפים חדשים + עדכונים
+  general: null       # כל מה שאין לו ערוץ
+  goals: null         # הישגים ומטרות 🌟 (also set GOALS_TOPIC_ID env var)
+
+# Schedule (Israel time)
+schedule:
+  morning_prompt: "08:00"
+  evening_prompt: "21:00"
+  weekly_roundup: "friday 18:00"
+  weekly_leaderboard: "friday 18:00"
+
+# Anti-spam thresholds
+antispam:
+  max_links_new_member: 3        # Links before flagging new members
+  new_member_days: 7             # Days until member is no longer "new"
+  duplicate_threshold: 3         # Identical messages in window before action
+  duplicate_window_seconds: 60   # Time window for duplicate detection
+  mute_duration_minutes: 10      # Mute duration for spammers
+  new_member_grace_seconds: 30   # Grace period before flagging first message
+
+# Karma
+karma:
+  max_per_day: 5                 # Max karma one user can give per day
+  triggers:
+    - "+1"
+    - "תודה"
+    - "👏"
+
+# Welcome
+welcome:
+  batch_window_seconds: 30       # Batch joins within this window
