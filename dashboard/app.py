@@ -23,6 +23,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 CONFIG_DIR = Path(__file__).parent.parent / "config"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 # Dashboard password from env
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "botson-admin")
@@ -58,7 +59,7 @@ def require_auth(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, name="login.html", context={"error": None})
 
 
 @app.post("/login")
@@ -66,7 +67,7 @@ async def login(request: Request, password: str = Form(...)):
     if password == DASHBOARD_PASSWORD:
         request.session["authenticated"] = True
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": "סיסמה שגויה"})
+    return templates.TemplateResponse(request, name="login.html", context={"error": "סיסמה שגויה"})
 
 
 @app.get("/logout")
@@ -82,14 +83,13 @@ async def dashboard_home(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
-    leaders = await db.get_leaderboard(5)
+    leaders = await db.get_stars_leaderboard(5)
     top_streaks = await db.get_top_streaks(5)
     upcoming_events = await db.get_upcoming_events(5)
     trivia_leaders = await db.get_trivia_leaderboard(5)
     settings = get_settings()
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="index.html", context={
         "leaders": leaders,
         "streaks": top_streaks,
         "events": upcoming_events,
@@ -106,8 +106,7 @@ async def settings_page(request: Request):
         return RedirectResponse(url="/login", status_code=303)
 
     settings = get_settings()
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="settings.html", context={
         "settings": settings,
     })
 
@@ -166,8 +165,7 @@ async def prompts_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse("prompts.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="prompts.html", context={
         "prompts": prompts,
         "discussions": discussions,
     })
@@ -213,8 +211,7 @@ async def spam_page(request: Request, db: Database = Depends(get_db)):
     spam_data = load_yaml("spam_patterns.yaml")
     whitelist = spam_data.get("whitelist", [])
 
-    return templates.TemplateResponse("spam.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="spam.html", context={
         "spam_log": spam_log,
         "patterns": patterns,
         "whitelist": whitelist,
@@ -235,26 +232,25 @@ async def update_spam_patterns(request: Request):
     return {"status": "ok"}
 
 
-# ── Karma API ────────────────────────────────────────────
+# ── Stars API ────────────────────────────────────────────
 
-@app.get("/karma", response_class=HTMLResponse)
-async def karma_page(request: Request, db: Database = Depends(get_db)):
+@app.get("/stars", response_class=HTMLResponse)
+async def stars_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
-    leaders = await db.get_leaderboard(50)
-    return templates.TemplateResponse("karma.html", {
-        "request": request,
+    leaders = await db.get_stars_leaderboard(50)
+    return templates.TemplateResponse(request, name="karma.html", context={
         "leaders": leaders,
     })
 
 
-@app.post("/api/karma/reset")
-async def reset_karma(request: Request, db: Database = Depends(get_db)):
+@app.post("/api/stars/reset")
+async def reset_stars(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
-    await db.reset_karma()
+    await db.reset_stars()
     return {"status": "ok"}
 
 
@@ -270,8 +266,7 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         e["rsvp_yes_count"] = len(json.loads(e.get("rsvp_yes", "[]")))
         e["rsvp_maybe_count"] = len(json.loads(e.get("rsvp_maybe", "[]")))
 
-    return templates.TemplateResponse("events.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="events.html", context={
         "events": events,
     })
 
@@ -317,8 +312,7 @@ async def trivia_page(request: Request, db: Database = Depends(get_db)):
     except Exception:
         pass
 
-    return templates.TemplateResponse("trivia.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="trivia.html", context={
         "leaders": leaders,
         "questions": questions,
     })
@@ -360,7 +354,6 @@ async def members_page(request: Request, db: Database = Depends(get_db)):
         rows = await cursor.fetchall()
         members = [dict(r) for r in rows]
 
-    return templates.TemplateResponse("members.html", {
-        "request": request,
+    return templates.TemplateResponse(request, name="members.html", context={
         "members": members,
     })

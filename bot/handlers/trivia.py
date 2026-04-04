@@ -145,6 +145,7 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if correct:
         _active_trivia["correct_count"] += 1
+        await db.add_stars(user.id, 5)
         await query.answer("✅ תשובה נכונה! +10 נקודות")
     else:
         _active_trivia["wrong_count"] += 1

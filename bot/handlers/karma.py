@@ -1,7 +1,7 @@
-"""Karma / recognition system handler."""
+"""Stars / recognition system handler."""
 
 import logging
-import re
+from datetime import date
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
@@ -12,75 +12,45 @@ from ..utils.helpers import is_admin, is_bot_user, get_display_name
 
 logger = logging.getLogger(__name__)
 
-# Karma trigger patterns
-KARMA_TRIGGERS = re.compile(r"^(\+1|תודה|👏)$", re.UNICODE)
+# In-memory daily activity count: {user_id: {date_str: count}}
+_daily_counts: dict[int, dict[str, int]] = {}
+
+MAX_DAILY_STARS = 10
 
 
-async def detect_karma(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Detect karma triggers in reply messages."""
+async def award_activity_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Award 1 star per message, up to MAX_DAILY_STARS per user per day."""
     msg = update.message
-    if not msg or not msg.reply_to_message or not msg.text:
-        return
-    if not update.effective_user:
+    if not msg or not update.effective_user:
         return
 
-    # Check if message matches karma triggers
-    settings = get_settings()
-    triggers = settings.get("karma", {}).get("triggers", ["+1", "תודה", "👏"])
-    text = msg.text.strip()
+    user = update.effective_user
 
-    if text not in triggers and not KARMA_TRIGGERS.match(text):
+    # Skip bots
+    if is_bot_user(user):
         return
 
-    giver = update.effective_user
-    receiver = msg.reply_to_message.from_user
+    today = date.today().isoformat()
+    user_counts = _daily_counts.setdefault(user.id, {})
+    today_count = user_counts.get(today, 0)
 
-    if not receiver:
-        return
-
-    # Anti-abuse: no self-karma
-    if giver.id == receiver.id:
-        return
-
-    # Anti-abuse: no karma to bots
-    if is_bot_user(receiver):
+    if today_count >= MAX_DAILY_STARS:
         return
 
     db: Database = context.bot_data["db"]
+    await db.upsert_member(user.id, user.username, get_display_name(user))
+    await db.add_stars(user.id, 1)
+    user_counts[today] = today_count + 1
 
-    # Anti-abuse: max karma per day
-    max_per_day = settings.get("karma", {}).get("max_per_day", 5)
-    given_today = await db.get_karma_given_today(giver.id)
-    if given_today >= max_per_day:
-        return
-
-    # Ensure both users exist in DB
-    await db.upsert_member(giver.id, giver.username, get_display_name(giver))
-    await db.upsert_member(receiver.id, receiver.username, get_display_name(receiver))
-
-    # Add karma
-    await db.add_karma(giver.id, receiver.id, msg.reply_to_message.message_id)
-
-    # React with confirmation emoji (silent)
-    try:
-        await msg.set_reaction("⭐")
-    except Exception:
-        # Fallback: some bot API versions may not support reactions
-        try:
-            await msg.reply_text("⭐", quote=False)
-        except Exception as e:
-            logger.error("Failed to confirm karma: %s", e)
-
-    logger.info(
-        "Karma: %s → %s (total: %d)",
-        get_display_name(giver),
-        get_display_name(receiver),
-        await db.get_karma(receiver.id),
+    logger.debug(
+        "Stars: +1 for %s (today: %d)",
+        get_display_name(user),
+        user_counts[today],
     )
 
 
-async def karma_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show karma points. /karma or /karma @user."""
+async def stars_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show star points. /stars or /stars @user."""
     if not update.effective_user or not update.message:
         return
 
@@ -89,70 +59,69 @@ async def karma_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if querying another user
     if context.args and context.args[0].startswith("@"):
         username = context.args[0].lstrip("@")
-        # Search by username in members table
         member = None
-        leaders = await db.get_leaderboard(100)
+        leaders = await db.get_stars_leaderboard(100)
         for m in leaders:
             if m.get("display_name", "").lower() == username.lower():
                 member = m
                 break
         if member:
-            text = f"⭐ ל-{member['display_name']} יש {member['karma_points']} נקודות קארמה"
+            text = f"⭐ ל-{member['display_name']} יש {member['karma_points']} כוכבים"
         else:
             text = f"לא מצאתי את המשתמש @{username}"
     else:
-        karma = await db.get_karma(update.effective_user.id)
-        text = f"⭐ יש לך {karma} נקודות קארמה"
+        stars = await db.get_stars(update.effective_user.id)
+        text = f"⭐ יש לך {stars} כוכבים"
 
     await update.message.reply_text(text)
 
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show top 10 karma earners. /leaderboard."""
+    """Show top 10 stars earners. /leaderboard."""
     if not update.message:
         return
 
     db: Database = context.bot_data["db"]
-    leaders = await db.get_leaderboard(10)
+    leaders = await db.get_stars_leaderboard(10)
 
     if not leaders:
-        await update.message.reply_text("אין עדיין נקודות קארמה! התחילו להעריך אחד את השני עם +1, תודה או 👏")
+        await update.message.reply_text("אין עדיין כוכבים! היו פעילים בקבוצה כדי לצבור כוכבים ⭐")
         return
 
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["🏆 טבלת קארמה:", ""]
+    lines = ["🏆 טבלת כוכבים:", ""]
     for i, m in enumerate(leaders):
         if m["karma_points"] == 0:
             continue
         medal = medals[i] if i < 3 else f" {i + 1}."
-        lines.append(f"{medal} {m['display_name']} — {m['karma_points']} נקודות")
+        lines.append(f"{medal} {m['display_name']} — {m['karma_points']} כוכבים")
 
     if len(lines) <= 2:
-        await update.message.reply_text("אין עדיין נקודות קארמה!")
+        await update.message.reply_text("אין עדיין כוכבים!")
         return
 
     await update.message.reply_text("\n".join(lines))
 
 
-async def reset_karma_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reset all karma. Admin only. /resetkarma."""
+async def reset_stars_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset all stars. Admin only. /resetstars."""
     if not update.effective_user or not update.message:
         return
 
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("רק מנהלים יכולים לאפס קארמה")
+        await update.message.reply_text("רק מנהלים יכולים לאפס כוכבים")
         return
 
     db: Database = context.bot_data["db"]
-    await db.reset_karma()
-    await update.message.reply_text("✅ כל נקודות הקארמה אופסו! עונה חדשה התחילה 🎉")
-    logger.info("Karma reset by admin %d", update.effective_user.id)
+    await db.reset_stars()
+    await update.message.reply_text("✅ כל הכוכבים אופסו! עונה חדשה התחילה 🎉")
+    logger.info("Stars reset by admin %d", update.effective_user.id)
 
 
 async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduled job: post weekly karma leaderboard to general channel."""
+    """Scheduled job: post weekly stars leaderboard to general channel."""
     db: Database = context.bot_data["db"]
-    leaders = await db.get_weekly_karma_leaders(10)
+    leaders = await db.get_weekly_stars_leaders(10)
 
     if not leaders:
         return
@@ -161,10 +130,10 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
     general_topic = settings.get("topics", {}).get("general")
 
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["🏆 טבלת קארמה שבועית:", ""]
+    lines = ["🏆 טבלת כוכבים שבועית:", ""]
     for i, m in enumerate(leaders):
         medal = medals[i] if i < 3 else f" {i + 1}."
-        lines.append(f"{medal} {m['display_name']} — {m['weekly_karma']} נקודות השבוע")
+        lines.append(f"{medal} {m['display_name']} — {m['weekly_stars']} כוכבים השבוע")
 
     kwargs = {"chat_id": GROUP_ID, "text": "\n".join(lines)}
     if general_topic:
@@ -172,18 +141,18 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
 
     try:
         await context.bot.send_message(**kwargs)
-        logger.info("Sent weekly karma leaderboard")
+        logger.info("Sent weekly stars leaderboard")
     except Exception as e:
         logger.error("Failed to send weekly leaderboard: %s", e)
 
 
 def register(app):
-    """Register karma handlers."""
-    app.add_handler(CommandHandler("karma", karma_command))
+    """Register stars handlers."""
+    app.add_handler(CommandHandler("stars", stars_command))
     app.add_handler(CommandHandler("leaderboard", leaderboard_command))
-    app.add_handler(CommandHandler("resetkarma", reset_karma_command))
-    # Karma detection — run on all text messages at lower priority
+    app.add_handler(CommandHandler("resetstars", reset_stars_command))
+    # Activity stars — run on all non-command text messages at lower priority
     app.add_handler(
-        MessageHandler(filters.TEXT & filters.REPLY, detect_karma),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, award_activity_stars),
         group=3,
     )

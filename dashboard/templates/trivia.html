@@ -6,8 +6,8 @@
 {% block content %}
 <div class="mb-8 flex items-center justify-between">
     <div>
-        <h2 class="text-2xl font-bold text-gray-800">טריוויה</h2>
-        <p class="text-gray-500 mt-1">ניהול שאלות וניקוד</p>
+        <h2 class="text-2xl font-bold text-white">טריוויה</h2>
+        <p class="text-gray-400 mt-1">ניהול שאלות וניקוד</p>
     </div>
     <button onclick="resetTrivia()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
         אפס ניקוד
@@ -15,43 +15,43 @@
 </div>
 
 <!-- Leaderboard -->
-<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
-    <h3 class="text-lg font-bold text-gray-800 mb-4">🏆 טבלת ניקוד</h3>
+<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
+    <h3 class="text-lg font-bold text-white mb-4">🏆 טבלת ניקוד</h3>
     {% if leaders %}
     <div class="space-y-3">
         {% for m in leaders %}
-        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-gray-100{% endif %}">
+        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-gray-800/50{% endif %}">
             <div class="flex items-center gap-3">
                 <span class="text-lg">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
-                <span class="text-gray-700">{{ m.display_name }}</span>
+                <span class="text-gray-300">{{ m.display_name }}</span>
             </div>
             <div class="text-left">
-                <span class="font-bold text-gray-800">{{ m.total_score }} נק'</span>
-                <span class="text-sm text-gray-400 mr-2">{{ m.correct_answers }}/{{ m.total_answers }}</span>
+                <span class="font-bold text-white">{{ m.total_score }} נק'</span>
+                <span class="text-sm text-gray-500 mr-2">{{ m.correct_answers }}/{{ m.total_answers }}</span>
             </div>
         </div>
         {% endfor %}
     </div>
     {% else %}
-    <p class="text-gray-400">אין ניקוד עדיין</p>
+    <p class="text-gray-500">אין ניקוד עדיין</p>
     {% endif %}
 </div>
 
 <!-- Questions -->
-<div class="bg-white rounded-xl shadow-sm p-6">
-    <h3 class="text-lg font-bold text-gray-800 mb-4">📝 שאלות ({{ questions|length }})</h3>
+<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6">
+    <h3 class="text-lg font-bold text-white mb-4">📝 שאלות ({{ questions|length }})</h3>
     <div class="space-y-4" id="questions-list">
         {% for q in questions %}
-        <div class="border border-gray-200 rounded-lg p-4">
-            <div class="font-medium text-gray-800 mb-2">{{ loop.index }}. {{ q.text }}</div>
+        <div class="border border-gray-800/50 rounded-lg p-4">
+            <div class="font-medium text-white mb-2">{{ loop.index }}. {{ q.text }}</div>
             <div class="grid grid-cols-2 gap-2 text-sm">
                 {% for opt in q.options %}
-                <div class="px-3 py-1 rounded {% if loop.index0 == q.correct %}bg-green-100 text-green-700 font-medium{% else %}bg-gray-50 text-gray-600{% endif %}">
+                <div class="px-3 py-1 rounded {% if loop.index0 == q.correct %}bg-green-500/20 text-green-400 font-medium{% else %}bg-[#141422] text-gray-400{% endif %}">
                     {{ opt }}
                 </div>
                 {% endfor %}
             </div>
-            <div class="text-xs text-gray-400 mt-2">{{ q.category }}</div>
+            <div class="text-xs text-gray-500 mt-2">{{ q.category }}</div>
         </div>
         {% endfor %}
     </div>

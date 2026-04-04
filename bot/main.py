@@ -31,15 +31,15 @@ async def help_command(update, context):
     """Handle /help command."""
     text = (
         "📋 פקודות זמינות:\n\n"
-        "/karma — הצג את נקודות הקארמה שלך\n"
-        "/karma @user — בדוק קארמה של מישהו\n"
-        "/leaderboard — טופ 10 קארמה\n"
+        "/stars — הצג את הכוכבים שלך\n"
+        "/stars @user — בדוק כוכבים של מישהו\n"
+        "/leaderboard — טופ 10 כוכבים\n"
         "/streak — הצג את הרצף שלך בהישגים\n"
         "\n"
         "🔧 פקודות מנהלים:\n"
         "/stats — סטטיסטיקות קבוצה\n"
         "/whitelist <pattern> — הוסף תבנית לרשימה לבנה\n"
-        "/resetkarma — אפס קארמה לעונה חדשה"
+        "/resetstars — אפס כוכבים לעונה חדשה"
     )
     await update.message.reply_text(text)
 
@@ -53,12 +53,12 @@ async def stats_command(update, context):
         return
 
     db: Database = context.bot_data["db"]
-    leaders = await db.get_leaderboard(3)
+    leaders = await db.get_stars_leaderboard(3)
     streaks = await db.get_top_streaks(3)
 
     text = "📊 סטטיסטיקות:\n\n"
     if leaders:
-        text += "⭐ טופ קארמה:\n"
+        text += "⭐ טופ כוכבים:\n"
         for m in leaders:
             text += f"  {m['display_name']}: {m['karma_points']}\n"
     if streaks:

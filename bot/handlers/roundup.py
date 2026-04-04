@@ -21,7 +21,7 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     # Gather stats
     new_members = await db.get_member_count_since(week_ago)
-    karma_leaders = await db.get_weekly_karma_leaders(3)
+    karma_leaders = await db.get_weekly_stars_leaders(3)
     top_streaks = await db.get_top_streaks(3)
 
     # Build message
@@ -35,13 +35,13 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     lines.append("")
 
-    # Top karma earners
+    # Top stars earners
     if karma_leaders:
-        lines.append("⭐ מובילי קארמה השבוע:")
+        lines.append("⭐ מובילי כוכבים השבוע:")
         medals = ["🥇", "🥈", "🥉"]
         for i, leader in enumerate(karma_leaders):
             medal = medals[i] if i < 3 else f" {i+1}."
-            lines.append(f"  {medal} {leader['display_name']} — {leader['weekly_karma']} נקודות")
+            lines.append(f"  {medal} {leader['display_name']} — {leader['weekly_stars']} כוכבים")
         lines.append("")
 
     # Achievement streaks

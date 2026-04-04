@@ -186,6 +186,9 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db.upsert_member(user.id, user.username, get_display_name(user))
     await db.update_event_rsvp(event_id, user.id, status)
 
+    if status == "yes":
+        await db.add_stars(user.id, 3)
+
     # Update the message with new RSVP counts
     event = await db.get_event(event_id)
     if not event:

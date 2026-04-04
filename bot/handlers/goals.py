@@ -66,6 +66,7 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
 
     await db.upsert_member(user.id, user.username, user.first_name or "")
     await db.update_streak(user.id)
+    await db.add_stars(user.id, 2)
 
     streak = await db.get_streak(user.id)
     current = streak["current"]

@@ -4,55 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Botson Dashboard{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .nav-link { transition: all 0.2s; }
-        .nav-link:hover { background-color: rgba(255,255,255,0.1); }
-        .nav-link.active { background-color: rgba(255,255,255,0.15); border-right: 3px solid #60a5fa; }
+        .nav-link:hover { background-color: rgba(255,255,255,0.06); }
+        .nav-link.active { background-color: rgba(255,255,255,0.08); border-right: 3px solid #3b82f6; }
         .card { transition: transform 0.2s, box-shadow 0.2s; }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
         .stat-number { font-variant-numeric: tabular-nums; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f0f17; }
+        ::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a3a5a; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-[#0f0f17] min-h-screen text-gray-200">
     <div class="flex min-h-screen">
         <!-- Sidebar -->
-        <aside class="w-64 bg-gray-900 text-white flex flex-col fixed h-full">
-            <div class="p-6 border-b border-gray-700">
-                <h1 class="text-xl font-bold">🤖 Botson</h1>
-                <p class="text-gray-400 text-sm mt-1">לוח בקרה</p>
-            </div>
-            <nav class="flex-1 p-4 space-y-1">
-                <a href="/" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'home' %}active{% endif %}">
-                    <span>📊</span> סקירה כללית
-                </a>
-                <a href="/settings" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'settings' %}active{% endif %}">
-                    <span>⚙️</span> הגדרות
-                </a>
-                <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'prompts' %}active{% endif %}">
-                    <span>💬</span> הודעות ושאלות
-                </a>
-                <a href="/karma" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'karma' %}active{% endif %}">
-                    <span>⭐</span> קארמה
-                </a>
-                <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'events' %}active{% endif %}">
-                    <span>🎉</span> אירועים
-                </a>
-                <a href="/trivia" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'trivia' %}active{% endif %}">
-                    <span>🧠</span> טריוויה
-                </a>
-                <a href="/spam" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'spam' %}active{% endif %}">
-                    <span>🛡️</span> ספאם
-                </a>
-                <a href="/members" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'members' %}active{% endif %}">
-                    <span>👥</span> חברים
-                </a>
-            </nav>
-            <div class="p-4 border-t border-gray-700">
-                <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800">
-                    <span>🚪</span> התנתק
-                </a>
+        <aside class="w-64 fixed h-full p-3">
+            <div class="bg-[#171723] rounded-2xl h-[calc(100%-1.5rem)] flex flex-col border border-gray-800/50 shadow-xl shadow-black/30">
+                <div class="p-6 border-b border-gray-800/50">
+                    <h1 class="text-xl font-bold text-white">🤖 Botson</h1>
+                    <p class="text-gray-500 text-sm mt-1">לוח בקרה</p>
+                </div>
+                <nav class="flex-1 p-4 space-y-1">
+                    <a href="/" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'home' %}active text-white{% endif %}">
+                        <span>📊</span> סקירה כללית
+                    </a>
+                    <a href="/settings" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'settings' %}active text-white{% endif %}">
+                        <span>⚙️</span> הגדרות
+                    </a>
+                    <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'prompts' %}active text-white{% endif %}">
+                        <span>💬</span> הודעות ושאלות
+                    </a>
+                    <a href="/stars" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'karma' %}active text-white{% endif %}">
+                        <span>⭐</span> כוכבים
+                    </a>
+                    <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'events' %}active text-white{% endif %}">
+                        <span>🎉</span> אירועים
+                    </a>
+                    <a href="/trivia" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'trivia' %}active text-white{% endif %}">
+                        <span>🧠</span> טריוויה
+                    </a>
+                    <a href="/spam" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'spam' %}active text-white{% endif %}">
+                        <span>🛡️</span> ספאם
+                    </a>
+                    <a href="/members" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'members' %}active text-white{% endif %}">
+                        <span>👥</span> חברים
+                    </a>
+                </nav>
+                <div class="p-4 border-t border-gray-800/50">
+                    <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5">
+                        <span>🚪</span> התנתק
+                    </a>
+                </div>
             </div>
         </aside>
 
@@ -77,7 +84,7 @@
 
         function showToast(message, type = 'success') {
             const toast = document.createElement('div');
-            toast.className = `fixed top-4 left-4 px-6 py-3 rounded-lg shadow-lg text-white z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+            toast.className = `fixed top-4 left-4 px-6 py-3 rounded-lg shadow-lg text-white z-50 backdrop-blur-sm ${type === 'success' ? 'bg-green-500/90' : 'bg-red-500/90'}`;
             toast.textContent = message;
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);

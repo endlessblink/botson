@@ -64,40 +64,26 @@ class Database:
             row = await cursor.fetchone()
             return row[0]
 
-    # ── Karma ────────────────────────────────────────────────
+    # ── Stars ────────────────────────────────────────────────
 
-    async def add_karma(self, giver_id: int, receiver_id: int, message_id: int):
-        """Add a karma point and log it."""
+    async def add_stars(self, user_id: int, points: int = 1):
+        """Add star points to a user."""
         await self._db.execute(
-            "INSERT INTO karma_log (giver_id, receiver_id, message_id) VALUES (?, ?, ?)",
-            (giver_id, receiver_id, message_id),
-        )
-        await self._db.execute(
-            "UPDATE members SET karma_points = karma_points + 1 WHERE user_id = ?",
-            (receiver_id,),
+            "UPDATE members SET karma_points = karma_points + ? WHERE user_id = ?",
+            (points, user_id),
         )
         await self._db.commit()
 
-    async def get_karma(self, user_id: int) -> int:
-        """Get karma points for a user."""
+    async def get_stars(self, user_id: int) -> int:
+        """Get star points for a user."""
         async with self._db.execute(
             "SELECT karma_points FROM members WHERE user_id = ?", (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
-    async def get_karma_given_today(self, giver_id: int) -> int:
-        """Count how many karma points a user has given today."""
-        today = date.today().isoformat()
-        async with self._db.execute(
-            "SELECT COUNT(*) FROM karma_log WHERE giver_id = ? AND DATE(timestamp) = ?",
-            (giver_id, today),
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row[0]
-
-    async def get_leaderboard(self, limit: int = 10) -> list[dict]:
-        """Get top karma earners."""
+    async def get_stars_leaderboard(self, limit: int = 10) -> list[dict]:
+        """Get top stars earners."""
         async with self._db.execute(
             "SELECT user_id, display_name, karma_points FROM members ORDER BY karma_points DESC LIMIT ?",
             (limit,),
@@ -105,10 +91,9 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
-    async def reset_karma(self):
-        """Reset all karma points (new season)."""
+    async def reset_stars(self):
+        """Reset all star points (new season)."""
         await self._db.execute("UPDATE members SET karma_points = 0")
-        await self._db.execute("DELETE FROM karma_log")
         await self._db.commit()
 
     # ── Daily Prompts ────────────────────────────────────────
@@ -239,16 +224,13 @@ class Database:
 
     # ── Stats ────────────────────────────────────────────────
 
-    async def get_weekly_karma_leaders(self, limit: int = 3) -> list[dict]:
-        """Get top karma earners this week."""
-        week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+    async def get_weekly_stars_leaders(self, limit: int = 3) -> list[dict]:
+        """Get top stars earners this week (by total stars, since weekly log no longer exists)."""
         async with self._db.execute(
-            """SELECT k.receiver_id, m.display_name, COUNT(*) as weekly_karma
-               FROM karma_log k JOIN members m ON k.receiver_id = m.user_id
-               WHERE k.timestamp >= ?
-               GROUP BY k.receiver_id
-               ORDER BY weekly_karma DESC LIMIT ?""",
-            (week_ago, limit),
+            """SELECT user_id, display_name, karma_points as weekly_stars
+               FROM members
+               ORDER BY karma_points DESC LIMIT ?""",
+            (limit,),
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]

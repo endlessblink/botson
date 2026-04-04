@@ -5,19 +5,19 @@
 
 {% block content %}
 <div class="mb-8">
-    <h2 class="text-2xl font-bold text-gray-800">הגנת ספאם</h2>
-    <p class="text-gray-500 mt-1">לוג פעולות וניהול תבניות</p>
+    <h2 class="text-2xl font-bold text-white">הגנת ספאם</h2>
+    <p class="text-gray-400 mt-1">לוג פעולות וניהול תבניות</p>
 </div>
 
 <!-- Spam Patterns -->
-<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
-    <h3 class="text-lg font-bold text-gray-800 mb-2">🔍 תבניות זיהוי (Regex)</h3>
-    <p class="text-sm text-gray-500 mb-4">שורה אחת לכל תבנית</p>
-    <textarea id="spam-patterns" rows="8" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm ltr" dir="ltr">{% for p in patterns %}{{ p }}
+<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
+    <h3 class="text-lg font-bold text-white mb-2">🔍 תבניות זיהוי (Regex)</h3>
+    <p class="text-sm text-gray-400 mb-4">שורה אחת לכל תבנית</p>
+    <textarea id="spam-patterns" rows="8" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500 ltr" dir="ltr">{% for p in patterns %}{{ p }}
 {% endfor %}</textarea>
 
-    <h4 class="text-md font-medium text-gray-700 mt-4 mb-2">רשימה לבנה</h4>
-    <textarea id="spam-whitelist" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm ltr" dir="ltr">{% for w in whitelist %}{{ w }}
+    <h4 class="text-md font-medium text-gray-300 mt-4 mb-2">רשימה לבנה</h4>
+    <textarea id="spam-whitelist" rows="3" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500 ltr" dir="ltr">{% for w in whitelist %}{{ w }}
 {% endfor %}</textarea>
 
     <button onclick="savePatterns()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
@@ -26,32 +26,32 @@
 </div>
 
 <!-- Spam Log -->
-<div class="bg-white rounded-xl shadow-sm overflow-hidden">
-    <div class="px-6 py-4 border-b border-gray-100">
-        <h3 class="text-lg font-bold text-gray-800">📋 לוג פעולות (50 אחרונות)</h3>
+<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-800/50">
+        <h3 class="text-lg font-bold text-white">📋 לוג פעולות (50 אחרונות)</h3>
     </div>
     <table class="w-full">
-        <thead class="bg-gray-50">
+        <thead class="bg-[#141422]">
             <tr>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">זמן</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">משתמש</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">כלל</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">פעולה</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">הודעה</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">זמן</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">משתמש</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">כלל</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">פעולה</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">הודעה</th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100">
+        <tbody class="divide-y divide-gray-800/50">
             {% for log in spam_log %}
-            <tr class="hover:bg-gray-50">
-                <td class="px-6 py-3 text-sm text-gray-500">{{ log.timestamp[:16] }}</td>
-                <td class="px-6 py-3 text-sm text-gray-700">{{ log.user_id }}</td>
-                <td class="px-6 py-3"><span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">{{ log.rule_triggered[:30] }}</span></td>
-                <td class="px-6 py-3 text-sm text-gray-600">{{ log.action }}</td>
-                <td class="px-6 py-3 text-sm text-gray-500 max-w-xs truncate">{{ log.message_text[:80] }}</td>
+            <tr class="hover:bg-[#232340]">
+                <td class="px-6 py-3 text-sm text-gray-400">{{ log.timestamp[:16] }}</td>
+                <td class="px-6 py-3 text-sm text-gray-300">{{ log.user_id }}</td>
+                <td class="px-6 py-3"><span class="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded text-xs">{{ log.rule_triggered[:30] }}</span></td>
+                <td class="px-6 py-3 text-sm text-gray-300">{{ log.action }}</td>
+                <td class="px-6 py-3 text-sm text-gray-400 max-w-xs truncate">{{ log.message_text[:80] }}</td>
             </tr>
             {% endfor %}
             {% if not spam_log %}
-            <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400">אין פעולות ספאם מתועדות</td></tr>
+            <tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">אין פעולות ספאם מתועדות</td></tr>
             {% endif %}
         </tbody>
     </table>

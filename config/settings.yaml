@@ -37,13 +37,9 @@ antispam:
   mute_duration_minutes: 10      # Mute duration for spammers
   new_member_grace_seconds: 30   # Grace period before flagging first message
 
-# Karma
-karma:
-  max_per_day: 5                 # Max karma one user can give per day
-  triggers:
-    - "+1"
-    - "תודה"
-    - "👏"
+# Stars
+stars:
+  max_per_day: 10                # Max stars one user can earn per day from activity
 
 # Welcome
 welcome:

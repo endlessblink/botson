@@ -41,7 +41,7 @@ def setup_jobs(app: Application) -> None:
         name="evening_prompt",
     )
 
-    # Weekly karma leaderboard — Friday 18:00
+    # Weekly stars leaderboard — Friday 18:00
     jq.run_daily(
         send_weekly_leaderboard,
         time=time(hour=18, minute=0, tzinfo=_tz),
