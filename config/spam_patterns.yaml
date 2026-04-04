@@ -13,6 +13,14 @@ patterns:
   - "(?i)(make money|earn money|work from home).*(click|link|join|free|guaranteed)"
   - "(?i)(whatsapp|telegram).*(group|channel).*(join|click|free)"
   - "(?i)\\b(giveaway|free gift|you won|congratulations you)\\b"
+  # Hebrew spam
+  - "(?i)(ביטקוין|קריפטו|אתריום|NFT).*(השקעה|רווח|חינם|מובטח)"
+  - "(?i)(השקעה|רווח|הכנסה).*(ביטקוין|קריפטו|מטבע דיגיטלי)"
+  - "(?i)(הימורים|קזינו|פוקר|סלוטים).*(בונוס|חינם|זכייה)"
+  - "(?i)(הרוויחו|עשו כסף|הכנסה פסיבית).*(לחצו|קישור|הצטרפו|חינם)"
+  - "(?i)(קבוצת וואטסאפ|קבוצת טלגרם).*(הצטרפו|לחצו|חינם)"
+  - "(?i)(מבצע חד פעמי|מתנה חינם|זכיתם|ברכות ניצחתם)"
+  - "(?i)(עבודה מהבית|משרה מהבית).*(לחצו|קישור|הרשמה)"
 
 # Whitelisted patterns (won't trigger spam detection)
 whitelist: []

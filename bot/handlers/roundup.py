@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 
 from ..database.db import Database
 from ..utils.config import GROUP_ID, get_settings
+from ..utils.levels import get_level
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     # Gather stats
     new_members = await db.get_member_count_since(week_ago)
-    karma_leaders = await db.get_weekly_stars_leaders(3)
+    karma_leaders = await db.get_weekly_leaders(3)
     top_streaks = await db.get_top_streaks(3)
 
     # Build message
@@ -35,13 +36,14 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     lines.append("")
 
-    # Top stars earners
+    # Top level earners
     if karma_leaders:
-        lines.append("⭐ מובילי כוכבים השבוע:")
+        lines.append("🏅 מובילי רמות השבוע:")
         medals = ["🥇", "🥈", "🥉"]
         for i, leader in enumerate(karma_leaders):
             medal = medals[i] if i < 3 else f" {i+1}."
-            lines.append(f"  {medal} {leader['display_name']} — {leader['weekly_stars']} כוכבים")
+            lvl = get_level(leader.get("karma_points", 0))
+            lines.append(f"  {medal} {lvl['emoji']} {leader['display_name']} — {lvl['tag']} (רמה {lvl['level']})")
         lines.append("")
 
     # Achievement streaks

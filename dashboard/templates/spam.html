@@ -13,12 +13,12 @@
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
     <h3 class="text-lg font-bold text-white mb-2">🔍 תבניות זיהוי (Regex)</h3>
     <p class="text-sm text-gray-400 mb-4">שורה אחת לכל תבנית</p>
-    <textarea id="spam-patterns" rows="8" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500 ltr" dir="ltr">{% for p in patterns %}{{ p }}
-{% endfor %}</textarea>
+    <textarea id="spam-patterns" rows="8" class="w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="ltr">{% for p in patterns %}{{ p }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
 
     <h4 class="text-md font-medium text-gray-300 mt-4 mb-2">רשימה לבנה</h4>
-    <textarea id="spam-whitelist" rows="3" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500 ltr" dir="ltr">{% for w in whitelist %}{{ w }}
-{% endfor %}</textarea>
+    <textarea id="spam-whitelist" rows="3" class="w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="ltr">{% for w in whitelist %}{{ w }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
 
     <button onclick="savePatterns()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
         שמור תבניות

@@ -64,26 +64,33 @@ class Database:
             row = await cursor.fetchone()
             return row[0]
 
-    # ── Stars ────────────────────────────────────────────────
+    # ── Points / Levels ──────────────────────────────────────
 
-    async def add_stars(self, user_id: int, points: int = 1):
-        """Add star points to a user."""
+    async def add_points(self, user_id: int, points: int = 1) -> int:
+        """Add points to a user. Returns the point count BEFORE adding."""
+        async with self._db.execute(
+            "SELECT karma_points FROM members WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            old_points = row[0] if row else 0
+
         await self._db.execute(
             "UPDATE members SET karma_points = karma_points + ? WHERE user_id = ?",
             (points, user_id),
         )
         await self._db.commit()
+        return old_points
 
-    async def get_stars(self, user_id: int) -> int:
-        """Get star points for a user."""
+    async def get_points(self, user_id: int) -> int:
+        """Get points for a user."""
         async with self._db.execute(
             "SELECT karma_points FROM members WHERE user_id = ?", (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
-    async def get_stars_leaderboard(self, limit: int = 10) -> list[dict]:
-        """Get top stars earners."""
+    async def get_leaderboard(self, limit: int = 10) -> list[dict]:
+        """Get top points earners."""
         async with self._db.execute(
             "SELECT user_id, display_name, karma_points FROM members ORDER BY karma_points DESC LIMIT ?",
             (limit,),
@@ -91,8 +98,8 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
-    async def reset_stars(self):
-        """Reset all star points (new season)."""
+    async def reset_points(self):
+        """Reset all points (new season)."""
         await self._db.execute("UPDATE members SET karma_points = 0")
         await self._db.commit()
 
@@ -224,8 +231,8 @@ class Database:
 
     # ── Stats ────────────────────────────────────────────────
 
-    async def get_weekly_stars_leaders(self, limit: int = 3) -> list[dict]:
-        """Get top stars earners this week (by total stars, since weekly log no longer exists)."""
+    async def get_weekly_leaders(self, limit: int = 3) -> list[dict]:
+        """Get top points earners this week (by total points, since weekly log no longer exists)."""
         async with self._db.execute(
             """SELECT user_id, display_name, karma_points as weekly_stars
                FROM members

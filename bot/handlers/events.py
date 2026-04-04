@@ -12,6 +12,7 @@ from telegram.ext import (
 from ..database.db import Database
 from ..utils.config import GROUP_ID, get_settings
 from ..utils.helpers import is_admin, get_display_name
+from ..utils.levels import check_level_up
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,17 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db.update_event_rsvp(event_id, user.id, status)
 
     if status == "yes":
-        await db.add_stars(user.id, 3)
+        old_points = await db.add_points(user.id, 3)
+        new_level = check_level_up(old_points, old_points + 3)
+        if new_level:
+            name = get_display_name(user)
+            try:
+                await context.bot.send_message(
+                    chat_id=GROUP_ID,
+                    text=f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
+                )
+            except Exception:
+                pass
 
     # Update the message with new RSVP counts
     event = await db.get_event(event_id)

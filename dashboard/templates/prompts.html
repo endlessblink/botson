@@ -13,15 +13,15 @@
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
     <h3 class="text-lg font-bold text-white mb-2">☀️ הודעות בוקר</h3>
     <p class="text-sm text-gray-400 mb-4">{{ prompts.morning|length }} הודעות — נשלחות ב-08:00</p>
-    <textarea id="morning-prompts" rows="8" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500" dir="rtl">{% for p in prompts.morning %}{{ p }}
-{% endfor %}</textarea>
+    <textarea id="morning-prompts" rows="12" class="w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="rtl">{% for p in prompts.morning %}{{ p }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
 </div>
 
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
     <h3 class="text-lg font-bold text-white mb-2">🌙 הודעות ערב</h3>
     <p class="text-sm text-gray-400 mb-4">{{ prompts.evening|length }} הודעות — נשלחות ב-21:00</p>
-    <textarea id="evening-prompts" rows="8" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500" dir="rtl">{% for p in prompts.evening %}{{ p }}
-{% endfor %}</textarea>
+    <textarea id="evening-prompts" rows="12" class="w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="rtl">{% for p in prompts.evening %}{{ p }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
 </div>
 
 <button onclick="saveGoalsPrompts()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition mb-8">
@@ -38,8 +38,8 @@
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-4">
     <h3 class="text-lg font-bold text-white mb-2">{{ category }}</h3>
     <p class="text-sm text-gray-400 mb-3">{{ questions|length }} שאלות</p>
-    <textarea data-category="{{ category }}" rows="5" class="discussion-textarea w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-white placeholder-gray-500" dir="rtl">{% for q in questions %}{{ q }}
-{% endfor %}</textarea>
+    <textarea data-category="{{ category }}" rows="8" class="discussion-textarea w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="rtl">{% for q in questions %}{{ q }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
 </div>
 {% endfor %}
 

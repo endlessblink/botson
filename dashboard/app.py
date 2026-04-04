@@ -14,6 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_settings, get_prompts, get_spam_patterns, load_yaml
+from bot.utils.levels import get_level, get_progress
 
 app = FastAPI(title="Botson Dashboard", docs_url=None, redoc_url=None)
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("DASHBOARD_SECRET", secrets.token_hex(32)))
@@ -83,7 +84,12 @@ async def dashboard_home(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
-    leaders = await db.get_stars_leaderboard(5)
+    leaders = await db.get_leaderboard(5)
+    for m in leaders:
+        lvl = get_level(m["karma_points"])
+        m["level"] = lvl["level"]
+        m["level_tag"] = lvl["tag"]
+        m["level_emoji"] = lvl["emoji"]
     top_streaks = await db.get_top_streaks(5)
     upcoming_events = await db.get_upcoming_events(5)
     trivia_leaders = await db.get_trivia_leaderboard(5)
@@ -232,25 +238,30 @@ async def update_spam_patterns(request: Request):
     return {"status": "ok"}
 
 
-# ── Stars API ────────────────────────────────────────────
+# ── Levels API ───────────────────────────────────────────
 
-@app.get("/stars", response_class=HTMLResponse)
-async def stars_page(request: Request, db: Database = Depends(get_db)):
+@app.get("/levels", response_class=HTMLResponse)
+async def levels_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
-    leaders = await db.get_stars_leaderboard(50)
-    return templates.TemplateResponse(request, name="karma.html", context={
+    leaders = await db.get_leaderboard(50)
+    for m in leaders:
+        lvl = get_level(m["karma_points"])
+        m["level"] = lvl["level"]
+        m["level_tag"] = lvl["tag"]
+        m["level_emoji"] = lvl["emoji"]
+    return templates.TemplateResponse(request, name="levels.html", context={
         "leaders": leaders,
     })
 
 
-@app.post("/api/stars/reset")
-async def reset_stars(request: Request, db: Database = Depends(get_db)):
+@app.post("/api/levels/reset")
+async def reset_levels(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
-    await db.reset_stars()
+    await db.reset_points()
     return {"status": "ok"}
 
 
@@ -353,6 +364,12 @@ async def members_page(request: Request, db: Database = Depends(get_db)):
     ) as cursor:
         rows = await cursor.fetchall()
         members = [dict(r) for r in rows]
+
+    for m in members:
+        lvl = get_level(m.get("karma_points", 0))
+        m["level"] = lvl["level"]
+        m["level_tag"] = lvl["tag"]
+        m["level_emoji"] = lvl["emoji"]
 
     return templates.TemplateResponse(request, name="members.html", context={
         "members": members,

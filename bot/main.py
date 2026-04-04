@@ -6,7 +6,7 @@ import sys
 from telegram.ext import Application, CommandHandler
 
 from .database.db import Database
-from .handlers import welcome, goals, karma, antispam, discussions, events, trivia
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_prompts
 
@@ -31,15 +31,14 @@ async def help_command(update, context):
     """Handle /help command."""
     text = (
         "📋 פקודות זמינות:\n\n"
-        "/stars — הצג את הכוכבים שלך\n"
-        "/stars @user — בדוק כוכבים של מישהו\n"
-        "/leaderboard — טופ 10 כוכבים\n"
+        "/level — הצג את הרמה שלך\n"
+        "/leaderboard — טופ 10 רמות\n"
         "/streak — הצג את הרצף שלך בהישגים\n"
         "\n"
         "🔧 פקודות מנהלים:\n"
         "/stats — סטטיסטיקות קבוצה\n"
         "/whitelist <pattern> — הוסף תבנית לרשימה לבנה\n"
-        "/resetstars — אפס כוכבים לעונה חדשה"
+        "/resetlevels — אפס רמות לעונה חדשה"
     )
     await update.message.reply_text(text)
 
@@ -53,7 +52,7 @@ async def stats_command(update, context):
         return
 
     db: Database = context.bot_data["db"]
-    leaders = await db.get_stars_leaderboard(3)
+    leaders = await db.get_leaderboard(3)
     streaks = await db.get_top_streaks(3)
 
     text = "📊 סטטיסטיקות:\n\n"
@@ -107,7 +106,7 @@ def main():
     antispam.register(app)   # Group 0 — highest priority
     welcome.register(app)    # Default group
     goals.register(app)      # Group 2
-    karma.register(app)      # Group 3
+    levels.register(app)     # Group 3
     discussions.register(app)
     events.register(app)     # Event management
     trivia.register(app)     # Trivia questions

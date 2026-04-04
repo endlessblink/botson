@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% set active_page = "karma" %}
+{% set active_page = "levels" %}
 
-{% block title %}Botson — כוכבים{% endblock %}
+{% block title %}Botson — רמות{% endblock %}
 
 {% block content %}
 <div class="mb-8 flex items-center justify-between">
     <div>
-        <h2 class="text-2xl font-bold text-white">כוכבים</h2>
-        <p class="text-gray-400 mt-1">כוכבים שנצברו על ידי פעילות בקהילה</p>
+        <h2 class="text-2xl font-bold text-white">רמות</h2>
+        <p class="text-gray-400 mt-1">רמות חברי הקהילה</p>
     </div>
-    <button onclick="resetStars()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
-        אפס כוכבים (עונה חדשה)
+    <button onclick="resetLevels()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
+        אפס רמות (עונה חדשה)
     </button>
 </div>
 
@@ -20,7 +20,8 @@
             <tr>
                 <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">מקום</th>
                 <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">שם</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">כוכבים</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">רמה</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">נקודות</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-800/50">
@@ -30,11 +31,12 @@
                     {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
                 </td>
                 <td class="px-6 py-4 text-white font-medium">{{ m.display_name }}</td>
+                <td class="px-6 py-4 text-gray-300">{{ m.level_emoji }} {{ m.level_tag }}</td>
                 <td class="px-6 py-4 text-gray-300 stat-number">{{ m.karma_points }}</td>
             </tr>
             {% endfor %}
             {% if not leaders %}
-            <tr><td colspan="3" class="px-6 py-8 text-center text-gray-500">אין נתוני כוכבים עדיין</td></tr>
+            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-500">אין נתוני רמות עדיין</td></tr>
             {% endif %}
         </tbody>
     </table>
@@ -43,11 +45,11 @@
 
 {% block scripts %}
 <script>
-async function resetStars() {
-    if (!confirm('בטוח? זה יאפס את כל הכוכבים!')) return;
+async function resetLevels() {
+    if (!confirm('בטוח? זה יאפס את כל הנקודות והרמות!')) return;
     try {
-        await apiCall('/api/stars/reset');
-        showToast('הכוכבים אופסו');
+        await apiCall('/api/levels/reset');
+        showToast('הרמות אופסו');
         setTimeout(() => location.reload(), 1000);
     } catch (e) {
         showToast('שגיאה באיפוס', 'error');

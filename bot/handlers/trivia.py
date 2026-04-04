@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from ..database.db import Database
 from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings
 from ..utils.helpers import is_admin, get_display_name
+from ..utils.levels import check_level_up
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,17 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if correct:
         _active_trivia["correct_count"] += 1
-        await db.add_stars(user.id, 5)
+        old_points = await db.add_points(user.id, 5)
+        new_level = check_level_up(old_points, old_points + 5)
+        if new_level:
+            name = get_display_name(user)
+            try:
+                await context.bot.send_message(
+                    chat_id=GROUP_ID,
+                    text=f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
+                )
+            except Exception:
+                pass
         await query.answer("✅ תשובה נכונה! +10 נקודות")
     else:
         _active_trivia["wrong_count"] += 1

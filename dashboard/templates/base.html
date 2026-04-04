@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        *, body, textarea, input, button, select { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
         .nav-link { transition: all 0.2s; }
         .nav-link:hover { background-color: rgba(255,255,255,0.06); }
         .nav-link.active { background-color: rgba(255,255,255,0.08); border-right: 3px solid #3b82f6; }
@@ -39,8 +39,8 @@
                     <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'prompts' %}active text-white{% endif %}">
                         <span>💬</span> הודעות ושאלות
                     </a>
-                    <a href="/stars" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'karma' %}active text-white{% endif %}">
-                        <span>⭐</span> כוכבים
+                    <a href="/levels" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'levels' %}active text-white{% endif %}">
+                        <span>📊</span> רמות
                     </a>
                     <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'events' %}active text-white{% endif %}">
                         <span>🎉</span> אירועים
@@ -65,7 +65,9 @@
 
         <!-- Main content -->
         <main class="flex-1 mr-64 p-8">
-            {% block content %}{% endblock %}
+            <div class="max-w-5xl">
+                {% block content %}{% endblock %}
+            </div>
         </main>
     </div>
 

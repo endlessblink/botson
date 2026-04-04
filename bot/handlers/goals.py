@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
 from ..utils.config import GOALS_TOPIC_ID, GROUP_ID
+from ..utils.levels import check_level_up
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,15 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
 
     await db.upsert_member(user.id, user.username, user.first_name or "")
     await db.update_streak(user.id)
-    await db.add_stars(user.id, 2)
+    old_points = await db.add_points(user.id, 2)
+    new_level = check_level_up(old_points, old_points + 2)
+    if new_level:
+        name = user.first_name or ""
+        text = f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
+        try:
+            await context.bot.send_message(chat_id=GROUP_ID, text=text)
+        except Exception:
+            pass
 
     streak = await db.get_streak(user.id)
     current = streak["current"]

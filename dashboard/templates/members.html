@@ -14,22 +14,24 @@
         <thead class="bg-[#141422]">
             <tr>
                 <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">שם</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">רמה</th>
                 <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">שם משתמש</th>
                 <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">הצטרף/ה</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">כוכבים</th>
+                <th class="px-6 py-3 text-right text-sm font-medium text-gray-400">נקודות</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-800/50">
             {% for m in members %}
             <tr class="hover:bg-[#232340]">
                 <td class="px-6 py-4 font-medium text-white">{{ m.display_name }}</td>
+                <td class="px-6 py-4 text-gray-300">{{ m.level_emoji }} {{ m.level_tag }}</td>
                 <td class="px-6 py-4 text-gray-400">{% if m.username %}@{{ m.username }}{% else %}—{% endif %}</td>
                 <td class="px-6 py-4 text-gray-400 text-sm">{{ m.joined_at[:10] if m.joined_at else '—' }}</td>
                 <td class="px-6 py-4 stat-number text-gray-300">{{ m.karma_points }}</td>
             </tr>
             {% endfor %}
             {% if not members %}
-            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-500">אין חברים רשומים עדיין</td></tr>
+            <tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">אין חברים רשומים עדיין</td></tr>
             {% endif %}
         </tbody>
     </table>

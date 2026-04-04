@@ -37,9 +37,9 @@ antispam:
   mute_duration_minutes: 10      # Mute duration for spammers
   new_member_grace_seconds: 30   # Grace period before flagging first message
 
-# Stars
-stars:
-  max_per_day: 10                # Max stars one user can earn per day from activity
+# Levels
+levels:
+  max_per_day: 10                # Max points one user can earn per day from activity
 
 # Welcome
 welcome:

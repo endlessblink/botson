@@ -16,7 +16,7 @@ _tz = ZoneInfo(TIMEZONE)
 def setup_jobs(app: Application) -> None:
     """Register all scheduled jobs with the application's job queue."""
     from ..handlers.goals import send_morning_prompt, send_evening_prompt
-    from ..handlers.karma import send_weekly_leaderboard
+    from ..handlers.levels import send_weekly_leaderboard
     from ..handlers.roundup import send_weekly_roundup
     from ..handlers.discussions import send_discussion_prompt
     from ..handlers.events import send_event_reminder
@@ -41,7 +41,7 @@ def setup_jobs(app: Application) -> None:
         name="evening_prompt",
     )
 
-    # Weekly stars leaderboard — Friday 18:00
+    # Weekly levels leaderboard — Friday 18:00
     jq.run_daily(
         send_weekly_leaderboard,
         time=time(hour=18, minute=0, tzinfo=_tz),
