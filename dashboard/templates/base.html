@@ -91,6 +91,42 @@
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         }
+
+        async function generateContent(field, mode, textareaIdOrCategory, category) {
+            // Resolve textarea: by id, or by data-category attribute
+            let textarea = document.getElementById(textareaIdOrCategory);
+            if (!textarea) {
+                textarea = document.querySelector(`textarea[data-category="${textareaIdOrCategory}"]`);
+            }
+            if (!textarea) return;
+
+            const existing = textarea.value;
+            const btn = event.target.closest('button');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '⏳ מייצר...';
+
+            try {
+                const res = await apiCall('/api/generate', {
+                    field,
+                    mode,
+                    existing: mode === 'append' ? existing : '',
+                    category: category || '',
+                });
+
+                if (mode === 'append' && existing.trim()) {
+                    textarea.value = existing.trimEnd() + '\n' + res.content;
+                } else {
+                    textarea.value = res.content;
+                }
+                showToast('תוכן נוצר בהצלחה');
+            } catch (e) {
+                showToast('שגיאה ביצירת תוכן: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
     </script>
     {% block scripts %}{% endblock %}
 </body>

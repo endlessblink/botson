@@ -1,5 +1,6 @@
 """Botson Dashboard — FastAPI backend for managing the bot."""
 
+import asyncio
 import json
 import os
 import secrets
@@ -350,6 +351,122 @@ async def reset_trivia(request: Request, db: Database = Depends(get_db)):
 
     await db.reset_trivia_scores()
     return {"status": "ok"}
+
+
+# ── Generate API ─────────────────────────────────────────
+
+COMMUNITY_CONTEXT = """קהילת "אלהוריים וזה" — קהילת צ'ילדפרי (ללא ילדים מבחירה) בטלגרם.
+הקהילה היא חמה, תומכת ומהנה. השפה עברית. התוכן רלוונטי לאורח חיים של מבוגרים, צמיחה אישית, וחיזוק הקשר הקהילתי."""
+
+
+def build_generation_prompt(field: str, mode: str, existing: str, category: str) -> str:
+    count = "5-8" if mode == "append" else "15-20"
+
+    if field == "morning":
+        base = f"""צור {count} הודעות בוקר מעוררות השראה בעברית עבור {COMMUNITY_CONTEXT}
+
+כל הודעה צריכה להיות שורה אחת, לפתוח באמוג'י רלוונטי, ולעודד את חברי הקהילה לבוקר טוב.
+הטון: חם, מעודד, קליל. אל תחזור על אמוג'ים.
+פלט: רק את ההודעות, שורה אחת לכל הודעה, בלי מספור ובלי הסברים."""
+
+    elif field == "evening":
+        base = f"""צור {count} הודעות ערב רפלקטיביות בעברית עבור {COMMUNITY_CONTEXT}
+
+כל הודעה צריכה להיות שורה אחת, לפתוח באמוג'י רלוונטי, ולעודד חשיבה על היום שעבר.
+הטון: רגוע, מחבק, מעודד רפלקציה. אל תחזור על אמוג'ים.
+פלט: רק את ההודעות, שורה אחת לכל הודעה, בלי מספור ובלי הסברים."""
+
+    elif field == "discussion":
+        base = f"""צור {count} שאלות לדיון בקטגוריה "{category}" בעברית עבור {COMMUNITY_CONTEXT}
+
+כל שאלה צריכה להיות שורה אחת, מעוררת שיחה ומעניינת.
+הטון: סקרני, פתוח, מזמין. שאלות שיגרמו לאנשים לשתף ולענות.
+פלט: רק את השאלות, שורה אחת לכל שאלה, בלי מספור ובלי הסברים."""
+
+    elif field == "trivia":
+        base = f"""צור {count} שאלות טריוויה בעברית עבור {COMMUNITY_CONTEXT}
+
+כל שאלה צריכה להיות בפורמט הבא (4 שורות לכל שאלה, מופרדות בשורה ריקה):
+שאלה: [טקסט השאלה]
+תשובות: [תשובה1] | [תשובה2] | [תשובה3] | [תשובה4]
+נכונה: [מספר התשובה הנכונה 0-3]
+קטגוריה: [קטגוריה]
+
+נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל.
+פלט: רק את השאלות בפורמט שצוין, בלי הסברים נוספים."""
+
+    else:
+        base = f"צור תוכן בעברית עבור {COMMUNITY_CONTEXT}"
+
+    if mode == "append" and existing:
+        base += f"\n\nהנה התוכן הקיים (אל תחזור עליו, צור תוכן חדש ושונה):\n{existing}"
+
+    return base
+
+
+async def _generate_via_cli(prompt: str) -> str:
+    """Try generating content via Claude Code CLI."""
+    proc = await asyncio.create_subprocess_exec(
+        "claude", "-p", prompt, "--model", "sonnet",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+    if proc.returncode != 0:
+        raise RuntimeError(f"CLI error: {stderr.decode()[:200]}")
+    return stdout.decode().strip()
+
+
+async def _generate_via_api(prompt: str) -> str:
+    """Fallback: generate content via Anthropic API."""
+    import httpx
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot fall back to API")
+
+    async with httpx.AsyncClient(timeout=90) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"].strip()
+
+
+@app.post("/api/generate")
+async def generate_content(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    field = data["field"]       # "morning", "evening", "discussion", "trivia"
+    mode = data["mode"]         # "append" or "replace"
+    existing = data.get("existing", "")
+    category = data.get("category", "")
+
+    prompt = build_generation_prompt(field, mode, existing, category)
+
+    # Try Claude Code CLI first, fall back to Anthropic API
+    try:
+        content = await _generate_via_cli(prompt)
+    except Exception:
+        try:
+            content = await _generate_via_api(prompt)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+    return {"content": content}
 
 
 # ── Members API ──────────────────────────────────────────

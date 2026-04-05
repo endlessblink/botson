@@ -68,7 +68,7 @@ async def _delete_and_log(
     rule: str,
     action: str,
 ):
-    """Delete message, log to DB, and notify admins."""
+    """Log spam detection, and optionally delete/mute (if dry_run is off)."""
     msg = update.message
     if not msg:
         return
@@ -78,18 +78,24 @@ async def _delete_and_log(
     user_id = user.id if user else 0
     msg_text = msg.text or msg.caption or "[media]"
 
-    # Delete the message
-    try:
-        await msg.delete()
-    except Exception as e:
-        logger.error("Failed to delete message: %s", e)
+    settings = get_settings()
+    dry_run = settings.get("antispam", {}).get("dry_run", True)
+
+    # Delete the message (only if not dry_run)
+    if not dry_run:
+        try:
+            await msg.delete()
+        except Exception as e:
+            logger.error("Failed to delete message: %s", e)
 
     # Log to database
     db: Database = context.bot_data["db"]
     await db.log_spam(user_id, msg_text[:500], rule, action)
 
     # Notify admins
+    mode_tag = "🔍 [DRY RUN] " if dry_run else ""
     log_msg = (
+        f"{mode_tag}🛡️ Anti-Spam\n"
         f"👤 {user_name} (ID: {user_id})\n"
         f"📜 Rule: {rule}\n"
         f"⚡ Action: {action}\n"
@@ -97,7 +103,7 @@ async def _delete_and_log(
         f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     await _notify_admins(context, log_msg)
-    logger.info("Spam action: rule=%s action=%s user=%d", rule, action, user_id)
+    logger.info("Spam %s: rule=%s action=%s user=%d", "detected (dry run)" if dry_run else "action", rule, action, user_id)
 
 
 async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,13 +134,14 @@ async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Rule 1: Forwarded from unknown channels ──
     if msg.forward_origin:
         await _delete_and_log(update, context, "forwarded_unknown", "delete + warn")
-        try:
-            await context.bot.send_message(
-                chat_id=user.id,
-                text="⚠️ ההודעה שהעברת נמחקה. העברת הודעות מערוצים לא מוכרים אינה מותרת בקבוצה.",
-            )
-        except Exception:
-            pass  # User may have blocked the bot
+        if not spam_settings.get("dry_run", True):
+            try:
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text="⚠️ ההודעה שהעברת נמחקה. העברת הודעות מערוצים לא מוכרים אינה מותרת בקבוצה.",
+                )
+            except Exception:
+                pass  # User may have blocked the bot
         return
 
     # ── Rule 2: Links from new members ──
@@ -179,17 +186,18 @@ async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         identical = sum(1 for t, _ in _message_history[user.id] if t == text)
         if identical > threshold:
             await _delete_and_log(update, context, "duplicate_messages", f"delete + mute {mute_minutes}min")
-            # Mute user
-            try:
-                until = datetime.now() + timedelta(minutes=mute_minutes)
-                await context.bot.restrict_chat_member(
-                    chat_id=msg.chat_id,
-                    user_id=user.id,
-                    permissions={"can_send_messages": False},
-                    until_date=until,
-                )
-            except Exception as e:
-                logger.error("Failed to mute user %d: %s", user.id, e)
+            # Mute user (only if not dry_run)
+            if not spam_settings.get("dry_run", True):
+                try:
+                    until = datetime.now() + timedelta(minutes=mute_minutes)
+                    await context.bot.restrict_chat_member(
+                        chat_id=msg.chat_id,
+                        user_id=user.id,
+                        permissions={"can_send_messages": False},
+                        until_date=until,
+                    )
+                except Exception as e:
+                    logger.error("Failed to mute user %d: %s", user.id, e)
             return
 
     # ── Rule 5: New member posting too fast ──

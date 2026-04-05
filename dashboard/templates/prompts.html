@@ -15,6 +15,14 @@
     <p class="text-sm text-gray-400 mb-4">{{ prompts.morning|length }} הודעות — נשלחות ב-08:00</p>
     <textarea id="morning-prompts" rows="12" class="w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="rtl">{% for p in prompts.morning %}{{ p }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
+    <div class="flex gap-2 mt-3">
+        <button onclick="generateContent('morning', 'append', 'morning-prompts')" class="flex items-center gap-2 bg-purple-600/80 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition text-sm">
+            ✨ הוסף עוד
+        </button>
+        <button onclick="generateContent('morning', 'replace', 'morning-prompts')" class="flex items-center gap-2 bg-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+            🔄 צור מחדש
+        </button>
+    </div>
 </div>
 
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
@@ -22,6 +30,14 @@
     <p class="text-sm text-gray-400 mb-4">{{ prompts.evening|length }} הודעות — נשלחות ב-21:00</p>
     <textarea id="evening-prompts" rows="12" class="w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="rtl">{% for p in prompts.evening %}{{ p }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
+    <div class="flex gap-2 mt-3">
+        <button onclick="generateContent('evening', 'append', 'evening-prompts')" class="flex items-center gap-2 bg-purple-600/80 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition text-sm">
+            ✨ הוסף עוד
+        </button>
+        <button onclick="generateContent('evening', 'replace', 'evening-prompts')" class="flex items-center gap-2 bg-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+            🔄 צור מחדש
+        </button>
+    </div>
 </div>
 
 <button onclick="saveGoalsPrompts()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition mb-8">
@@ -40,6 +56,14 @@
     <p class="text-sm text-gray-400 mb-3">{{ questions|length }} שאלות</p>
     <textarea data-category="{{ category }}" rows="8" class="discussion-textarea w-full px-4 py-3 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-y" dir="rtl">{% for q in questions %}{{ q }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
+    <div class="flex gap-2 mt-3">
+        <button onclick="generateContent('discussion', 'append', '{{ category }}', '{{ category }}')" class="flex items-center gap-2 bg-purple-600/80 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition text-sm">
+            ✨ הוסף עוד
+        </button>
+        <button onclick="generateContent('discussion', 'replace', '{{ category }}', '{{ category }}')" class="flex items-center gap-2 bg-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+            🔄 צור מחדש
+        </button>
+    </div>
 </div>
 {% endfor %}
 

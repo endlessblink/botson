@@ -36,6 +36,7 @@ antispam:
   duplicate_window_seconds: 60   # Time window for duplicate detection
   mute_duration_minutes: 10      # Mute duration for spammers
   new_member_grace_seconds: 30   # Grace period before flagging first message
+  dry_run: true                  # true = detect & log only, false = actually delete/mute
 
 # Levels
 levels:

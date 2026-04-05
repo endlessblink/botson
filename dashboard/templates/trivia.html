@@ -37,6 +37,33 @@
     {% endif %}
 </div>
 
+<!-- Generate Trivia -->
+<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
+    <h3 class="text-lg font-bold text-white mb-2">✨ יצירת שאלות עם Claude</h3>
+    <p class="text-sm text-gray-400 mb-4">צור שאלות טריוויה חדשות אוטומטית ושמור אותן לרשימה</p>
+    <div class="flex gap-2 mb-4">
+        <button onclick="generateTrivia('append')" class="flex items-center gap-2 bg-purple-600/80 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition text-sm">
+            ✨ הוסף עוד שאלות
+        </button>
+        <button onclick="generateTrivia('replace')" class="flex items-center gap-2 bg-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+            🔄 צור מחדש
+        </button>
+    </div>
+    <div id="trivia-generate-status" class="hidden text-sm text-purple-400 mb-3">⏳ מייצר שאלות, אנא המתן...</div>
+    <div id="trivia-generate-result" class="hidden">
+        <p class="text-sm text-gray-400 mb-2">תצוגה מקדימה של השאלות שנוצרו:</p>
+        <div id="trivia-preview" class="space-y-3 mb-4"></div>
+        <div class="flex gap-2">
+            <button onclick="saveTriviaGenerated()" class="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 transition text-sm">
+                שמור שאלות
+            </button>
+            <button onclick="cancelTriviaGenerated()" class="bg-gray-700 text-gray-300 px-5 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+                בטל
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Questions -->
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6">
     <h3 class="text-lg font-bold text-white mb-4">📝 שאלות ({{ questions|length }})</h3>
@@ -60,6 +87,11 @@
 
 {% block scripts %}
 <script>
+// Existing questions loaded from server
+const existingQuestions = {{ questions | tojson }};
+let pendingGeneratedQuestions = [];
+let triviaGenerateMode = 'append';
+
 async function resetTrivia() {
     if (!confirm('בטוח? זה יאפס את כל ניקוד הטריוויה!')) return;
     try {
@@ -69,6 +101,101 @@ async function resetTrivia() {
     } catch (e) {
         showToast('שגיאה באיפוס', 'error');
     }
+}
+
+function parseTriviaOutput(raw) {
+    const questions = [];
+    const blocks = raw.split(/\n\s*\n/).map(b => b.trim()).filter(b => b);
+    for (const block of blocks) {
+        const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+        const q = {};
+        for (const line of lines) {
+            if (line.startsWith('שאלה:')) q.text = line.replace('שאלה:', '').trim();
+            else if (line.startsWith('תשובות:')) q.options = line.replace('תשובות:', '').split('|').map(o => o.trim());
+            else if (line.startsWith('נכונה:')) q.correct = parseInt(line.replace('נכונה:', '').trim(), 10);
+            else if (line.startsWith('קטגוריה:')) q.category = line.replace('קטגוריה:', '').trim();
+        }
+        if (q.text && q.options && q.options.length >= 2 && typeof q.correct === 'number') {
+            questions.push(q);
+        }
+    }
+    return questions;
+}
+
+function renderTriviaPreview(questions) {
+    const container = document.getElementById('trivia-preview');
+    container.innerHTML = '';
+    questions.forEach((q, i) => {
+        const div = document.createElement('div');
+        div.className = 'border border-purple-800/50 rounded-lg p-3 bg-[#141422]';
+        const opts = (q.options || []).map((opt, idx) =>
+            `<div class="px-2 py-1 rounded text-xs ${idx === q.correct ? 'bg-green-500/20 text-green-400 font-medium' : 'text-gray-400'}">${opt}</div>`
+        ).join('');
+        div.innerHTML = `
+            <div class="font-medium text-white text-sm mb-2">${i + 1}. ${q.text}</div>
+            <div class="grid grid-cols-2 gap-1">${opts}</div>
+            <div class="text-xs text-gray-500 mt-1">${q.category || ''}</div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+async function generateTrivia(mode) {
+    triviaGenerateMode = mode;
+    const statusEl = document.getElementById('trivia-generate-status');
+    const resultEl = document.getElementById('trivia-generate-result');
+    statusEl.classList.remove('hidden');
+    resultEl.classList.add('hidden');
+
+    // Disable both buttons
+    document.querySelectorAll('[onclick^="generateTrivia"]').forEach(b => b.disabled = true);
+
+    try {
+        const res = await apiCall('/api/generate', {
+            field: 'trivia',
+            mode: mode,
+            existing: '',
+            category: '',
+        });
+
+        const parsed = parseTriviaOutput(res.content);
+        if (parsed.length === 0) {
+            showToast('לא הצלחתי לפרסר את התוכן שנוצר', 'error');
+            return;
+        }
+
+        pendingGeneratedQuestions = parsed;
+        renderTriviaPreview(parsed);
+        resultEl.classList.remove('hidden');
+        showToast(`${parsed.length} שאלות נוצרו — בדוק ושמור`);
+    } catch (e) {
+        showToast('שגיאה ביצירת תוכן: ' + e.message, 'error');
+    } finally {
+        statusEl.classList.add('hidden');
+        document.querySelectorAll('[onclick^="generateTrivia"]').forEach(b => b.disabled = false);
+    }
+}
+
+async function saveTriviaGenerated() {
+    let finalQuestions;
+    if (triviaGenerateMode === 'append') {
+        finalQuestions = [...existingQuestions, ...pendingGeneratedQuestions];
+    } else {
+        finalQuestions = [...pendingGeneratedQuestions];
+    }
+
+    try {
+        await apiCall('/api/trivia/questions', { questions: finalQuestions });
+        showToast('שאלות נשמרו בהצלחה');
+        setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+        showToast('שגיאה בשמירה: ' + e.message, 'error');
+    }
+}
+
+function cancelTriviaGenerated() {
+    pendingGeneratedQuestions = [];
+    document.getElementById('trivia-generate-result').classList.add('hidden');
 }
 </script>
 {% endblock %}
