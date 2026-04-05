@@ -46,13 +46,30 @@ levels:
 welcome:
   batch_window_seconds: 30       # Batch joins within this window
 
-# Feature toggles (all off by default — enable when ready)
+# Feature toggles with per-group routing
+# groups: [main, test] = active in those groups. Empty = all groups when enabled.
 features:
-  welcome: false           # Welcome DM to new members
-  goals: false             # Daily morning/evening prompts
-  levels: false            # Activity-based leveling
-  antispam: false          # Spam detection (dry_run setting still applies)
-  discussions: false       # Discussion prompts in channels
-  events: false            # Event system
-  trivia: false            # Trivia game
-  roundup: false           # Weekly roundup
+  welcome:
+    enabled: false
+    groups: [test]
+  goals:
+    enabled: false
+    groups: [test]
+  levels:
+    enabled: false
+    groups: [test]
+  antispam:
+    enabled: false
+    groups: [test]
+  discussions:
+    enabled: false
+    groups: [test]
+  events:
+    enabled: false
+    groups: [test]
+  trivia:
+    enabled: false
+    groups: [test]
+  roundup:
+    enabled: false
+    groups: [test]

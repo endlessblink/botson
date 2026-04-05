@@ -3,138 +3,221 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Botson Dashboard{% endblock %}</title>
+    <title>{% block title %}Botson{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        *, body, textarea, input, button, select { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
-        .nav-link { transition: all 0.2s; }
-        .nav-link:hover { background-color: #27272a; color: #e4e4e7; }
-        .nav-link.active { background-color: #27272a; border-right: 3px solid #6366f1; color: #f4f4f5; }
-        .card { transition: transform 0.2s, box-shadow 0.2s; }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
-        .stat-number { font-variant-numeric: tabular-nums; }
+        *, body, textarea, input, button, select { font-family: 'Inter', system-ui, sans-serif; }
+
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #09090b; }
-        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+        ::-webkit-scrollbar-thumb { background: #272727; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+        .switch { position: relative; display: inline-flex; width: 36px; height: 20px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .switch .slider { position: absolute; inset: 0; background: #272727; border-radius: 9999px; transition: background 0.2s; cursor: pointer; }
+        .switch .slider::before { content: ''; position: absolute; height: 16px; width: 16px; left: 2px; bottom: 2px; background: #71717a; border-radius: 50%; transition: transform 0.2s, background 0.2s; }
+        .switch input:checked + .slider { background: #fafafa; }
+        .switch input:checked + .slider::before { transform: translateX(16px); background: #09090b; }
+
+        .stat-number { font-variant-numeric: tabular-nums; }
     </style>
 </head>
-<body class="bg-zinc-950 min-h-screen text-sm text-zinc-300">
-    <div class="flex min-h-screen">
-        <!-- Sidebar -->
-        <aside class="w-64 fixed h-full p-3">
-            <div class="bg-zinc-900 rounded-2xl h-[calc(100%-1.5rem)] flex flex-col border border-zinc-800 shadow-xl shadow-black/30">
-                <div class="p-6 border-b border-zinc-800">
-                    <h1 class="text-xl font-semibold text-zinc-100">🤖 Botson</h1>
-                    <p class="text-xs text-zinc-500 mt-1">לוח בקרה</p>
-                </div>
-                <nav class="flex-1 p-4 space-y-1">
-                    <a href="/" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'home' %}active{% endif %}">
-                        <span>📊</span> סקירה כללית
-                    </a>
-                    <a href="/settings" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'settings' %}active{% endif %}">
-                        <span>⚙️</span> הגדרות
-                    </a>
-                    <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'prompts' %}active{% endif %}">
-                        <span>💬</span> הודעות ושאלות
-                    </a>
-                    <a href="/levels" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'levels' %}active{% endif %}">
-                        <span>📊</span> רמות
-                    </a>
-                    <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'events' %}active{% endif %}">
-                        <span>🎉</span> אירועים
-                    </a>
-                    <a href="/trivia" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'trivia' %}active{% endif %}">
-                        <span>🧠</span> טריוויה
-                    </a>
-                    <a href="/spam" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'spam' %}active{% endif %}">
-                        <span>🛡️</span> ספאם
-                    </a>
-                    <a href="/members" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'members' %}active{% endif %}">
-                        <span>👥</span> חברים
-                    </a>
-                    <a href="/activity" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'activity' %}active{% endif %}">
-                        <span>📋</span> לוג פעילות
-                    </a>
-                </nav>
-                <div class="p-4 border-t border-zinc-800">
-                    <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all duration-200">
-                        <span>🚪</span> התנתק
-                    </a>
-                </div>
+<body class="bg-[#09090b] min-h-screen text-sm text-[#a1a1aa]">
+
+    <!-- Mobile header -->
+    <div class="lg:hidden fixed top-0 inset-x-0 z-40 h-14 bg-[#0a0a0a] border-b border-[#1f1f1f] flex items-center justify-between px-4">
+        <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
+        <button id="mobile-menu-btn" class="text-[#a1a1aa] hover:text-[#fafafa] transition-colors" aria-label="תפריט">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="4" x2="20" y1="12" y2="12"/>
+                <line x1="4" x2="20" y1="6" y2="6"/>
+                <line x1="4" x2="20" y1="18" y2="18"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Mobile sidebar overlay -->
+    <div id="mobile-overlay" class="fixed inset-0 z-50 hidden">
+        <div id="mobile-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <aside class="absolute top-0 right-0 w-56 h-full bg-[#0a0a0a] border-l border-[#1f1f1f] flex flex-col">
+            <div class="px-4 h-14 flex items-center border-b border-[#1f1f1f] justify-between">
+                <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
+                <button id="mobile-close-btn" class="text-[#a1a1aa] hover:text-[#fafafa] transition-colors" aria-label="סגור">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <nav class="flex-1 px-3 py-4 space-y-1">
+                <a href="/" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'home' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="5" x="14" y="12" rx="1"/><rect width="7" height="9" x="3" y="16" rx="1"/></svg>
+                    סקירה כללית
+                </a>
+                <a href="/prompts" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'prompts' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/></svg>
+                    הודעות ושאלות
+                </a>
+                <a href="/levels" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'levels' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    רמות
+                </a>
+                <a href="/events" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'events' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>
+                    אירועים
+                </a>
+                <a href="/trivia" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'trivia' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>
+                    טריוויה
+                </a>
+                <a href="/spam" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'spam' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+                    ספאם
+                </a>
+                <a href="/members" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'members' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    חברים
+                </a>
+                <a href="/activity" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'activity' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2"/></svg>
+                    לוג פעילות
+                </a>
+            </nav>
+            <div class="px-3 py-4 border-t border-[#1f1f1f] space-y-1">
+                <a href="/settings" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-[#71717a] hover:text-[#fafafa] transition-colors {% if active_page == 'settings' %}text-[#fafafa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    הגדרות
+                </a>
+                <a href="/logout" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-[#71717a] hover:text-[#fafafa] transition-colors">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                    התנתק
+                </a>
             </div>
         </aside>
+    </div>
 
-        <!-- Main content -->
-        <main class="flex-1 mr-64 p-8">
-            <div class="max-w-5xl">
-                {% block content %}{% endblock %}
-            </div>
+    <!-- Desktop sidebar -->
+    <aside class="hidden lg:flex lg:flex-col lg:fixed top-0 right-0 w-56 h-full bg-[#0a0a0a] border-l border-[#1f1f1f] z-30">
+        <div class="px-4 h-14 flex items-center border-b border-[#1f1f1f]">
+            <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
+        </div>
+        <nav class="flex-1 px-3 py-4 space-y-1">
+            <a href="/" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'home' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="5" x="14" y="12" rx="1"/><rect width="7" height="9" x="3" y="16" rx="1"/></svg>
+                סקירה כללית
+            </a>
+            <a href="/prompts" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'prompts' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/></svg>
+                הודעות ושאלות
+            </a>
+            <a href="/levels" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'levels' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                רמות
+            </a>
+            <a href="/events" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'events' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>
+                אירועים
+            </a>
+            <a href="/trivia" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'trivia' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>
+                טריוויה
+            </a>
+            <a href="/spam" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'spam' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+                ספאם
+            </a>
+            <a href="/members" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'members' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                חברים
+            </a>
+            <a href="/activity" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'activity' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2"/></svg>
+                לוג פעילות
+            </a>
+        </nav>
+        <div class="px-3 py-4 border-t border-[#1f1f1f] space-y-1">
+            <a href="/settings" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-[#71717a] hover:text-[#fafafa] transition-colors {% if active_page == 'settings' %}text-[#fafafa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                הגדרות
+            </a>
+            <a href="/logout" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm text-[#71717a] hover:text-[#fafafa] transition-colors">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                התנתק
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="mr-0 lg:mr-56 min-h-screen pt-14 lg:pt-0">
+        <main class="p-6 max-w-5xl">
+            {% block content %}{% endblock %}
         </main>
     </div>
 
     <script>
-        // Generic API call helper
         async function apiCall(url, data = null) {
             const opts = {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
             };
             if (data) opts.body = JSON.stringify(data);
             const res = await fetch(url, opts);
-            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            if (!res.ok) throw new Error('API error: ' + res.status);
             return res.json();
         }
 
-        function showToast(message, type = 'success') {
-            const toast = document.createElement('div');
-            const bg = type === 'success' ? 'bg-emerald-500/90' : 'bg-rose-500/90';
-            toast.className = `fixed top-4 left-4 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 backdrop-blur-sm ${bg}`;
+        function showToast(message, type) {
+            type = type || 'success';
+            var toast = document.createElement('div');
+            var accent = type === 'success' ? 'text-emerald-400' : 'text-red-400';
+            toast.className = 'fixed top-4 left-4 z-[60] px-4 py-3 rounded-md bg-[#0a0a0a] border border-[#1f1f1f] shadow-lg text-sm ' + accent;
             toast.textContent = message;
             document.body.appendChild(toast);
-            setTimeout(() => {
+            setTimeout(function () {
                 toast.style.opacity = '0';
                 toast.style.transition = 'opacity 0.3s';
-                setTimeout(() => toast.remove(), 300);
+                setTimeout(function () { toast.remove(); }, 300);
             }, 3000);
         }
 
         function showConfirm(message, onConfirm) {
-            const overlay = document.createElement('div');
-            overlay.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center';
-            overlay.innerHTML = `
-                <div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm mx-4 shadow-2xl">
-                    <p class="text-sm text-zinc-200 mb-5">${message}</p>
-                    <div class="flex gap-3 justify-end">
-                        <button class="cancel px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg cursor-pointer">ביטול</button>
-                        <button class="confirm px-4 py-2 text-sm text-rose-300 hover:bg-rose-500/10 rounded-lg cursor-pointer">אישור</button>
-                    </div>
-                </div>`;
-            overlay.querySelector('.cancel').onclick = () => overlay.remove();
-            overlay.querySelector('.confirm').onclick = () => { onConfirm(); overlay.remove(); };
-            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+            var overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center';
+            overlay.innerHTML =
+                '<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 max-w-sm mx-4 shadow-xl">' +
+                    '<p class="text-sm text-[#fafafa] mb-6">' + message + '</p>' +
+                    '<div class="flex gap-3 justify-start">' +
+                        '<button class="confirm px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer">אישור</button>' +
+                        '<button class="cancel px-4 py-2 text-sm rounded-md border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] transition-colors cursor-pointer">ביטול</button>' +
+                    '</div>' +
+                '</div>';
+            overlay.querySelector('.cancel').onclick = function () { overlay.remove(); };
+            overlay.querySelector('.confirm').onclick = function () { onConfirm(); overlay.remove(); };
+            overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
             document.body.appendChild(overlay);
         }
 
         async function generateContent(field, mode, textareaIdOrCategory, category) {
-            // Resolve textarea: by id, or by data-category attribute
-            let textarea = document.getElementById(textareaIdOrCategory);
+            var textarea = document.getElementById(textareaIdOrCategory);
             if (!textarea) {
-                textarea = document.querySelector(`textarea[data-category="${textareaIdOrCategory}"]`);
+                textarea = document.querySelector('textarea[data-category="' + textareaIdOrCategory + '"]');
             }
             if (!textarea) return;
 
-            const existing = textarea.value;
-            const btn = event.target.closest('button');
-            const originalText = btn.innerHTML;
+            var existing = textarea.value;
+            var btn = event.target.closest('button');
+            var originalText = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '⏳ מייצר...';
+            btn.innerHTML = '...מייצר';
 
             try {
-                const res = await apiCall('/api/generate', {
-                    field,
-                    mode,
+                var res = await apiCall('/api/generate', {
+                    field: field,
+                    mode: mode,
                     existing: mode === 'append' ? existing : '',
                     category: category || '',
                 });
@@ -152,6 +235,25 @@
                 btn.innerHTML = originalText;
             }
         }
+
+        // Mobile sidebar toggle
+        (function () {
+            var overlay = document.getElementById('mobile-overlay');
+            var menuBtn = document.getElementById('mobile-menu-btn');
+            var closeBtn = document.getElementById('mobile-close-btn');
+            var backdrop = document.getElementById('mobile-backdrop');
+
+            function openSidebar() {
+                overlay.classList.remove('hidden');
+            }
+            function closeSidebar() {
+                overlay.classList.add('hidden');
+            }
+
+            if (menuBtn) menuBtn.addEventListener('click', openSidebar);
+            if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
+            if (backdrop) backdrop.addEventListener('click', closeSidebar);
+        })();
     </script>
     {% block scripts %}{% endblock %}
 </body>

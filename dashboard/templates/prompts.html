@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% set active_page = "prompts" %}
+{% block title %}Botson — הודעות ושאלות{% endblock %}
+
+{% block content %}
+{% set categories = [
+    ('general', 'כללי'),
+    ('geek', 'גיק (אנימה/קומיקס)'),
+    ('gaming', 'גיימינג'),
+    ('movies', 'סרטים וסדרות'),
+    ('cute', 'חמוד'),
+    ('singles', 'סינגלים'),
+    ('funny', 'הומור'),
+    ('vegan', 'טבעונות'),
+    ('art', 'אמנות'),
+    ('politics', 'פוליטיקה'),
+] %}
+
+<!-- Page header with feature toggles -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">הודעות ושאלות</h1>
+        <p class="text-sm text-[#71717a] mt-1">ניהול הודעות בוקר/ערב ושאלות לדיון</p>
+    </div>
+    <div class="flex items-center gap-6">
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-[#71717a]">מטרות</span>
+            <label class="switch">
+                <input type="checkbox" id="feat-goals" onchange="toggleFeature('goals', this.checked)" {% if settings.features and settings.features.goals %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-[#71717a]">דיונים</span>
+            <label class="switch">
+                <input type="checkbox" id="feat-discussions" onchange="toggleFeature('discussions', this.checked)" {% if settings.features and settings.features.discussions %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-[#71717a]">סיכום</span>
+            <label class="switch">
+                <input type="checkbox" id="feat-roundup" onchange="toggleFeature('roundup', this.checked)" {% if settings.features and settings.features.roundup %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+</div>
+
+<!-- Tab navigation -->
+<div class="flex gap-1 border-b border-[#1f1f1f] mb-6">
+    <button
+        data-tab="0"
+        onclick="switchTab(0)"
+        class="px-4 py-2 text-sm cursor-pointer transition-colors text-[#fafafa] border-b-2 border-[#fafafa] -mb-px"
+    >
+        הודעות בוקר/ערב
+    </button>
+    <button
+        data-tab="1"
+        onclick="switchTab(1)"
+        class="px-4 py-2 text-sm cursor-pointer transition-colors text-[#71717a] hover:text-[#a1a1aa]"
+    >
+        שאלות לדיון
+    </button>
+</div>
+
+<!-- Tab 1: Morning & Evening Prompts -->
+<div data-tab-panel="0">
+
+    <!-- Telegram preview -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+        <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה</p>
+        <div class="flex flex-col sm:flex-row gap-4">
+            <div class="flex-1">
+                <p class="text-[10px] text-[#71717a] mb-1.5">הודעת בוקר (08:00)</p>
+                <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm">
+                    <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+                    <div class="text-[#e4e6eb]">☀️ בוקר טוב! מה הדבר הראשון שאתם רוצים להשיג היום?</div>
+                    <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">08:00</div>
+                </div>
+            </div>
+            <div class="flex-1">
+                <p class="text-[10px] text-[#71717a] mb-1.5">הודעת ערב (21:00)</p>
+                <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm">
+                    <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+                    <div class="text-[#e4e6eb]">🌙 ערב טוב! מה הדבר הכי טוב שקרה לכם היום?</div>
+                    <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">21:00</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Morning card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">הודעות בוקר</h2>
+        </div>
+        <div class="px-6 py-4">
+            <label for="morning-textarea" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">
+                כל שורה היא הודעה נפרדת
+            </label>
+            <textarea
+                id="morning-textarea"
+                class="bg-transparent border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full resize-y min-h-[120px]"
+                placeholder="הוסף הודעות בוקר, כל הודעה בשורה נפרדת..."
+            >{{ prompts.morning | join('\n') if prompts.morning else '' }}</textarea>
+        </div>
+        <div class="px-6 py-4 border-t border-[#1f1f1f] flex items-center gap-2 flex-wrap">
+            <button
+                onclick="generateContent('morning', 'append', 'morning-textarea')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                הוסף עוד
+            </button>
+            <button
+                onclick="generateContent('morning', 'replace', 'morning-textarea')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                ייצר מחדש
+            </button>
+            <button
+                onclick="savePrompts()"
+                class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+            >
+                שמור
+            </button>
+        </div>
+    </div>
+
+    <!-- Evening card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">הודעות ערב</h2>
+        </div>
+        <div class="px-6 py-4">
+            <label for="evening-textarea" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">
+                כל שורה היא הודעה נפרדת
+            </label>
+            <textarea
+                id="evening-textarea"
+                class="bg-transparent border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full resize-y min-h-[120px]"
+                placeholder="הוסף הודעות ערב, כל הודעה בשורה נפרדת..."
+            >{{ prompts.evening | join('\n') if prompts.evening else '' }}</textarea>
+        </div>
+        <div class="px-6 py-4 border-t border-[#1f1f1f] flex items-center gap-2 flex-wrap">
+            <button
+                onclick="generateContent('evening', 'append', 'evening-textarea')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                הוסף עוד
+            </button>
+            <button
+                onclick="generateContent('evening', 'replace', 'evening-textarea')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                ייצר מחדש
+            </button>
+            <button
+                onclick="savePrompts()"
+                class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+            >
+                שמור
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<!-- Tab 2: Discussion Prompts -->
+<div data-tab-panel="1" class="hidden">
+
+    <!-- Telegram preview -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+        <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — שאלה לדיון</p>
+        <div class="max-w-sm">
+            <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm" dir="rtl">
+                <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+                <div class="text-[#e4e6eb]">💬 שאלה לדיון:<br><br>אם הייתם יכולים לחיות בכל תקופה בהיסטוריה, איזו הייתם בוחרים ולמה?</div>
+                <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">14:00</div>
+            </div>
+        </div>
+    </div>
+
+    {% for cat, label in categories %}
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg {% if not loop.first %}mt-4{% endif %}">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">{{ label }}</h2>
+        </div>
+        <div class="px-6 py-4">
+            <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">
+                כל שורה היא שאלה נפרדת
+            </label>
+            <textarea
+                data-category="{{ cat }}"
+                class="bg-transparent border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full resize-y min-h-[120px]"
+                placeholder="הוסף שאלות לדיון — {{ label }}..."
+            >{{ discussions.get(cat, []) | join('\n') }}</textarea>
+        </div>
+        <div class="px-6 py-4 border-t border-[#1f1f1f] flex items-center gap-2 flex-wrap">
+            <button
+                onclick="generateContent('discussion', 'append', '{{ cat }}', '{{ cat }}')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                הוסף עוד
+            </button>
+            <button
+                onclick="generateContent('discussion', 'replace', '{{ cat }}', '{{ cat }}')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                ייצר מחדש
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Save all discussions -->
+    <div class="mt-6 flex justify-start">
+        <button
+            onclick="saveDiscussions()"
+            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+        >
+            שמור שאלות לדיון
+        </button>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function switchTab(tabIndex) {
+        document.querySelectorAll('[data-tab-panel]').forEach(function (el) {
+            el.classList.add('hidden');
+        });
+        document.querySelectorAll('[data-tab]').forEach(function (el) {
+            el.classList.remove('text-[#fafafa]', 'border-b-2', 'border-[#fafafa]', '-mb-px');
+            el.classList.add('text-[#71717a]');
+        });
+        document.querySelector('[data-tab-panel="' + tabIndex + '"]').classList.remove('hidden');
+        var activeTab = document.querySelector('[data-tab="' + tabIndex + '"]');
+        activeTab.classList.add('text-[#fafafa]', 'border-b-2', 'border-[#fafafa]', '-mb-px');
+        activeTab.classList.remove('text-[#71717a]');
+    }
+
+    async function savePrompts() {
+        try {
+            var morning = document.getElementById('morning-textarea').value.split('\n').filter(function (l) { return l.trim(); });
+            var evening = document.getElementById('evening-textarea').value.split('\n').filter(function (l) { return l.trim(); });
+            await apiCall('/api/prompts/save', {
+                type: 'goals',
+                content: { morning: morning, evening: evening }
+            });
+            showToast('הודעות נשמרו בהצלחה');
+        } catch (e) {
+            showToast('שגיאה בשמירה', 'error');
+        }
+    }
+
+    async function saveDiscussions() {
+        try {
+            var content = {};
+            document.querySelectorAll('textarea[data-category]').forEach(function (ta) {
+                content[ta.dataset.category] = ta.value.split('\n').filter(function (l) { return l.trim(); });
+            });
+            await apiCall('/api/prompts/save', {
+                type: 'discussions',
+                content: content
+            });
+            showToast('שאלות לדיון נשמרו');
+        } catch (e) {
+            showToast('שגיאה בשמירה', 'error');
+        }
+    }
+
+    async function toggleFeature(feature, enabled) {
+        try {
+            var data = {{ settings.features | tojson }};
+            data[feature] = enabled;
+            await apiCall('/api/settings/features', data);
+            showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
+        } catch (e) {
+            showToast('שגיאה בשמירה', 'error');
+        }
+    }
+</script>
+{% endblock %}

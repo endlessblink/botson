@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings
+from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
 
@@ -38,8 +38,7 @@ async def trivia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user or not update.message:
         return
 
-    settings = get_settings()
-    if not settings.get("features", {}).get("trivia", False):
+    if not is_feature_enabled("trivia", update.effective_chat.id):
         await update.message.reply_text("הפיצ'ר הזה לא פעיל כרגע")
         return
 
@@ -80,8 +79,7 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: post a trivia question automatically."""
     global _active_trivia, _answered_users
 
-    settings = get_settings()
-    if not settings.get("features", {}).get("trivia", False):
+    if not is_feature_enabled("trivia"):
         return
 
     if _active_trivia:
@@ -161,9 +159,10 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
         new_level = check_level_up(old_points, old_points + 5)
         if new_level:
             name = get_display_name(user)
+            trivia_chat_id = _active_trivia["chat_id"] if _active_trivia else GROUP_ID
             try:
                 await context.bot.send_message(
-                    chat_id=GROUP_ID,
+                    chat_id=trivia_chat_id,
                     text=f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
                 )
             except Exception:

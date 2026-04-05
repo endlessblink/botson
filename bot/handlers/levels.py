@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, get_settings
+from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, is_bot_user, get_display_name
 from ..utils.levels import get_level, get_progress, check_level_up, make_progress_bar
 
@@ -17,23 +17,27 @@ logger = logging.getLogger(__name__)
 _daily_counts: dict[int, dict[str, int]] = {}
 
 
-async def _announce_level_up(context: ContextTypes.DEFAULT_TYPE, user_name: str, new_level: dict):
+async def _announce_level_up(context: ContextTypes.DEFAULT_TYPE, user_name: str, new_level: dict,
+                             chat_id: int | None = None):
     """Post level-up announcement to the group."""
     text = f"🎉 מזל טוב! {user_name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
+    announce_id = chat_id or GROUP_ID
     try:
-        await context.bot.send_message(chat_id=GROUP_ID, text=text)
+        await context.bot.send_message(chat_id=announce_id, text=text)
     except Exception as e:
         logger.error("Failed to announce level-up: %s", e)
 
 
 async def award_and_check_level(db: Database, context: ContextTypes.DEFAULT_TYPE,
-                                 user_id: int, user_name: str, points: int = 1):
+                                 user_id: int, user_name: str, points: int = 1,
+                                 chat_id: int | None = None):
     """Award points and check for level-up. Announces if leveled up."""
     old_points = await db.add_points(user_id, points)
     new_points = old_points + points
     new_level = check_level_up(old_points, new_points)
     if new_level:
-        await _announce_level_up(context, user_name, new_level)
+        announce_id = chat_id or GROUP_ID
+        await _announce_level_up(context, user_name, new_level, announce_id)
         await db.log_activity("level_up", f"{user_name} עלה/תה לרמה {new_level['level']}", user_id)
 
 
@@ -46,9 +50,9 @@ async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TY
     if is_bot_user(user):
         return
 
-    settings = get_settings()
-    if not settings.get("features", {}).get("levels", False):
+    if not is_feature_enabled("levels", update.effective_chat.id):
         return
+    settings = get_settings()
     max_per_day = settings.get("levels", {}).get("max_per_day", 10)
 
     # Check daily limit
@@ -63,7 +67,8 @@ async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TY
 
     db: Database = context.bot_data["db"]
     await db.upsert_member(user.id, user.username, get_display_name(user))
-    await award_and_check_level(db, context, user.id, get_display_name(user), 1)
+    await award_and_check_level(db, context, user.id, get_display_name(user), 1,
+                                chat_id=update.effective_chat.id)
 
 
 async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

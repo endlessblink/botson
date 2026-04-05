@@ -4,166 +4,101 @@
 {% block title %}Botson — הגדרות{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h2 class="text-xl font-semibold text-zinc-100">הגדרות</h2>
-    <p class="text-sm text-zinc-500 mt-1">הגדרות כלליות של הבוט</p>
-</div>
-
-<!-- Feature Toggles -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">🔌 פיצ'רים</h3>
-        <p class="text-sm text-zinc-500 mt-1">הפעלה וכיבוי של פיצ'רים. כל הפיצ'רים כבויים כברירת מחדל.</p>
-    </div>
-    <div class="px-6 py-4">
-        <div class="space-y-1" id="feature-toggles">
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">👋 הודעות ברוכים הבאים</span>
-                <input type="checkbox" id="feat-welcome" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.welcome %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">🌟 הישגים ומטרות יומיים</span>
-                <input type="checkbox" id="feat-goals" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.goals %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">📊 רמות (ניקוד פעילות)</span>
-                <input type="checkbox" id="feat-levels" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.levels %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">🛡️ זיהוי ספאם</span>
-                <input type="checkbox" id="feat-antispam" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.antispam %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">💬 שאלות לדיון</span>
-                <input type="checkbox" id="feat-discussions" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.discussions %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">🎉 אירועים</span>
-                <input type="checkbox" id="feat-events" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.events %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">🧠 טריוויה</span>
-                <input type="checkbox" id="feat-trivia" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.trivia %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <span class="text-sm text-zinc-300">📊 סיכום שבועי</span>
-                <input type="checkbox" id="feat-roundup" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.roundup %}checked{% endif %}>
-            </label>
-        </div>
-    </div>
-    <div class="px-6 py-4 border-t border-zinc-800">
-        <button onclick="saveFeatures()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
-            שמור פיצ'רים
-        </button>
-    </div>
+<div class="mb-6">
+    <h1 class="text-[#fafafa] font-semibold tracking-tight text-xl">הגדרות כלליות</h1>
+    <p class="text-sm text-[#a1a1aa] mt-1">הגדרות תשתית הבוט</p>
 </div>
 
 <!-- Topic IDs -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">🔗 מזהי ערוצים (Topic IDs)</h3>
-        <p class="text-sm text-zinc-500 mt-1">הזינו את מזהי הערוצים מטלגרם. ניתן לקבל אותם על ידי העברת הודעה בכל ערוץ ובדיקת message_thread_id.</p>
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">מזהי ערוצים (Topic IDs)</h2>
+        <p class="text-xs text-[#71717a] mt-1">הזינו את מזהי הערוצים מטלגרם</p>
     </div>
     <div class="px-6 py-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="topic-fields">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">כללי (General)</label>
-                <input type="number" id="topic-general" value="{{ settings.topics.general or '' }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="Topic ID">
+                <label for="topic-general" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">כללי (General)</label>
+                <input type="number" id="topic-general" value="{{ settings.topics.general or '' }}" placeholder="Topic ID"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
             <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">ברוכים הבאים (Welcome)</label>
-                <input type="number" id="topic-welcome" value="{{ settings.topics.welcome or '' }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="Topic ID">
+                <label for="topic-welcome" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">ברוכים הבאים (Welcome)</label>
+                <input type="number" id="topic-welcome" value="{{ settings.topics.welcome or '' }}" placeholder="Topic ID"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
             <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">הישגים ומטרות (Goals)</label>
-                <input type="number" id="topic-goals" value="{{ settings.topics.goals or '' }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="Topic ID">
+                <label for="topic-goals" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">הישגים ומטרות (Goals)</label>
+                <input type="number" id="topic-goals" value="{{ settings.topics.goals or '' }}" placeholder="Topic ID"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
         </div>
     </div>
-    <div class="px-6 py-4 border-t border-zinc-800">
-        <button onclick="saveTopics()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
+    <div class="px-6 py-4 border-t border-[#1f1f1f]">
+        <button onclick="saveTopics()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
             שמור ערוצים
         </button>
     </div>
 </div>
 
-<!-- Anti-Spam Settings -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">🛡️ הגדרות ספאם</h3>
+<!-- Feature Toggles -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">פיצ'רים</h2>
+        <p class="text-xs text-[#71717a] mt-1">הפעל/כבה פיצ'רים לפי קבוצה. ראשית = GROUP_ID, טסט = TEST_GROUP_ID</p>
     </div>
-    <div class="px-6 py-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">מקסימום קישורים לחבר חדש</label>
-                <input type="number" id="spam-max-links" value="{{ settings.antispam.max_links_new_member }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+    <div class="px-6 py-4 space-y-3">
+
+        {% set features = [
+            ('welcome',     '👋 הודעות ברוכים הבאים'),
+            ('goals',       '🌟 שאלות בוקר וערב'),
+            ('levels',      '🏅 מערכת רמות'),
+            ('antispam',    '🛡️ זיהוי ספאם'),
+            ('discussions', '💬 פרומפטים לשיחות'),
+            ('events',      '🎉 אירועים'),
+            ('trivia',      '🧠 טריוויה'),
+            ('roundup',     '📊 סיכום שבועי'),
+        ] %}
+
+        {% for key, label in features %}
+        {% set feat = settings.features[key] if settings.features[key] is mapping else {} %}
+        {% set is_enabled = feat.get('enabled', false) if feat else (settings.features[key] if settings.features[key] is boolean else false) %}
+        {% set feat_groups = feat.get('groups', []) if feat else [] %}
+        <div class="flex items-center justify-between p-3 bg-[#111111] border border-[#1f1f1f] rounded-lg">
+            <div class="flex items-center gap-3">
+                <input type="checkbox" id="feat-{{ key }}-enabled"
+                    class="w-5 h-5 accent-[#d4d4d8] cursor-pointer"
+                    {% if is_enabled %}checked{% endif %}>
+                <span class="text-sm text-[#e4e4e7]">{{ label }}</span>
             </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">ימים כחבר "חדש"</label>
-                <input type="number" id="spam-new-days" value="{{ settings.antispam.new_member_days }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
-            </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">סף הודעות כפולות</label>
-                <input type="number" id="spam-dup-threshold" value="{{ settings.antispam.duplicate_threshold }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
-            </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">דקות השתקה</label>
-                <input type="number" id="spam-mute-min" value="{{ settings.antispam.mute_duration_minutes }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
-            </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">חלון הודעות כפולות (שניות)</label>
-                <input type="number" id="spam-dup-window" value="{{ settings.antispam.duplicate_window_seconds }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
-            </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">שניות חסד לחברים חדשים</label>
-                <input type="number" id="spam-grace" value="{{ settings.antispam.new_member_grace_seconds }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            <div class="flex items-center gap-4 text-xs text-[#71717a]">
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" id="feat-{{ key }}-main"
+                        class="w-4 h-4 accent-[#d4d4d8] cursor-pointer"
+                        {% if 'main' in feat_groups %}checked{% endif %}>
+                    <span>ראשית</span>
+                </label>
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" id="feat-{{ key }}-test"
+                        class="w-4 h-4 accent-[#d4d4d8] cursor-pointer"
+                        {% if 'test' in feat_groups %}checked{% endif %}>
+                    <span>טסט</span>
+                </label>
             </div>
         </div>
+        {% endfor %}
+
     </div>
-    <div class="px-6 py-4 border-t border-zinc-800">
-        <button onclick="saveAntispam()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
-            שמור הגדרות ספאם
+    <div class="px-6 py-4 border-t border-[#1f1f1f]">
+        <button onclick="saveFeatures()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
+            שמור פיצ'רים
         </button>
     </div>
 </div>
-
-<!-- Levels Settings -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">📊 הגדרות רמות</h3>
-    </div>
-    <div class="px-6 py-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">מקסימום נקודות ביום למשתמש</label>
-                <input type="number" id="karma-max-day" value="{{ settings.levels.max_per_day }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
-            </div>
-        </div>
-    </div>
-</div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-async function saveFeatures() {
-    try {
-        await apiCall('/api/settings/features', {
-            welcome: document.getElementById('feat-welcome').checked,
-            goals: document.getElementById('feat-goals').checked,
-            levels: document.getElementById('feat-levels').checked,
-            antispam: document.getElementById('feat-antispam').checked,
-            discussions: document.getElementById('feat-discussions').checked,
-            events: document.getElementById('feat-events').checked,
-            trivia: document.getElementById('feat-trivia').checked,
-            roundup: document.getElementById('feat-roundup').checked,
-        });
-        showToast('פיצ\'רים נשמרו');
-    } catch (e) {
-        showToast('שגיאה בשמירה', 'error');
-    }
-}
-
 async function saveTopics() {
     try {
         await apiCall('/api/settings/topics', {
@@ -177,17 +112,27 @@ async function saveTopics() {
     }
 }
 
-async function saveAntispam() {
+async function saveFeatures() {
+    function getFeature(name) {
+        const enabled = document.getElementById(`feat-${name}-enabled`).checked;
+        const groups = [];
+        if (document.getElementById(`feat-${name}-main`).checked) groups.push('main');
+        if (document.getElementById(`feat-${name}-test`).checked) groups.push('test');
+        return { enabled, groups };
+    }
+
     try {
-        await apiCall('/api/settings/antispam', {
-            max_links_new_member: parseInt(document.getElementById('spam-max-links').value),
-            new_member_days: parseInt(document.getElementById('spam-new-days').value),
-            duplicate_threshold: parseInt(document.getElementById('spam-dup-threshold').value),
-            mute_duration_minutes: parseInt(document.getElementById('spam-mute-min').value),
-            duplicate_window_seconds: parseInt(document.getElementById('spam-dup-window').value),
-            new_member_grace_seconds: parseInt(document.getElementById('spam-grace').value),
+        await apiCall('/api/settings/features', {
+            welcome:     getFeature('welcome'),
+            goals:       getFeature('goals'),
+            levels:      getFeature('levels'),
+            antispam:    getFeature('antispam'),
+            discussions: getFeature('discussions'),
+            events:      getFeature('events'),
+            trivia:      getFeature('trivia'),
+            roundup:     getFeature('roundup'),
         });
-        showToast('הגדרות ספאם נשמרו');
+        showToast('פיצ\'רים נשמרו');
     } catch (e) {
         showToast('שגיאה בשמירה', 'error');
     }

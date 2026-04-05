@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import GOALS_TOPIC_ID, GROUP_ID, get_settings
+from ..utils.config import GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
 from ..utils.levels import check_level_up
 
 logger = logging.getLogger(__name__)
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: send morning prompt to goals channel."""
-    settings = get_settings()
-    if not settings.get("features", {}).get("goals", False):
+    if not is_feature_enabled("goals"):
         return
+    settings = get_settings()
 
     db: Database = context.bot_data["db"]
     prompt = await db.get_random_prompt("morning")
@@ -39,9 +39,9 @@ async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
 
 async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: send evening prompt to goals channel."""
-    settings = get_settings()
-    if not settings.get("features", {}).get("goals", False):
+    if not is_feature_enabled("goals"):
         return
+    settings = get_settings()
 
     db: Database = context.bot_data["db"]
     prompt = await db.get_random_prompt("evening")
@@ -67,8 +67,7 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
     if not update.message or not update.effective_user:
         return
 
-    settings = get_settings()
-    if not settings.get("features", {}).get("goals", False):
+    if not is_feature_enabled("goals", update.effective_chat.id):
         return
 
     # Only track messages in the goals topic
@@ -87,7 +86,7 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
         name = user.first_name or ""
         text = f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
         try:
-            await context.bot.send_message(chat_id=GROUP_ID, text=text)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
         except Exception:
             pass
 

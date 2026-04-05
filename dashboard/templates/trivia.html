@@ -4,198 +4,198 @@
 {% block title %}Botson — טריוויה{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex items-center justify-between">
-    <div>
-        <h2 class="text-xl font-semibold text-zinc-100">טריוויה</h2>
-        <p class="text-sm text-zinc-500 mt-1">ניהול שאלות וניקוד</p>
-    </div>
-    <button onclick="resetTrivia()" class="text-rose-300 hover:bg-rose-500/10 px-4 py-2 rounded-lg text-sm transition border border-rose-500/20">
-        אפס ניקוד
-    </button>
-</div>
-
-<!-- Leaderboard -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 mb-6">
-    <h3 class="text-base font-semibold text-zinc-100 mb-4">🏆 טבלת ניקוד</h3>
-    {% if leaders %}
-    <div class="space-y-3">
-        {% for m in leaders %}
-        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-zinc-800{% endif %}">
-            <div class="flex items-center gap-3">
-                <span class="text-lg">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
-                <span class="text-sm text-zinc-300">{{ m.display_name }}</span>
-            </div>
-            <div class="text-left">
-                <span class="font-bold text-zinc-100">{{ m.total_score }} נק'</span>
-                <span class="text-sm text-zinc-500 mr-2">{{ m.correct_answers }}/{{ m.total_answers }}</span>
-            </div>
+<!-- Page Header -->
+<div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-4">
+        <div>
+            <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">טריוויה</h1>
+            <p class="text-sm text-[#71717a] mt-1">שאלות טריוויה וניקוד</p>
         </div>
-        {% endfor %}
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-[#71717a]">פעיל</span>
+            <label class="switch">
+                <input type="checkbox" id="feat-trivia" onchange="toggleFeature('trivia', this.checked)" {% if settings.features and settings.features.trivia %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
     </div>
-    {% else %}
-    <p class="text-sm text-zinc-500">אין ניקוד עדיין</p>
-    {% endif %}
+    <button onclick="resetTrivia()" class="bg-transparent text-[#fca5a5] hover:bg-[#7f1d1d]/20 h-9 px-4 rounded-md text-sm cursor-pointer transition-colors">איפוס ניקוד</button>
 </div>
 
-<!-- Generate Trivia -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 mb-6">
-    <h3 class="text-base font-semibold text-zinc-100 mb-1">✨ יצירת שאלות עם Claude</h3>
-    <p class="text-sm text-zinc-500 mb-4">צור שאלות טריוויה חדשות אוטומטית ושמור אותן לרשימה</p>
-    <div class="flex gap-2 mb-4">
-        <button onclick="generateTrivia('append')" class="flex items-center gap-2 bg-violet-600/80 text-white px-4 py-2 rounded-lg hover:bg-violet-600 transition text-sm">
-            ✨ הוסף עוד שאלות
-        </button>
-        <button onclick="generateTrivia('replace')" class="flex items-center gap-2 border border-zinc-700 text-zinc-400 px-4 py-2 rounded-lg hover:bg-zinc-800 transition text-sm">
-            🔄 צור מחדש
-        </button>
-    </div>
-    <div id="trivia-generate-status" class="hidden text-sm text-violet-300 mb-3">⏳ מייצר שאלות, אנא המתן...</div>
-    <div id="trivia-generate-result" class="hidden">
-        <p class="text-sm text-zinc-500 mb-2">תצוגה מקדימה של השאלות שנוצרו:</p>
-        <div id="trivia-preview" class="space-y-3 mb-4"></div>
-        <div class="flex gap-2">
-            <button onclick="saveTriviaGenerated()" class="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-500 transition text-sm">
-                שמור שאלות
-            </button>
-            <button onclick="cancelTriviaGenerated()" class="border border-zinc-700 text-zinc-400 px-5 py-2 rounded-lg hover:bg-zinc-800 transition text-sm">
-                בטל
-            </button>
+<!-- Telegram Preview Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — שאלת טריוויה</p>
+    <div class="max-w-sm">
+        <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm" dir="rtl">
+            <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+            <div class="text-[#e4e6eb]">
+                🧠 <strong>טריוויה!</strong><br><br>
+                איזו מדינה היא הקטנה ביותר בעולם?
+            </div>
+            <!-- Inline keyboard - 2x2 grid -->
+            <div class="grid grid-cols-2 gap-1.5 mt-3">
+                <div class="bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">מונקו</div>
+                <div class="bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">ותיקן</div>
+                <div class="bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">סן מרינו</div>
+                <div class="bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">ליכטנשטיין</div>
+            </div>
+            <div class="text-[#8b9db5] text-[10px] mt-2 text-left" dir="ltr">20:00</div>
         </div>
     </div>
 </div>
 
-<!-- Questions -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-    <h3 class="text-base font-semibold text-zinc-100 mb-4">📝 שאלות ({{ questions|length }})</h3>
-    <div class="space-y-4" id="questions-list">
-        {% for q in questions %}
-        <div class="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
-            <div class="text-sm font-medium text-zinc-300 mb-2">{{ loop.index }}. {{ q.text }}</div>
-            <div class="grid grid-cols-2 gap-2 text-sm">
-                {% for opt in q.options %}
-                <div class="px-3 py-1 rounded {% if loop.index0 == q.correct %}bg-emerald-500/15 text-emerald-300 font-medium{% else %}bg-zinc-900 text-zinc-500{% endif %}">
-                    {{ opt }}
+<!-- 2-column layout -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+
+    <!-- Leaderboard Card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg lg:col-span-1">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h3 class="text-sm font-medium text-[#fafafa]">טבלת הישגים</h3>
+        </div>
+        <div class="px-6 py-4">
+            {% if leaders %}
+                {% for l in leaders %}
+                <div class="flex items-center justify-between py-2.5 border-b border-[#1f1f1f] last:border-0">
+                    <span class="text-sm text-[#fafafa]">{{ l.display_name }}</span>
+                    <span class="text-sm text-[#a1a1aa] stat-number">{{ l.total_score }} ({{ l.correct_answers }}/{{ l.total_answers }})</span>
                 </div>
                 {% endfor %}
-            </div>
-            <div class="text-xs text-zinc-500 mt-2">{{ q.category }}</div>
+            {% else %}
+                <p class="text-sm text-[#71717a]">אין ניקוד עדיין</p>
+            {% endif %}
         </div>
-        {% endfor %}
+    </div>
+
+    <!-- Generate Card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg lg:col-span-2 flex flex-col">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h3 class="text-sm font-medium text-[#fafafa]">ייצור שאלות</h3>
+        </div>
+        <div class="px-6 py-4 flex-1">
+            <textarea
+                id="trivia-preview"
+                class="w-full min-h-[200px] bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#a1a1aa] px-3 py-2 resize-y focus:outline-none focus:border-[#3f3f3f] font-mono"
+                placeholder="תוכן שנוצר יופיע כאן..."
+                dir="rtl"
+            ></textarea>
+            <p class="text-xs text-[#71717a] mt-2">ייצר שאלות חדשות באמצעות AI. ניתן להוסיף לקיימות או להחליף.</p>
+        </div>
+        <div class="px-6 py-4 border-t border-[#1f1f1f] flex items-center gap-2 flex-wrap">
+            <button
+                onclick="generateContent('trivia', 'append', 'trivia-preview')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                הוסף שאלות
+            </button>
+            <button
+                onclick="generateContent('trivia', 'replace', 'trivia-preview')"
+                class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors"
+            >
+                ייצר מחדש
+            </button>
+            <button
+                onclick="saveTrivia()"
+                class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+            >
+                שמור שאלות
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<!-- Questions List Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center">
+        <h3 class="text-sm font-medium text-[#fafafa]">שאלות</h3>
+        <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md mr-2">{{ questions|length }}</span>
+    </div>
+    <div class="px-6 py-4">
+        {% if questions %}
+            {% for q in questions %}
+            <div class="py-4 border-b border-[#1f1f1f] last:border-0">
+                <div class="flex items-start gap-2 mb-2">
+                    <span class="text-sm text-[#fafafa]">{{ loop.index }}. {{ q.text }}</span>
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-md bg-[#1f1f1f] text-[#71717a] shrink-0 mr-auto">{{ q.category }}</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                    {% for opt in q.options %}
+                    <div class="text-sm px-3 py-1.5 rounded-md {% if loop.index0 == q.correct %}bg-emerald-500/10 text-emerald-400{% else %}text-[#a1a1aa]{% endif %}">
+                        {{ opt }}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-sm text-[#71717a]">אין שאלות עדיין</p>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Existing questions loaded from server
-const existingQuestions = {{ questions | tojson }};
-let pendingGeneratedQuestions = [];
-let triviaGenerateMode = 'append';
-
-async function resetTrivia() {
-    if (!confirm('בטוח? זה יאפס את כל ניקוד הטריוויה!')) return;
-    try {
-        await apiCall('/api/trivia/reset');
-        showToast('הניקוד אופס');
-        setTimeout(() => location.reload(), 1000);
-    } catch (e) {
-        showToast('שגיאה באיפוס', 'error');
-    }
-}
-
-function parseTriviaOutput(raw) {
-    const questions = [];
-    const blocks = raw.split(/\n\s*\n/).map(b => b.trim()).filter(b => b);
-    for (const block of blocks) {
-        const lines = block.split('\n').map(l => l.trim()).filter(l => l);
-        const q = {};
-        for (const line of lines) {
-            if (line.startsWith('שאלה:')) q.text = line.replace('שאלה:', '').trim();
-            else if (line.startsWith('תשובות:')) q.options = line.replace('תשובות:', '').split('|').map(o => o.trim());
-            else if (line.startsWith('נכונה:')) q.correct = parseInt(line.replace('נכונה:', '').trim(), 10);
-            else if (line.startsWith('קטגוריה:')) q.category = line.replace('קטגוריה:', '').trim();
+function resetTrivia() {
+    showConfirm('האם לאפס את כל ניקוד הטריוויה?', async function() {
+        try {
+            await apiCall('/api/trivia/reset');
+            showToast('ניקוד אופס');
+            setTimeout(function() { location.reload(); }, 1000);
+        } catch (e) {
+            showToast('שגיאה באיפוס', 'error');
         }
-        if (q.text && q.options && q.options.length >= 2 && typeof q.correct === 'number') {
-            questions.push(q);
-        }
-    }
-    return questions;
-}
-
-function renderTriviaPreview(questions) {
-    const container = document.getElementById('trivia-preview');
-    container.innerHTML = '';
-    questions.forEach((q, i) => {
-        const div = document.createElement('div');
-        div.className = 'border border-violet-500/20 rounded-lg p-3 bg-zinc-900';
-        const opts = (q.options || []).map((opt, idx) =>
-            `<div class="px-2 py-1 rounded text-xs ${idx === q.correct ? 'bg-emerald-500/15 text-emerald-300 font-medium' : 'text-zinc-500'}">${opt}</div>`
-        ).join('');
-        div.innerHTML = `
-            <div class="font-medium text-zinc-300 text-sm mb-2">${i + 1}. ${q.text}</div>
-            <div class="grid grid-cols-2 gap-1">${opts}</div>
-            <div class="text-xs text-zinc-500 mt-1">${q.category || ''}</div>
-        `;
-        container.appendChild(div);
     });
 }
 
-async function generateTrivia(mode) {
-    triviaGenerateMode = mode;
-    const statusEl = document.getElementById('trivia-generate-status');
-    const resultEl = document.getElementById('trivia-generate-result');
-    statusEl.classList.remove('hidden');
-    resultEl.classList.add('hidden');
-
-    // Disable both buttons
-    document.querySelectorAll('[onclick^="generateTrivia"]').forEach(b => b.disabled = true);
-
-    try {
-        const res = await apiCall('/api/generate', {
-            field: 'trivia',
-            mode: mode,
-            existing: '',
-            category: '',
-        });
-
-        const parsed = parseTriviaOutput(res.content);
-        if (parsed.length === 0) {
-            showToast('לא הצלחתי לפרסר את התוכן שנוצר', 'error');
-            return;
+async function saveTrivia() {
+    var text = document.getElementById('trivia-preview').value.trim();
+    if (!text) {
+        showToast('אין תוכן לשמירה', 'error');
+        return;
+    }
+    var questions = [];
+    var blocks = text.split(/\n\n+/);
+    for (var i = 0; i < blocks.length; i++) {
+        var lines = blocks[i].trim().split('\n');
+        if (lines.length < 4) continue;
+        var questionText = lines[0].replace(/^שאלה:\s*/, '');
+        var optionsLine = lines[1].replace(/^תשובות:\s*/, '');
+        var options = optionsLine.split('|').map(function(o) { return o.trim(); });
+        var correctLine = lines[2].replace(/^נכונה:\s*/, '');
+        var correct = parseInt(correctLine) || 0;
+        var category = lines[3] ? lines[3].replace(/^קטגוריה:\s*/, '').trim() : 'כללי';
+        if (options.length >= 4 && questionText) {
+            questions.push({
+                text: questionText,
+                options: options.slice(0, 4),
+                correct: correct,
+                category: category
+            });
         }
-
-        pendingGeneratedQuestions = parsed;
-        renderTriviaPreview(parsed);
-        resultEl.classList.remove('hidden');
-        showToast(`${parsed.length} שאלות נוצרו — בדוק ושמור`);
-    } catch (e) {
-        showToast('שגיאה ביצירת תוכן: ' + e.message, 'error');
-    } finally {
-        statusEl.classList.add('hidden');
-        document.querySelectorAll('[onclick^="generateTrivia"]').forEach(b => b.disabled = false);
     }
-}
-
-async function saveTriviaGenerated() {
-    let finalQuestions;
-    if (triviaGenerateMode === 'append') {
-        finalQuestions = [...existingQuestions, ...pendingGeneratedQuestions];
-    } else {
-        finalQuestions = [...pendingGeneratedQuestions];
+    if (questions.length === 0) {
+        showToast('לא נמצאו שאלות תקינות', 'error');
+        return;
     }
-
     try {
-        await apiCall('/api/trivia/questions', { questions: finalQuestions });
-        showToast('שאלות נשמרו בהצלחה');
-        setTimeout(() => location.reload(), 1000);
+        await apiCall('/api/trivia/questions', { questions: questions });
+        showToast(questions.length + ' שאלות נשמרו');
+        setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
-        showToast('שגיאה בשמירה: ' + e.message, 'error');
+        showToast('שגיאה בשמירה', 'error');
     }
 }
 
-function cancelTriviaGenerated() {
-    pendingGeneratedQuestions = [];
-    document.getElementById('trivia-generate-result').classList.add('hidden');
+async function toggleFeature(feature, enabled) {
+    try {
+        var data = {{ settings.features | tojson }};
+        data[feature] = enabled;
+        await apiCall('/api/settings/features', data);
+        showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
 }
 </script>
 {% endblock %}

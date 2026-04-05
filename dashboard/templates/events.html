@@ -4,126 +4,203 @@
 {% block title %}Botson — אירועים{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex items-center justify-between">
-    <div>
-        <h2 class="text-xl font-semibold text-zinc-100">אירועים</h2>
-        <p class="text-sm text-zinc-500 mt-1">ניהול אירועים ופעילויות קהילתיות</p>
+<div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-4">
+        <div>
+            <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">אירועים</h1>
+            <p class="text-sm text-[#71717a] mt-1">ניהול אירועים קהילתיים</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-[#71717a]">פעיל</span>
+            <label class="switch">
+                <input type="checkbox" id="feat-events" onchange="toggleFeature('events', this.checked)" {% if settings.features and settings.features.events %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
     </div>
-    <button onclick="document.getElementById('new-event-form').classList.toggle('hidden')" class="border border-zinc-700 text-zinc-200 hover:bg-zinc-800 px-4 py-2 rounded-lg text-sm transition">
-        + אירוע חדש
-    </button>
 </div>
 
-<!-- New Event Form -->
-<div id="new-event-form" class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 hidden overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">יצירת אירוע חדש</h3>
+<!-- Telegram Preview Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — פרסום אירוע</p>
+    <div class="max-w-sm">
+        <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm" dir="rtl">
+            <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+            <div class="text-[#e4e6eb]">
+                🎉 <strong>אירוע חדש!</strong><br><br>
+                <strong>סרטון ופופקורן</strong><br>
+                ערב סרטים קהילתי עם פופקורן!<br><br>
+                📅 15/04/2026 · 🕐 20:00<br>
+                📍 זום
+            </div>
+            <!-- Inline keyboard buttons -->
+            <div class="flex gap-2 mt-3">
+                <div class="flex-1 bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">✓ אגיע (3)</div>
+                <div class="flex-1 bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">? אולי (1)</div>
+            </div>
+            <div class="text-[#8b9db5] text-[10px] mt-2 text-left" dir="ltr">09:00</div>
+        </div>
     </div>
-    <div class="px-6 py-4">
+</div>
+
+<!-- Create Event Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-5 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">אירוע חדש</h2>
+    </div>
+    <div class="px-5 py-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="md:col-span-2">
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">שם האירוע</label>
-                <input type="text" id="event-title" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="למשל: מפגש חברתי">
+                <input
+                    type="text"
+                    id="event-title"
+                    placeholder="כותרת"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                >
             </div>
             <div class="md:col-span-2">
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">תיאור</label>
-                <textarea id="event-desc" rows="3" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="תיאור קצר של האירוע"></textarea>
+                <input
+                    type="text"
+                    id="event-desc"
+                    placeholder="תיאור (אופציונלי)"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                >
             </div>
             <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">תאריך</label>
-                <input type="date" id="event-date" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+                <input
+                    type="date"
+                    id="event-date"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                >
             </div>
             <div>
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">שעה</label>
-                <input type="time" id="event-time" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+                <input
+                    type="time"
+                    id="event-time"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                >
             </div>
             <div class="md:col-span-2">
-                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">מיקום / קישור</label>
-                <input type="text" id="event-location" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="כתובת או קישור לזום">
+                <input
+                    type="text"
+                    id="event-location"
+                    placeholder="מיקום (אופציונלי)"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                >
             </div>
         </div>
     </div>
-    <div class="px-6 py-4 border-t border-zinc-800">
-        <button onclick="createEvent()" class="bg-emerald-600 text-white hover:bg-emerald-500 px-5 py-2 rounded-lg cursor-pointer text-sm">
-            צור ופרסם אירוע
+    <div class="px-5 py-4 border-t border-[#1f1f1f]">
+        <button
+            onclick="createEvent()"
+            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+        >
+            צור אירוע
         </button>
     </div>
 </div>
 
-<!-- Events List -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-    <table class="w-full">
-        <thead class="bg-zinc-900">
-            <tr>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">אירוע</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">תאריך</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">מגיעים</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">סטטוס</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">פעולות</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-white/6">
-            {% for e in events %}
-            <tr class="hover:bg-zinc-800">
-                <td class="px-6 py-4">
-                    <div class="text-sm font-medium text-zinc-300">{{ e.title }}</div>
-                    <div class="text-xs text-zinc-500">{{ e.description[:60] }}{% if e.description|length > 60 %}...{% endif %}</div>
-                </td>
-                <td class="px-6 py-4 text-sm text-zinc-300">{{ e.event_date }}{% if e.event_time %}<br><span class="text-xs text-zinc-500">{{ e.event_time }}</span>{% endif %}</td>
-                <td class="px-6 py-4 text-sm text-zinc-300 stat-number">✅ {{ e.rsvp_yes_count }} | 🤔 {{ e.rsvp_maybe_count }}</td>
-                <td class="px-6 py-4">
-                    {% if e.active %}
-                    <span class="bg-emerald-500/15 text-emerald-300 text-xs font-medium px-2 py-0.5 rounded-full">פעיל</span>
-                    {% else %}
-                    <span class="bg-white/5 text-zinc-500 text-xs font-medium px-2 py-0.5 rounded-full">בוטל</span>
-                    {% endif %}
-                </td>
-                <td class="px-6 py-4">
-                    {% if e.active %}
-                    <button onclick="deleteEvent({{ e.id }})" class="text-rose-300 hover:bg-rose-500/10 text-sm px-2 py-1 rounded transition">מחק</button>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            {% if not events %}
-            <tr><td colspan="5" class="px-6 py-8 text-center text-zinc-500">אין אירועים</td></tr>
-            {% endif %}
-        </tbody>
-    </table>
+<!-- Events Table Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
+    <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center">
+        <h2 class="text-sm font-medium text-[#fafafa]">אירועים</h2>
+        <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md mr-2">{{ events|length }}</span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-[#1f1f1f]">
+                    <th class="px-5 py-3 text-right text-xs text-[#71717a] font-medium">כותרת</th>
+                    <th class="px-5 py-3 text-right text-xs text-[#71717a] font-medium">תאריך</th>
+                    <th class="px-5 py-3 text-right text-xs text-[#71717a] font-medium">אישורים</th>
+                    <th class="px-5 py-3 text-right text-xs text-[#71717a] font-medium">סטטוס</th>
+                    <th class="px-5 py-3 text-right text-xs text-[#71717a] font-medium"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in events %}
+                <tr class="border-b border-[#1f1f1f] last:border-0 hover:bg-[#111111] transition-colors">
+                    <td class="px-5 py-3">
+                        <span class="text-sm text-[#fafafa]">{{ e.title }}</span>
+                    </td>
+                    <td class="px-5 py-3">
+                        <span class="text-sm text-[#a1a1aa]">{{ e.event_date }}{% if e.event_time %} · {{ e.event_time }}{% endif %}</span>
+                    </td>
+                    <td class="px-5 py-3">
+                        <span class="text-sm text-[#a1a1aa]">{{ e.rsvp_yes_count }} אישרו · {{ e.rsvp_maybe_count }} אולי</span>
+                    </td>
+                    <td class="px-5 py-3">
+                        {% if e.active %}
+                        <span class="bg-emerald-500/10 text-emerald-400 text-xs font-medium px-2 py-0.5 rounded-md">פעיל</span>
+                        {% else %}
+                        <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2 py-0.5 rounded-md">לא פעיל</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-5 py-3">
+                        <button
+                            onclick="deleteEvent({{ e.id }})"
+                            class="text-[#fca5a5] hover:text-red-300 text-sm cursor-pointer transition-colors"
+                        >
+                            מחק
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not events %}
+                <tr>
+                    <td colspan="5" class="px-5 py-10 text-center text-sm text-[#71717a]">אין אירועים עדיין</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 async function createEvent() {
-    const data = {
-        title: document.getElementById('event-title').value,
-        description: document.getElementById('event-desc').value,
-        event_date: document.getElementById('event-date').value,
-        event_time: document.getElementById('event-time').value || null,
-        location: document.getElementById('event-location').value || null,
-    };
-    if (!data.title || !data.event_date) {
-        showToast('שם ותאריך הם שדות חובה', 'error');
+    var title = document.getElementById('event-title').value.trim();
+    var date = document.getElementById('event-date').value;
+    if (!title || !date) {
+        showToast('נא למלא כותרת ותאריך', 'error');
         return;
     }
     try {
-        await apiCall('/api/events/create', data);
-        showToast('האירוע נוצר בהצלחה');
-        setTimeout(() => location.reload(), 1000);
+        await apiCall('/api/events/create', {
+            title: title,
+            description: document.getElementById('event-desc').value.trim(),
+            event_date: date,
+            event_time: document.getElementById('event-time').value,
+            location: document.getElementById('event-location').value.trim(),
+        });
+        showToast('אירוע נוצר');
+        setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
         showToast('שגיאה ביצירת אירוע', 'error');
     }
 }
 
-async function deleteEvent(id) {
-    if (!confirm('למחוק את האירוע?')) return;
+function deleteEvent(eventId) {
+    showConfirm('האם למחוק את האירוע?', async function() {
+        try {
+            await apiCall('/api/events/' + eventId + '/delete');
+            showToast('אירוע נמחק');
+            setTimeout(function() { location.reload(); }, 1000);
+        } catch (e) {
+            showToast('שגיאה במחיקה', 'error');
+        }
+    });
+}
+
+async function toggleFeature(feature, enabled) {
     try {
-        await apiCall(`/api/events/${id}/delete`);
-        showToast('האירוע נמחק');
-        setTimeout(() => location.reload(), 1000);
+        var data = {{ settings.features | tojson }};
+        data[feature] = enabled;
+        await apiCall('/api/settings/features', data);
+        showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
     } catch (e) {
-        showToast('שגיאה במחיקה', 'error');
+        showToast('שגיאה בשמירה', 'error');
     }
 }
 </script>

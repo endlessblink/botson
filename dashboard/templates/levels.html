@@ -4,56 +4,114 @@
 {% block title %}Botson — רמות{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex items-center justify-between">
-    <div>
-        <h2 class="text-xl font-semibold text-zinc-100">רמות</h2>
-        <p class="text-sm text-zinc-500 mt-1">רמות חברי הקהילה</p>
+<!-- Page Header -->
+<div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-4">
+        <div>
+            <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">רמות</h1>
+            <p class="text-sm text-[#71717a] mt-1">מערכת רמות וניקוד</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-[#71717a]">פעיל</span>
+            <label class="switch">
+                <input type="checkbox" id="feat-levels" onchange="toggleFeature('levels', this.checked)" {% if settings.features and settings.features.levels %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
     </div>
-    <button onclick="resetLevels()" class="text-rose-300 hover:bg-rose-500/10 px-4 py-2 rounded-lg text-sm transition border border-rose-500/20">
-        אפס רמות (עונה חדשה)
+    <button onclick="resetLevels()" class="bg-transparent text-[#fca5a5] hover:bg-[#7f1d1d]/20 h-9 px-4 rounded-md text-sm cursor-pointer transition-colors border-0">
+        איפוס רמות
     </button>
 </div>
 
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-    <table class="w-full">
-        <thead class="bg-zinc-900">
-            <tr>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">מקום</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">שם</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">רמה</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">נקודות</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-white/6">
-            {% for m in leaders %}
-            <tr class="hover:bg-zinc-800">
-                <td class="px-6 py-4 text-lg">
-                    {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
-                </td>
-                <td class="px-6 py-4 text-sm text-zinc-300 font-medium">{{ m.display_name }}</td>
-                <td class="px-6 py-4 text-sm text-zinc-400">{{ m.level_emoji }} {{ m.level_tag }}</td>
-                <td class="px-6 py-4 text-sm text-zinc-300 stat-number">{{ m.karma_points }}</td>
-            </tr>
-            {% endfor %}
-            {% if not leaders %}
-            <tr><td colspan="4" class="px-6 py-8 text-center text-zinc-500">אין נתוני רמות עדיין</td></tr>
-            {% endif %}
-        </tbody>
-    </table>
+<!-- Telegram Preview -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה</p>
+    <div class="flex flex-col sm:flex-row gap-4">
+        <!-- Level-up announcement -->
+        <div class="flex-1">
+            <p class="text-[10px] text-[#71717a] mb-1.5">הודעת עליית רמה</p>
+            <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm">
+                <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+                <div class="text-[#e4e6eb]">🎉 מזל טוב! דנה עלתה לרמה 3 — 🌿 Growing</div>
+                <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">14:32</div>
+            </div>
+        </div>
+        <!-- /level command response -->
+        <div class="flex-1">
+            <p class="text-[10px] text-[#71717a] mb-1.5">תגובה ל-/level</p>
+            <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm">
+                <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+                <div class="text-[#e4e6eb]">🌿 Growing (רמה 3)<br>████████░░ 45/100 לרמה הבאה</div>
+                <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">14:33</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Levels Settings -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <div class="flex items-center justify-between">
+        <span class="text-sm text-[#a1a1aa]">מקסימום נקודות ביום למשתמש</span>
+        <span class="text-sm text-[#fafafa] stat-number">{{ settings.levels.max_per_day if settings.levels and settings.levels.max_per_day else '—' }}</span>
+    </div>
+</div>
+
+<!-- Leaderboard -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-[#1f1f1f]">
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">#</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">שם</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">רמה</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-left">נקודות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in leaders %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#111111]">
+                    <td class="px-4 py-3 text-sm text-[#71717a]">{{ loop.index }}</td>
+                    <td class="px-4 py-3 text-sm text-[#fafafa]">{{ m.display_name }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa]">{{ m.level_emoji }} {{ m.level_tag }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa] stat-number text-left">{{ m.karma_points }}</td>
+                </tr>
+                {% endfor %}
+                {% if not leaders %}
+                <tr>
+                    <td colspan="4" class="px-4 py-12 text-center text-sm text-[#52525b]">אין נתוני רמות עדיין</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-async function resetLevels() {
-    if (!confirm('בטוח? זה יאפס את כל הנקודות והרמות!')) return;
-    try {
-        await apiCall('/api/levels/reset');
-        showToast('הרמות אופסו');
-        setTimeout(() => location.reload(), 1000);
-    } catch (e) {
-        showToast('שגיאה באיפוס', 'error');
+    async function toggleFeature(feature, enabled) {
+        try {
+            var data = {{ settings.features | tojson }};
+            data[feature] = enabled;
+            await apiCall('/api/settings/features', data);
+            showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
+        } catch (e) {
+            showToast('שגיאה בשמירה', 'error');
+        }
     }
-}
+
+    function resetLevels() {
+        showConfirm('האם לאפס את כל הנקודות? פעולה זו בלתי הפיכה.', async function() {
+            try {
+                await apiCall('/api/levels/reset');
+                showToast('נקודות אופסו');
+                setTimeout(function() { location.reload(); }, 1000);
+            } catch (e) {
+                showToast('שגיאה באיפוס', 'error');
+            }
+        });
+    }
 </script>
 {% endblock %}

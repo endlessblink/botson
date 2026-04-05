@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import ADMIN_IDS, GROUP_ID, get_settings, get_spam_patterns
+from ..utils.config import ADMIN_IDS, GROUP_ID, get_settings, get_spam_patterns, is_feature_enabled
 from ..utils.helpers import is_admin, is_bot_user
 
 logger = logging.getLogger(__name__)
@@ -115,8 +115,7 @@ async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
 
-    settings_check = get_settings()
-    if not settings_check.get("features", {}).get("antispam", False):
+    if not is_feature_enabled("antispam", update.effective_chat.id):
         return
 
     # Skip admins and bots

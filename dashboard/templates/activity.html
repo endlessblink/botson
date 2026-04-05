@@ -1,57 +1,78 @@
 {% extends "base.html" %}
 {% set active_page = "activity" %}
-
 {% block title %}Botson — לוג פעילות{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h2 class="text-xl font-semibold text-zinc-100">לוג פעילות</h2>
-    <p class="text-sm text-zinc-500 mt-1">כל הפעולות שהבוט ביצע</p>
-</div>
+<div class="space-y-6">
 
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-    <table class="w-full">
-        <thead class="bg-zinc-900">
-            <tr>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">זמן</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">סוג</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">תיאור</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">ערוץ</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-white/6">
-            {% for entry in log %}
-            <tr class="hover:bg-zinc-800">
-                <td class="px-6 py-3 text-sm text-zinc-500 whitespace-nowrap">{{ entry.timestamp[:16] }}</td>
-                <td class="px-6 py-3">
-                    {% if entry.action_type == 'welcome' %}
-                    <span class="bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded-full text-xs font-medium">👋 ברוכים הבאים</span>
-                    {% elif entry.action_type == 'spam' %}
-                    <span class="bg-rose-500/15 text-rose-300 px-2 py-0.5 rounded-full text-xs font-medium">🛡️ ספאם</span>
-                    {% elif entry.action_type == 'level_up' %}
-                    <span class="bg-violet-500/15 text-violet-300 px-2 py-0.5 rounded-full text-xs font-medium">📊 עליית רמה</span>
-                    {% elif entry.action_type == 'goals' %}
-                    <span class="bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full text-xs font-medium">🌟 הישגים</span>
-                    {% elif entry.action_type == 'trivia' %}
-                    <span class="bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded-full text-xs font-medium">🧠 טריוויה</span>
-                    {% elif entry.action_type == 'discussion' %}
-                    <span class="bg-sky-500/15 text-sky-300 px-2 py-0.5 rounded-full text-xs font-medium">💬 דיון</span>
-                    {% elif entry.action_type == 'roundup' %}
-                    <span class="bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-full text-xs font-medium">📊 סיכום</span>
-                    {% elif entry.action_type == 'event' %}
-                    <span class="bg-pink-500/15 text-pink-300 px-2 py-0.5 rounded-full text-xs font-medium">🎉 אירוע</span>
-                    {% else %}
-                    <span class="bg-white/5 text-zinc-500 px-2 py-0.5 rounded-full text-xs font-medium">{{ entry.action_type }}</span>
-                    {% endif %}
-                </td>
-                <td class="px-6 py-3 text-sm text-zinc-300">{{ entry.description }}</td>
-                <td class="px-6 py-3 text-sm text-zinc-500">{{ entry.target_channel or '—' }}</td>
-            </tr>
-            {% endfor %}
-            {% if not log %}
-            <tr><td colspan="4" class="px-6 py-8 text-center text-zinc-500">אין פעולות מתועדות עדיין</td></tr>
+    <!-- Page Header -->
+    <div class="flex flex-col gap-1">
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">לוג פעילות</h1>
+        <p class="text-sm text-[#71717a]">200 פעולות אחרונות</p>
+    </div>
+
+    <!-- Activity Table Card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="overflow-x-auto">
+            {% if log %}
+            <table class="w-full border-collapse">
+                <thead>
+                    <tr class="border-b border-[#1f1f1f]">
+                        <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right whitespace-nowrap">זמן</th>
+                        <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right whitespace-nowrap">סוג</th>
+                        <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">תיאור</th>
+                        <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right whitespace-nowrap">ערוץ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in log %}
+                    {% set badge_map = {
+                        'welcome':    ('bg-emerald-500/10', 'text-emerald-400', 'bg-emerald-400',  'ברוכים הבאים'),
+                        'spam':       ('bg-red-500/10',     'text-red-400',     'bg-red-400',      'ספאם'),
+                        'level_up':   ('bg-violet-500/10',  'text-violet-400',  'bg-violet-400',   'עליית רמה'),
+                        'goals':      ('bg-amber-500/10',   'text-amber-400',   'bg-amber-400',    'מטרות'),
+                        'trivia':     ('bg-sky-500/10',     'text-sky-400',     'bg-sky-400',      'טריוויה'),
+                        'discussion': ('bg-blue-500/10',    'text-blue-400',    'bg-blue-400',     'דיון'),
+                        'roundup':    ('bg-orange-500/10',  'text-orange-400',  'bg-orange-400',   'סיכום שבועי'),
+                        'event':      ('bg-pink-500/10',    'text-pink-400',    'bg-pink-400',     'אירוע'),
+                    } %}
+                    {% set badge = badge_map.get(entry.action_type, ('bg-[#1f1f1f]', 'text-[#71717a]', 'bg-[#71717a]', entry.action_type)) %}
+                    <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                        <td class="px-4 py-3 whitespace-nowrap align-top">
+                            <span class="text-xs text-[#71717a] font-mono tabular-nums">{{ entry.timestamp[:16] }}</span>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap align-top">
+                            <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md {{ badge[0] }} {{ badge[1] }}">
+                                <span class="w-1.5 h-1.5 rounded-full {{ badge[2] }} shrink-0"></span>
+                                {{ badge[3] }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 align-top">
+                            <span class="text-sm text-[#a1a1aa] leading-relaxed">{{ entry.description }}</span>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap align-top">
+                            <span class="text-sm text-[#71717a]">{{ entry.target_channel or '—' }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <!-- Empty state -->
+            <div class="flex flex-col items-center justify-center py-20 gap-3">
+                <div class="w-10 h-10 rounded-full bg-[#1f1f1f] flex items-center justify-center">
+                    <svg class="w-5 h-5 text-[#3f3f46]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 12h-5"/>
+                        <path d="M15 8h-5"/>
+                        <path d="M19 17V5a2 2 0 0 0-2-2H4"/>
+                        <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2"/>
+                    </svg>
+                </div>
+                <p class="text-sm text-[#71717a]">אין פעולות רשומות עדיין</p>
+            </div>
             {% endif %}
-        </tbody>
-    </table>
+        </div>
+    </div>
+
 </div>
 {% endblock %}

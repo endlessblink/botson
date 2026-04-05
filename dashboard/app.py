@@ -171,10 +171,12 @@ async def prompts_page(request: Request):
         discussions = load_yaml("discussions.yaml")
     except Exception:
         pass
+    settings = get_settings()
 
     return templates.TemplateResponse(request, name="prompts.html", context={
         "prompts": prompts,
         "discussions": discussions,
+        "settings": settings,
     })
 
 
@@ -217,11 +219,13 @@ async def spam_page(request: Request, db: Database = Depends(get_db)):
     patterns = get_spam_patterns()
     spam_data = load_yaml("spam_patterns.yaml")
     whitelist = spam_data.get("whitelist", [])
+    settings = get_settings()
 
     return templates.TemplateResponse(request, name="spam.html", context={
         "spam_log": spam_log,
         "patterns": patterns,
         "whitelist": whitelist,
+        "settings": settings,
     })
 
 
@@ -252,8 +256,10 @@ async def levels_page(request: Request, db: Database = Depends(get_db)):
         m["level"] = lvl["level"]
         m["level_tag"] = lvl["tag"]
         m["level_emoji"] = lvl["emoji"]
+    settings = get_settings()
     return templates.TemplateResponse(request, name="levels.html", context={
         "leaders": leaders,
+        "settings": settings,
     })
 
 
@@ -277,9 +283,11 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
     for e in events:
         e["rsvp_yes_count"] = len(json.loads(e.get("rsvp_yes", "[]")))
         e["rsvp_maybe_count"] = len(json.loads(e.get("rsvp_maybe", "[]")))
+    settings = get_settings()
 
     return templates.TemplateResponse(request, name="events.html", context={
         "events": events,
+        "settings": settings,
     })
 
 
@@ -323,10 +331,12 @@ async def trivia_page(request: Request, db: Database = Depends(get_db)):
         questions = data.get("questions", [])
     except Exception:
         pass
+    settings = get_settings()
 
     return templates.TemplateResponse(request, name="trivia.html", context={
         "leaders": leaders,
         "questions": questions,
+        "settings": settings,
     })
 
 
@@ -477,7 +487,8 @@ async def activity_page(request: Request, db: Database = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
 
     log = await db.get_activity_log(200)
-    return templates.TemplateResponse(request, name="activity.html", context={"log": log})
+    settings = get_settings()
+    return templates.TemplateResponse(request, name="activity.html", context={"log": log, "settings": settings})
 
 
 @app.post("/api/settings/features")
@@ -516,7 +527,9 @@ async def members_page(request: Request, db: Database = Depends(get_db)):
         m["level"] = lvl["level"]
         m["level_tag"] = lvl["tag"]
         m["level_emoji"] = lvl["emoji"]
+    settings = get_settings()
 
     return templates.TemplateResponse(request, name="members.html", context={
         "members": members,
+        "settings": settings,
     })

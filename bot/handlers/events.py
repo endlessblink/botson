@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, get_settings
+from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
 
@@ -25,8 +25,7 @@ async def create_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not update.effective_user or not update.message:
         return ConversationHandler.END
 
-    settings = get_settings()
-    if not settings.get("features", {}).get("events", False):
+    if not is_feature_enabled("events", update.effective_chat.id):
         await update.message.reply_text("הפיצ'ר הזה לא פעיל כרגע")
         return ConversationHandler.END
 
@@ -259,8 +258,7 @@ async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: remind about events happening tomorrow."""
-    settings = get_settings()
-    if not settings.get("features", {}).get("events", False):
+    if not is_feature_enabled("events"):
         return
 
     from datetime import date, timedelta

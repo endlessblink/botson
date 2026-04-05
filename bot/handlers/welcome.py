@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import get_settings
+from ..utils.config import get_settings, is_feature_enabled
 from ..utils.helpers import get_display_name, is_bot_user
 
 logger = logging.getLogger(__name__)
@@ -68,9 +68,9 @@ async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not update.message or not update.message.new_chat_members:
         return
 
-    settings = get_settings()
-    if not settings.get("features", {}).get("welcome", False):
+    if not is_feature_enabled("welcome", update.effective_chat.id):
         return
+    settings = get_settings()
     batch_window = settings.get("welcome", {}).get("batch_window_seconds", 30)
     topic_id = settings.get("topics", {}).get("welcome")
 

@@ -4,90 +4,116 @@
 {% block title %}Botson — סקירה כללית{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h2 class="text-xl font-semibold text-zinc-100">סקירה כללית</h2>
-    <p class="text-sm text-zinc-500 mt-1">מבט על הקהילה</p>
+<div class="mb-6">
+    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">סקירה כללית</h1>
+    <p class="text-sm text-[#71717a] mt-1">מבט על הקהילה</p>
 </div>
 
-<!-- Stats Grid -->
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
-        <div class="text-3xl mb-2">📊</div>
-        <div class="text-sm text-zinc-500">רמה גבוהה ביותר</div>
-        {% if leaders %}
-        <div class="text-xl font-bold text-zinc-100 mt-1">{{ leaders[0].display_name }}</div>
-        <div class="text-sm text-zinc-500">{{ leaders[0].level_emoji }} {{ leaders[0].level_tag }}</div>
-        {% else %}
-        <div class="text-zinc-500 mt-1">אין נתונים</div>
-        {% endif %}
-    </div>
+<!-- Stat Cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
 
-    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
-        <div class="text-3xl mb-2">🔥</div>
-        <div class="text-sm text-zinc-500">רצף הכי ארוך</div>
-        {% if streaks %}
-        <div class="text-xl font-bold text-zinc-100 mt-1">{{ streaks[0].display_name }}</div>
-        <div class="text-sm text-zinc-500">{{ streaks[0].current_streak }} ימים</div>
-        {% else %}
-        <div class="text-zinc-500 mt-1">אין נתונים</div>
-        {% endif %}
-    </div>
-
-    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
-        <div class="text-3xl mb-2">🎉</div>
-        <div class="text-sm text-zinc-500">אירועים קרובים</div>
-        <div class="text-xl font-bold text-zinc-100 mt-1 stat-number">{{ events|length }}</div>
-    </div>
-
-    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
-        <div class="text-3xl mb-2">🧠</div>
-        <div class="text-sm text-zinc-500">טופ טריוויה</div>
-        {% if trivia_leaders %}
-        <div class="text-xl font-bold text-zinc-100 mt-1">{{ trivia_leaders[0].display_name }}</div>
-        <div class="text-sm text-zinc-500">{{ trivia_leaders[0].total_score }} נקודות</div>
-        {% else %}
-        <div class="text-zinc-500 mt-1">אין נתונים</div>
-        {% endif %}
-    </div>
-</div>
-
-<!-- Top Lists -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- Stars Leaderboard -->
-    <div class="border border-zinc-800 bg-zinc-900 rounded-xl p-6">
-        <h3 class="text-base font-semibold text-zinc-100 mb-4">📊 טבלת רמות</h3>
-        {% if leaders %}
-        <div class="space-y-3">
-            {% for m in leaders %}
-            <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-zinc-800{% endif %}">
-                <div class="flex items-center gap-3">
-                    <span class="text-lg">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
-                    <span class="text-sm text-zinc-300">{{ m.display_name }}</span>
-                </div>
-                <span class="font-bold text-zinc-100 stat-number">{{ m.karma_points }}</span>
-            </div>
-            {% endfor %}
+    <!-- Top Level -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-xs text-[#71717a]">רמה גבוהה ביותר</span>
+            <svg class="w-4 h-4 text-[#71717a] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+            </svg>
         </div>
+        {% if leaders %}
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1 truncate">{{ leaders[0].display_name }}</div>
+        <div class="text-xs text-[#71717a] mt-1">{{ leaders[0].level_emoji }} {{ leaders[0].level_tag }}</div>
         {% else %}
-        <p class="text-sm text-zinc-500">אין נתונים עדיין</p>
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1">—</div>
+        {% endif %}
+    </div>
+
+    <!-- Longest Streak -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-xs text-[#71717a]">רצף הכי ארוך</span>
+            <svg class="w-4 h-4 text-[#71717a] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+            </svg>
+        </div>
+        {% if streaks %}
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1 truncate">{{ streaks[0].display_name }}</div>
+        <div class="text-xs text-[#71717a] mt-1">{{ streaks[0].current_streak }} ימים</div>
+        {% else %}
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1">—</div>
         {% endif %}
     </div>
 
     <!-- Upcoming Events -->
-    <div class="border border-zinc-800 bg-zinc-900 rounded-xl p-6">
-        <h3 class="text-base font-semibold text-zinc-100 mb-4">🎉 אירועים קרובים</h3>
-        {% if events %}
-        <div class="space-y-3">
-            {% for e in events %}
-            <div class="py-2 {% if not loop.last %}border-b border-zinc-800{% endif %}">
-                <div class="text-sm font-medium text-zinc-300">{{ e.title }}</div>
-                <div class="text-sm text-zinc-500">📅 {{ e.event_date }}{% if e.event_time %} | 🕐 {{ e.event_time }}{% endif %}</div>
-            </div>
-            {% endfor %}
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-xs text-[#71717a]">אירועים קרובים</span>
+            <svg class="w-4 h-4 text-[#71717a] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>
+            </svg>
         </div>
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1">{{ events|length }}</div>
+    </div>
+
+    <!-- Top Trivia -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-xs text-[#71717a]">טופ טריוויה</span>
+            <svg class="w-4 h-4 text-[#71717a] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/>
+            </svg>
+        </div>
+        {% if trivia_leaders %}
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1 truncate">{{ trivia_leaders[0].display_name }}</div>
+        <div class="text-xs text-[#71717a] mt-1">{{ trivia_leaders[0].total_score }} נקודות</div>
         {% else %}
-        <p class="text-sm text-zinc-500">אין אירועים קרובים</p>
+        <div class="text-2xl font-bold text-[#fafafa] stat-number mt-1">—</div>
         {% endif %}
     </div>
+
+</div>
+
+<!-- List Panels -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    <!-- Leaderboard Panel -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-4 py-3 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">טבלת רמות</h2>
+        </div>
+        {% if leaders %}
+        {% for m in leaders %}
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#1f1f1f] last:border-0 hover:bg-[#111111]">
+            <div class="flex items-center gap-3 min-w-0">
+                <span class="text-xs text-[#71717a] w-6 shrink-0">{{ loop.index }}</span>
+                <span class="text-sm text-[#fafafa] truncate">{{ m.display_name }}</span>
+            </div>
+            <span class="text-sm text-[#a1a1aa] stat-number shrink-0 mr-2">{{ m.karma_points }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="px-4 py-8 text-center text-sm text-[#71717a]">אין נתונים עדיין</div>
+        {% endif %}
+    </div>
+
+    <!-- Upcoming Events Panel -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-4 py-3 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">אירועים קרובים</h2>
+        </div>
+        {% if events %}
+        {% for e in events %}
+        <div class="flex items-start justify-between px-4 py-3 border-b border-[#1f1f1f] last:border-0 hover:bg-[#111111]">
+            <div class="min-w-0">
+                <div class="text-sm text-[#fafafa] truncate">{{ e.title }}</div>
+                <div class="text-xs text-[#71717a] mt-0.5">{{ e.event_date }}{% if e.event_time %} · {{ e.event_time }}{% endif %}</div>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="px-4 py-8 text-center text-sm text-[#71717a]">אין אירועים קרובים</div>
+        {% endif %}
+    </div>
+
 </div>
 {% endblock %}

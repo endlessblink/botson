@@ -4,75 +4,272 @@
 {% block title %}Botson — ספאם{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h2 class="text-xl font-semibold text-zinc-100">הגנת ספאם</h2>
-    <p class="text-sm text-zinc-500 mt-1">לוג פעולות וניהול תבניות</p>
+
+<!-- Page Header Row with Feature Toggle -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">ספאם</h1>
+        <p class="text-sm text-[#71717a] mt-1">ניהול הגנת ספאם</p>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-sm text-[#a1a1aa]">פעיל</span>
+        <label class="switch">
+            <input type="checkbox" id="feat-antispam" onchange="toggleFeature('antispam', this.checked)" {% if settings.features and settings.features.antispam %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+    </div>
 </div>
 
-<!-- Spam Patterns -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">🔍 תבניות זיהוי (Regex)</h3>
-        <p class="text-sm text-zinc-500 mt-1">שורה אחת לכל תבנית</p>
-    </div>
-    <div class="px-6 py-4 space-y-4">
-        <textarea id="spam-patterns" rows="8" class="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-zinc-300 placeholder:text-zinc-600 leading-relaxed resize-y" dir="ltr">{% for p in patterns %}{{ p }}{% if not loop.last %}
-{% endif %}{% endfor %}</textarea>
-
-        <div>
-            <h4 class="text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-2">רשימה לבנה</h4>
-            <textarea id="spam-whitelist" rows="3" class="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-zinc-300 placeholder:text-zinc-600 leading-relaxed resize-y" dir="ltr">{% for w in whitelist %}{{ w }}{% if not loop.last %}
-{% endif %}{% endfor %}</textarea>
+<!-- Telegram-style Admin Preview Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — הודעה למנהל</p>
+    <div class="max-w-sm">
+        <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm" dir="rtl">
+            <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+            <div class="text-[#e4e6eb]">
+                🛡️ <strong>ספאם זוהה</strong><br>
+                <span class="text-[#8b9db5]">משתמש:</span> David K.<br>
+                <span class="text-[#8b9db5]">כלל:</span> קישורים מחבר חדש<br>
+                <span class="text-[#8b9db5]">פעולה:</span> הודעה נמחקה, השתקה ל-10 דקות
+            </div>
+            <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">14:32</div>
         </div>
     </div>
-    <div class="px-6 py-4 border-t border-zinc-800">
-        <button onclick="savePatterns()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
-            שמור תבניות
+</div>
+
+<!-- Anti-Spam Settings Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h3 class="text-sm font-semibold text-[#fafafa]">הגדרות ספאם</h3>
+    </div>
+    <div class="px-6 py-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="spam-max-links">מקסימום קישורים לחבר חדש</label>
+                <input
+                    type="number"
+                    id="spam-max-links"
+                    value="{{ settings.antispam.max_links_new_member }}"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                    min="0"
+                >
+            </div>
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="spam-new-days">ימים כחבר "חדש"</label>
+                <input
+                    type="number"
+                    id="spam-new-days"
+                    value="{{ settings.antispam.new_member_days }}"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                    min="0"
+                >
+            </div>
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="spam-dup-threshold">סף הודעות כפולות</label>
+                <input
+                    type="number"
+                    id="spam-dup-threshold"
+                    value="{{ settings.antispam.duplicate_threshold }}"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                    min="1"
+                >
+            </div>
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="spam-mute-min">דקות השתקה</label>
+                <input
+                    type="number"
+                    id="spam-mute-min"
+                    value="{{ settings.antispam.mute_duration_minutes }}"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                    min="0"
+                >
+            </div>
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="spam-dup-window">חלון הודעות כפולות (שניות)</label>
+                <input
+                    type="number"
+                    id="spam-dup-window"
+                    value="{{ settings.antispam.duplicate_window_seconds }}"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                    min="0"
+                >
+            </div>
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="spam-grace">שניות חסד לחברים חדשים</label>
+                <input
+                    type="number"
+                    id="spam-grace"
+                    value="{{ settings.antispam.new_member_grace_seconds }}"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
+                    min="0"
+                >
+            </div>
+        </div>
+    </div>
+    <div class="px-6 py-4 border-t border-[#1f1f1f]">
+        <button
+            onclick="saveAntispam()"
+            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+        >
+            שמור הגדרות
         </button>
     </div>
 </div>
 
-<!-- Spam Log -->
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-    <div class="px-6 py-4 border-b border-zinc-800">
-        <h3 class="text-base font-semibold text-zinc-100">📋 לוג פעולות (50 אחרונות)</h3>
+<!-- 2-column grid: patterns + whitelist -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+
+    <!-- Patterns Card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg flex flex-col">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h3 class="text-sm font-semibold text-[#fafafa]">דפוסי זיהוי (Regex)</h3>
+            <p class="text-xs text-[#71717a] mt-0.5">שורה אחת לכל דפוס</p>
+        </div>
+        <div class="px-6 py-4 flex-1">
+            <textarea
+                id="patterns-textarea"
+                dir="ltr"
+                class="bg-transparent border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full resize-y font-mono min-h-[200px] text-xs"
+                placeholder="הכנס דפוסי regex, שורה לכל דפוס"
+            >{{ patterns | join('\n') }}</textarea>
+        </div>
+        <div class="px-6 py-4 border-t border-[#1f1f1f]">
+            <button
+                onclick="savePatterns()"
+                class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+            >
+                שמור דפוסים
+            </button>
+        </div>
     </div>
-    <table class="w-full">
-        <thead class="bg-zinc-900">
-            <tr>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">זמן</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">משתמש</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">כלל</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">פעולה</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">הודעה</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-white/6">
-            {% for log in spam_log %}
-            <tr class="hover:bg-zinc-800">
-                <td class="px-6 py-3 text-sm text-zinc-500">{{ log.timestamp[:16] }}</td>
-                <td class="px-6 py-3 text-sm text-zinc-300">{{ log.user_id }}</td>
-                <td class="px-6 py-3"><span class="bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full text-xs font-medium">{{ log.rule_triggered[:30] }}</span></td>
-                <td class="px-6 py-3 text-sm text-zinc-300">{{ log.action }}</td>
-                <td class="px-6 py-3 text-sm text-zinc-500 max-w-xs truncate">{{ log.message_text[:80] }}</td>
-            </tr>
-            {% endfor %}
-            {% if not spam_log %}
-            <tr><td colspan="5" class="px-6 py-8 text-center text-zinc-500">אין פעולות ספאם מתועדות</td></tr>
-            {% endif %}
-        </tbody>
-    </table>
+
+    <!-- Whitelist Card -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg flex flex-col">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h3 class="text-sm font-semibold text-[#fafafa]">רשימה לבנה</h3>
+            <p class="text-xs text-[#71717a] mt-0.5">מחרוזות שיוחרגו מזיהוי</p>
+        </div>
+        <div class="px-6 py-4 flex-1">
+            <textarea
+                id="whitelist-textarea"
+                dir="ltr"
+                class="bg-transparent border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full resize-y font-mono min-h-[200px] text-xs"
+                placeholder="הכנס מחרוזות לרשימה לבנה, שורה לכל ערך"
+            >{{ whitelist | join('\n') }}</textarea>
+        </div>
+        <div class="px-6 py-4 border-t border-[#1f1f1f]">
+            <button
+                onclick="saveWhitelist()"
+                class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+            >
+                שמור רשימה לבנה
+            </button>
+        </div>
+    </div>
+
 </div>
+
+<!-- Spam Log Table Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center gap-3">
+        <h3 class="text-sm font-semibold text-[#fafafa]">לוג זיהוי</h3>
+        <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2 py-0.5 rounded-md">
+            {{ spam_log | length }}
+        </span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-[#1f1f1f]">
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">זמן</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">משתמש</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">כלל</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">פעולה</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">הודעה</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in spam_log %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                    <td class="px-4 py-3 text-xs text-[#71717a] whitespace-nowrap">{{ s.timestamp[:16] }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa]">{{ s.user_id }}</td>
+                    <td class="px-4 py-3">
+                        <span class="bg-amber-500/10 text-amber-400 text-xs font-medium px-2 py-0.5 rounded-md whitespace-nowrap">
+                            {{ s.rule_triggered }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa]">{{ s.action }}</td>
+                    <td class="px-4 py-3 text-sm text-[#71717a] max-w-xs truncate" title="{{ s.message_text }}">
+                        {{ s.message_text }}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not spam_log %}
+                <tr>
+                    <td colspan="5" class="px-4 py-10 text-center text-sm text-[#71717a]">
+                        אין רשומות זיהוי ספאם
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+async function toggleFeature(feature, enabled) {
+    try {
+        var data = {{ settings.features | tojson }};
+        data[feature] = enabled;
+        await apiCall('/api/settings/features', data);
+        showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
+async function saveAntispam() {
+    try {
+        await apiCall('/api/settings/antispam', {
+            max_links_new_member: parseInt(document.getElementById('spam-max-links').value),
+            new_member_days: parseInt(document.getElementById('spam-new-days').value),
+            duplicate_threshold: parseInt(document.getElementById('spam-dup-threshold').value),
+            mute_duration_minutes: parseInt(document.getElementById('spam-mute-min').value),
+            duplicate_window_seconds: parseInt(document.getElementById('spam-dup-window').value),
+            new_member_grace_seconds: parseInt(document.getElementById('spam-grace').value),
+        });
+        showToast('הגדרות ספאם נשמרו');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
 async function savePatterns() {
     try {
-        const patterns = document.getElementById('spam-patterns').value.split('\n').map(l => l.trim()).filter(l => l);
-        const whitelist = document.getElementById('spam-whitelist').value.split('\n').map(l => l.trim()).filter(l => l);
-        await apiCall('/api/spam/patterns', { patterns, whitelist });
-        showToast('תבניות נשמרו');
+        var patterns = document.getElementById('patterns-textarea').value.split('\n').filter(function(l) { return l.trim(); });
+        var whitelist = document.getElementById('whitelist-textarea').value.split('\n').filter(function(l) { return l.trim(); });
+        await apiCall('/api/spam/patterns', {
+            patterns: patterns,
+            whitelist: whitelist
+        });
+        showToast('דפוסי ספאם נשמרו');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
+async function saveWhitelist() {
+    try {
+        var patterns = document.getElementById('patterns-textarea').value.split('\n').filter(function(l) { return l.trim(); });
+        var whitelist = document.getElementById('whitelist-textarea').value.split('\n').filter(function(l) { return l.trim(); });
+        await apiCall('/api/spam/patterns', {
+            patterns: patterns,
+            whitelist: whitelist
+        });
+        showToast('רשימה לבנה נשמרה');
     } catch (e) {
         showToast('שגיאה בשמירה', 'error');
     }

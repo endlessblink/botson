@@ -4,36 +4,103 @@
 {% block title %}Botson — חברים{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h2 class="text-xl font-semibold text-zinc-100">חברים</h2>
-    <p class="text-sm text-zinc-500 mt-1">{{ members|length }} חברים רשומים</p>
+<div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-4">
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">חברים</h1>
+        <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md">{{ members|length }}</span>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-xs text-[#71717a]">ברוכים הבאים</span>
+        <label class="switch">
+            <input type="checkbox" id="feat-welcome" onchange="toggleFeature('welcome', this.checked)" {% if settings.features and settings.features.welcome %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+    </div>
 </div>
 
-<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-    <table class="w-full">
-        <thead class="bg-zinc-900">
-            <tr>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">שם</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">רמה</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">שם משתמש</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">הצטרף/ה</th>
-                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">נקודות</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-white/6">
-            {% for m in members %}
-            <tr class="hover:bg-zinc-800">
-                <td class="px-6 py-4 text-sm font-medium text-zinc-300">{{ m.display_name }}</td>
-                <td class="px-6 py-4 text-sm text-zinc-400">{{ m.level_emoji }} {{ m.level_tag }}</td>
-                <td class="px-6 py-4 text-sm text-zinc-500">{% if m.username %}@{{ m.username }}{% else %}—{% endif %}</td>
-                <td class="px-6 py-4 text-xs text-zinc-500">{{ m.joined_at[:10] if m.joined_at else '—' }}</td>
-                <td class="px-6 py-4 stat-number text-sm text-zinc-300">{{ m.karma_points }}</td>
-            </tr>
-            {% endfor %}
-            {% if not members %}
-            <tr><td colspan="5" class="px-6 py-8 text-center text-zinc-500">אין חברים רשומים עדיין</td></tr>
-            {% endif %}
-        </tbody>
-    </table>
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — הודעת ברוכים הבאים (DM)</p>
+    <div class="max-w-md">
+        <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm" dir="rtl">
+            <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+            <div class="text-[#e4e6eb]">
+                היי דנה! ברוך/ה הבא/ה לאלהוריים וזה! 🌟<br>
+                אנחנו קהילה של אנשים חופשיים שבחרו לחיות בלי ילדים.<br>
+                הנה כמה ערוצים שאפשר להציץ בהם:<br>
+                🎨 אומנות ויצירה | 🎮 גיימינג | 📺 סרטים וסדרות | 😂 מצחיק<br>
+                💚 טבעוניות | 💌 פנויים/ות | 🌟 הישגים ומטרות | ועוד...<br>
+                ספר/י לנו קצת על עצמך בערוץ הכללי! 👋
+            </div>
+            <div class="text-[#8b9db5] text-[10px] mt-1 text-left" dir="ltr">12:05</div>
+        </div>
+    </div>
 </div>
+
+<div class="mb-4">
+    <input
+        type="text"
+        id="member-search"
+        placeholder="חיפוש לפי שם..."
+        oninput="filterMembers()"
+        class="w-full max-w-xs bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"
+    >
+</div>
+
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="overflow-x-auto">
+        <table class="w-full" id="members-table">
+            <thead>
+                <tr>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">#</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">שם</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">שם משתמש</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">רמה</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">נקודות</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">הצטרף</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in members %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#111111]" data-name="{{ m.display_name|lower }}">
+                    <td class="px-4 py-3 text-sm text-[#71717a]">{{ loop.index }}</td>
+                    <td class="px-4 py-3 text-sm text-[#fafafa]">{{ m.display_name }}</td>
+                    <td class="px-4 py-3 text-sm text-[#71717a]">{{ '@' + m.username if m.username else '—' }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa]">{{ m.level_emoji }} {{ m.level_tag }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa] stat-number text-left">{{ m.karma_points }}</td>
+                    <td class="px-4 py-3 text-xs text-[#71717a]">{{ m.joined_at[:10] if m.joined_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not members %}
+                <tr>
+                    <td colspan="6" class="px-4 py-10 text-center text-sm text-[#71717a]">אין חברים רשומים עדיין</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function filterMembers() {
+        var query = document.getElementById('member-search').value.toLowerCase();
+        var rows = document.querySelectorAll('#members-table tbody tr');
+        rows.forEach(function(row) {
+            var name = row.getAttribute('data-name') || '';
+            row.style.display = name.includes(query) ? '' : 'none';
+        });
+    }
+
+    async function toggleFeature(feature, enabled) {
+        try {
+            var data = {{ settings.features | tojson }};
+            data[feature] = enabled;
+            await apiCall('/api/settings/features', data);
+            showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
+        } catch (e) {
+            showToast('שגיאה בשמירה', 'error');
+        }
+    }
+</script>
 {% endblock %}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Botson — כניסה</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    *, body, input, button { font-family: 'Inter', system-ui, sans-serif; }
+  </style>
+</head>
+<body class="bg-[#09090b] min-h-screen flex items-center justify-center">
+  <div class="w-full max-w-sm mx-4">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6">
+      <div class="text-center mb-6">
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">Botson</h1>
+        <p class="text-sm text-[#71717a] mt-1">התחבר ללוח הבקרה</p>
+      </div>
+      <form method="POST" action="/login">
+        <div>
+          <label for="password" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">סיסמה</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            required
+            autofocus
+            placeholder="הכנס סיסמה"
+            class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"
+          >
+          {% if error %}
+          <p class="text-[#fca5a5] text-sm mt-2">{{ error }}</p>
+          {% endif %}
+        </div>
+        <button
+          type="submit"
+          class="mt-4 w-full bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
+        >
+          כניסה
+        </button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

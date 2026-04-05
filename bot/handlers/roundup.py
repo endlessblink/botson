@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from telegram.ext import ContextTypes
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, get_settings
+from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 from ..utils.levels import get_level
 
 logger = logging.getLogger(__name__)
@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: send weekly roundup to general channel every Friday."""
-    settings = get_settings()
-    if not settings.get("features", {}).get("roundup", False):
+    if not is_feature_enabled("roundup"):
         return
 
+    settings = get_settings()
     db: Database = context.bot_data["db"]
     general_topic = settings.get("topics", {}).get("general")
 

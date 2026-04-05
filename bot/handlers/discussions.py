@@ -5,7 +5,7 @@ import random
 
 from telegram.ext import ContextTypes
 
-from ..utils.config import GROUP_ID, get_settings
+from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +59,9 @@ async def send_discussion_prompt(context: ContextTypes.DEFAULT_TYPE):
     Picks one random category that has a configured topic ID,
     then sends a random prompt from that category.
     """
-    settings = get_settings()
-    if not settings.get("features", {}).get("discussions", False):
+    if not is_feature_enabled("discussions"):
         return
+    settings = get_settings()
     topic_ids = settings.get("topics", {}).get("discussions", {})
 
     if not topic_ids:
