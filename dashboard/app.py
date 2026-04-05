@@ -554,6 +554,61 @@ async def update_features(request: Request):
     return {"status": "ok"}
 
 
+# ── Health Page ─────────────────────────────────────────
+
+@app.get("/health", response_class=HTMLResponse)
+async def health_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    settings = get_settings()
+
+    # Get recent activity counts
+    import datetime
+    today = datetime.date.today().isoformat()
+
+    # Activity stats
+    async with db._db.execute(
+        "SELECT action_type, COUNT(*) as cnt FROM activity_log WHERE timestamp >= ? GROUP BY action_type",
+        (today,)
+    ) as cursor:
+        today_activity = {row["action_type"]: row["cnt"] for row in await cursor.fetchall()}
+
+    async with db._db.execute(
+        "SELECT COUNT(*) as cnt FROM activity_log"
+    ) as cursor:
+        total_activity = (await cursor.fetchone())["cnt"]
+
+    async with db._db.execute(
+        "SELECT COUNT(*) as cnt FROM members"
+    ) as cursor:
+        member_count = (await cursor.fetchone())["cnt"]
+
+    async with db._db.execute(
+        "SELECT COUNT(*) as cnt FROM spam_log WHERE timestamp >= ?", (today,)
+    ) as cursor:
+        spam_today = (await cursor.fetchone())["cnt"]
+
+    async with db._db.execute(
+        "SELECT action_type, description, timestamp FROM activity_log ORDER BY timestamp DESC LIMIT 10"
+    ) as cursor:
+        recent_log = [dict(row) for row in await cursor.fetchall()]
+
+    # Get forum topics count
+    forum_topics = await db.get_forum_topics()
+
+    return templates.TemplateResponse(request, name="health.html", context={
+        "settings": settings,
+        "today_activity": today_activity,
+        "total_activity": total_activity,
+        "member_count": member_count,
+        "spam_today": spam_today,
+        "recent_log": recent_log,
+        "forum_topics": forum_topics,
+        "today_weekday": datetime.date.today().weekday(),
+    })
+
+
 # ── Members API ──────────────────────────────────────────
 
 @app.get("/members", response_class=HTMLResponse)

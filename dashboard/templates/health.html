@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% set active_page = "health" %}
+{% block title %}Botson — מצב הבוט{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-6xl">
+
+    <!-- Page header -->
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">מצב הבוט</h1>
+        <p class="text-sm text-[#71717a] mt-0.5">מעקב אחרי הבוט בזמן אמת</p>
+    </div>
+
+    <!-- Row 1: Status cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+        <!-- Bot Status -->
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                <span class="text-xs font-medium text-emerald-400">פעיל</span>
+            </div>
+            <div class="text-lg font-semibold text-[#fafafa] stat-number">Online</div>
+            <div class="text-xs text-[#71717a] mt-0.5">מצב הבוט</div>
+        </div>
+
+        <!-- Members -->
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+            <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ member_count }}</div>
+            <div class="text-xs text-[#71717a] mt-1">חברים רשומים</div>
+        </div>
+
+        <!-- Today's Activity -->
+        {% set total_today = namespace(val=0) %}
+        {% for k, v in today_activity.items() %}
+            {% set total_today.val = total_today.val + v %}
+        {% endfor %}
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+            <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ total_today.val }}</div>
+            <div class="text-xs text-[#71717a] mt-1">פעולות היום</div>
+        </div>
+
+        <!-- Spam Blocked -->
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+            <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ spam_today }}</div>
+            <div class="text-xs text-[#71717a] mt-1">ספאם שנחסם היום</div>
+        </div>
+
+    </div>
+
+    <!-- Row 2: Feature Status + Schedule -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <!-- Feature Status -->
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+            <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">מצב תכונות</h2>
+            {% set feature_labels = {
+                'morning_prompt': 'הודעת בוקר',
+                'evening_prompt': 'הודעת ערב',
+                'discussions': 'שאלות לדיון',
+                'antispam': 'זיהוי ספאם',
+                'welcome': 'ברוכים הבאים',
+                'levels': 'רמות',
+                'events': 'אירועים',
+                'trivia': 'טריוויה',
+                'roundup': 'סיכום שבועי',
+            } %}
+            <div>
+                {% for key, label in feature_labels.items() %}
+                    {% set feat_val = settings.features.get(key, false) %}
+                    {% set is_on = feat_val is sameas true or (feat_val is mapping and feat_val.enabled) %}
+                    <div class="flex items-center justify-between py-2 border-b border-[#1f1f1f] last:border-0">
+                        <span class="text-sm text-[#a1a1aa]">{{ label }}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full {% if is_on %}bg-emerald-400{% else %}bg-[#71717a]{% endif %}"></span>
+                            <span class="text-xs {% if is_on %}text-emerald-400{% else %}text-[#71717a]{% endif %}">{% if is_on %}פעיל{% else %}כבוי{% endif %}</span>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Schedule Overview -->
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+            <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">לוח זמנים היום</h2>
+            {% set schedule = settings.schedule or {} %}
+            {% set today_wd = today_weekday %}
+
+            {% set day_names = ['שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת', 'ראשון'] %}
+
+            {% set job_colors = {
+                'morning_prompt': 'bg-amber-400',
+                'morning': 'bg-amber-400',
+                'evening_prompt': 'bg-indigo-400',
+                'evening': 'bg-indigo-400',
+                'discussion': 'bg-sky-400',
+                'discussions': 'bg-sky-400',
+                'roundup': 'bg-orange-400',
+                'trivia': 'bg-violet-400',
+                'events': 'bg-teal-400',
+            } %}
+
+            {% set job_labels = {
+                'morning_prompt': 'הודעת בוקר',
+                'morning': 'הודעת בוקר',
+                'evening_prompt': 'הודעת ערב',
+                'evening': 'הודעת ערב',
+                'discussion': 'שאלת דיון',
+                'discussions': 'שאלת דיון',
+                'roundup': 'סיכום שבועי',
+                'trivia': 'טריוויה',
+                'events': 'תזכורת אירועים',
+            } %}
+
+            {% set has_jobs = namespace(val=false) %}
+            {% if schedule %}
+                {% set entries = namespace(items=[]) %}
+                {% for job_key, job_conf in schedule.items() %}
+                    {% if job_conf is mapping %}
+                        {% set days = job_conf.get('days', [0,1,2,3,4,5,6]) %}
+                        {% if today_wd in days or days == [] %}
+                            {% set time_str = job_conf.get('time', job_conf.get('hour', '??:??')) %}
+                            {% set entries.items = entries.items + [(time_str, job_key)] %}
+                            {% set has_jobs.val = true %}
+                        {% endif %}
+                    {% endif %}
+                {% endfor %}
+
+                {% if has_jobs.val %}
+                    <div class="space-y-0">
+                        {% for time_str, job_key in entries.items | sort %}
+                            {% set dot_color = job_colors.get(job_key, 'bg-[#71717a]') %}
+                            {% set job_label = job_labels.get(job_key, job_key) %}
+                            <div class="flex items-center gap-3 py-2 border-b border-[#1f1f1f] last:border-0">
+                                <span class="w-2 h-2 rounded-full {{ dot_color }} shrink-0"></span>
+                                <span class="text-xs font-mono text-[#71717a] w-10 shrink-0 ltr">{{ time_str }}</span>
+                                <span class="text-sm text-[#a1a1aa]">{{ job_label }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-[#71717a]">אין משימות מתוזמנות להיום</p>
+                {% endif %}
+            {% else %}
+                <p class="text-sm text-[#71717a]">לא נמצא לוח זמנים</p>
+            {% endif %}
+        </div>
+
+    </div>
+
+    <!-- Row 3: Recent Activity Log -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">פעילות אחרונה</h2>
+        {% if recent_log %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-[#1f1f1f]">
+                            <th class="text-right pb-2 text-xs text-[#71717a] font-medium w-32">זמן</th>
+                            <th class="text-right pb-2 text-xs text-[#71717a] font-medium w-28">סוג</th>
+                            <th class="text-right pb-2 text-xs text-[#71717a] font-medium">תיאור</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in recent_log %}
+                            <tr class="border-b border-[#1f1f1f] last:border-0">
+                                <td class="py-2 pr-0 pl-4">
+                                    <span class="text-xs text-[#71717a] font-mono ltr">{{ entry.timestamp[:16] if entry.timestamp else '—' }}</span>
+                                </td>
+                                <td class="py-2 pl-4">
+                                    {% set action = entry.action_type or '' %}
+                                    {% if action in ['join', 'welcome'] %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400">{{ action }}</span>
+                                    {% elif action in ['spam', 'ban', 'kick', 'mute'] %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400">{{ action }}</span>
+                                    {% elif action in ['level_up', 'points'] %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400">{{ action }}</span>
+                                    {% elif action in ['morning', 'evening', 'discussion', 'trivia', 'roundup'] %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-sky-500/10 text-sky-400">{{ action }}</span>
+                                    {% else %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-[#a1a1aa]">{{ action }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-2 text-[#a1a1aa]">{{ entry.description or '—' }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-sm text-[#71717a]">אין פעילות עדיין</p>
+        {% endif %}
+    </div>
+
+    <!-- Row 4: Forum Topics -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">נושאי פורום מעוקבים</h2>
+        {% if forum_topics %}
+            <div>
+                {% for t in forum_topics %}
+                    <div class="flex items-center justify-between py-2 border-b border-[#1f1f1f] last:border-0">
+                        <span class="text-sm text-[#fafafa]">{{ t.name }}</span>
+                        <span class="text-xs text-[#71717a] font-mono ltr">{{ t.topic_id }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-sm text-[#71717a]">אין נושאי פורום רשומים</p>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

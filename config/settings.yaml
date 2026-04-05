@@ -19,7 +19,11 @@ features:
     enabled: false
     groups:
     - test
-  goals: false
+  goals:
+    enabled: true
+    groups:
+    - main
+    - test
   levels:
     enabled: false
     groups:
