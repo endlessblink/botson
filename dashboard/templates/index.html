@@ -5,48 +5,48 @@
 
 {% block content %}
 <div class="mb-8">
-    <h2 class="text-2xl font-bold text-white">סקירה כללית</h2>
-    <p class="text-gray-400 mt-1">מבט על הקהילה</p>
+    <h2 class="text-xl font-semibold text-zinc-100">סקירה כללית</h2>
+    <p class="text-sm text-zinc-500 mt-1">מבט על הקהילה</p>
 </div>
 
 <!-- Stats Grid -->
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <div class="card bg-[#1c1c2e] rounded-xl p-6 border border-gray-800/50">
+    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
         <div class="text-3xl mb-2">📊</div>
-        <div class="text-sm text-gray-400">רמה גבוהה ביותר</div>
+        <div class="text-sm text-zinc-500">רמה גבוהה ביותר</div>
         {% if leaders %}
-        <div class="text-xl font-bold text-white mt-1">{{ leaders[0].display_name }}</div>
-        <div class="text-sm text-gray-500">{{ leaders[0].level_emoji }} {{ leaders[0].level_tag }}</div>
+        <div class="text-xl font-bold text-zinc-100 mt-1">{{ leaders[0].display_name }}</div>
+        <div class="text-sm text-zinc-500">{{ leaders[0].level_emoji }} {{ leaders[0].level_tag }}</div>
         {% else %}
-        <div class="text-gray-500 mt-1">אין נתונים</div>
+        <div class="text-zinc-500 mt-1">אין נתונים</div>
         {% endif %}
     </div>
 
-    <div class="card bg-[#1c1c2e] rounded-xl p-6 border border-gray-800/50">
+    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
         <div class="text-3xl mb-2">🔥</div>
-        <div class="text-sm text-gray-400">רצף הכי ארוך</div>
+        <div class="text-sm text-zinc-500">רצף הכי ארוך</div>
         {% if streaks %}
-        <div class="text-xl font-bold text-white mt-1">{{ streaks[0].display_name }}</div>
-        <div class="text-sm text-gray-500">{{ streaks[0].current_streak }} ימים</div>
+        <div class="text-xl font-bold text-zinc-100 mt-1">{{ streaks[0].display_name }}</div>
+        <div class="text-sm text-zinc-500">{{ streaks[0].current_streak }} ימים</div>
         {% else %}
-        <div class="text-gray-500 mt-1">אין נתונים</div>
+        <div class="text-zinc-500 mt-1">אין נתונים</div>
         {% endif %}
     </div>
 
-    <div class="card bg-[#1c1c2e] rounded-xl p-6 border border-gray-800/50">
+    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
         <div class="text-3xl mb-2">🎉</div>
-        <div class="text-sm text-gray-400">אירועים קרובים</div>
-        <div class="text-xl font-bold text-white mt-1 stat-number">{{ events|length }}</div>
+        <div class="text-sm text-zinc-500">אירועים קרובים</div>
+        <div class="text-xl font-bold text-zinc-100 mt-1 stat-number">{{ events|length }}</div>
     </div>
 
-    <div class="card bg-[#1c1c2e] rounded-xl p-6 border border-gray-800/50">
+    <div class="card border border-zinc-800 bg-zinc-900 rounded-xl p-6">
         <div class="text-3xl mb-2">🧠</div>
-        <div class="text-sm text-gray-400">טופ טריוויה</div>
+        <div class="text-sm text-zinc-500">טופ טריוויה</div>
         {% if trivia_leaders %}
-        <div class="text-xl font-bold text-white mt-1">{{ trivia_leaders[0].display_name }}</div>
-        <div class="text-sm text-gray-500">{{ trivia_leaders[0].total_score }} נקודות</div>
+        <div class="text-xl font-bold text-zinc-100 mt-1">{{ trivia_leaders[0].display_name }}</div>
+        <div class="text-sm text-zinc-500">{{ trivia_leaders[0].total_score }} נקודות</div>
         {% else %}
-        <div class="text-gray-500 mt-1">אין נתונים</div>
+        <div class="text-zinc-500 mt-1">אין נתונים</div>
         {% endif %}
     </div>
 </div>
@@ -54,39 +54,39 @@
 <!-- Top Lists -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Stars Leaderboard -->
-    <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6">
-        <h3 class="text-lg font-bold text-white mb-4">📊 טבלת רמות</h3>
+    <div class="border border-zinc-800 bg-zinc-900 rounded-xl p-6">
+        <h3 class="text-base font-semibold text-zinc-100 mb-4">📊 טבלת רמות</h3>
         {% if leaders %}
         <div class="space-y-3">
             {% for m in leaders %}
-            <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-gray-800/50{% endif %}">
+            <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-zinc-800{% endif %}">
                 <div class="flex items-center gap-3">
                     <span class="text-lg">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
-                    <span class="text-gray-300">{{ m.display_name }}</span>
+                    <span class="text-sm text-zinc-300">{{ m.display_name }}</span>
                 </div>
-                <span class="font-bold text-white stat-number">{{ m.karma_points }}</span>
+                <span class="font-bold text-zinc-100 stat-number">{{ m.karma_points }}</span>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-gray-500">אין נתונים עדיין</p>
+        <p class="text-sm text-zinc-500">אין נתונים עדיין</p>
         {% endif %}
     </div>
 
     <!-- Upcoming Events -->
-    <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6">
-        <h3 class="text-lg font-bold text-white mb-4">🎉 אירועים קרובים</h3>
+    <div class="border border-zinc-800 bg-zinc-900 rounded-xl p-6">
+        <h3 class="text-base font-semibold text-zinc-100 mb-4">🎉 אירועים קרובים</h3>
         {% if events %}
         <div class="space-y-3">
             {% for e in events %}
-            <div class="py-2 {% if not loop.last %}border-b border-gray-800/50{% endif %}">
-                <div class="font-medium text-white">{{ e.title }}</div>
-                <div class="text-sm text-gray-400">📅 {{ e.event_date }}{% if e.event_time %} | 🕐 {{ e.event_time }}{% endif %}</div>
+            <div class="py-2 {% if not loop.last %}border-b border-zinc-800{% endif %}">
+                <div class="text-sm font-medium text-zinc-300">{{ e.title }}</div>
+                <div class="text-sm text-zinc-500">📅 {{ e.event_date }}{% if e.event_time %} | 🕐 {{ e.event_time }}{% endif %}</div>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-gray-500">אין אירועים קרובים</p>
+        <p class="text-sm text-zinc-500">אין אירועים קרובים</p>
         {% endif %}
     </div>
 </div>

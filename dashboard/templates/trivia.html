@@ -6,58 +6,58 @@
 {% block content %}
 <div class="mb-8 flex items-center justify-between">
     <div>
-        <h2 class="text-2xl font-bold text-white">טריוויה</h2>
-        <p class="text-gray-400 mt-1">ניהול שאלות וניקוד</p>
+        <h2 class="text-xl font-semibold text-zinc-100">טריוויה</h2>
+        <p class="text-sm text-zinc-500 mt-1">ניהול שאלות וניקוד</p>
     </div>
-    <button onclick="resetTrivia()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
+    <button onclick="resetTrivia()" class="text-rose-300 hover:bg-rose-500/10 px-4 py-2 rounded-lg text-sm transition border border-rose-500/20">
         אפס ניקוד
     </button>
 </div>
 
 <!-- Leaderboard -->
-<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
-    <h3 class="text-lg font-bold text-white mb-4">🏆 טבלת ניקוד</h3>
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 mb-6">
+    <h3 class="text-base font-semibold text-zinc-100 mb-4">🏆 טבלת ניקוד</h3>
     {% if leaders %}
     <div class="space-y-3">
         {% for m in leaders %}
-        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-gray-800/50{% endif %}">
+        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-zinc-800{% endif %}">
             <div class="flex items-center gap-3">
                 <span class="text-lg">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
-                <span class="text-gray-300">{{ m.display_name }}</span>
+                <span class="text-sm text-zinc-300">{{ m.display_name }}</span>
             </div>
             <div class="text-left">
-                <span class="font-bold text-white">{{ m.total_score }} נק'</span>
-                <span class="text-sm text-gray-500 mr-2">{{ m.correct_answers }}/{{ m.total_answers }}</span>
+                <span class="font-bold text-zinc-100">{{ m.total_score }} נק'</span>
+                <span class="text-sm text-zinc-500 mr-2">{{ m.correct_answers }}/{{ m.total_answers }}</span>
             </div>
         </div>
         {% endfor %}
     </div>
     {% else %}
-    <p class="text-gray-500">אין ניקוד עדיין</p>
+    <p class="text-sm text-zinc-500">אין ניקוד עדיין</p>
     {% endif %}
 </div>
 
 <!-- Generate Trivia -->
-<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
-    <h3 class="text-lg font-bold text-white mb-2">✨ יצירת שאלות עם Claude</h3>
-    <p class="text-sm text-gray-400 mb-4">צור שאלות טריוויה חדשות אוטומטית ושמור אותן לרשימה</p>
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 mb-6">
+    <h3 class="text-base font-semibold text-zinc-100 mb-1">✨ יצירת שאלות עם Claude</h3>
+    <p class="text-sm text-zinc-500 mb-4">צור שאלות טריוויה חדשות אוטומטית ושמור אותן לרשימה</p>
     <div class="flex gap-2 mb-4">
-        <button onclick="generateTrivia('append')" class="flex items-center gap-2 bg-purple-600/80 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition text-sm">
+        <button onclick="generateTrivia('append')" class="flex items-center gap-2 bg-violet-600/80 text-white px-4 py-2 rounded-lg hover:bg-violet-600 transition text-sm">
             ✨ הוסף עוד שאלות
         </button>
-        <button onclick="generateTrivia('replace')" class="flex items-center gap-2 bg-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+        <button onclick="generateTrivia('replace')" class="flex items-center gap-2 border border-zinc-700 text-zinc-400 px-4 py-2 rounded-lg hover:bg-zinc-800 transition text-sm">
             🔄 צור מחדש
         </button>
     </div>
-    <div id="trivia-generate-status" class="hidden text-sm text-purple-400 mb-3">⏳ מייצר שאלות, אנא המתן...</div>
+    <div id="trivia-generate-status" class="hidden text-sm text-violet-300 mb-3">⏳ מייצר שאלות, אנא המתן...</div>
     <div id="trivia-generate-result" class="hidden">
-        <p class="text-sm text-gray-400 mb-2">תצוגה מקדימה של השאלות שנוצרו:</p>
+        <p class="text-sm text-zinc-500 mb-2">תצוגה מקדימה של השאלות שנוצרו:</p>
         <div id="trivia-preview" class="space-y-3 mb-4"></div>
         <div class="flex gap-2">
-            <button onclick="saveTriviaGenerated()" class="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 transition text-sm">
+            <button onclick="saveTriviaGenerated()" class="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-500 transition text-sm">
                 שמור שאלות
             </button>
-            <button onclick="cancelTriviaGenerated()" class="bg-gray-700 text-gray-300 px-5 py-2 rounded-lg hover:bg-gray-600 transition text-sm">
+            <button onclick="cancelTriviaGenerated()" class="border border-zinc-700 text-zinc-400 px-5 py-2 rounded-lg hover:bg-zinc-800 transition text-sm">
                 בטל
             </button>
         </div>
@@ -65,20 +65,20 @@
 </div>
 
 <!-- Questions -->
-<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6">
-    <h3 class="text-lg font-bold text-white mb-4">📝 שאלות ({{ questions|length }})</h3>
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+    <h3 class="text-base font-semibold text-zinc-100 mb-4">📝 שאלות ({{ questions|length }})</h3>
     <div class="space-y-4" id="questions-list">
         {% for q in questions %}
-        <div class="border border-gray-800/50 rounded-lg p-4">
-            <div class="font-medium text-white mb-2">{{ loop.index }}. {{ q.text }}</div>
+        <div class="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
+            <div class="text-sm font-medium text-zinc-300 mb-2">{{ loop.index }}. {{ q.text }}</div>
             <div class="grid grid-cols-2 gap-2 text-sm">
                 {% for opt in q.options %}
-                <div class="px-3 py-1 rounded {% if loop.index0 == q.correct %}bg-green-500/20 text-green-400 font-medium{% else %}bg-[#141422] text-gray-400{% endif %}">
+                <div class="px-3 py-1 rounded {% if loop.index0 == q.correct %}bg-emerald-500/15 text-emerald-300 font-medium{% else %}bg-zinc-900 text-zinc-500{% endif %}">
                     {{ opt }}
                 </div>
                 {% endfor %}
             </div>
-            <div class="text-xs text-gray-500 mt-2">{{ q.category }}</div>
+            <div class="text-xs text-zinc-500 mt-2">{{ q.category }}</div>
         </div>
         {% endfor %}
     </div>
@@ -127,14 +127,14 @@ function renderTriviaPreview(questions) {
     container.innerHTML = '';
     questions.forEach((q, i) => {
         const div = document.createElement('div');
-        div.className = 'border border-purple-800/50 rounded-lg p-3 bg-[#141422]';
+        div.className = 'border border-violet-500/20 rounded-lg p-3 bg-zinc-900';
         const opts = (q.options || []).map((opt, idx) =>
-            `<div class="px-2 py-1 rounded text-xs ${idx === q.correct ? 'bg-green-500/20 text-green-400 font-medium' : 'text-gray-400'}">${opt}</div>`
+            `<div class="px-2 py-1 rounded text-xs ${idx === q.correct ? 'bg-emerald-500/15 text-emerald-300 font-medium' : 'text-zinc-500'}">${opt}</div>`
         ).join('');
         div.innerHTML = `
-            <div class="font-medium text-white text-sm mb-2">${i + 1}. ${q.text}</div>
+            <div class="font-medium text-zinc-300 text-sm mb-2">${i + 1}. ${q.text}</div>
             <div class="grid grid-cols-2 gap-1">${opts}</div>
-            <div class="text-xs text-gray-500 mt-1">${q.category || ''}</div>
+            <div class="text-xs text-zinc-500 mt-1">${q.category || ''}</div>
         `;
         container.appendChild(div);
     });

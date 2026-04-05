@@ -17,9 +17,9 @@
 | T-009 | 2 | Prompts YAML (31 morning + 31 evening) | DONE | P0 | T-003 |
 | T-010 | 2 | Daily goals handler + prompt rotation | DONE | P0 | T-005, T-009 |
 | T-011 | 2 | Streak tracking system | DONE | P0 | T-010, T-002 |
-| T-012 | 3 | Karma handler (give/check/leaderboard) | DONE | P1 | T-004, T-002 |
-| T-013 | 3 | Karma anti-abuse rules | DONE | P1 | T-012 |
-| T-014 | 3 | Weekly karma leaderboard (scheduled) | DONE | P1 | T-012, T-005 |
+| ~~T-012~~ | 3 | ~~Karma handler~~ → Levels system | DONE | P1 | T-004, T-002 |
+| ~~T-013~~ | 3 | ~~Karma anti-abuse~~ → Activity-based points | DONE | P1 | T-012 |
+| T-014 | 3 | Weekly levels leaderboard (scheduled) | DONE | P1 | T-012, T-005 |
 | T-015 | 4 | Weekly roundup handler (scheduled) | DONE | P2 | T-005, T-012, T-002 |
 | T-016 | — | README.md with setup guide | DONE | P1 | T-006 |
 | T-017 | — | End-to-end testing & verification | TODO | P1 | All |
@@ -36,6 +36,16 @@
 | T-028 | 8 | Dashboard — HTML templates (9 pages) | DONE | P1 | T-027 |
 | T-029 | 8 | Dashboard — auth (password login) | DONE | P1 | T-027 |
 | T-030 | — | VPS deployment config (Docker Compose) | TODO | P1 | T-006 |
+| T-031 | 9 | Levels system (replaced karma/stars) | DONE | P1 | T-012 |
+| T-032 | 9 | Feature toggles (all off by default) | DONE | P1 | T-004 |
+| T-033 | 9 | Welcome via DM (not in-channel) | DONE | P1 | T-007 |
+| T-034 | 9 | Activity log DB + dashboard page | DONE | P1 | T-027 |
+| T-035 | 9 | Anti-spam dry_run mode | DONE | P1 | T-008 |
+| T-036 | 9 | Hebrew spam patterns | DONE | P1 | T-008 |
+| T-037 | 9 | Dashboard feature toggles UI | DONE | P1 | T-032, T-027 |
+| T-038 | 9 | Messages reference doc (RTL HTML) | DONE | P2 | — |
+| T-039 | — | Auto-detect topic IDs from group | TODO | P1 | T-004 |
+| T-040 | — | Auto-create goals channel | TODO | P1 | T-039 |
 
 ## Detailed Tasks
 

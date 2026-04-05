@@ -9,57 +9,57 @@
     <style>
         *, body, textarea, input, button, select { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
         .nav-link { transition: all 0.2s; }
-        .nav-link:hover { background-color: rgba(255,255,255,0.06); }
-        .nav-link.active { background-color: rgba(255,255,255,0.08); border-right: 3px solid #3b82f6; }
+        .nav-link:hover { background-color: #27272a; color: #e4e4e7; }
+        .nav-link.active { background-color: #27272a; border-right: 3px solid #6366f1; color: #f4f4f5; }
         .card { transition: transform 0.2s, box-shadow 0.2s; }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
         .stat-number { font-variant-numeric: tabular-nums; }
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #0f0f17; }
-        ::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #3a3a5a; }
+        ::-webkit-scrollbar-track { background: #09090b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
     </style>
 </head>
-<body class="bg-[#0f0f17] min-h-screen text-gray-200">
+<body class="bg-zinc-950 min-h-screen text-sm text-zinc-300">
     <div class="flex min-h-screen">
         <!-- Sidebar -->
         <aside class="w-64 fixed h-full p-3">
-            <div class="bg-[#171723] rounded-2xl h-[calc(100%-1.5rem)] flex flex-col border border-gray-800/50 shadow-xl shadow-black/30">
-                <div class="p-6 border-b border-gray-800/50">
-                    <h1 class="text-xl font-bold text-white">🤖 Botson</h1>
-                    <p class="text-gray-500 text-sm mt-1">לוח בקרה</p>
+            <div class="bg-zinc-900 rounded-2xl h-[calc(100%-1.5rem)] flex flex-col border border-zinc-800 shadow-xl shadow-black/30">
+                <div class="p-6 border-b border-zinc-800">
+                    <h1 class="text-xl font-semibold text-zinc-100">🤖 Botson</h1>
+                    <p class="text-xs text-zinc-500 mt-1">לוח בקרה</p>
                 </div>
                 <nav class="flex-1 p-4 space-y-1">
-                    <a href="/" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'home' %}active text-white{% endif %}">
+                    <a href="/" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'home' %}active{% endif %}">
                         <span>📊</span> סקירה כללית
                     </a>
-                    <a href="/settings" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'settings' %}active text-white{% endif %}">
+                    <a href="/settings" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'settings' %}active{% endif %}">
                         <span>⚙️</span> הגדרות
                     </a>
-                    <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'prompts' %}active text-white{% endif %}">
+                    <a href="/prompts" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'prompts' %}active{% endif %}">
                         <span>💬</span> הודעות ושאלות
                     </a>
-                    <a href="/levels" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'levels' %}active text-white{% endif %}">
+                    <a href="/levels" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'levels' %}active{% endif %}">
                         <span>📊</span> רמות
                     </a>
-                    <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'events' %}active text-white{% endif %}">
+                    <a href="/events" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'events' %}active{% endif %}">
                         <span>🎉</span> אירועים
                     </a>
-                    <a href="/trivia" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'trivia' %}active text-white{% endif %}">
+                    <a href="/trivia" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'trivia' %}active{% endif %}">
                         <span>🧠</span> טריוויה
                     </a>
-                    <a href="/spam" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'spam' %}active text-white{% endif %}">
+                    <a href="/spam" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'spam' %}active{% endif %}">
                         <span>🛡️</span> ספאם
                     </a>
-                    <a href="/members" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:text-gray-200 {% if active_page == 'members' %}active text-white{% endif %}">
+                    <a href="/members" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'members' %}active{% endif %}">
                         <span>👥</span> חברים
                     </a>
-                    <a href="/activity" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 {% if active_page == 'activity' %}active{% endif %}">
+                    <a href="/activity" class="nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-400 {% if active_page == 'activity' %}active{% endif %}">
                         <span>📋</span> לוג פעילות
                     </a>
                 </nav>
-                <div class="p-4 border-t border-gray-800/50">
-                    <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5">
+                <div class="p-4 border-t border-zinc-800">
+                    <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all duration-200">
                         <span>🚪</span> התנתק
                     </a>
                 </div>
@@ -89,10 +89,32 @@
 
         function showToast(message, type = 'success') {
             const toast = document.createElement('div');
-            toast.className = `fixed top-4 left-4 px-6 py-3 rounded-lg shadow-lg text-white z-50 backdrop-blur-sm ${type === 'success' ? 'bg-green-500/90' : 'bg-red-500/90'}`;
+            const bg = type === 'success' ? 'bg-emerald-500/90' : 'bg-rose-500/90';
+            toast.className = `fixed top-4 left-4 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 backdrop-blur-sm ${bg}`;
             toast.textContent = message;
             document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function showConfirm(message, onConfirm) {
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center';
+            overlay.innerHTML = `
+                <div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm mx-4 shadow-2xl">
+                    <p class="text-sm text-zinc-200 mb-5">${message}</p>
+                    <div class="flex gap-3 justify-end">
+                        <button class="cancel px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg cursor-pointer">ביטול</button>
+                        <button class="confirm px-4 py-2 text-sm text-rose-300 hover:bg-rose-500/10 rounded-lg cursor-pointer">אישור</button>
+                    </div>
+                </div>`;
+            overlay.querySelector('.cancel').onclick = () => overlay.remove();
+            overlay.querySelector('.confirm').onclick = () => { onConfirm(); overlay.remove(); };
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+            document.body.appendChild(overlay);
         }
 
         async function generateContent(field, mode, textareaIdOrCategory, category) {

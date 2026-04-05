@@ -5,123 +5,139 @@
 
 {% block content %}
 <div class="mb-8">
-    <h2 class="text-2xl font-bold text-white">הגדרות</h2>
-    <p class="text-gray-400 mt-1">הגדרות כלליות של הבוט</p>
+    <h2 class="text-xl font-semibold text-zinc-100">הגדרות</h2>
+    <p class="text-sm text-zinc-500 mt-1">הגדרות כלליות של הבוט</p>
 </div>
 
 <!-- Feature Toggles -->
-<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
-    <h3 class="text-lg font-bold text-gray-800 mb-4">🔌 פיצ'רים</h3>
-    <p class="text-sm text-gray-500 mb-4">הפעלה וכיבוי של פיצ'רים. כל הפיצ'רים כבויים כברירת מחדל.</p>
-
-    <div class="space-y-3" id="feature-toggles">
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">👋 הודעות ברוכים הבאים</span>
-            <input type="checkbox" id="feat-welcome" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.welcome %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">🌟 הישגים ומטרות יומיים</span>
-            <input type="checkbox" id="feat-goals" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.goals %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">📊 רמות (ניקוד פעילות)</span>
-            <input type="checkbox" id="feat-levels" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.levels %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">🛡️ זיהוי ספאם</span>
-            <input type="checkbox" id="feat-antispam" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.antispam %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">💬 שאלות לדיון</span>
-            <input type="checkbox" id="feat-discussions" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.discussions %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">🎉 אירועים</span>
-            <input type="checkbox" id="feat-events" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.events %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">🧠 טריוויה</span>
-            <input type="checkbox" id="feat-trivia" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.trivia %}checked{% endif %}>
-        </label>
-        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <span class="text-gray-700">📊 סיכום שבועי</span>
-            <input type="checkbox" id="feat-roundup" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.roundup %}checked{% endif %}>
-        </label>
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
+    <div class="px-6 py-4 border-b border-zinc-800">
+        <h3 class="text-base font-semibold text-zinc-100">🔌 פיצ'רים</h3>
+        <p class="text-sm text-zinc-500 mt-1">הפעלה וכיבוי של פיצ'רים. כל הפיצ'רים כבויים כברירת מחדל.</p>
     </div>
-
-    <button onclick="saveFeatures()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
-        שמור פיצ'רים
-    </button>
+    <div class="px-6 py-4">
+        <div class="space-y-1" id="feature-toggles">
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">👋 הודעות ברוכים הבאים</span>
+                <input type="checkbox" id="feat-welcome" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.welcome %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">🌟 הישגים ומטרות יומיים</span>
+                <input type="checkbox" id="feat-goals" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.goals %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">📊 רמות (ניקוד פעילות)</span>
+                <input type="checkbox" id="feat-levels" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.levels %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">🛡️ זיהוי ספאם</span>
+                <input type="checkbox" id="feat-antispam" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.antispam %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">💬 שאלות לדיון</span>
+                <input type="checkbox" id="feat-discussions" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.discussions %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">🎉 אירועים</span>
+                <input type="checkbox" id="feat-events" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.events %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">🧠 טריוויה</span>
+                <input type="checkbox" id="feat-trivia" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.trivia %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                <span class="text-sm text-zinc-300">📊 סיכום שבועי</span>
+                <input type="checkbox" id="feat-roundup" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.roundup %}checked{% endif %}>
+            </label>
+        </div>
+    </div>
+    <div class="px-6 py-4 border-t border-zinc-800">
+        <button onclick="saveFeatures()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
+            שמור פיצ'רים
+        </button>
+    </div>
 </div>
 
 <!-- Topic IDs -->
-<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
-    <h3 class="text-lg font-bold text-white mb-4">🔗 מזהי ערוצים (Topic IDs)</h3>
-    <p class="text-sm text-gray-400 mb-4">הזינו את מזהי הערוצים מטלגרם. ניתן לקבל אותם על ידי העברת הודעה בכל ערוץ ובדיקת message_thread_id.</p>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="topic-fields">
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">כללי (General)</label>
-            <input type="number" id="topic-general" value="{{ settings.topics.general or '' }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500" placeholder="Topic ID">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">ברוכים הבאים (Welcome)</label>
-            <input type="number" id="topic-welcome" value="{{ settings.topics.welcome or '' }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500" placeholder="Topic ID">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">הישגים ומטרות (Goals)</label>
-            <input type="number" id="topic-goals" value="{{ settings.topics.goals or '' }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500" placeholder="Topic ID">
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
+    <div class="px-6 py-4 border-b border-zinc-800">
+        <h3 class="text-base font-semibold text-zinc-100">🔗 מזהי ערוצים (Topic IDs)</h3>
+        <p class="text-sm text-zinc-500 mt-1">הזינו את מזהי הערוצים מטלגרם. ניתן לקבל אותם על ידי העברת הודעה בכל ערוץ ובדיקת message_thread_id.</p>
+    </div>
+    <div class="px-6 py-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="topic-fields">
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">כללי (General)</label>
+                <input type="number" id="topic-general" value="{{ settings.topics.general or '' }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="Topic ID">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">ברוכים הבאים (Welcome)</label>
+                <input type="number" id="topic-welcome" value="{{ settings.topics.welcome or '' }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="Topic ID">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">הישגים ומטרות (Goals)</label>
+                <input type="number" id="topic-goals" value="{{ settings.topics.goals or '' }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600" placeholder="Topic ID">
+            </div>
         </div>
     </div>
-
-    <button onclick="saveTopics()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
-        שמור ערוצים
-    </button>
+    <div class="px-6 py-4 border-t border-zinc-800">
+        <button onclick="saveTopics()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
+            שמור ערוצים
+        </button>
+    </div>
 </div>
 
 <!-- Anti-Spam Settings -->
-<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
-    <h3 class="text-lg font-bold text-white mb-4">🛡️ הגדרות ספאם</h3>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">מקסימום קישורים לחבר חדש</label>
-            <input type="number" id="spam-max-links" value="{{ settings.antispam.max_links_new_member }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">ימים כחבר "חדש"</label>
-            <input type="number" id="spam-new-days" value="{{ settings.antispam.new_member_days }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">סף הודעות כפולות</label>
-            <input type="number" id="spam-dup-threshold" value="{{ settings.antispam.duplicate_threshold }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">דקות השתקה</label>
-            <input type="number" id="spam-mute-min" value="{{ settings.antispam.mute_duration_minutes }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">חלון הודעות כפולות (שניות)</label>
-            <input type="number" id="spam-dup-window" value="{{ settings.antispam.duplicate_window_seconds }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
-        </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">שניות חסד לחברים חדשים</label>
-            <input type="number" id="spam-grace" value="{{ settings.antispam.new_member_grace_seconds }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 mb-6 overflow-hidden">
+    <div class="px-6 py-4 border-b border-zinc-800">
+        <h3 class="text-base font-semibold text-zinc-100">🛡️ הגדרות ספאם</h3>
+    </div>
+    <div class="px-6 py-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">מקסימום קישורים לחבר חדש</label>
+                <input type="number" id="spam-max-links" value="{{ settings.antispam.max_links_new_member }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">ימים כחבר "חדש"</label>
+                <input type="number" id="spam-new-days" value="{{ settings.antispam.new_member_days }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">סף הודעות כפולות</label>
+                <input type="number" id="spam-dup-threshold" value="{{ settings.antispam.duplicate_threshold }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">דקות השתקה</label>
+                <input type="number" id="spam-mute-min" value="{{ settings.antispam.mute_duration_minutes }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">חלון הודעות כפולות (שניות)</label>
+                <input type="number" id="spam-dup-window" value="{{ settings.antispam.duplicate_window_seconds }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">שניות חסד לחברים חדשים</label>
+                <input type="number" id="spam-grace" value="{{ settings.antispam.new_member_grace_seconds }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
         </div>
     </div>
-
-    <button onclick="saveAntispam()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
-        שמור הגדרות ספאם
-    </button>
+    <div class="px-6 py-4 border-t border-zinc-800">
+        <button onclick="saveAntispam()" class="bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2 rounded-lg cursor-pointer text-sm">
+            שמור הגדרות ספאם
+        </button>
+    </div>
 </div>
 
 <!-- Levels Settings -->
-<div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6">
-    <h3 class="text-lg font-bold text-white mb-4">📊 הגדרות רמות</h3>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1">מקסימום נקודות ביום למשתמש</label>
-            <input type="number" id="karma-max-day" value="{{ settings.levels.max_per_day }}" class="w-full px-3 py-2 bg-[#141422] border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500">
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+    <div class="px-6 py-4 border-b border-zinc-800">
+        <h3 class="text-base font-semibold text-zinc-100">📊 הגדרות רמות</h3>
+    </div>
+    <div class="px-6 py-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium mb-1">מקסימום נקודות ביום למשתמש</label>
+                <input type="number" id="karma-max-day" value="{{ settings.levels.max_per_day }}" class="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-zinc-300 placeholder:text-zinc-600">
+            </div>
         </div>
     </div>
 </div>

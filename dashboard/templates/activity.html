@@ -5,51 +5,51 @@
 
 {% block content %}
 <div class="mb-8">
-    <h2 class="text-2xl font-bold text-gray-800">לוג פעילות</h2>
-    <p class="text-gray-500 mt-1">כל הפעולות שהבוט ביצע</p>
+    <h2 class="text-xl font-semibold text-zinc-100">לוג פעילות</h2>
+    <p class="text-sm text-zinc-500 mt-1">כל הפעולות שהבוט ביצע</p>
 </div>
 
-<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+<div class="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
     <table class="w-full">
-        <thead class="bg-gray-50">
+        <thead class="bg-zinc-900">
             <tr>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">זמן</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">סוג</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">תיאור</th>
-                <th class="px-6 py-3 text-right text-sm font-medium text-gray-500">ערוץ</th>
+                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">זמן</th>
+                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">סוג</th>
+                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">תיאור</th>
+                <th class="px-6 py-3 text-right text-[11px] uppercase tracking-wide text-zinc-500 font-medium">ערוץ</th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100">
+        <tbody class="divide-y divide-white/6">
             {% for entry in log %}
-            <tr class="hover:bg-gray-50">
-                <td class="px-6 py-3 text-sm text-gray-500 whitespace-nowrap">{{ entry.timestamp[:16] }}</td>
+            <tr class="hover:bg-zinc-800">
+                <td class="px-6 py-3 text-sm text-zinc-500 whitespace-nowrap">{{ entry.timestamp[:16] }}</td>
                 <td class="px-6 py-3">
                     {% if entry.action_type == 'welcome' %}
-                    <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-medium">👋 ברוכים הבאים</span>
+                    <span class="bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded-full text-xs font-medium">👋 ברוכים הבאים</span>
                     {% elif entry.action_type == 'spam' %}
-                    <span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-medium">🛡️ ספאם</span>
+                    <span class="bg-rose-500/15 text-rose-300 px-2 py-0.5 rounded-full text-xs font-medium">🛡️ ספאם</span>
                     {% elif entry.action_type == 'level_up' %}
-                    <span class="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-medium">📊 עליית רמה</span>
+                    <span class="bg-violet-500/15 text-violet-300 px-2 py-0.5 rounded-full text-xs font-medium">📊 עליית רמה</span>
                     {% elif entry.action_type == 'goals' %}
-                    <span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-medium">🌟 הישגים</span>
+                    <span class="bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full text-xs font-medium">🌟 הישגים</span>
                     {% elif entry.action_type == 'trivia' %}
-                    <span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-medium">🧠 טריוויה</span>
+                    <span class="bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded-full text-xs font-medium">🧠 טריוויה</span>
                     {% elif entry.action_type == 'discussion' %}
-                    <span class="bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-medium">💬 דיון</span>
+                    <span class="bg-sky-500/15 text-sky-300 px-2 py-0.5 rounded-full text-xs font-medium">💬 דיון</span>
                     {% elif entry.action_type == 'roundup' %}
-                    <span class="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-medium">📊 סיכום</span>
+                    <span class="bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-full text-xs font-medium">📊 סיכום</span>
                     {% elif entry.action_type == 'event' %}
-                    <span class="bg-pink-100 text-pink-700 px-2 py-1 rounded text-xs font-medium">🎉 אירוע</span>
+                    <span class="bg-pink-500/15 text-pink-300 px-2 py-0.5 rounded-full text-xs font-medium">🎉 אירוע</span>
                     {% else %}
-                    <span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-medium">{{ entry.action_type }}</span>
+                    <span class="bg-white/5 text-zinc-500 px-2 py-0.5 rounded-full text-xs font-medium">{{ entry.action_type }}</span>
                     {% endif %}
                 </td>
-                <td class="px-6 py-3 text-sm text-gray-700">{{ entry.description }}</td>
-                <td class="px-6 py-3 text-sm text-gray-500">{{ entry.target_channel or '—' }}</td>
+                <td class="px-6 py-3 text-sm text-zinc-300">{{ entry.description }}</td>
+                <td class="px-6 py-3 text-sm text-zinc-500">{{ entry.target_channel or '—' }}</td>
             </tr>
             {% endfor %}
             {% if not log %}
-            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400">אין פעולות מתועדות עדיין</td></tr>
+            <tr><td colspan="4" class="px-6 py-8 text-center text-zinc-500">אין פעולות מתועדות עדיין</td></tr>
             {% endif %}
         </tbody>
     </table>
