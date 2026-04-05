@@ -46,6 +46,17 @@
 | T-038 | 9 | Messages reference doc (RTL HTML) | DONE | P2 | — |
 | T-039 | — | Auto-detect topic IDs from group | TODO | P1 | T-004 |
 | T-040 | — | Auto-create goals channel | TODO | P1 | T-039 |
+| T-041 | 10 | Dashboard redesign — shadcn/ui dark theme | DONE | P1 | T-028 |
+| T-042 | 10 | Per-tool settings + Telegram previews | DONE | P1 | T-041 |
+| T-043 | 10 | Prompts page — pool preview + AI gen | DONE | P1 | T-041 |
+| T-044 | 10 | Schedule timeline + editable config | DONE | P1 | T-043 |
+| T-045 | 11 | Top navbar — move brand to horizontal header | TODO | P0 | T-041 |
+| T-046 | 11 | Day-of-week selectors for scheduled items | TODO | P0 | T-044 |
+| T-047 | 11 | Auto-detect forum topics from messages | TODO | P0 | T-004 |
+| T-048 | 11 | Topic dropdown in schedule (replace ID input) | TODO | P0 | T-047 |
+| T-049 | 11 | Clickable dots — instant visual toggle on/off | TODO | P1 | T-044 |
+| T-050 | 11 | Schedule tab — show loaded question per slot | TODO | P1 | T-044 |
+| T-051 | — | End-to-end dashboard QA pass | TODO | P1 | T-045..T-050 |
 
 ## Detailed Tasks
 
@@ -302,6 +313,87 @@ Full setup guide covering:
 - Test karma give/check/leaderboard
 - Test scheduled jobs fire correctly
 - Test graceful shutdown
+
+---
+
+#### T-045: Top navbar — move brand to horizontal header
+**Phase:** 11 — Dashboard UX | **Priority:** P0 | **Status:** TODO | **Deps:** T-041
+
+Move "Botson" from sidebar header to a horizontal top navbar spanning the full width (like Contractor app reference). Sidebar starts below the navbar. This gives a more professional app feel.
+
+Files: `dashboard/templates/base.html`
+
+---
+
+#### T-046: Day-of-week selectors for scheduled items
+**Phase:** 11 — Dashboard UX | **Priority:** P0 | **Status:** TODO | **Deps:** T-044
+
+Each scheduled item (morning, evening, discussions, roundup) needs clickable day-of-week chips: א׳ ב׳ ג׳ ד׳ ה׳ ו׳ ש׳. Selected days are highlighted, unselected are gray. Saved to `settings.yaml` under each schedule item.
+
+Requires:
+- Update schedule config format to include days per item
+- Update schedule API endpoint
+- Update bot scheduler to check days
+- Add day chips UI to prompts schedule tab
+
+Files: `dashboard/templates/prompts.html`, `dashboard/app.py`, `config/settings.yaml`, `bot/scheduler/jobs.py`
+
+---
+
+#### T-047: Auto-detect forum topics from messages
+**Phase:** 11 — Bot | **Priority:** P0 | **Status:** TODO | **Deps:** T-004
+
+Telegram Bot API has no `getForumTopics` method. Workaround: track `message_thread_id` + topic name from every incoming message.
+
+- Add `forum_topics` table to DB: `topic_id (PK), name, last_seen_at`
+- Add a low-priority message handler that captures `message.message_thread_id` and `message.reply_to_message.forum_topic_created.name` (or from `message.forum_topic_created`)
+- Expose via `/api/topics/forum` dashboard endpoint
+
+Files: `bot/database/models.py`, `bot/database/db.py`, `bot/handlers/` (new tracker), `dashboard/app.py`
+
+---
+
+#### T-048: Topic dropdown in schedule (replace ID input)
+**Phase:** 11 — Dashboard UX | **Priority:** P0 | **Status:** TODO | **Deps:** T-047
+
+Replace all `<input type="number">` Topic ID fields with `<select>` dropdowns populated from the forum_topics table. Dropdown shows topic name + ID. Auto-refreshes when page loads.
+
+Files: `dashboard/templates/prompts.html`, `dashboard/app.py`
+
+---
+
+#### T-049: Clickable dots — instant visual toggle on/off
+**Phase:** 11 — Dashboard UX | **Priority:** P1 | **Status:** TODO | **Deps:** T-044
+
+Schedule timeline dots must visually toggle instantly on click:
+- Colored dot + full opacity = on
+- Gray dot + 40% opacity = off
+- JS swaps CSS classes immediately, then saves async via API
+- Uses a color map per dot type (amber=morning, sky=discussion, indigo=evening, orange=roundup)
+
+Files: `dashboard/templates/prompts.html`
+
+---
+
+#### T-050: Schedule tab — show loaded question per slot
+**Phase:** 11 — Dashboard UX | **Priority:** P1 | **Status:** TODO | **Deps:** T-044
+
+Each schedule row should show the actual next message/question that will be sent in that slot, not just "קטגוריה אקראית מהמאגר". Pull from the prompts pool to show a real preview.
+
+Files: `dashboard/templates/prompts.html`
+
+---
+
+#### T-051: End-to-end dashboard QA pass
+**Priority:** P1 | **Status:** TODO | **Deps:** T-045..T-050
+
+- All pages load without 500 errors
+- All toggles save correctly
+- Schedule saves and reflects in timeline
+- Topic dropdowns populate
+- Day-of-week chips save
+- Mobile responsive check
+- RTL consistency check
 
 ---
 

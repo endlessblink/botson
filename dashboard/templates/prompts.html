@@ -21,6 +21,8 @@
 {% set disc_on = feat.discussions is sameas true or (feat.discussions is mapping and feat.discussions.enabled) %}
 {% set roundup_on = feat.roundup is sameas true or (feat.roundup is mapping and feat.roundup.enabled) %}
 {% set disc_times = (schedule.discussion_prompt or '10:00,14:00,18:00').split(',') %}
+{% set topics = settings.topics or {} %}
+{% set disc_topics = topics.discussions or {} %}
 
 <!-- Page header with feature toggles -->
 <div class="flex items-center justify-between mb-6">
@@ -32,28 +34,28 @@
         <div class="flex items-center gap-2">
             <span class="text-xs text-[#71717a]">מטרות</span>
             <label class="switch">
-                <input type="checkbox" id="feat-goals" onchange="toggleFeature('goals', this.checked)" {% if settings.features and settings.features.goals %}checked{% endif %}>
+                <input type="checkbox" id="feat-goals" onchange="toggleFeature('goals', this.checked)" {% if goals_on %}checked{% endif %}>
                 <span class="slider"></span>
             </label>
         </div>
         <div class="flex items-center gap-2">
             <span class="text-xs text-[#71717a]">דיונים</span>
             <label class="switch">
-                <input type="checkbox" id="feat-discussions" onchange="toggleFeature('discussions', this.checked)" {% if settings.features and settings.features.discussions %}checked{% endif %}>
+                <input type="checkbox" id="feat-discussions" onchange="toggleFeature('discussions', this.checked)" {% if disc_on %}checked{% endif %}>
                 <span class="slider"></span>
             </label>
         </div>
         <div class="flex items-center gap-2">
             <span class="text-xs text-[#71717a]">סיכום</span>
             <label class="switch">
-                <input type="checkbox" id="feat-roundup" onchange="toggleFeature('roundup', this.checked)" {% if settings.features and settings.features.roundup %}checked{% endif %}>
+                <input type="checkbox" id="feat-roundup" onchange="toggleFeature('roundup', this.checked)" {% if roundup_on %}checked{% endif %}>
                 <span class="slider"></span>
             </label>
         </div>
     </div>
 </div>
 
-<!-- ═══ Daily Timeline ═══ -->
+<!-- Daily Timeline (always visible) -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
     <div class="px-5 py-3 border-b border-[#1f1f1f] flex items-center justify-between">
         <span class="text-sm font-medium text-[#fafafa]">לוח זמנים יומי</span>
@@ -61,10 +63,9 @@
     </div>
     <div class="px-5 py-4">
         <div class="relative">
-            <!-- Timeline line -->
             <div class="absolute top-0 bottom-0 right-[11px] w-px bg-[#1f1f1f]"></div>
 
-            <!-- Morning prompt -->
+            <!-- Morning -->
             <div class="flex items-start gap-4 mb-4 relative {% if not goals_on %}opacity-40{% endif %}">
                 <div class="w-6 h-6 rounded-full {% if goals_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
                     <div class="w-2 h-2 rounded-full {% if goals_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
@@ -75,15 +76,11 @@
                         <span class="text-xs text-[#71717a]">הודעת בוקר</span>
                         {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                     </div>
-                    {% if morning_items %}
-                    <p class="text-sm text-[#a1a1aa]">{{ morning_items[0] }}</p>
-                    {% else %}
-                    <p class="text-sm text-[#71717a]">אין הודעות במאגר</p>
-                    {% endif %}
+                    <p class="text-sm text-[#a1a1aa]">{% if morning_items %}{{ morning_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
                 </div>
             </div>
 
-            <!-- Discussion prompts -->
+            <!-- Discussion times -->
             {% for time in disc_times %}
             <div class="flex items-start gap-4 mb-4 relative {% if not disc_on %}opacity-40{% endif %}">
                 <div class="w-6 h-6 rounded-full {% if disc_on %}bg-sky-500/10 border-sky-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
@@ -100,8 +97,8 @@
             </div>
             {% endfor %}
 
-            <!-- Evening prompt -->
-            <div class="flex items-start gap-4 relative {% if not goals_on %}opacity-40{% endif %}">
+            <!-- Evening -->
+            <div class="flex items-start gap-4 mb-4 relative {% if not goals_on %}opacity-40{% endif %}">
                 <div class="w-6 h-6 rounded-full {% if goals_on %}bg-indigo-500/10 border-indigo-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
                     <div class="w-2 h-2 rounded-full {% if goals_on %}bg-indigo-400{% else %}bg-[#71717a]{% endif %}"></div>
                 </div>
@@ -111,11 +108,21 @@
                         <span class="text-xs text-[#71717a]">הודעת ערב</span>
                         {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                     </div>
-                    {% if evening_items %}
-                    <p class="text-sm text-[#a1a1aa]">{{ evening_items[0] }}</p>
-                    {% else %}
-                    <p class="text-sm text-[#71717a]">אין הודעות במאגר</p>
-                    {% endif %}
+                    <p class="text-sm text-[#a1a1aa]">{% if evening_items %}{{ evening_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
+                </div>
+            </div>
+
+            <!-- Weekly roundup -->
+            <div class="flex items-start gap-4 relative {% if not roundup_on %}opacity-40{% endif %}">
+                <div class="w-6 h-6 rounded-full {% if roundup_on %}bg-orange-500/10 border-orange-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
+                    <div class="w-2 h-2 rounded-full {% if roundup_on %}bg-orange-400{% else %}bg-[#71717a]{% endif %}"></div>
+                </div>
+                <div class="flex-1 pb-1">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-medium {% if roundup_on %}text-orange-400{% else %}text-[#71717a]{% endif %}">{{ schedule.weekly_roundup or 'friday 18:00' }}</span>
+                        <span class="text-xs text-[#71717a]">סיכום שבועי</span>
+                        {% if not roundup_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -129,13 +136,161 @@
     <button data-tab="2" onclick="switchTab(2)" class="px-4 py-2 text-sm cursor-pointer transition-colors text-[#71717a] hover:text-[#a1a1aa]">שאלות לדיון</button>
 </div>
 
-<!-- ═══ Morning & Evening ═══ -->
+<!-- ═══ Tab 0: Schedule Settings (DEFAULT — no hidden class) ═══ -->
+<div data-tab-panel="0">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-5 py-4 border-b border-[#1f1f1f]">
+            <span class="text-sm font-medium text-[#fafafa]">הגדרות לוח זמנים</span>
+            <p class="text-xs text-[#71717a] mt-1">שעון ישראל (Asia/Jerusalem) · לחצו על הנקודה הצבעונית כדי להפעיל/לכבות</p>
+        </div>
+        <div class="px-5 py-5">
+            <div class="relative">
+                <div class="absolute top-0 bottom-0 right-[11px] w-px bg-[#1f1f1f]"></div>
+
+                <!-- Morning -->
+                <div class="sched-row flex items-start gap-4 mb-6 relative {% if not goals_on %}opacity-40{% endif %}">
+                    <button onclick="toggleDot(this, 'goals_morning', 'goals')"
+                        data-on="{{ 'true' if goals_on else 'false' }}" data-feature="goals"
+                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if goals_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
+                        <div class="dot-inner w-2 h-2 rounded-full {% if goals_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
+                    </button>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-xs font-medium text-amber-400">הודעת בוקר</span>
+                            {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div>
+                                <label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>
+                                <input type="time" id="sched-morning" value="{{ schedule.morning_prompt or '08:00' }}"
+                                    class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-[#71717a] mb-1 block">ערוץ (Topic ID)</label>
+                                <input type="number" id="topic-goals" value="{{ topics.goals or '' }}" placeholder="מזהה"
+                                    class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]" dir="ltr">
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[10px] text-[#71717a] mb-1 block">הודעה הבאה</label>
+                                <p class="text-sm text-[#a1a1aa] truncate">{% if morning_items %}{{ morning_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Discussion slots -->
+                <div id="disc-slots">
+                {% for time in disc_times %}
+                    <div class="sched-row flex items-start gap-4 mb-6 relative disc-time-slot {% if not disc_on %}opacity-40{% endif %}">
+                        <button onclick="toggleDot(this, 'discussions', 'discussions')"
+                            data-on="{{ 'true' if disc_on else 'false' }}" data-feature="discussions"
+                            class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if disc_on %}bg-sky-500/10 border-sky-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
+                            <div class="dot-inner w-2 h-2 rounded-full {% if disc_on %}bg-sky-400{% else %}bg-[#71717a]{% endif %}"></div>
+                        </button>
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-xs font-medium text-sky-400">שאלה לדיון</span>
+                                <button onclick="this.closest('.disc-time-slot').remove();" class="text-[10px] text-[#71717a] hover:text-[#fca5a5] cursor-pointer transition-colors">הסר</button>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div>
+                                    <label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>
+                                    <input type="time" value="{{ time.strip() }}"
+                                        class="disc-time-input bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="text-[10px] text-[#71717a] mb-1 block">שאלה שתישלח</label>
+                                    <p class="text-sm text-[#a1a1aa] truncate">קטגוריה אקראית מהמאגר</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+
+                <!-- Add slot button -->
+                <div class="flex items-start gap-4 mb-6 relative">
+                    <div class="w-6 h-6 rounded-full bg-[#1f1f1f] border border-[#272727] flex items-center justify-center shrink-0 z-10">
+                        <span class="text-[#71717a] text-xs">+</span>
+                    </div>
+                    <div class="flex-1 pt-1">
+                        <button onclick="addDiscSlot()" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">+ הוסף שעת שליחה</button>
+                    </div>
+                </div>
+
+                <!-- Evening -->
+                <div class="sched-row flex items-start gap-4 mb-6 relative {% if not goals_on %}opacity-40{% endif %}">
+                    <button onclick="toggleDot(this, 'goals_evening', 'goals')"
+                        data-on="{{ 'true' if goals_on else 'false' }}" data-feature="goals"
+                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if goals_on %}bg-indigo-500/10 border-indigo-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
+                        <div class="dot-inner w-2 h-2 rounded-full {% if goals_on %}bg-indigo-400{% else %}bg-[#71717a]{% endif %}"></div>
+                    </button>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-xs font-medium text-indigo-400">הודעת ערב</span>
+                            {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div>
+                                <label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>
+                                <input type="time" id="sched-evening" value="{{ schedule.evening_prompt or '21:00' }}"
+                                    class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-[#71717a] mb-1 block">ערוץ (Topic ID)</label>
+                                <input type="number" id="topic-goals-evening" value="{{ topics.goals or '' }}" placeholder="מזהה"
+                                    class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]" dir="ltr">
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[10px] text-[#71717a] mb-1 block">הודעה הבאה</label>
+                                <p class="text-sm text-[#a1a1aa] truncate">{% if evening_items %}{{ evening_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Weekly roundup -->
+                <div class="sched-row flex items-start gap-4 relative {% if not roundup_on %}opacity-40{% endif %}">
+                    <button onclick="toggleDot(this, 'roundup', 'roundup')"
+                        data-on="{{ 'true' if roundup_on else 'false' }}" data-feature="roundup"
+                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if roundup_on %}bg-orange-500/10 border-orange-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
+                        <div class="dot-inner w-2 h-2 rounded-full {% if roundup_on %}bg-orange-400{% else %}bg-[#71717a]{% endif %}"></div>
+                    </button>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-xs font-medium text-orange-400">סיכום שבועי</span>
+                            {% if not roundup_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div>
+                                <label class="text-[10px] text-[#71717a] mb-1 block">יום ושעה</label>
+                                <input type="text" id="sched-roundup" value="{{ schedule.weekly_roundup or 'friday 18:00' }}" placeholder="friday 18:00"
+                                    class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[140px]" dir="ltr">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-[#71717a] mb-1 block">ערוץ (Topic ID)</label>
+                                <input type="number" id="topic-general" value="{{ topics.general or '' }}" placeholder="מזהה"
+                                    class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]" dir="ltr">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        <div class="px-5 py-3 border-t border-[#1f1f1f]">
+            <button onclick="saveSchedule()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-8 px-3 rounded-md text-xs font-medium cursor-pointer transition-colors">שמור לוח זמנים</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Tab 1: Morning & Evening Messages ═══ -->
 <div data-tab-panel="1" class="hidden">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         <!-- Morning card -->
         <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg flex flex-col">
-            <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+            <div class="px-5 py-4 border-b border-[#1f1f1f]">
                 <div class="flex items-center gap-3">
                     <span class="text-sm font-medium text-[#fafafa]">הודעות בוקר</span>
                     <span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">{{ morning_items|length }} במאגר</span>
@@ -160,7 +315,7 @@
 
         <!-- Evening card -->
         <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg flex flex-col">
-            <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+            <div class="px-5 py-4 border-b border-[#1f1f1f]">
                 <div class="flex items-center gap-3">
                     <span class="text-sm font-medium text-[#fafafa]">הודעות ערב</span>
                     <span class="text-xs bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-md">{{ evening_items|length }} במאגר</span>
@@ -187,9 +342,7 @@
 </div>
 
 <!-- ═══ Tab 2: Discussion Prompts ═══ -->
-<div data-tab-panel="1" class="hidden">
-
-    {% set disc_topics = settings.topics.discussions or {} %}
+<div data-tab-panel="2" class="hidden">
 
     <!-- Category chips -->
     <div class="flex flex-wrap gap-2 mb-4">
@@ -204,14 +357,13 @@
         {% endfor %}
     </div>
 
-    <!-- Category detail card -->
+    <!-- Category detail cards -->
     {% for cat, label in categories %}
     {% set items = discussions.get(cat, []) %}
     {% set topic_id = disc_topics.get(cat) %}
     <div class="disc-panel {% if not loop.first %}hidden{% endif %}" data-disc-cat="{{ cat }}">
         <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
-            <!-- Header -->
-            <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+            <div class="px-5 py-4 border-b border-[#1f1f1f]">
                 <div class="flex items-center gap-3">
                     <span class="text-sm font-medium text-[#fafafa]">{{ label }}</span>
                     <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md">{{ items|length }} שאלות</span>
@@ -222,16 +374,12 @@
                     {% endif %}
                 </div>
             </div>
-
-            <!-- Topic ID config -->
             <div class="px-5 py-3 border-b border-[#1f1f1f] flex items-center gap-3">
                 <label class="text-xs text-[#71717a] shrink-0">Topic ID</label>
                 <input type="number" data-topic-cat="{{ cat }}" value="{{ topic_id or '' }}" placeholder="מזהה ערוץ בטלגרם"
                     class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] flex-1 max-w-[200px]" dir="ltr">
                 <button onclick="saveDiscTopicId('{{ cat }}')" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">שמור</button>
             </div>
-
-            <!-- Questions preview -->
             <div class="px-5 py-3">
                 {% if items %}
                 <p class="text-[10px] text-[#71717a] mb-2">5 הבאות בתור</p>
@@ -247,8 +395,6 @@
                 <p class="text-sm text-[#71717a] py-4 text-center">אין שאלות — לחצו ייצר</p>
                 {% endif %}
             </div>
-
-            <!-- Actions -->
             <div class="px-5 py-3 border-t border-[#1f1f1f] flex items-center gap-2">
                 <button onclick="generateDiscussion('{{ cat }}', event)" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-8 px-3 rounded-md text-xs font-medium cursor-pointer transition-colors">ייצר שאלות</button>
                 <button onclick="addDiscussion('{{ cat }}', event)" class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-8 px-3 rounded-md text-xs cursor-pointer transition-colors">הוסף למאגר</button>
@@ -259,166 +405,106 @@
 
 </div>
 
-<!-- ═══ Tab 3: Schedule Settings ═══ -->
-{% set topics = settings.topics or {} %}
-<div data-tab-panel="2" class="hidden">
-    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
-        <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
-            <div>
-                <span class="text-sm font-medium text-[#fafafa]">הגדרות לוח זמנים</span>
-                <p class="text-xs text-[#71717a] mt-1">שעון ישראל (Asia/Jerusalem) · לחצו על שעה או ערוץ כדי לערוך</p>
-            </div>
-        </div>
-        <div class="px-5 py-5">
-            <div class="relative">
-                <!-- Timeline line -->
-                <div class="absolute top-0 bottom-0 right-[11px] w-px bg-[#1f1f1f]"></div>
-
-                <!-- Morning prompt -->
-                <div class="flex items-start gap-4 mb-6 relative">
-                    <button onclick="toggleFeature('goals', !document.getElementById('sched-goals-toggle').checked); document.getElementById('sched-goals-toggle').checked = !document.getElementById('sched-goals-toggle').checked;" class="w-6 h-6 rounded-full {% if goals_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-transform">
-                        <div class="w-2 h-2 rounded-full {% if goals_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
-                    </button>
-                    <input type="hidden" id="sched-goals-toggle" {% if goals_on %}checked{% endif %}>
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between mb-2">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs font-medium text-amber-400">הודעת בוקר</span>
-                                {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>
-                                <input type="time" id="sched-morning" value="{{ schedule.morning_prompt or '08:00' }}" class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">ערוץ (Topic ID)</label>
-                                <input type="number" id="topic-goals" value="{{ topics.goals or '' }}" placeholder="מזהה" class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]" dir="ltr">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-[10px] text-[#71717a] mb-1 block">הודעה הבאה</label>
-                                <p class="text-sm text-[#a1a1aa] truncate">{% if morning_items %}{{ morning_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Discussion prompts — one slot per time -->
-                <div id="disc-slots">
-                {% for time in disc_times %}
-                <div class="flex items-start gap-4 mb-6 relative disc-time-slot">
-                    <div class="w-6 h-6 rounded-full bg-sky-500/10 border border-sky-500/30 flex items-center justify-center shrink-0 z-10">
-                        <div class="w-2 h-2 rounded-full bg-sky-400"></div>
-                    </div>
-                    <div class="flex-1">
-                        <div class="flex items-center gap-2 mb-2">
-                            <span class="text-xs font-medium text-sky-400">שאלה לדיון</span>
-                            <button onclick="this.closest('.disc-time-slot').remove();" class="text-[10px] text-[#71717a] hover:text-[#fca5a5] cursor-pointer transition-colors">הסר</button>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>
-                                <input type="time" value="{{ time.strip() }}" class="disc-time-input bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-[10px] text-[#71717a] mb-1 block">שאלה שתישלח</label>
-                                <p class="text-sm text-[#a1a1aa] truncate">קטגוריה אקראית מהמאגר</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-                </div>
-                <!-- Add slot button -->
-                <div class="flex items-start gap-4 mb-6 relative">
-                    <div class="w-6 h-6 rounded-full bg-[#1f1f1f] border border-[#272727] flex items-center justify-center shrink-0 z-10">
-                        <span class="text-[#71717a] text-xs">+</span>
-                    </div>
-                    <div class="flex-1 pt-1">
-                        <button onclick="addDiscSlot()" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">הוסף שעת שליחה</button>
-                    </div>
-                </div>
-
-                <!-- Evening prompt -->
-                <div class="flex items-start gap-4 mb-6 relative">
-                    <button onclick="toggleFeature('goals', !document.getElementById('sched-goals-toggle').checked); document.getElementById('sched-goals-toggle').checked = !document.getElementById('sched-goals-toggle').checked;" class="w-6 h-6 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-transform">
-                        <div class="w-2 h-2 rounded-full bg-indigo-400"></div>
-                    </button>
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-xs font-medium text-indigo-400">הודעת ערב</span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>
-                                <input type="time" id="sched-evening" value="{{ schedule.evening_prompt or '21:00' }}" class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">ערוץ (Topic ID)</label>
-                                <input type="number" id="topic-goals-evening" value="{{ topics.goals or '' }}" placeholder="מזהה" class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]" dir="ltr">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-[10px] text-[#71717a] mb-1 block">הודעה הבאה</label>
-                                <p class="text-sm text-[#a1a1aa] truncate">{% if evening_items %}{{ evening_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Weekly roundup -->
-                <div class="flex items-start gap-4 relative">
-                    <button onclick="toggleFeature('roundup', !this.dataset.on); this.dataset.on = this.dataset.on === 'true' ? 'false' : 'true';" data-on="{{ 'true' if roundup_on else 'false' }}" class="w-6 h-6 rounded-full bg-orange-500/10 border border-orange-500/30 flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-transform">
-                        <div class="w-2 h-2 rounded-full bg-orange-400"></div>
-                    </button>
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-xs font-medium text-orange-400">סיכום שבועי</span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">יום ושעה</label>
-                                <input type="text" id="sched-roundup" value="{{ schedule.weekly_roundup or 'friday 18:00' }}" placeholder="friday 18:00" class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[140px]" dir="ltr">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-[#71717a] mb-1 block">ערוץ (Topic ID)</label>
-                                <input type="number" id="topic-general" value="{{ topics.general or '' }}" placeholder="מזהה" class="bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]" dir="ltr">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-        <div class="px-5 py-3 border-t border-[#1f1f1f]">
-            <button onclick="saveSchedule()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">שמור</button>
-        </div>
-    </div>
-</div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // Tab switching
+    /* ─── Dot color map ─── */
+    var dotColors = {
+        goals_morning: { on: ['bg-amber-500/10', 'border-amber-500/30', 'bg-amber-400'], off: ['bg-[#1f1f1f]', 'border-[#272727]', 'bg-[#71717a]'] },
+        discussions:   { on: ['bg-sky-500/10', 'border-sky-500/30', 'bg-sky-400'],       off: ['bg-[#1f1f1f]', 'border-[#272727]', 'bg-[#71717a]'] },
+        goals_evening: { on: ['bg-indigo-500/10', 'border-indigo-500/30', 'bg-indigo-400'], off: ['bg-[#1f1f1f]', 'border-[#272727]', 'bg-[#71717a]'] },
+        roundup:       { on: ['bg-orange-500/10', 'border-orange-500/30', 'bg-orange-400'], off: ['bg-[#1f1f1f]', 'border-[#272727]', 'bg-[#71717a]'] }
+    };
+
+    /* ─── Toggle dot visual + save feature ─── */
+    function toggleDot(btn, colorKey, featureName) {
+        var isOn = btn.dataset.on === 'true';
+        var newState = !isOn;
+        btn.dataset.on = String(newState);
+
+        var colors = dotColors[colorKey];
+        var inner = btn.querySelector('.dot-inner');
+        var row = btn.closest('.sched-row');
+        var oldSet = isOn ? colors.on : colors.off;
+        var newSet = newState ? colors.on : colors.off;
+
+        // Swap outer classes (bg + border)
+        btn.classList.remove(oldSet[0], oldSet[1]);
+        btn.classList.add(newSet[0], newSet[1]);
+
+        // Swap inner dot color
+        inner.classList.remove(oldSet[2]);
+        inner.classList.add(newSet[2]);
+
+        // Row opacity
+        if (newState) { row.classList.remove('opacity-40'); }
+        else { row.classList.add('opacity-40'); }
+
+        // Sync sibling dots that share the same feature (goals = morning + evening)
+        document.querySelectorAll('.sched-dot[data-feature="' + featureName + '"]').forEach(function(otherBtn) {
+            if (otherBtn === btn) return;
+            var otherKey = null;
+            // Determine color key from the other button's onclick
+            for (var k in dotColors) {
+                if (dotColors.hasOwnProperty(k)) {
+                    var onBg = dotColors[k].on[0];
+                    var offBg = dotColors[k].off[0];
+                    if (otherBtn.classList.contains(onBg) || otherBtn.classList.contains(offBg)) {
+                        otherKey = k;
+                        break;
+                    }
+                }
+            }
+            if (!otherKey) return;
+
+            var otherInner = otherBtn.querySelector('.dot-inner');
+            var otherRow = otherBtn.closest('.sched-row');
+            var wasOn = otherBtn.dataset.on === 'true';
+            otherBtn.dataset.on = String(newState);
+
+            var otherOld = wasOn ? dotColors[otherKey].on : dotColors[otherKey].off;
+            var otherNew = newState ? dotColors[otherKey].on : dotColors[otherKey].off;
+
+            otherBtn.classList.remove(otherOld[0], otherOld[1]);
+            otherBtn.classList.add(otherNew[0], otherNew[1]);
+            otherInner.classList.remove(otherOld[2]);
+            otherInner.classList.add(otherNew[2]);
+
+            if (newState) { otherRow.classList.remove('opacity-40'); }
+            else { otherRow.classList.add('opacity-40'); }
+        });
+
+        // Also sync the header toggle switch
+        var headerToggle = document.getElementById('feat-' + featureName);
+        if (headerToggle) headerToggle.checked = newState;
+
+        // Save to API
+        toggleFeature(featureName, newState);
+    }
+
+    /* ─── Tab switching ─── */
     function switchTab(tabIndex) {
         document.querySelectorAll('[data-tab-panel]').forEach(function(el) { el.classList.add('hidden'); });
         document.querySelectorAll('[data-tab]').forEach(function(el) {
             el.classList.remove('text-[#fafafa]', 'border-b-2', 'border-[#fafafa]', '-mb-px');
             el.classList.add('text-[#71717a]');
         });
-        document.querySelector('[data-tab-panel="' + tabIndex + '"]').classList.remove('hidden');
+        var panel = document.querySelector('[data-tab-panel="' + tabIndex + '"]');
+        if (panel) panel.classList.remove('hidden');
         var tab = document.querySelector('[data-tab="' + tabIndex + '"]');
-        tab.classList.add('text-[#fafafa]', 'border-b-2', 'border-[#fafafa]', '-mb-px');
-        tab.classList.remove('text-[#71717a]');
+        if (tab) {
+            tab.classList.add('text-[#fafafa]', 'border-b-2', 'border-[#fafafa]', '-mb-px');
+            tab.classList.remove('text-[#71717a]');
+        }
     }
 
-    // Discussion category switching
+    /* ─── Discussion category switching ─── */
     function showCategory(cat) {
         document.querySelectorAll('.disc-panel').forEach(function(el) { el.classList.add('hidden'); });
         var panel = document.querySelector('[data-disc-cat="' + cat + '"]');
         if (panel) panel.classList.remove('hidden');
-        // Update chip styles
+
         document.querySelectorAll('.disc-chip').forEach(function(chip) {
             chip.classList.remove('bg-[#fafafa]', 'text-[#0a0a0a]', 'border-[#fafafa]');
             chip.classList.add('bg-transparent', 'border-[#272727]');
@@ -431,7 +517,7 @@
         }
     }
 
-    // Save a discussion topic ID
+    /* ─── Save discussion topic ID ─── */
     async function saveDiscTopicId(cat) {
         try {
             var input = document.querySelector('[data-topic-cat="' + cat + '"]');
@@ -444,13 +530,17 @@
         } catch (e) { showToast('שגיאה בשמירה', 'error'); }
     }
 
-    // Add a new discussion time slot
+    /* ─── Add discussion time slot ─── */
     function addDiscSlot() {
         var container = document.getElementById('disc-slots');
+        var isOn = document.getElementById('feat-discussions') && document.getElementById('feat-discussions').checked;
         var slot = document.createElement('div');
-        slot.className = 'flex items-start gap-4 mb-6 relative disc-time-slot';
+        slot.className = 'sched-row flex items-start gap-4 mb-6 relative disc-time-slot' + (isOn ? '' : ' opacity-40');
         slot.innerHTML =
-            '<div class="w-6 h-6 rounded-full bg-sky-500/10 border border-sky-500/30 flex items-center justify-center shrink-0 z-10"><div class="w-2 h-2 rounded-full bg-sky-400"></div></div>' +
+            '<button onclick="toggleDot(this, \'discussions\', \'discussions\')" data-on="' + (isOn ? 'true' : 'false') + '" data-feature="discussions"' +
+            ' class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all ' +
+            (isOn ? 'bg-sky-500/10 border-sky-500/30' : 'bg-[#1f1f1f] border-[#272727]') + '">' +
+            '<div class="dot-inner w-2 h-2 rounded-full ' + (isOn ? 'bg-sky-400' : 'bg-[#71717a]') + '"></div></button>' +
             '<div class="flex-1">' +
                 '<div class="flex items-center gap-2 mb-2">' +
                     '<span class="text-xs font-medium text-sky-400">שאלה לדיון</span>' +
@@ -466,22 +556,19 @@
         container.appendChild(slot);
     }
 
-    // Save schedule + topic IDs
+    /* ─── Save schedule + topic IDs ─── */
     async function saveSchedule() {
         try {
-            // Collect discussion times from individual slots
             var discTimes = [];
             document.querySelectorAll('.disc-time-input').forEach(function(input) {
                 if (input.value) discTimes.push(input.value);
             });
-            // Save schedule times
             await apiCall('/api/settings/schedule', {
                 morning_prompt: document.getElementById('sched-morning').value,
                 evening_prompt: document.getElementById('sched-evening').value,
                 weekly_roundup: document.getElementById('sched-roundup').value,
                 discussion_prompt: discTimes.join(',')
             });
-            // Save topic IDs
             var goalsId = document.getElementById('topic-goals').value.trim();
             var generalId = document.getElementById('topic-general').value.trim();
             await apiCall('/api/settings/topics', {
@@ -493,7 +580,7 @@
         } catch (e) { showToast('שגיאה בשמירה', 'error'); }
     }
 
-    // Generate new pool (replace all) for morning/evening
+    /* ─── Generate pool (replace) ─── */
     async function generatePool(type, evt) {
         var btn = evt.target.closest('button');
         var orig = btn.textContent;
@@ -513,7 +600,7 @@
         finally { btn.disabled = false; btn.textContent = orig; }
     }
 
-    // Add more to existing pool
+    /* ─── Add to existing pool ─── */
     async function addToPool(type, evt) {
         var btn = evt.target.closest('button');
         var orig = btn.textContent;
@@ -537,7 +624,7 @@
         finally { btn.disabled = false; btn.textContent = orig; }
     }
 
-    // Generate discussions (replace)
+    /* ─── Generate discussions (replace) ─── */
     async function generateDiscussion(cat, evt) {
         var btn = evt.target.closest('button');
         var orig = btn.textContent;
@@ -557,7 +644,7 @@
         finally { btn.disabled = false; btn.textContent = orig; }
     }
 
-    // Add more discussions
+    /* ─── Add more discussions ─── */
     async function addDiscussion(cat, evt) {
         var btn = evt.target.closest('button');
         var orig = btn.textContent;
@@ -580,7 +667,7 @@
         finally { btn.disabled = false; btn.textContent = orig; }
     }
 
-    // Toggle feature
+    /* ─── Toggle feature (API save) ─── */
     async function toggleFeature(feature, enabled) {
         try {
             var data = {{ settings.features | tojson }};
@@ -591,7 +678,7 @@
     }
 </script>
 
-<!-- Hidden pool data -->
+<!-- Hidden pool data for JS -->
 <input type="hidden" id="pool-morning" value="{{ (prompts.morning or []) | tojson }}">
 <input type="hidden" id="pool-evening" value="{{ (prompts.evening or []) | tojson }}">
 {% for cat, label in categories %}
