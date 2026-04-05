@@ -6,7 +6,7 @@ import sys
 from telegram.ext import Application, CommandHandler
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, topic_tracker
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_prompts
 
@@ -110,6 +110,7 @@ def main():
     discussions.register(app)
     events.register(app)     # Event management
     trivia.register(app)     # Trivia questions
+    topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 
     # Setup scheduled jobs (uses built-in JobQueue)
     setup_jobs(app)

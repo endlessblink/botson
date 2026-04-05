@@ -398,3 +398,23 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    # ── Forum Topics ─────────────────────────────────────────
+
+    async def upsert_forum_topic(self, topic_id: int, name: str):
+        """Track a forum topic seen in messages."""
+        await self._db.execute(
+            """INSERT INTO forum_topics (topic_id, name, last_seen_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(topic_id) DO UPDATE SET
+               name = excluded.name, last_seen_at = CURRENT_TIMESTAMP""",
+            (topic_id, name),
+        )
+        await self._db.commit()
+
+    async def get_forum_topics(self) -> list[dict]:
+        """Get all known forum topics."""
+        async with self._db.execute(
+            "SELECT topic_id, name, last_seen_at FROM forum_topics ORDER BY name"
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]

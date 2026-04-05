@@ -29,24 +29,23 @@
 </head>
 <body class="bg-[#09090b] min-h-screen text-sm text-[#a1a1aa]">
 
-    <!-- Mobile header -->
-    <div class="lg:hidden fixed top-0 inset-x-0 z-40 h-14 bg-[#0a0a0a] border-b border-[#1f1f1f] flex items-center justify-between px-4">
-        <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
-        <button id="mobile-menu-btn" class="text-[#a1a1aa] hover:text-[#fafafa] transition-colors" aria-label="תפריט">
+    <!-- Top navbar — always visible -->
+    <header class="fixed top-0 inset-x-0 z-40 h-12 bg-[#0a0a0a] border-b border-[#1f1f1f] flex items-center justify-between px-4">
+        <button id="mobile-menu-btn" class="lg:hidden text-[#a1a1aa] hover:text-[#fafafa] transition-colors" aria-label="תפריט">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="4" x2="20" y1="12" y2="12"/>
                 <line x1="4" x2="20" y1="6" y2="6"/>
                 <line x1="4" x2="20" y1="18" y2="18"/>
             </svg>
         </button>
-    </div>
+        <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
+    </header>
 
     <!-- Mobile sidebar overlay -->
     <div id="mobile-overlay" class="fixed inset-0 z-50 hidden">
         <div id="mobile-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
         <aside class="absolute top-0 right-0 w-56 h-full bg-[#0a0a0a] border-l border-[#1f1f1f] flex flex-col">
-            <div class="px-4 h-14 flex items-center border-b border-[#1f1f1f] justify-between">
-                <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
+            <div class="px-4 h-12 flex items-center border-b border-[#1f1f1f] justify-end">
                 <button id="mobile-close-btn" class="text-[#a1a1aa] hover:text-[#fafafa] transition-colors" aria-label="סגור">
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
@@ -101,10 +100,7 @@
     </div>
 
     <!-- Desktop sidebar -->
-    <aside class="hidden lg:flex lg:flex-col lg:fixed top-0 right-0 w-56 h-full bg-[#0a0a0a] border-l border-[#1f1f1f] z-30">
-        <div class="px-4 h-14 flex items-center border-b border-[#1f1f1f]">
-            <span class="text-sm font-semibold text-[#fafafa] tracking-tight">Botson</span>
-        </div>
+    <aside class="hidden lg:flex lg:flex-col lg:fixed top-12 right-0 w-56 h-[calc(100%-3rem)] bg-[#0a0a0a] border-l border-[#1f1f1f] z-30">
         <nav class="flex-1 px-3 py-4 space-y-1">
             <a href="/" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'home' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                 <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="5" x="14" y="12" rx="1"/><rect width="7" height="9" x="3" y="16" rx="1"/></svg>
@@ -152,7 +148,7 @@
     </aside>
 
     <!-- Main content -->
-    <div class="mr-0 lg:mr-56 min-h-screen pt-14 lg:pt-0">
+    <div class="mr-0 lg:mr-56 min-h-screen pt-12">
         <main class="p-6">
             {% block content %}{% endblock %}
         </main>

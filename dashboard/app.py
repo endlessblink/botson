@@ -181,7 +181,7 @@ async def update_schedule(request: Request):
 # ── Prompts API ──────────────────────────────────────────
 
 @app.get("/prompts", response_class=HTMLResponse)
-async def prompts_page(request: Request):
+async def prompts_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
@@ -192,11 +192,13 @@ async def prompts_page(request: Request):
     except Exception:
         pass
     settings = get_settings()
+    forum_topics = await db.get_forum_topics()
 
     return templates.TemplateResponse(request, name="prompts.html", context={
         "prompts": prompts,
         "discussions": discussions,
         "settings": settings,
+        "forum_topics": forum_topics,
     })
 
 
@@ -220,6 +222,16 @@ async def save_prompts(request: Request):
         yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
 
     return {"status": "ok"}
+
+
+# ── Forum Topics API ─────────────────────────────────────
+
+@app.get("/api/topics/forum")
+async def get_forum_topics(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    topics = await db.get_forum_topics()
+    return {"topics": topics}
 
 
 # ── Spam API ─────────────────────────────────────────────

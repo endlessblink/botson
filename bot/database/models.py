@@ -75,4 +75,10 @@ CREATE TABLE IF NOT EXISTS activity_log (
     target_channel TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS forum_topics (
+    topic_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """

@@ -32,11 +32,43 @@ features:
 levels:
   max_per_day: 10
 schedule:
-  discussion_prompt: '18:00'
-  evening_prompt: '21:00'
-  morning_prompt: 08:00
-  weekly_leaderboard: friday 18:00
-  weekly_roundup: friday 18:00
+  discussion_prompt:
+    days:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    times:
+    - '18:00'
+  evening_prompt:
+    days:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    time: '21:00'
+  morning_prompt:
+    days:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    time: 09:00
+  weekly_leaderboard:
+    days:
+    - 5
+    time: '18:00'
+  weekly_roundup:
+    days:
+    - 5
+    time: '18:00'
 topics:
   discussions:
     art: null
@@ -50,7 +82,7 @@ topics:
     singles: null
     vegan: null
   general: null
-  goals: null
+  goals: 0
   welcome: null
 welcome:
   batch_window_seconds: 30
