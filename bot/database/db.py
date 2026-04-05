@@ -379,3 +379,22 @@ class Database:
         """Reset all trivia scores."""
         await self._db.execute("DELETE FROM trivia_scores")
         await self._db.commit()
+
+    # ── Activity Log ─────────────────────────────────────────
+
+    async def log_activity(self, action_type: str, description: str,
+                           target_user_id: int | None = None, target_channel: str | None = None):
+        """Log a bot action for the activity dashboard."""
+        await self._db.execute(
+            "INSERT INTO activity_log (action_type, description, target_user_id, target_channel) VALUES (?, ?, ?, ?)",
+            (action_type, description, target_user_id, target_channel),
+        )
+        await self._db.commit()
+
+    async def get_activity_log(self, limit: int = 100) -> list[dict]:
+        """Get recent activity log entries."""
+        async with self._db.execute(
+            "SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT ?", (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]

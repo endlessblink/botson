@@ -60,6 +60,8 @@ async def send_discussion_prompt(context: ContextTypes.DEFAULT_TYPE):
     then sends a random prompt from that category.
     """
     settings = get_settings()
+    if not settings.get("features", {}).get("discussions", False):
+        return
     topic_ids = settings.get("topics", {}).get("discussions", {})
 
     if not topic_ids:
@@ -84,6 +86,7 @@ async def send_discussion_prompt(context: ContextTypes.DEFAULT_TYPE):
     prompt = _pick_prompt(category, discussions[category])
     topic_id = topic_ids[category]
 
+    db = context.bot_data["db"]
     try:
         await context.bot.send_message(
             chat_id=GROUP_ID,
@@ -91,6 +94,7 @@ async def send_discussion_prompt(context: ContextTypes.DEFAULT_TYPE):
             message_thread_id=topic_id,
         )
         logger.info("Sent discussion prompt to %s: %s", category, prompt[:50])
+        await db.log_activity("discussion", f"שלח שאלה ל-{category}", target_channel=category)
     except Exception as e:
         logger.error("Failed to send discussion prompt to %s: %s", category, e)
 

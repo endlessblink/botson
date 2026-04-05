@@ -45,3 +45,14 @@ levels:
 # Welcome
 welcome:
   batch_window_seconds: 30       # Batch joins within this window
+
+# Feature toggles (all off by default — enable when ready)
+features:
+  welcome: false           # Welcome DM to new members
+  goals: false             # Daily morning/evening prompts
+  levels: false            # Activity-based leveling
+  antispam: false          # Spam detection (dry_run setting still applies)
+  discussions: false       # Discussion prompts in channels
+  events: false            # Event system
+  trivia: false            # Trivia game
+  roundup: false           # Weekly roundup

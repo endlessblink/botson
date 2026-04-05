@@ -91,6 +91,7 @@ async def _delete_and_log(
     # Log to database
     db: Database = context.bot_data["db"]
     await db.log_spam(user_id, msg_text[:500], rule, action)
+    await db.log_activity("spam", f"זוהה ספאם: {rule}", user_id)
 
     # Notify admins
     mode_tag = "🔍 [DRY RUN] " if dry_run else ""
@@ -113,6 +114,10 @@ async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = update.effective_user
+
+    settings_check = get_settings()
+    if not settings_check.get("features", {}).get("antispam", False):
+        return
 
     # Skip admins and bots
     if is_admin(user.id) or is_bot_user(user):

@@ -50,21 +50,15 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
     for join in joins:
         await db.upsert_member(join["user_id"], join["username"], join["name"])
 
-    if len(names) == 1:
-        text = WELCOME_TEMPLATE.format(names=names[0])
-    else:
-        names_str = ", ".join(names[:-1]) + " ו" + names[-1]
-        text = WELCOME_TEMPLATE_MULTI.format(names=names_str)
-
-    kwargs = {"chat_id": chat_id, "text": text}
-    if topic_id:
-        kwargs["message_thread_id"] = topic_id
-
-    try:
-        await context.bot.send_message(**kwargs)
-        logger.info("Sent welcome message for: %s", ", ".join(names))
-    except Exception as e:
-        logger.error("Failed to send welcome message: %s", e)
+    for join in joins:
+        name = join["name"]
+        text = WELCOME_TEMPLATE.format(names=name)
+        try:
+            await context.bot.send_message(chat_id=join["user_id"], text=text)
+            logger.info("Sent welcome DM to: %s (ID: %d)", name, join["user_id"])
+            await db.log_activity("welcome", f"שלח הודעת ברוכים הבאים ל-{name}", join["user_id"])
+        except Exception as e:
+            logger.warning("Could not DM user %d: %s", join["user_id"], e)
 
 
 async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,6 +69,8 @@ async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     settings = get_settings()
+    if not settings.get("features", {}).get("welcome", False):
+        return
     batch_window = settings.get("welcome", {}).get("batch_window_seconds", 30)
     topic_id = settings.get("topics", {}).get("welcome")
 

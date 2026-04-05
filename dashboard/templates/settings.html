@@ -9,6 +9,51 @@
     <p class="text-gray-400 mt-1">הגדרות כלליות של הבוט</p>
 </div>
 
+<!-- Feature Toggles -->
+<div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-4">🔌 פיצ'רים</h3>
+    <p class="text-sm text-gray-500 mb-4">הפעלה וכיבוי של פיצ'רים. כל הפיצ'רים כבויים כברירת מחדל.</p>
+
+    <div class="space-y-3" id="feature-toggles">
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">👋 הודעות ברוכים הבאים</span>
+            <input type="checkbox" id="feat-welcome" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.welcome %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">🌟 הישגים ומטרות יומיים</span>
+            <input type="checkbox" id="feat-goals" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.goals %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">📊 רמות (ניקוד פעילות)</span>
+            <input type="checkbox" id="feat-levels" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.levels %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">🛡️ זיהוי ספאם</span>
+            <input type="checkbox" id="feat-antispam" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.antispam %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">💬 שאלות לדיון</span>
+            <input type="checkbox" id="feat-discussions" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.discussions %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">🎉 אירועים</span>
+            <input type="checkbox" id="feat-events" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.events %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">🧠 טריוויה</span>
+            <input type="checkbox" id="feat-trivia" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.trivia %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <span class="text-gray-700">📊 סיכום שבועי</span>
+            <input type="checkbox" id="feat-roundup" class="w-5 h-5 accent-blue-600" {% if settings.features and settings.features.roundup %}checked{% endif %}>
+        </label>
+    </div>
+
+    <button onclick="saveFeatures()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+        שמור פיצ'רים
+    </button>
+</div>
+
 <!-- Topic IDs -->
 <div class="bg-[#1c1c2e] rounded-xl border border-gray-800/50 p-6 mb-6">
     <h3 class="text-lg font-bold text-white mb-4">🔗 מזהי ערוצים (Topic IDs)</h3>
@@ -85,6 +130,24 @@
 
 {% block scripts %}
 <script>
+async function saveFeatures() {
+    try {
+        await apiCall('/api/settings/features', {
+            welcome: document.getElementById('feat-welcome').checked,
+            goals: document.getElementById('feat-goals').checked,
+            levels: document.getElementById('feat-levels').checked,
+            antispam: document.getElementById('feat-antispam').checked,
+            discussions: document.getElementById('feat-discussions').checked,
+            events: document.getElementById('feat-events').checked,
+            trivia: document.getElementById('feat-trivia').checked,
+            roundup: document.getElementById('feat-roundup').checked,
+        });
+        showToast('פיצ\'רים נשמרו');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
 async function saveTopics() {
     try {
         await apiCall('/api/settings/topics', {

@@ -66,4 +66,13 @@ CREATE TABLE IF NOT EXISTS trivia_scores (
     total_answers INTEGER DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES members(user_id)
 );
+
+CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    target_user_id INTEGER,
+    target_channel TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """

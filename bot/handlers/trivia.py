@@ -38,6 +38,11 @@ async def trivia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user or not update.message:
         return
 
+    settings = get_settings()
+    if not settings.get("features", {}).get("trivia", False):
+        await update.message.reply_text("הפיצ'ר הזה לא פעיל כרגע")
+        return
+
     if _active_trivia:
         await update.message.reply_text("⏳ כבר יש שאלה פעילה! חכו שהיא תסתיים.")
         return
@@ -75,6 +80,10 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: post a trivia question automatically."""
     global _active_trivia, _answered_users
 
+    settings = get_settings()
+    if not settings.get("features", {}).get("trivia", False):
+        return
+
     if _active_trivia:
         return  # Don't overlap
 
@@ -101,6 +110,7 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
     if general_topic:
         kwargs["message_thread_id"] = general_topic
 
+    db = context.bot_data["db"]
     try:
         sent = await context.bot.send_message(**kwargs)
         _active_trivia = {
@@ -111,6 +121,7 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
             "wrong_count": 0,
         }
         logger.info("Sent scheduled trivia question")
+        await db.log_activity("trivia", "שלח שאלת טריוויה")
     except Exception as e:
         logger.error("Failed to send trivia: %s", e)
 

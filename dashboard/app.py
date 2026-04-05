@@ -469,6 +469,35 @@ async def generate_content(request: Request):
     return {"content": content}
 
 
+# ── Activity Log ─────────────────────────────────────────
+
+@app.get("/activity", response_class=HTMLResponse)
+async def activity_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    log = await db.get_activity_log(200)
+    return templates.TemplateResponse(request, name="activity.html", context={"log": log})
+
+
+@app.post("/api/settings/features")
+async def update_features(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        settings = yaml.safe_load(f)
+
+    settings["features"] = data
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+
+    return {"status": "ok"}
+
+
 # ── Members API ──────────────────────────────────────────
 
 @app.get("/members", response_class=HTMLResponse)

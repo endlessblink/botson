@@ -25,6 +25,11 @@ async def create_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not update.effective_user or not update.message:
         return ConversationHandler.END
 
+    settings = get_settings()
+    if not settings.get("features", {}).get("events", False):
+        await update.message.reply_text("הפיצ'ר הזה לא פעיל כרגע")
+        return ConversationHandler.END
+
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("רק מנהלים יכולים ליצור אירועים")
         return ConversationHandler.END
@@ -254,6 +259,10 @@ async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: remind about events happening tomorrow."""
+    settings = get_settings()
+    if not settings.get("features", {}).get("events", False):
+        return
+
     from datetime import date, timedelta
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
 

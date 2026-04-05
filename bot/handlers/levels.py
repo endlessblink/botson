@@ -34,6 +34,7 @@ async def award_and_check_level(db: Database, context: ContextTypes.DEFAULT_TYPE
     new_level = check_level_up(old_points, new_points)
     if new_level:
         await _announce_level_up(context, user_name, new_level)
+        await db.log_activity("level_up", f"{user_name} עלה/תה לרמה {new_level['level']}", user_id)
 
 
 async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -46,6 +47,8 @@ async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     settings = get_settings()
+    if not settings.get("features", {}).get("levels", False):
+        return
     max_per_day = settings.get("levels", {}).get("max_per_day", 10)
 
     # Check daily limit

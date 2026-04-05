@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 
 async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: send weekly roundup to general channel every Friday."""
-    db: Database = context.bot_data["db"]
     settings = get_settings()
+    if not settings.get("features", {}).get("roundup", False):
+        return
+
+    db: Database = context.bot_data["db"]
     general_topic = settings.get("topics", {}).get("general")
 
     week_ago = datetime.now() - timedelta(days=7)
@@ -65,5 +68,6 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(**kwargs)
         logger.info("Sent weekly roundup")
+        await db.log_activity("roundup", "שלח סיכום שבועי")
     except Exception as e:
         logger.error("Failed to send weekly roundup: %s", e)
