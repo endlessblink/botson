@@ -158,6 +158,26 @@ async def update_antispam(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/api/settings/schedule")
+async def update_schedule(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        settings = yaml.safe_load(f)
+
+    if "schedule" not in settings:
+        settings["schedule"] = {}
+    settings["schedule"].update(data)
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+
+    return {"status": "ok"}
+
+
 # ── Prompts API ──────────────────────────────────────────
 
 @app.get("/prompts", response_class=HTMLResponse)
