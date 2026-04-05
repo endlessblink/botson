@@ -17,7 +17,7 @@
 {% set evening_items = prompts.evening or [] %}
 {% set schedule = settings.schedule or {} %}
 {% set feat = settings.features or {} %}
-{% set goals_on = feat.goals is sameas true or (feat.goals is mapping and feat.goals.enabled) %}
+{% set goals_on = feat.goals is sameas true or (feat.goals is mapping and feat.goals.enabled) %}\n{% set morning_on = feat.morning_prompt is sameas true or (feat.morning_prompt is mapping and feat.morning_prompt.enabled) or goals_on %}\n{% set evening_on = feat.evening_prompt is sameas true or (feat.evening_prompt is mapping and feat.evening_prompt.enabled) or goals_on %}
 {% set disc_on = feat.discussions is sameas true or (feat.discussions is mapping and feat.discussions.enabled) %}
 {% set roundup_on = feat.roundup is sameas true or (feat.roundup is mapping and feat.roundup.enabled) %}
 {% set morning_sched = schedule.morning_prompt if schedule.morning_prompt is mapping else {'time': schedule.morning_prompt or '08:00', 'days': [0,1,2,3,4,5,6]} %}
@@ -35,13 +35,6 @@
         <p class="text-sm text-[#71717a] mt-1">ניהול הודעות בוקר/ערב ושאלות לדיון</p>
     </div>
     <div class="flex items-center gap-6">
-        <div class="flex items-center gap-2">
-            <span class="text-xs text-[#71717a]">מטרות</span>
-            <label class="switch">
-                <input type="checkbox" id="feat-goals" onchange="toggleFeature('goals', this.checked)" {% if goals_on %}checked{% endif %}>
-                <span class="slider"></span>
-            </label>
-        </div>
         <div class="flex items-center gap-2">
             <span class="text-xs text-[#71717a]">דיונים</span>
             <label class="switch">
@@ -70,15 +63,15 @@
             <div class="absolute top-0 bottom-0 right-[11px] w-px bg-[#1f1f1f]"></div>
 
             <!-- Morning -->
-            <div class="flex items-start gap-4 mb-4 relative {% if not goals_on %}opacity-40{% endif %}">
-                <div class="w-6 h-6 rounded-full {% if goals_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
-                    <div class="w-2 h-2 rounded-full {% if goals_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
+            <div class="flex items-start gap-4 mb-4 relative {% if not morning_on %}opacity-40{% endif %}">
+                <div class="w-6 h-6 rounded-full {% if morning_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
+                    <div class="w-2 h-2 rounded-full {% if morning_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
                 </div>
                 <div class="flex-1 pb-1">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="text-xs font-medium {% if goals_on %}text-amber-400{% else %}text-[#71717a]{% endif %}">{{ morning_sched.time or '08:00' }}</span>
+                        <span class="text-xs font-medium {% if morning_on %}text-amber-400{% else %}text-[#71717a]{% endif %}">{{ morning_sched.time or '08:00' }}</span>
                         <span class="text-xs text-[#71717a]">הודעת בוקר</span>
-                        {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                        {% if not morning_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                     </div>
                     <p class="text-sm text-[#a1a1aa]">{% if morning_items %}{{ morning_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
                 </div>
@@ -96,21 +89,24 @@
                         <span class="text-xs text-[#71717a]">שאלה לדיון</span>
                         {% if not disc_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                     </div>
-                    <p class="text-sm text-[#a1a1aa]">קטגוריה אקראית מהמאגר</p>
+                    {% set _disc_cats = discussions.keys()|list %}
+                    {% set _disc_cat = _disc_cats[loop.index0 % (_disc_cats|length)] if _disc_cats else none %}
+                    {% set _disc_items = discussions[_disc_cat] if _disc_cat and discussions[_disc_cat] else [] %}
+                    <p class="text-sm text-[#a1a1aa]">{% if _disc_items %}{{ _disc_items[0] }}{% else %}אין שאלות במאגר{% endif %}</p>
                 </div>
             </div>
             {% endfor %}
 
             <!-- Evening -->
-            <div class="flex items-start gap-4 mb-4 relative {% if not goals_on %}opacity-40{% endif %}">
-                <div class="w-6 h-6 rounded-full {% if goals_on %}bg-indigo-500/10 border-indigo-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
-                    <div class="w-2 h-2 rounded-full {% if goals_on %}bg-indigo-400{% else %}bg-[#71717a]{% endif %}"></div>
+            <div class="flex items-start gap-4 mb-4 relative {% if not evening_on %}opacity-40{% endif %}">
+                <div class="w-6 h-6 rounded-full {% if evening_on %}bg-indigo-500/10 border-indigo-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %} border flex items-center justify-center shrink-0 z-10">
+                    <div class="w-2 h-2 rounded-full {% if evening_on %}bg-indigo-400{% else %}bg-[#71717a]{% endif %}"></div>
                 </div>
                 <div class="flex-1 pb-1">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="text-xs font-medium {% if goals_on %}text-indigo-400{% else %}text-[#71717a]{% endif %}">{{ evening_sched.time or '21:00' }}</span>
+                        <span class="text-xs font-medium {% if evening_on %}text-indigo-400{% else %}text-[#71717a]{% endif %}">{{ evening_sched.time or '21:00' }}</span>
                         <span class="text-xs text-[#71717a]">הודעת ערב</span>
-                        {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                        {% if not evening_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                     </div>
                     <p class="text-sm text-[#a1a1aa]">{% if evening_items %}{{ evening_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
                 </div>
@@ -152,16 +148,16 @@
                 <div class="absolute top-0 bottom-0 right-[11px] w-px bg-[#1f1f1f]"></div>
 
                 <!-- Morning -->
-                <div class="sched-row flex items-start gap-4 mb-6 relative {% if not goals_on %}opacity-40{% endif %}">
-                    <button onclick="toggleDot(this, 'goals_morning', 'goals')"
-                        data-on="{{ 'true' if goals_on else 'false' }}" data-feature="goals"
-                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if goals_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
-                        <div class="dot-inner w-2 h-2 rounded-full {% if goals_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
+                <div class="sched-row flex items-start gap-4 mb-6 relative {% if not morning_on %}opacity-40{% endif %}">
+                    <button onclick="toggleDot(this, 'goals_morning', 'morning_prompt')"
+                        data-on="{{ 'true' if morning_on else 'false' }}" data-feature="morning_prompt"
+                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if morning_on %}bg-amber-500/10 border-amber-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
+                        <div class="dot-inner w-2 h-2 rounded-full {% if morning_on %}bg-amber-400{% else %}bg-[#71717a]{% endif %}"></div>
                     </button>
                     <div class="flex-1">
                         <div class="flex items-center gap-2 mb-2">
                             <span class="text-xs font-medium text-amber-400">הודעת בוקר</span>
-                            {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                            {% if not morning_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                         </div>
                         <div class="flex items-center gap-3 flex-wrap">
                             <div>
@@ -196,10 +192,12 @@
                     </div>
                 </div>
 
+                <!-- Discussion section wrapper -->
+                <div id="disc-section" class="{% if not disc_on %}opacity-40{% endif %} transition-opacity">
                 <!-- Discussion slots -->
                 <div id="disc-slots">
                 {% for time in disc_times %}
-                    <div class="sched-row flex items-start gap-4 mb-6 relative disc-time-slot {% if not disc_on %}opacity-40{% endif %}">
+                    <div class="sched-row flex items-start gap-4 mb-6 relative disc-time-slot">
                         <button onclick="toggleDot(this, 'discussions', 'discussions')"
                             data-on="{{ 'true' if disc_on else 'false' }}" data-feature="discussions"
                             class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if disc_on %}bg-sky-500/10 border-sky-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
@@ -218,7 +216,10 @@
                                 </div>
                                 <div class="flex-1">
                                     <label class="text-[10px] text-[#71717a] mb-1 block">שאלה שתישלח</label>
-                                    <p class="text-sm text-[#a1a1aa] truncate">קטגוריה אקראית מהמאגר</p>
+                                    {% set _disc_cats2 = discussions.keys()|list %}
+                                    {% set _disc_cat2 = _disc_cats2[loop.index0 % (_disc_cats2|length)] if _disc_cats2 else none %}
+                                    {% set _disc_items2 = discussions[_disc_cat2] if _disc_cat2 and discussions[_disc_cat2] else [] %}
+                                    <p class="text-sm text-[#a1a1aa] truncate">{% if _disc_items2 %}{{ _disc_items2[0] }}{% else %}אין שאלות במאגר{% endif %}</p>
                                 </div>
                             </div>
                         </div>
@@ -227,7 +228,7 @@
                 </div>
 
                 <!-- Discussion days chips (shared across all slots) -->
-                <div class="flex items-start gap-4 mb-4 relative {% if not disc_on %}opacity-40{% endif %}">
+                <div class="flex items-start gap-4 mb-4 relative">
                     <div class="w-6 shrink-0"></div>
                     <div class="flex-1">
                         <label class="text-[10px] text-[#71717a] mb-1 block">ימי שליחה לדיונים</label>
@@ -253,18 +254,19 @@
                         <button onclick="addDiscSlot()" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">+ הוסף שעת שליחה</button>
                     </div>
                 </div>
+                </div><!-- end disc-section wrapper -->
 
                 <!-- Evening -->
-                <div class="sched-row flex items-start gap-4 mb-6 relative {% if not goals_on %}opacity-40{% endif %}">
-                    <button onclick="toggleDot(this, 'goals_evening', 'goals')"
-                        data-on="{{ 'true' if goals_on else 'false' }}" data-feature="goals"
-                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if goals_on %}bg-indigo-500/10 border-indigo-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
-                        <div class="dot-inner w-2 h-2 rounded-full {% if goals_on %}bg-indigo-400{% else %}bg-[#71717a]{% endif %}"></div>
+                <div class="sched-row flex items-start gap-4 mb-6 relative {% if not evening_on %}opacity-40{% endif %}">
+                    <button onclick="toggleDot(this, 'goals_evening', 'evening_prompt')"
+                        data-on="{{ 'true' if evening_on else 'false' }}" data-feature="evening_prompt"
+                        class="sched-dot w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 cursor-pointer hover:scale-110 transition-all {% if evening_on %}bg-indigo-500/10 border-indigo-500/30{% else %}bg-[#1f1f1f] border-[#272727]{% endif %}">
+                        <div class="dot-inner w-2 h-2 rounded-full {% if evening_on %}bg-indigo-400{% else %}bg-[#71717a]{% endif %}"></div>
                     </button>
                     <div class="flex-1">
                         <div class="flex items-center gap-2 mb-2">
                             <span class="text-xs font-medium text-indigo-400">הודעת ערב</span>
-                            {% if not goals_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
+                            {% if not evening_on %}<span class="text-[10px] text-[#71717a]">(כבוי)</span>{% endif %}
                         </div>
                         <div class="flex items-center gap-3 flex-wrap">
                             <div>
@@ -505,9 +507,14 @@
         inner.classList.remove(oldSet[2]);
         inner.classList.add(newSet[2]);
 
-        // Row opacity
-        if (newState) { row.classList.remove('opacity-40'); }
-        else { row.classList.add('opacity-40'); }
+        // Row opacity — for discussions, toggle the whole section wrapper
+        var opacityTarget = row;
+        if (featureName === 'discussions') {
+            var section = document.getElementById('disc-section');
+            if (section) opacityTarget = section;
+        }
+        if (newState) { opacityTarget.classList.remove('opacity-40'); }
+        else { opacityTarget.classList.add('opacity-40'); }
 
         // Sync sibling dots that share the same feature (goals = morning + evening)
         document.querySelectorAll('.sched-dot[data-feature="' + featureName + '"]').forEach(function(otherBtn) {
@@ -602,6 +609,11 @@
     function addDiscSlot() {
         var container = document.getElementById('disc-slots');
         var isOn = document.getElementById('feat-discussions') && document.getElementById('feat-discussions').checked;
+        var allQuestions = [];
+        document.querySelectorAll('[data-pool-cat]').forEach(function(el) {
+            try { var items = JSON.parse(el.value); if (Array.isArray(items) && items.length > 0) allQuestions.push(items[0]); } catch(e) {}
+        });
+        var sampleQ = allQuestions.length > 0 ? allQuestions[Math.floor(Math.random() * allQuestions.length)] : 'אין שאלות במאגר';
         var slot = document.createElement('div');
         slot.className = 'sched-row flex items-start gap-4 mb-6 relative disc-time-slot' + (isOn ? '' : ' opacity-40');
         slot.innerHTML =
@@ -618,7 +630,7 @@
                     '<div><label class="text-[10px] text-[#71717a] mb-1 block">שעה</label>' +
                     '<input type="time" value="12:00" class="disc-time-input bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-[120px]"></div>' +
                     '<div class="flex-1"><label class="text-[10px] text-[#71717a] mb-1 block">שאלה שתישלח</label>' +
-                    '<p class="text-sm text-[#a1a1aa] truncate">קטגוריה אקראית מהמאגר</p></div>' +
+                    '<p class="text-sm text-[#a1a1aa] truncate">' + sampleQ + '</p></div>' +
                 '</div>' +
             '</div>';
         container.appendChild(slot);

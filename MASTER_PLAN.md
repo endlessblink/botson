@@ -57,6 +57,7 @@
 | T-049 | 11 | Clickable dots — instant visual toggle on/off | TODO | P1 | T-044 |
 | T-050 | 11 | Schedule tab — show loaded question per slot | TODO | P1 | T-044 |
 | T-051 | — | End-to-end dashboard QA pass | TODO | P1 | T-045..T-050 |
+| T-052 | — | Single-instance bot guard (PID lock file) | TODO | P1 | T-004 |
 
 ## Detailed Tasks
 

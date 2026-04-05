@@ -234,6 +234,19 @@ async def get_forum_topics(request: Request, db: Database = Depends(get_db)):
     return {"topics": topics}
 
 
+@app.post("/api/topics/forum")
+async def add_forum_topic(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    topic_id = data.get("topic_id")
+    name = data.get("name", "").strip()
+    if not topic_id or not name:
+        raise HTTPException(status_code=400, detail="topic_id and name required")
+    await db.upsert_forum_topic(int(topic_id), name)
+    return {"status": "ok"}
+
+
 # ── Spam API ─────────────────────────────────────────────
 
 @app.get("/spam", response_class=HTMLResponse)

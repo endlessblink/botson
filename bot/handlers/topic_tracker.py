@@ -16,6 +16,7 @@ async def track_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = update.message
     thread_id = msg.message_thread_id
+    logger.debug("track_topic called: chat=%s thread=%s text=%s", msg.chat_id, thread_id, (msg.text or '')[:30])
     if not thread_id:
         return
 

@@ -13,16 +13,18 @@ features:
     enabled: false
     groups:
     - test
-  discussions: true
+  discussions: false
+  evening_prompt: false
   events:
     enabled: false
     groups:
     - test
-  goals: true
+  goals: false
   levels:
     enabled: false
     groups:
     - test
+  morning_prompt: true
   roundup: false
   trivia: false
   welcome:
@@ -53,13 +55,8 @@ schedule:
     time: '21:00'
   morning_prompt:
     days:
-    - 0
     - 1
-    - 2
     - 3
-    - 4
-    - 5
-    - 6
     time: 09:00
   weekly_leaderboard:
     days:
@@ -82,7 +79,7 @@ topics:
     singles: null
     vegan: null
   general: null
-  goals: 0
+  goals: 2184
   welcome: null
 welcome:
   batch_window_seconds: 30

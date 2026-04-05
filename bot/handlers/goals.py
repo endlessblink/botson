@@ -39,7 +39,7 @@ async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
 
 async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: send evening prompt to goals channel."""
-    if not is_feature_enabled("goals"):
+    if not is_feature_enabled("evening_prompt") and not is_feature_enabled("goals"):
         return
     settings = get_settings()
 
