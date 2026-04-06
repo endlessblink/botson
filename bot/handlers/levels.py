@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 _daily_counts: dict[int, dict[str, int]] = {}
 
 
-async def _announce_level_up(context: ContextTypes.DEFAULT_TYPE, user_name: str, new_level: dict,
-                             chat_id: int | None = None):
-    """Post level-up announcement to the group."""
-    text = f"🎉 מזל טוב! {user_name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
+async def _announce_level_up(context: ContextTypes.DEFAULT_TYPE, user_id: int, user_name: str,
+                             new_level: dict, chat_id: int | None = None):
+    """Post level-up announcement to the group, tagging the user."""
+    mention = f"[{user_name}](tg://user?id={user_id})"
+    text = f"🎉 מזל טוב {mention}! עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
     announce_id = chat_id or GROUP_ID
     try:
-        await context.bot.send_message(chat_id=announce_id, text=text)
+        await context.bot.send_message(chat_id=announce_id, text=text, parse_mode="Markdown")
     except Exception as e:
         logger.error("Failed to announce level-up: %s", e)
 
@@ -37,7 +38,7 @@ async def award_and_check_level(db: Database, context: ContextTypes.DEFAULT_TYPE
     new_level = check_level_up(old_points, new_points)
     if new_level:
         announce_id = chat_id or GROUP_ID
-        await _announce_level_up(context, user_name, new_level, announce_id)
+        await _announce_level_up(context, user_id, user_name, new_level, announce_id)
         await db.log_activity("level_up", f"{user_name} עלה/תה לרמה {new_level['level']}", user_id)
 
 

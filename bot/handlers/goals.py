@@ -84,9 +84,10 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
     new_level = check_level_up(old_points, old_points + 2)
     if new_level:
         name = user.first_name or ""
-        text = f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
+        mention = f"[{name}](tg://user?id={user.id})"
+        text = f"🎉 מזל טוב {mention}! עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
         try:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, parse_mode="Markdown")
         except Exception:
             pass
 

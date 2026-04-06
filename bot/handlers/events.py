@@ -196,10 +196,12 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_level = check_level_up(old_points, old_points + 3)
         if new_level:
             name = get_display_name(user)
+            mention = f"[{name}](tg://user?id={user.id})"
             try:
                 await context.bot.send_message(
                     chat_id=GROUP_ID,
-                    text=f"🎉 מזל טוב! {name} עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
+                    text=f"🎉 מזל טוב {mention}! עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
+                    parse_mode="Markdown",
                 )
             except Exception:
                 pass

@@ -23,6 +23,15 @@ def _parse_time(value: str) -> time:
     return time(hour=int(parts[0]), minute=int(parts[1]), tzinfo=_tz)
 
 
+def _hebrew_to_python_days(days: list) -> tuple:
+    """Convert Hebrew week days (0=Sunday) to Python weekday (0=Monday).
+
+    Hebrew: 0=א׳(Sun), 1=ב׳(Mon), 2=ג׳(Tue), 3=ד׳(Wed), 4=ה׳(Thu), 5=ו׳(Fri), 6=ש׳(Sat)
+    Python:  0=Mon,     1=Tue,     2=Wed,     3=Thu,     4=Fri,     5=Sat,     6=Sun
+    """
+    return tuple((d - 1) % 7 for d in days)
+
+
 def _parse_schedule(raw) -> dict:
     """Normalize schedule entry — handles both old (string) and new (dict) format."""
     if isinstance(raw, dict):
