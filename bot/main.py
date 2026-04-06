@@ -3,7 +3,9 @@
 import atexit
 import logging
 import os
+import signal
 import sys
+from logging.handlers import RotatingFileHandler
 
 from telegram.ext import AIORateLimiter, Application, CommandHandler
 
@@ -14,11 +16,28 @@ from .handlers import welcome, goals, levels, antispam, discussions, events, tri
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_prompts
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# Configure logging — file + stdout
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "bot.log")
+
+_log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_formatter = logging.Formatter(_log_format)
+
+# Root logger
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+
+# Console handler
+_console = logging.StreamHandler()
+_console.setFormatter(_formatter)
+_root.addHandler(_console)
+
+# File handler with rotation (10MB, keep 3 backups)
+_file = RotatingFileHandler(LOG_FILE, maxBytes=10_000_000, backupCount=3, encoding="utf-8")
+_file.setFormatter(_formatter)
+_root.addHandler(_file)
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,6 +100,10 @@ async def post_init(app: Application):
     # Seed prompts from YAML
     prompts = get_prompts()
     await db.seed_prompts(prompts)
+
+    # Setup SIGHUP for config reload
+    _setup_sighup_handler(app)
+
     logger.info("Bot initialized successfully")
 
 
@@ -90,6 +113,36 @@ async def post_shutdown(app: Application):
     if db:
         await db.close()
     logger.info("Bot shut down cleanly")
+
+
+def _setup_sighup_handler(app):
+    """Setup SIGHUP handler to reload config without restart."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+
+    def handle_sighup():
+        logger.info("Received SIGHUP — reloading config...")
+        loop.create_task(_reload_config(app))
+
+    loop.add_signal_handler(signal.SIGHUP, handle_sighup)
+    logger.info("SIGHUP handler registered for config reload")
+
+
+async def _reload_config(app):
+    """Reload schedule config and re-register jobs."""
+    try:
+        # Cancel all existing scheduled jobs
+        if app.job_queue:
+            jobs = app.job_queue.jobs()
+            for job in jobs:
+                job.schedule_removal()
+            logger.info("Cleared %d existing jobs", len(jobs))
+
+        # Re-register from fresh config
+        setup_jobs(app)
+        logger.info("Config reloaded successfully")
+    except Exception as e:
+        logger.error("Failed to reload config: %s", e)
 
 
 def _acquire_pid_lock():

@@ -1,4 +1,4 @@
-"""Daily goals & achievements handler with prompt rotation and streaks."""
+"""Daily goals & achievements handler with prompt rotation, streaks, and auto-pin."""
 
 import logging
 
@@ -11,13 +11,16 @@ from ..utils.levels import check_level_up
 
 logger = logging.getLogger(__name__)
 
+# Track the last prompt message ID so we can detect replies to it
+_last_prompt_message_id: int | None = None
+
 
 async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduled job: send morning prompt to goals channel."""
+    """Scheduled job: send morning prompt to goals channel and pin it."""
     if not is_feature_enabled("morning_prompt") and not is_feature_enabled("goals"):
         return
-    settings = get_settings()
 
+    global _last_prompt_message_id
     db: Database = context.bot_data["db"]
     prompt = await db.get_random_prompt("morning")
 
@@ -30,19 +33,32 @@ async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
         kwargs["message_thread_id"] = GOALS_TOPIC_ID
 
     try:
-        await context.bot.send_message(**kwargs)
+        msg = await context.bot.send_message(**kwargs)
+        _last_prompt_message_id = msg.message_id
         logger.info("Sent morning prompt")
         await db.log_activity("goals", "שלח הודעת בוקר", target_channel="goals")
+
+        # Pin the message
+        try:
+            await context.bot.pin_chat_message(
+                chat_id=GROUP_ID,
+                message_id=msg.message_id,
+                disable_notification=True,
+            )
+            logger.info("Pinned morning prompt")
+        except Exception as e:
+            logger.warning("Failed to pin morning prompt: %s", e)
+
     except Exception as e:
         logger.error("Failed to send morning prompt: %s", e)
 
 
 async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduled job: send evening prompt to goals channel."""
+    """Scheduled job: send evening prompt to goals channel. Unpins morning prompt."""
     if not is_feature_enabled("evening_prompt") and not is_feature_enabled("goals"):
         return
-    settings = get_settings()
 
+    global _last_prompt_message_id
     db: Database = context.bot_data["db"]
     prompt = await db.get_random_prompt("evening")
 
@@ -50,12 +66,24 @@ async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
         logger.warning("GOALS_TOPIC_ID not set, skipping evening prompt")
         return
 
+    # Unpin the morning prompt
+    if _last_prompt_message_id:
+        try:
+            await context.bot.unpin_chat_message(
+                chat_id=GROUP_ID,
+                message_id=_last_prompt_message_id,
+            )
+            logger.info("Unpinned morning prompt")
+        except Exception as e:
+            logger.warning("Failed to unpin morning prompt: %s", e)
+
     kwargs = {"chat_id": GROUP_ID, "text": prompt}
     if GOALS_TOPIC_ID:
         kwargs["message_thread_id"] = GOALS_TOPIC_ID
 
     try:
-        await context.bot.send_message(**kwargs)
+        msg = await context.bot.send_message(**kwargs)
+        _last_prompt_message_id = msg.message_id
         logger.info("Sent evening prompt")
         await db.log_activity("goals", "שלח הודעת ערב", target_channel="goals")
     except Exception as e:
@@ -80,9 +108,20 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
 
     await db.upsert_member(user.id, user.username, user.first_name or "")
     await db.update_streak(user.id)
-    old_points = await db.add_points(user.id, 2)
-    await db.log_activity("points", f"+2 נקודות ל-{user.first_name or ''} (הישגים)", user.id, "goals")
-    new_level = check_level_up(old_points, old_points + 2)
+
+    # Check if this is a reply to a bot prompt — bonus points
+    is_prompt_reply = (
+        update.message.reply_to_message
+        and update.message.reply_to_message.from_user
+        and update.message.reply_to_message.from_user.is_bot
+    )
+
+    points = 3 if is_prompt_reply else 2
+    label = "תגובה להודעת בוט" if is_prompt_reply else "הישגים"
+
+    old_points = await db.add_points(user.id, points)
+    await db.log_activity("points", f"+{points} נקודות ל-{user.first_name or ''} ({label})", user.id, "goals")
+    new_level = check_level_up(old_points, old_points + points)
     if new_level:
         name = user.first_name or ""
         mention = f"[{name}](tg://user?id={user.id})"
@@ -113,7 +152,7 @@ async def streak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     streak = await db.get_streak(update.effective_user.id)
 
     if streak["current"] == 0:
-        text = "עדיין אין לך רצף! שתפ/י מטרה או הישג בערוץ הישגים ומטרות כדי להתחיל 🌟"
+        text = "עדיין אין לך רצף! שתפ/י מטרה או הישג בערוץ יום יום כדי להתחיל 🌟"
     else:
         text = (
             f"🔥 הרצף שלך: {streak['current']} ימים\n"

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import secrets
+import signal
 from pathlib import Path
 
 import yaml
@@ -245,6 +246,25 @@ async def add_forum_topic(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="topic_id and name required")
     await db.upsert_forum_topic(int(topic_id), name)
     return {"status": "ok"}
+
+
+# ── Bot Control API ──────────────────────────────────────
+
+@app.post("/api/bot/reload")
+async def reload_bot_config(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    pid_file = Path(__file__).parent.parent / "data" / "bot.pid"
+    if not pid_file.exists():
+        raise HTTPException(status_code=503, detail="Bot PID file not found")
+
+    pid = int(pid_file.read_text().strip())
+    try:
+        os.kill(pid, signal.SIGHUP)
+        return {"status": "ok", "message": f"SIGHUP sent to bot (PID {pid})"}
+    except ProcessLookupError:
+        raise HTTPException(status_code=503, detail="Bot process not running")
 
 
 # ── Spam API ─────────────────────────────────────────────
