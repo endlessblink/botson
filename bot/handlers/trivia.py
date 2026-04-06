@@ -156,6 +156,7 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
     if correct:
         _active_trivia["correct_count"] += 1
         old_points = await db.add_points(user.id, 5)
+        await db.log_activity("points", f"+5 נקודות ל-{get_display_name(user)} (טריוויה)", user.id)
         new_level = check_level_up(old_points, old_points + 5)
         if new_level:
             name = get_display_name(user)

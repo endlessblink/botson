@@ -81,6 +81,7 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
     await db.upsert_member(user.id, user.username, user.first_name or "")
     await db.update_streak(user.id)
     old_points = await db.add_points(user.id, 2)
+    await db.log_activity("points", f"+2 נקודות ל-{user.first_name or ''} (הישגים)", user.id, "goals")
     new_level = check_level_up(old_points, old_points + 2)
     if new_level:
         name = user.first_name or ""

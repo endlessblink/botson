@@ -193,6 +193,7 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if status == "yes":
         old_points = await db.add_points(user.id, 3)
+        await db.log_activity("points", f"+3 נקודות ל-{get_display_name(user)} (אישור הגעה)", user.id)
         new_level = check_level_up(old_points, old_points + 3)
         if new_level:
             name = get_display_name(user)

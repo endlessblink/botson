@@ -67,9 +67,11 @@ async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TY
     _daily_counts[user.id] = {today: daily + 1}  # Reset old dates
 
     db: Database = context.bot_data["db"]
-    await db.upsert_member(user.id, user.username, get_display_name(user))
-    await award_and_check_level(db, context, user.id, get_display_name(user), 1,
+    name = get_display_name(user)
+    await db.upsert_member(user.id, user.username, name)
+    await award_and_check_level(db, context, user.id, name, 1,
                                 chat_id=update.effective_chat.id)
+    await db.log_activity("points", f"+1 נקודה ל-{name} (הודעה)", user.id)
 
 
 async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
