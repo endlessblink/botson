@@ -634,6 +634,31 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
     # Get forum topics count
     forum_topics = await db.get_forum_topics()
 
+    # Version check — compare running bot version vs current code
+    import subprocess
+    version_file = Path(__file__).parent.parent / "data" / "bot.version"
+    bot_version = None
+    bot_start_time = None
+    code_version = None
+    needs_restart = False
+
+    if version_file.exists():
+        lines = version_file.read_text().strip().split("\n")
+        bot_version = lines[0] if lines else None
+        bot_start_time = lines[1] if len(lines) > 1 else None
+
+    try:
+        code_version = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(Path(__file__).parent.parent),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        code_version = None
+
+    if bot_version and code_version and bot_version != code_version:
+        needs_restart = True
+
     return templates.TemplateResponse(request, name="health.html", context={
         "settings": settings,
         "today_activity": today_activity,
@@ -643,6 +668,10 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
         "recent_log": recent_log,
         "forum_topics": forum_topics,
         "today_weekday": datetime.date.today().weekday(),
+        "bot_version": bot_version,
+        "code_version": code_version,
+        "bot_start_time": bot_start_time,
+        "needs_restart": needs_restart,
     })
 
 

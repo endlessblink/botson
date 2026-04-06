@@ -23,17 +23,28 @@
         </div>
     </div>
 
+    <!-- Stale code warning -->
+    {% if needs_restart %}
+    <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+            <span class="text-sm text-amber-400">הבוט מריץ גרסה ישנה ({{ bot_version }}) — הקוד הנוכחי הוא {{ code_version }}</span>
+        </div>
+        <button onclick="restartBot()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:bg-amber-500/10 px-3 py-1 rounded-md cursor-pointer transition-colors">הפעל מחדש</button>
+    </div>
+    {% endif %}
+
     <!-- Row 1: Status cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
         <!-- Bot Status -->
         <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
             <div class="flex items-center gap-2 mb-2">
-                <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                <span class="text-xs font-medium text-emerald-400">פעיל</span>
+                <span class="w-2 h-2 rounded-full {% if bot_version %}bg-emerald-400{% else %}bg-[#71717a]{% endif %} shrink-0"></span>
+                <span class="text-xs font-medium {% if bot_version %}text-emerald-400{% else %}text-[#71717a]{% endif %}">{% if bot_version %}פעיל{% else %}לא פעיל{% endif %}</span>
             </div>
-            <div class="text-lg font-semibold text-[#fafafa] stat-number">Online</div>
-            <div class="text-xs text-[#71717a] mt-0.5">מצב הבוט</div>
+            <div class="text-sm font-semibold text-[#fafafa] font-mono">{{ bot_version or '—' }}</div>
+            <div class="text-xs text-[#71717a] mt-0.5">{% if bot_start_time %}{{ bot_start_time[:16] }}{% else %}מצב הבוט{% endif %}</div>
         </div>
 
         <!-- Members -->

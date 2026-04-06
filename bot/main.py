@@ -163,6 +163,21 @@ def _acquire_pid_lock():
     atexit.register(lambda: os.unlink(PID_FILE) if os.path.exists(PID_FILE) else None)
     logger.info("PID lock acquired: %d", os.getpid())
 
+    # Write version info (git commit hash + timestamp)
+    import subprocess, datetime
+    version_file = os.path.join(os.path.dirname(PID_FILE), "bot.version")
+    try:
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        git_hash = "unknown"
+    with open(version_file, "w") as f:
+        f.write(f"{git_hash}\n{datetime.datetime.now().isoformat()}\n")
+    logger.info("Bot version: %s", git_hash)
+
 
 def main():
     """Main entry point."""
