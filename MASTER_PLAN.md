@@ -65,10 +65,21 @@
 | T-057 | — | Switch to webhooks for VPS deployment | TODO | P2 | T-030 |
 | T-058 | 12 | Auto-restart bot on code changes (file watcher) | DONE | P0 | T-052 |
 | T-059 | 12 | Bot process supervisor script (run_bot.sh) | DONE | P0 | T-052 |
-| T-060 | 12 | Dashboard "restart bot" button | TODO | P1 | T-059 |
-| T-061 | 12 | Bot version check — dashboard shows if bot needs restart | TODO | P1 | T-058 |
+| T-060 | 12 | Dashboard "restart bot" button | DONE | P1 | T-059 |
+| T-061 | 12 | Bot version check — dashboard shows if bot needs restart | DONE | P1 | T-058 |
 | T-062 | 12 | Persistent bot logging (log to file, not temp) | DONE | P0 | T-004 |
 | T-063 | 12 | Dashboard log viewer (tail bot logs in real-time) | TODO | P2 | T-062 |
+| T-064 | 13 | Dashboard: send test message to any topic | TODO | P1 | T-047 |
+| T-065 | 13 | Dashboard: trigger morning/evening prompt manually | TODO | P1 | T-044 |
+| T-066 | 13 | Dashboard: trigger discussion prompt manually | TODO | P1 | T-044 |
+| T-067 | 13 | Dashboard: start trivia question from dashboard | TODO | P1 | T-023 |
+| T-068 | 13 | Dashboard: view/manage member levels + reset | TODO | P1 | T-031 |
+| T-069 | 13 | Dashboard: view/manage streaks | TODO | P1 | T-011 |
+| T-070 | 13 | Dashboard: whitelist management (add/remove patterns) | TODO | P1 | T-008 |
+| T-071 | 13 | Dashboard: view group stats (same as /stats) | TODO | P1 | T-004 |
+| T-072 | 13 | Dashboard: create event from dashboard | TODO | P1 | T-020 |
+| T-073 | 13 | Dashboard: send weekly roundup manually | TODO | P2 | T-015 |
+| T-074 | 13 | Dashboard: activity analytics (charts/graphs) | TODO | P2 | T-034 |
 
 ## Detailed Tasks
 
@@ -470,6 +481,83 @@ Files: `bot/main.py` (logging config)
 Add a section to the health page that shows the last 50 lines of `data/bot.log`. Auto-refreshes every 10 seconds via JS polling. Lets you monitor the bot from the dashboard without SSH.
 
 Files: `dashboard/app.py`, `dashboard/templates/health.html`
+
+---
+
+#### T-064: Dashboard: send test message to any topic
+**Phase:** 13 — Dashboard Parity | **Priority:** P1 | **Status:** TODO
+
+API endpoint `POST /api/bot/send` that sends a message to a selected topic. Dashboard UI: text input + topic dropdown + send button. Useful for testing and announcements.
+
+---
+
+#### T-065: Dashboard: trigger morning/evening prompt manually
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+"Send now" button on the prompts schedule tab. Calls bot to pick a random prompt from the pool and send it to the goals topic immediately. Same as what the scheduler does, but on demand.
+
+---
+
+#### T-066: Dashboard: trigger discussion prompt manually
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+"Send now" button for discussion prompts. Picks a random category with a configured topic ID, selects a prompt, and sends it.
+
+---
+
+#### T-067: Dashboard: start trivia question from dashboard
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+Button on the trivia page to start a trivia question in the group. Equivalent to `/trivia` command. Shows the question in Telegram with answer buttons.
+
+---
+
+#### T-068: Dashboard: view/manage member levels + reset
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+Levels page already shows leaderboard + reset. Enhance with: individual member level edit, point adjustment, search. Currently partially done.
+
+---
+
+#### T-069: Dashboard: view/manage streaks
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+Add streak data to the members or levels page. Show current streak, longest streak, last post date. Equivalent to `/streak` for all users.
+
+---
+
+#### T-070: Dashboard: whitelist management
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+Already partially done on spam page (textarea). Enhance: individual add/remove, test pattern against sample text, import/export.
+
+---
+
+#### T-071: Dashboard: view group stats
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+Equivalent to `/stats` command. Show on overview or health page: top karma earners, top streaks, member count, active topics, messages per day.
+
+---
+
+#### T-072: Dashboard: create event from dashboard
+**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+
+Already exists on events page. Enhance: the created event should be announced in the group (send message via bot). Currently only saves to DB.
+
+---
+
+#### T-073: Dashboard: send weekly roundup manually
+**Phase:** 13 | **Priority:** P2 | **Status:** TODO
+
+"Send now" button for the weekly roundup. Generates and posts the roundup to the general channel immediately.
+
+---
+
+#### T-074: Dashboard: activity analytics (charts/graphs)
+**Phase:** 13 | **Priority:** P2 | **Status:** TODO
+
+Add simple charts to the overview page: activity over time (line chart), messages per topic (bar chart), member growth. Use Chart.js via CDN.
 
 ---
 
