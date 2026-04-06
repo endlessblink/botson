@@ -9,32 +9,7 @@ antispam:
 bot:
   name: Botson
 features:
-  antispam:
-    enabled: false
-    groups:
-    - test
-  discussions: false
-  evening_prompt: false
-  events:
-    enabled: false
-    groups:
-    - test
-  goals:
-    enabled: true
-    groups:
-    - main
-    - test
-  levels:
-    enabled: false
-    groups:
-    - test
   morning_prompt: true
-  roundup: false
-  trivia: false
-  welcome:
-    enabled: false
-    groups:
-    - test
 levels:
   max_per_day: 10
 schedule:
