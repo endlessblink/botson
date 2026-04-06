@@ -1,9 +1,13 @@
 """Bot entry point — setup, handler registration, and lifecycle management."""
 
+import atexit
 import logging
+import os
 import sys
 
 from telegram.ext import Application, CommandHandler
+
+PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
 from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, topic_tracker
@@ -88,11 +92,32 @@ async def post_shutdown(app: Application):
     logger.info("Bot shut down cleanly")
 
 
+def _acquire_pid_lock():
+    """Ensure only one bot instance runs. Exit if another is already running."""
+    os.makedirs(os.path.dirname(PID_FILE), exist_ok=True)
+    if os.path.exists(PID_FILE):
+        with open(PID_FILE) as f:
+            old_pid = f.read().strip()
+        if old_pid:
+            try:
+                os.kill(int(old_pid), 0)  # check if process alive
+                logger.error("Bot already running (PID %s). Exiting.", old_pid)
+                sys.exit(1)
+            except (ProcessLookupError, ValueError):
+                pass  # stale PID file
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+    atexit.register(lambda: os.unlink(PID_FILE) if os.path.exists(PID_FILE) else None)
+    logger.info("PID lock acquired: %d", os.getpid())
+
+
 def main():
     """Main entry point."""
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set!")
         sys.exit(1)
+
+    _acquire_pid_lock()
 
     # Build application
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
