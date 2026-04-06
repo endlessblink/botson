@@ -58,6 +58,11 @@
 | T-050 | 11 | Schedule tab — show loaded question per slot | TODO | P1 | T-044 |
 | T-051 | — | End-to-end dashboard QA pass | TODO | P1 | T-045..T-050 |
 | T-052 | — | Single-instance bot guard (PID lock file) | TODO | P1 | T-004 |
+| T-053 | — | Hot-reload config via SIGHUP (no restart needed) | TODO | P2 | T-004 |
+| T-054 | — | Pyrogram one-time topic seeder | TODO | P2 | T-047 |
+| T-055 | — | SQLite WAL mode on all connections | TODO | P1 | T-002 |
+| T-056 | — | Add AIORateLimiter to bot | TODO | P1 | T-004 |
+| T-057 | — | Switch to webhooks for VPS deployment | TODO | P2 | T-030 |
 
 ## Detailed Tasks
 
