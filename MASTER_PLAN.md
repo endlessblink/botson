@@ -58,16 +58,16 @@
 | T-050 | 11 | Schedule tab — show loaded question per slot | DONE | P1 | T-044 |
 | T-051 | — | End-to-end dashboard QA pass | DONE | P1 | T-045..T-050 |
 | T-052 | — | Single-instance bot guard (PID lock file) | DONE | P1 | T-004 |
-| T-053 | — | Hot-reload config via SIGHUP (no restart needed) | TODO | P0 | T-004 |
+| T-053 | — | Hot-reload config via SIGHUP (no restart needed) | DONE | P0 | T-004 |
 | T-054 | — | Pyrogram one-time topic seeder | TODO | P2 | T-047 |
 | T-055 | — | SQLite WAL mode on all connections | DONE | P1 | T-002 |
 | T-056 | — | Add AIORateLimiter to bot | DONE | P1 | T-004 |
 | T-057 | — | Switch to webhooks for VPS deployment | TODO | P2 | T-030 |
-| T-058 | 12 | Auto-restart bot on code changes (file watcher) | TODO | P0 | T-052 |
-| T-059 | 12 | Bot process supervisor script (run_bot.sh) | TODO | P0 | T-052 |
+| T-058 | 12 | Auto-restart bot on code changes (file watcher) | DONE | P0 | T-052 |
+| T-059 | 12 | Bot process supervisor script (run_bot.sh) | DONE | P0 | T-052 |
 | T-060 | 12 | Dashboard "restart bot" button | TODO | P1 | T-059 |
 | T-061 | 12 | Bot version check — dashboard shows if bot needs restart | TODO | P1 | T-058 |
-| T-062 | 12 | Persistent bot logging (log to file, not temp) | TODO | P0 | T-004 |
+| T-062 | 12 | Persistent bot logging (log to file, not temp) | DONE | P0 | T-004 |
 | T-063 | 12 | Dashboard log viewer (tail bot logs in real-time) | TODO | P2 | T-062 |
 
 ## Detailed Tasks

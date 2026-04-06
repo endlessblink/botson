@@ -5,10 +5,22 @@
 {% block content %}
 <div class="space-y-6 max-w-6xl">
 
-    <!-- Page header -->
-    <div>
-        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">מצב הבוט</h1>
-        <p class="text-sm text-[#71717a] mt-0.5">מעקב אחרי הבוט בזמן אמת</p>
+    <!-- Page header with actions -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">מצב הבוט</h1>
+            <p class="text-sm text-[#71717a] mt-0.5">מעקב אחרי הבוט בזמן אמת</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="reloadConfig()" class="bg-transparent border border-[#272727] text-[#fafafa] hover:bg-[#272727] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors flex items-center gap-2">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                טען מחדש הגדרות
+            </button>
+            <button onclick="restartBot()" class="bg-transparent text-[#fca5a5] border border-[#7f1d1d]/30 hover:bg-[#7f1d1d]/20 h-9 px-4 rounded-md text-sm cursor-pointer transition-colors flex items-center gap-2">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 12 3c1.74 0 3.41.56 4.78 1.57"/><path d="M22 2 13.64 7.36"/></svg>
+                הפעל מחדש
+            </button>
+        </div>
     </div>
 
     <!-- Row 1: Status cards -->
@@ -210,4 +222,29 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function reloadConfig() {
+        try {
+            var res = await apiCall('/api/bot/reload');
+            showToast('הגדרות נטענו מחדש — ' + (res.message || 'OK'));
+        } catch (e) {
+            showToast('שגיאה — הבוט לא פועל?', 'error');
+        }
+    }
+
+    function restartBot() {
+        showConfirm('להפעיל את הבוט מחדש? הפעולה תפסיק את הבוט לכמה שניות.', async function() {
+            try {
+                await apiCall('/api/bot/restart');
+                showToast('הבוט מופעל מחדש...');
+                setTimeout(function() { location.reload(); }, 3000);
+            } catch (e) {
+                showToast('שגיאה בהפעלה מחדש', 'error');
+            }
+        });
+    }
+</script>
 {% endblock %}

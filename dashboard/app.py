@@ -267,6 +267,23 @@ async def reload_bot_config(request: Request):
         raise HTTPException(status_code=503, detail="Bot process not running")
 
 
+@app.post("/api/bot/restart")
+async def restart_bot(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    pid_file = Path(__file__).parent.parent / "data" / "bot.pid"
+    if not pid_file.exists():
+        raise HTTPException(status_code=503, detail="Bot PID file not found")
+
+    pid = int(pid_file.read_text().strip())
+    try:
+        os.kill(pid, signal.SIGTERM)
+        return {"status": "ok", "message": f"SIGTERM sent to bot (PID {pid}). Supervisor will restart it."}
+    except ProcessLookupError:
+        raise HTTPException(status_code=503, detail="Bot process not running")
+
+
 # ── Spam API ─────────────────────────────────────────────
 
 @app.get("/spam", response_class=HTMLResponse)
