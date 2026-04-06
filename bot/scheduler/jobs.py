@@ -62,7 +62,7 @@ def setup_jobs(app: Application) -> None:
     # ── Morning prompt ──
     morning = _parse_schedule(schedule.get("morning_prompt", "08:00"))
     morning_time = _parse_time(morning.get("time", "08:00"))
-    morning_days = tuple(morning.get("days", [0, 1, 2, 3, 4, 5, 6]))
+    morning_days = _hebrew_to_python_days(morning.get("days", [0, 1, 2, 3, 4, 5, 6]))
     if morning_days:
         jq.run_daily(
             send_morning_prompt,
@@ -74,7 +74,7 @@ def setup_jobs(app: Application) -> None:
     # ── Evening prompt ──
     evening = _parse_schedule(schedule.get("evening_prompt", "21:00"))
     evening_time = _parse_time(evening.get("time", "21:00"))
-    evening_days = tuple(evening.get("days", [0, 1, 2, 3, 4, 5, 6]))
+    evening_days = _hebrew_to_python_days(evening.get("days", [0, 1, 2, 3, 4, 5, 6]))
     if evening_days:
         jq.run_daily(
             send_evening_prompt,
@@ -86,7 +86,7 @@ def setup_jobs(app: Application) -> None:
     # ── Weekly leaderboard ──
     leaderboard = _parse_schedule(schedule.get("weekly_leaderboard", {"time": "18:00", "days": [4]}))
     lb_time = _parse_time(leaderboard.get("time", "18:00"))
-    lb_days = tuple(leaderboard.get("days", [4]))
+    lb_days = _hebrew_to_python_days(leaderboard.get("days", [4]))
     if lb_days:
         jq.run_daily(
             send_weekly_leaderboard,
@@ -98,7 +98,7 @@ def setup_jobs(app: Application) -> None:
     # ── Weekly roundup ──
     roundup = _parse_schedule(schedule.get("weekly_roundup", {"time": "18:00", "days": [4]}))
     roundup_time = _parse_time(roundup.get("time", "18:00"))
-    roundup_days = tuple(roundup.get("days", [4]))
+    roundup_days = _hebrew_to_python_days(roundup.get("days", [4]))
     if roundup_days:
         jq.run_daily(
             send_weekly_roundup,
@@ -109,7 +109,7 @@ def setup_jobs(app: Application) -> None:
 
     # ── Discussion prompts ──
     disc = _parse_schedule(schedule.get("discussion_prompt", {"times": ["10:00", "14:00", "18:00"], "days": [0, 1, 2, 3, 4]}))
-    disc_days = tuple(disc.get("days", [0, 1, 2, 3, 4]))
+    disc_days = _hebrew_to_python_days(disc.get("days", [0, 1, 2, 3, 4]))
     disc_times = disc.get("times", [])
     # Handle old format: single string "10:00,14:00,18:00"
     if isinstance(disc_times, str):
@@ -139,7 +139,7 @@ def setup_jobs(app: Application) -> None:
     else:
         trivia_time = time(hour=20, minute=0, tzinfo=_tz)
         trivia_days = [2, 5]
-    for day in trivia_days:
+    for day in _hebrew_to_python_days(trivia_days):
         jq.run_daily(
             send_scheduled_trivia,
             time=trivia_time,
