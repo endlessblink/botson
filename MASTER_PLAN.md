@@ -56,13 +56,19 @@
 | T-048 | 11 | Topic dropdown in schedule (replace ID input) | DONE | P0 | T-047 |
 | T-049 | 11 | Clickable dots — instant visual toggle on/off | DONE | P1 | T-044 |
 | T-050 | 11 | Schedule tab — show loaded question per slot | DONE | P1 | T-044 |
-| T-051 | — | End-to-end dashboard QA pass | TODO | P1 | T-045..T-050 |
+| T-051 | — | End-to-end dashboard QA pass | DONE | P1 | T-045..T-050 |
 | T-052 | — | Single-instance bot guard (PID lock file) | DONE | P1 | T-004 |
-| T-053 | — | Hot-reload config via SIGHUP (no restart needed) | TODO | P2 | T-004 |
+| T-053 | — | Hot-reload config via SIGHUP (no restart needed) | TODO | P0 | T-004 |
 | T-054 | — | Pyrogram one-time topic seeder | TODO | P2 | T-047 |
 | T-055 | — | SQLite WAL mode on all connections | DONE | P1 | T-002 |
 | T-056 | — | Add AIORateLimiter to bot | DONE | P1 | T-004 |
 | T-057 | — | Switch to webhooks for VPS deployment | TODO | P2 | T-030 |
+| T-058 | 12 | Auto-restart bot on code changes (file watcher) | TODO | P0 | T-052 |
+| T-059 | 12 | Bot process supervisor script (run_bot.sh) | TODO | P0 | T-052 |
+| T-060 | 12 | Dashboard "restart bot" button | TODO | P1 | T-059 |
+| T-061 | 12 | Bot version check — dashboard shows if bot needs restart | TODO | P1 | T-058 |
+| T-062 | 12 | Persistent bot logging (log to file, not temp) | TODO | P0 | T-004 |
+| T-063 | 12 | Dashboard log viewer (tail bot logs in real-time) | TODO | P2 | T-062 |
 
 ## Detailed Tasks
 
@@ -400,6 +406,70 @@ Files: `dashboard/templates/prompts.html`
 - Day-of-week chips save
 - Mobile responsive check
 - RTL consistency check
+
+---
+
+#### T-058: Auto-restart bot on code changes (file watcher)
+**Phase:** 12 — Reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-052
+
+Watch `bot/` and `config/` directories for file changes. When a change is detected, gracefully restart the bot process. Prevents stale code from running after edits.
+
+Options:
+- `watchdog` Python library to monitor filesystem changes
+- Simple shell loop with `inotifywait`
+- Integrate into `run_bot.sh` wrapper
+
+Files: new `run_bot.sh` or `bot/watcher.py`
+
+---
+
+#### T-059: Bot process supervisor script (run_bot.sh)
+**Phase:** 12 — Reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-052
+
+A wrapper script that:
+- Ensures only one instance runs (via PID lock)
+- Redirects logs to a persistent file (`data/bot.log`)
+- Auto-restarts on crash
+- Handles SIGTERM gracefully
+- Can be used with systemd or run standalone
+
+Files: `run_bot.sh`
+
+---
+
+#### T-060: Dashboard "restart bot" button
+**Phase:** 12 — Reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-059
+
+Add a button to the health page that sends SIGHUP or restarts the bot process. Dashboard reads the PID from `data/bot.pid` and sends a signal.
+
+Files: `dashboard/app.py`, `dashboard/templates/health.html`
+
+---
+
+#### T-061: Bot version check — dashboard shows if bot needs restart
+**Phase:** 12 — Reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-058
+
+Track a version hash (git commit or file mtime) at bot startup. Dashboard compares the running version against current code on disk. Shows a warning banner if they differ: "Bot is running old code — restart required."
+
+Files: `bot/main.py`, `dashboard/templates/health.html`
+
+---
+
+#### T-062: Persistent bot logging (log to file, not temp)
+**Phase:** 12 — Reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-004
+
+Bot should always log to `data/bot.log` with rotation (10MB max, 3 backups). Currently logs go to whatever stdout/stderr the process was started with (often temp files that get deleted).
+
+Files: `bot/main.py` (logging config)
+
+---
+
+#### T-063: Dashboard log viewer (tail bot logs in real-time)
+**Phase:** 12 — Reliability | **Priority:** P2 | **Status:** TODO | **Deps:** T-062
+
+Add a section to the health page that shows the last 50 lines of `data/bot.log`. Auto-refreshes every 10 seconds via JS polling. Lets you monitor the bot from the dashboard without SSH.
+
+Files: `dashboard/app.py`, `dashboard/templates/health.html`
 
 ---
 
