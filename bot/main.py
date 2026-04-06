@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 
-from telegram.ext import Application, CommandHandler
+from telegram.ext import AIORateLimiter, Application, CommandHandler
 
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
@@ -120,7 +120,14 @@ def main():
     _acquire_pid_lock()
 
     # Build application
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .rate_limiter(AIORateLimiter(max_retries=3))
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
 
     # Register core commands
     app.add_handler(CommandHandler("start", start_command))

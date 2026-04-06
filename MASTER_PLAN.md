@@ -50,18 +50,18 @@
 | T-042 | 10 | Per-tool settings + Telegram previews | DONE | P1 | T-041 |
 | T-043 | 10 | Prompts page — pool preview + AI gen | DONE | P1 | T-041 |
 | T-044 | 10 | Schedule timeline + editable config | DONE | P1 | T-043 |
-| T-045 | 11 | Top navbar — move brand to horizontal header | TODO | P0 | T-041 |
-| T-046 | 11 | Day-of-week selectors for scheduled items | TODO | P0 | T-044 |
-| T-047 | 11 | Auto-detect forum topics from messages | TODO | P0 | T-004 |
-| T-048 | 11 | Topic dropdown in schedule (replace ID input) | TODO | P0 | T-047 |
-| T-049 | 11 | Clickable dots — instant visual toggle on/off | TODO | P1 | T-044 |
-| T-050 | 11 | Schedule tab — show loaded question per slot | TODO | P1 | T-044 |
+| T-045 | 11 | Top navbar — move brand to horizontal header | DONE | P0 | T-041 |
+| T-046 | 11 | Day-of-week selectors for scheduled items | DONE | P0 | T-044 |
+| T-047 | 11 | Auto-detect forum topics from messages | DONE | P0 | T-004 |
+| T-048 | 11 | Topic dropdown in schedule (replace ID input) | DONE | P0 | T-047 |
+| T-049 | 11 | Clickable dots — instant visual toggle on/off | DONE | P1 | T-044 |
+| T-050 | 11 | Schedule tab — show loaded question per slot | DONE | P1 | T-044 |
 | T-051 | — | End-to-end dashboard QA pass | TODO | P1 | T-045..T-050 |
-| T-052 | — | Single-instance bot guard (PID lock file) | TODO | P1 | T-004 |
+| T-052 | — | Single-instance bot guard (PID lock file) | DONE | P1 | T-004 |
 | T-053 | — | Hot-reload config via SIGHUP (no restart needed) | TODO | P2 | T-004 |
 | T-054 | — | Pyrogram one-time topic seeder | TODO | P2 | T-047 |
-| T-055 | — | SQLite WAL mode on all connections | TODO | P1 | T-002 |
-| T-056 | — | Add AIORateLimiter to bot | TODO | P1 | T-004 |
+| T-055 | — | SQLite WAL mode on all connections | DONE | P1 | T-002 |
+| T-056 | — | Add AIORateLimiter to bot | DONE | P1 | T-004 |
 | T-057 | — | Switch to webhooks for VPS deployment | TODO | P2 | T-030 |
 
 ## Detailed Tasks
