@@ -178,6 +178,9 @@
                                 <label class="text-[10px] text-[#71717a] mb-1 block">הודעה הבאה</label>
                                 <p class="text-sm text-[#a1a1aa] truncate">{% if morning_items %}{{ morning_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
                             </div>
+                            <div class="self-end">
+                                <button onclick="sendPromptNow('morning', event)" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#272727] px-2 py-1 rounded cursor-pointer transition-colors shrink-0">שלח עכשיו</button>
+                            </div>
                         </div>
                         <div class="flex gap-1 mt-2" data-days="morning" data-color="amber">
                             {% set day_labels = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'] %}
@@ -250,8 +253,9 @@
                     <div class="w-6 h-6 rounded-full bg-[#1f1f1f] border border-[#272727] flex items-center justify-center shrink-0 z-10">
                         <span class="text-[#71717a] text-xs">+</span>
                     </div>
-                    <div class="flex-1 pt-1">
+                    <div class="flex-1 pt-1 flex items-center gap-3">
                         <button onclick="addDiscSlot()" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">+ הוסף שעת שליחה</button>
+                        <button onclick="sendPromptNow('discussion', event)" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#272727] px-2 py-1 rounded cursor-pointer transition-colors shrink-0">שלח שאלה עכשיו</button>
                     </div>
                 </div>
                 </div><!-- end disc-section wrapper -->
@@ -286,6 +290,9 @@
                             <div class="flex-1">
                                 <label class="text-[10px] text-[#71717a] mb-1 block">הודעה הבאה</label>
                                 <p class="text-sm text-[#a1a1aa] truncate">{% if evening_items %}{{ evening_items[0] }}{% else %}אין הודעות במאגר{% endif %}</p>
+                            </div>
+                            <div class="self-end">
+                                <button onclick="sendPromptNow('evening', event)" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#272727] px-2 py-1 rounded cursor-pointer transition-colors shrink-0">שלח עכשיו</button>
                             </div>
                         </div>
                         <div class="flex gap-1 mt-2" data-days="evening" data-color="indigo">
@@ -789,6 +796,22 @@
             await apiCall('/api/settings/features', data);
             showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
         } catch (e) { showToast('שגיאה בשמירה', 'error'); }
+    }
+
+    async function sendPromptNow(type, evt) {
+        var btn = evt.target.closest('button');
+        var orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '...שולח';
+        try {
+            var res = await apiCall('/api/bot/send-prompt', { type: type });
+            showToast('נשלח: ' + (res.prompt || '').substring(0, 40) + '...');
+        } catch (e) {
+            showToast('שגיאה בשליחה', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
     }
 </script>
 

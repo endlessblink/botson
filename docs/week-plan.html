@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botson — תוכנית שבועית</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.8;
+        }
+        h1 { color: #fff; border-bottom: 2px solid #4a4a6a; padding-bottom: 10px; }
+        h2 { color: #82b1ff; margin-top: 30px; }
+        .day {
+            background: #16213e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin: 12px 0;
+        }
+        .day-header {
+            font-size: 16px;
+            font-weight: bold;
+            color: #fafafa;
+            margin-bottom: 8px;
+        }
+        .holiday {
+            display: inline-block;
+            background: #3a2a1b;
+            color: #fbbf24;
+            padding: 2px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-right: 8px;
+        }
+        .sensitive {
+            display: inline-block;
+            background: #3a1b1b;
+            color: #f87171;
+            padding: 2px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-right: 8px;
+        }
+        .activity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 0;
+            border-bottom: 1px solid #1f1f3a;
+        }
+        .activity:last-child { border-bottom: none; }
+        .time {
+            color: #71717a;
+            font-size: 13px;
+            min-width: 50px;
+            font-variant-numeric: tabular-nums;
+        }
+        .type {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            min-width: 60px;
+            text-align: center;
+        }
+        .type-morning { background: #78350f33; color: #fbbf24; }
+        .type-evening { background: #312e8133; color: #818cf8; }
+        .type-trivia { background: #14532d33; color: #4ade80; }
+        .type-discussion { background: #0c4a6e33; color: #38bdf8; }
+        .type-roundup { background: #7c2d1233; color: #fb923c; }
+        .type-event { background: #701a7533; color: #e879f9; }
+        .type-welcome { background: #1e3a5f33; color: #60a5fa; }
+        .type-spam { background: #3f1b1b33; color: #f87171; }
+        .desc { color: #a1a1aa; font-size: 14px; }
+        .note {
+            color: #71717a;
+            font-size: 13px;
+            font-style: italic;
+            margin-top: 8px;
+        }
+        .status {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+        .on { background: #14532d33; color: #4ade80; }
+        .off { background: #3f1b1b33; color: #f87171; }
+        .new { background: #7c2d1233; color: #fb923c; }
+        table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+        th, td { padding: 8px 12px; border: 1px solid #2a2a4a; text-align: right; }
+        th { background: #16213e; color: #82b1ff; }
+    </style>
+</head>
+<body>
+
+<h1>Botson — תוכנית שבוע 6-12 באפריל 2026</h1>
+<p style="color: #71717a;">סוף פסח + חזרה לשגרה. זמן מצוין להשיק פיצ'רים!</p>
+
+<!-- Feature activation plan -->
+<h2>הפעלת פיצ'רים השבוע</h2>
+<table>
+    <tr><th>פיצ'ר</th><th>סטטוס נוכחי</th><th>מתי מפעילים</th><th>לאיזו קבוצה</th></tr>
+    <tr><td>הודעת בוקר</td><td><span class="status on">פועל</span></td><td>כבר פעיל</td><td>ראשית + טסט</td></tr>
+    <tr><td>הודעת ערב</td><td><span class="status off">כבוי</span></td><td>יום שני (היום)</td><td>ראשית</td></tr>
+    <tr><td>רמות (ניקוד)</td><td><span class="status on">פועל</span></td><td>כבר פעיל</td><td>ראשית</td></tr>
+    <tr><td>טריוויה</td><td><span class="status off">כבוי</span></td><td>יום רביעי ערב</td><td>ראשית</td></tr>
+    <tr><td>שאלות לדיון</td><td><span class="status off">כבוי</span></td><td>יום חמישי</td><td>ראשית</td></tr>
+    <tr><td>סיכום שבועי</td><td><span class="status off">כבוי</span></td><td>יום שישי</td><td>ראשית</td></tr>
+    <tr><td>ברוכים הבאים</td><td><span class="status off">כבוי</span></td><td>יום שישי</td><td>ראשית</td></tr>
+    <tr><td>ספאם (dry run)</td><td><span class="status off">כבוי</span></td><td>יום שני (היום)</td><td>ראשית</td></tr>
+</table>
+
+<!-- Daily breakdown -->
+<h2>לוח זמנים יומי</h2>
+
+<div class="day">
+    <div class="day-header">יום שני 6.4 <span class="holiday">חול המועד פסח</span></div>
+    <div class="activity">
+        <span class="time">09:00</span>
+        <span class="type type-morning">בוקר</span>
+        <span class="desc">הודעת בוקר בערוץ יום יום (כבר נשלחה!)</span>
+    </div>
+    <div class="activity">
+        <span class="time">21:00</span>
+        <span class="type type-evening">ערב</span>
+        <span class="desc">להפעיל הודעת ערב — ההשקה הראשונה</span>
+        <span class="status new">חדש!</span>
+    </div>
+    <div class="activity">
+        <span class="time">כל היום</span>
+        <span class="type type-spam">ספאם</span>
+        <span class="desc">להפעיל ספאם dry run — רק זיהוי ולוג</span>
+        <span class="status new">חדש!</span>
+    </div>
+    <p class="note">אנשים בחופש, סיכוי טוב שיגיבו להודעת הבוקר</p>
+</div>
+
+<div class="day">
+    <div class="day-header">יום שלישי 7.4 <span class="holiday">חול המועד פסח</span></div>
+    <div class="activity">
+        <span class="time">09:00</span>
+        <span class="type type-morning">בוקר</span>
+        <span class="desc">הודעת בוקר</span>
+    </div>
+    <div class="activity">
+        <span class="time">21:00</span>
+        <span class="type type-evening">ערב</span>
+        <span class="desc">הודעת ערב</span>
+    </div>
+    <p class="note">יום שקט, אנשים עדיין בחופש. לא להעמיס</p>
+</div>
+
+<div class="day">
+    <div class="day-header">יום רביעי 8.4 <span class="holiday">שביעי של פסח (ערב)</span></div>
+    <div class="activity">
+        <span class="time">09:00</span>
+        <span class="type type-morning">בוקר</span>
+        <span class="desc">הודעת בוקר</span>
+    </div>
+    <div class="activity">
+        <span class="time">20:00</span>
+        <span class="type type-trivia">טריוויה</span>
+        <span class="desc">טריוויה ראשונה! שאלה אחת לחימום</span>
+        <span class="status new">השקה!</span>
+    </div>
+    <div class="activity">
+        <span class="time">21:00</span>
+        <span class="type type-evening">ערב</span>
+        <span class="desc">הודעת ערב</span>
+    </div>
+    <p class="note">סוף פסח — אנשים חוזרים לשגרה, אנרגיה טובה לטריוויה</p>
+</div>
+
+<div class="day">
+    <div class="day-header">יום חמישי 9.4</div>
+    <div class="activity">
+        <span class="time">09:00</span>
+        <span class="type type-morning">בוקר</span>
+        <span class="desc">הודעת בוקר</span>
+    </div>
+    <div class="activity">
+        <span class="time">14:00</span>
+        <span class="type type-discussion">דיון</span>
+        <span class="desc">שאלה לדיון ראשונה — ערוץ אקראי</span>
+        <span class="status new">השקה!</span>
+    </div>
+    <div class="activity">
+        <span class="time">21:00</span>
+        <span class="type type-evening">ערב</span>
+        <span class="desc">הודעת ערב</span>
+    </div>
+    <p class="note">יום ראשון אחרי החג — אנשים חזרו לעבודה. שאלת דיון אחת במקום שלוש (לא להציף)</p>
+</div>
+
+<div class="day">
+    <div class="day-header">יום שישי 10.4</div>
+    <div class="activity">
+        <span class="time">09:00</span>
+        <span class="type type-morning">בוקר</span>
+        <span class="desc">הודעת בוקר (מותאמת לסופש: "מה בתוכנית לסופש?")</span>
+    </div>
+    <div class="activity">
+        <span class="time">18:00</span>
+        <span class="type type-roundup">סיכום</span>
+        <span class="desc">סיכום שבועי ראשון!</span>
+        <span class="status new">השקה!</span>
+    </div>
+    <div class="activity">
+        <span class="time">18:00</span>
+        <span class="type type-welcome">ברוכים</span>
+        <span class="desc">להפעיל ברוכים הבאים (DM לחברים חדשים)</span>
+        <span class="status new">חדש!</span>
+    </div>
+    <p class="note">סיכום שבועי ראשון — גם אם הנתונים דלים, זה מראה שהבוט פעיל</p>
+</div>
+
+<div class="day">
+    <div class="day-header">שבת 11.4</div>
+    <div class="activity">
+        <span class="time">20:00</span>
+        <span class="type type-trivia">טריוויה</span>
+        <span class="desc">טריוויה שנייה — מוצ"ש, אנשים זמינים</span>
+    </div>
+    <p class="note">שבת — רק טריוויה במוצ"ש. בלי הודעות בוקר/ערב</p>
+</div>
+
+<div class="day">
+    <div class="day-header">יום ראשון 12.4</div>
+    <div class="activity">
+        <span class="time">09:00</span>
+        <span class="type type-morning">בוקר</span>
+        <span class="desc">הודעת בוקר — תחילת שבוע שני</span>
+    </div>
+    <div class="activity">
+        <span class="time">14:00</span>
+        <span class="type type-discussion">דיון</span>
+        <span class="desc">שאלה לדיון</span>
+    </div>
+    <div class="activity">
+        <span class="time">21:00</span>
+        <span class="type type-evening">ערב</span>
+        <span class="desc">הודעת ערב</span>
+    </div>
+    <p class="note">שגרה מלאה — הכל פועל</p>
+</div>
+
+<!-- Rollout strategy -->
+<h2>אסטרטגיית השקה</h2>
+<div class="day">
+    <div class="day-header">הגיון</div>
+    <p class="desc" style="line-height: 2;">
+        <strong>יום שני-שלישי:</strong> רק בוקר + ערב. אנשים מתרגלים לנוכחות הבוט<br>
+        <strong>יום רביעי:</strong> טריוויה — פעילות אינטראקטיבית ראשונה. אנשים מגיבים<br>
+        <strong>יום חמישי:</strong> שאלות דיון — הבוט מתחיל "לדבר" בערוצים אחרים<br>
+        <strong>יום שישי:</strong> סיכום שבועי — מראה את הערך, ברוכים הבאים פועל<br>
+        <strong>שבת:</strong> רק טריוויה במוצ"ש — לא מפריע<br>
+        <strong>ראשון:</strong> שגרה מלאה
+    </p>
+</div>
+
+<!-- Settings changes needed -->
+<h2>שינויים נדרשים בהגדרות</h2>
+<table>
+    <tr><th>מתי</th><th>מה לשנות</th></tr>
+    <tr><td>היום (שני)</td><td>הפעלת evening_prompt + antispam לראשית. הודעות בוקר כל יום א-ה</td></tr>
+    <tr><td>רביעי בוקר</td><td>הפעלת trivia לראשית</td></tr>
+    <tr><td>חמישי בוקר</td><td>הפעלת discussions לראשית (שעה אחת: 14:00)</td></tr>
+    <tr><td>שישי בוקר</td><td>הפעלת roundup + welcome לראשית</td></tr>
+</table>
+
+<p class="note">הערה ליום הזיכרון (14.4): לכבות את כל הפיצ'רים חוץ מספאם. יום רגיש.</p>
+
+</body>
+</html>

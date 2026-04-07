@@ -267,6 +267,80 @@ async def reload_bot_config(request: Request):
         raise HTTPException(status_code=503, detail="Bot process not running")
 
 
+@app.post("/api/bot/send-prompt")
+async def send_prompt_now(request: Request, db: Database = Depends(get_db)):
+    """Trigger a prompt send via the bot."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    prompt_type = data.get("type")  # "morning", "evening", "discussion"
+
+    if prompt_type not in ("morning", "evening", "discussion"):
+        raise HTTPException(status_code=400, detail="Invalid type")
+
+    # Get the prompt
+    if prompt_type in ("morning", "evening"):
+        prompt = await db.get_random_prompt(prompt_type)
+        if not prompt:
+            raise HTTPException(status_code=404, detail="No prompts in pool")
+
+        # Send via bot
+        from telegram import Bot
+        bot = Bot(os.getenv("BOT_TOKEN", ""))
+        group_id = int(os.getenv("GROUP_ID", "0"))
+        goals_topic = os.getenv("GOALS_TOPIC_ID", "")
+
+        kwargs = {"chat_id": group_id, "text": prompt}
+        if goals_topic:
+            kwargs["message_thread_id"] = int(goals_topic)
+
+        try:
+            await bot.send_message(**kwargs)
+            await db.log_activity("goals", f"שלח הודעת {prompt_type} (ידני)", target_channel="goals")
+            return {"status": "ok", "prompt": prompt}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    elif prompt_type == "discussion":
+        # Pick random category with topic ID
+        settings = get_settings()
+        topic_ids = settings.get("topics", {}).get("discussions", {})
+        discussions_data = {}
+        try:
+            discussions_data = load_yaml("discussions.yaml")
+        except Exception:
+            pass
+
+        available = [
+            cat for cat in discussions_data
+            if cat in topic_ids and topic_ids[cat] and discussions_data[cat]
+        ]
+
+        if not available:
+            raise HTTPException(status_code=404, detail="No categories with topic IDs and prompts")
+
+        import random
+        category = random.choice(available)
+        prompt = random.choice(discussions_data[category])
+        topic_id = topic_ids[category]
+
+        from telegram import Bot
+        bot = Bot(os.getenv("BOT_TOKEN", ""))
+        group_id = int(os.getenv("GROUP_ID", "0"))
+
+        try:
+            await bot.send_message(
+                chat_id=group_id,
+                text=f"💬 {prompt}",
+                message_thread_id=topic_id,
+            )
+            await db.log_activity("discussion", f"שלח שאלה לדיון ({category}) (ידני)", target_channel=category)
+            return {"status": "ok", "prompt": prompt, "category": category}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/bot/restart")
 async def restart_bot(request: Request):
     if not request.session.get("authenticated"):
