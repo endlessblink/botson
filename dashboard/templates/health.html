@@ -215,6 +215,25 @@
         {% endif %}
     </div>
 
+    <!-- Send Message -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-5 py-3 border-b border-[#1f1f1f]">
+            <span class="text-sm font-medium text-[#fafafa]">שלח הודעה</span>
+        </div>
+        <div class="px-5 py-4">
+            <div class="flex gap-3">
+                <select id="send-topic" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] cursor-pointer shrink-0">
+                    <option value="" class="bg-[#0a0a0a]">כללי</option>
+                    {% for t in forum_topics %}
+                    <option value="{{ t.topic_id }}" class="bg-[#0a0a0a]">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="text" id="send-text" placeholder="הקלד הודעה..." class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] flex-1">
+                <button onclick="sendMessage()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors shrink-0">שלח</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Row 4: Forum Topics -->
     <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
         <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">נושאי פורום מעוקבים</h2>
@@ -257,5 +276,22 @@
             }
         });
     }
+
+    async function sendMessage() {
+        var text = document.getElementById('send-text').value.trim();
+        if (!text) { showToast('הקלד הודעה', 'error'); return; }
+        var topicId = document.getElementById('send-topic').value || null;
+        try {
+            await apiCall('/api/bot/send-message', { text: text, topic_id: topicId });
+            showToast('הודעה נשלחה');
+            document.getElementById('send-text').value = '';
+        } catch (e) {
+            showToast('שגיאה בשליחה', 'error');
+        }
+    }
+
+    document.getElementById('send-text').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendMessage();
+    });
 </script>
 {% endblock %}

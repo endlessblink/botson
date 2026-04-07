@@ -341,6 +341,35 @@ async def send_prompt_now(request: Request, db: Database = Depends(get_db)):
             raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/bot/send-message")
+async def send_message_to_topic(request: Request, db: Database = Depends(get_db)):
+    """Send a custom message to a topic via the bot."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    text = data.get("text", "").strip()
+    topic_id = data.get("topic_id")  # None = general chat
+
+    if not text:
+        raise HTTPException(status_code=400, detail="Message text required")
+
+    from telegram import Bot
+    bot = Bot(os.getenv("BOT_TOKEN", ""))
+    group_id = int(os.getenv("GROUP_ID", "0"))
+
+    kwargs = {"chat_id": group_id, "text": text}
+    if topic_id:
+        kwargs["message_thread_id"] = int(topic_id)
+
+    try:
+        msg = await bot.send_message(**kwargs)
+        await db.log_activity("goals", f"שלח הודעה ידנית", target_channel=str(topic_id or "general"))
+        return {"status": "ok", "message_id": msg.message_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/bot/restart")
 async def restart_bot(request: Request):
     if not request.session.get("authenticated"):
