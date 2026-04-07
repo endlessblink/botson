@@ -148,3 +148,23 @@ def setup_jobs(app: Application) -> None:
         )
 
     logger.info("Scheduled %d jobs via JobQueue", len(jq.jobs()))
+
+
+def reload_jobs(app: Application) -> None:
+    """Remove all scheduled jobs and re-register from fresh settings.
+
+    Call this after settings.yaml changes to pick up new times/days
+    without restarting the bot.
+    """
+    jq = app.job_queue
+    if not jq:
+        logger.error("JobQueue not available — cannot reload")
+        return
+
+    # Remove all existing jobs
+    for job in jq.jobs():
+        job.schedule_removal()
+    logger.info("Removed all scheduled jobs for reload")
+
+    # Re-register from fresh settings
+    setup_jobs(app)

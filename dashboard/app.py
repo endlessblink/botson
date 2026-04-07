@@ -18,6 +18,18 @@ from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_settings, get_prompts, get_spam_patterns, load_yaml
 from bot.utils.levels import get_level, get_progress
 
+RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
+
+
+def _signal_bot_reload():
+    """Create a reload flag file that the bot watches for schedule reload."""
+    try:
+        RELOAD_FLAG.parent.mkdir(parents=True, exist_ok=True)
+        RELOAD_FLAG.write_text("reload")
+        return True
+    except Exception:
+        return False
+
 app = FastAPI(title="Botson Dashboard", docs_url=None, redoc_url=None)
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("DASHBOARD_SECRET", secrets.token_hex(32)))
 
@@ -176,7 +188,21 @@ async def update_schedule(request: Request):
     with open(settings_path, "w", encoding="utf-8") as f:
         yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    # Auto-reload bot schedule
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
+
+
+@app.post("/api/reload-schedule")
+async def reload_schedule(request: Request):
+    """Manually trigger bot schedule reload via SIGHUP."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    reloaded = _signal_bot_reload()
+    if reloaded:
+        return {"status": "ok", "message": "Bot schedule reloaded"}
+    return {"status": "error", "message": "Bot not running or PID not found"}
 
 
 # ── Prompts API ──────────────────────────────────────────

@@ -101,8 +101,8 @@ async def post_init(app: Application):
     prompts = get_prompts()
     await db.seed_prompts(prompts)
 
-    # Setup SIGHUP for config reload
-    _setup_sighup_handler(app)
+    # Setup reload watcher (checks for data/reload flag file every 5s)
+    _setup_reload_watcher(app)
 
     logger.info("Bot initialized successfully")
 
@@ -115,17 +115,18 @@ async def post_shutdown(app: Application):
     logger.info("Bot shut down cleanly")
 
 
-def _setup_sighup_handler(app):
-    """Setup SIGHUP handler to reload config without restart."""
-    import asyncio
-    loop = asyncio.get_event_loop()
+def _setup_reload_watcher(app):
+    """Watch for a reload flag file and reload schedule when found."""
+    reload_flag = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "reload")
 
-    def handle_sighup():
-        logger.info("Received SIGHUP — reloading config...")
-        loop.create_task(_reload_config(app))
+    async def _check_reload(context):
+        if os.path.exists(reload_flag):
+            os.unlink(reload_flag)
+            logger.info("Reload flag detected — reloading schedule...")
+            await _reload_config(app)
 
-    loop.add_signal_handler(signal.SIGHUP, handle_sighup)
-    logger.info("SIGHUP handler registered for config reload")
+    # Check every 5 seconds
+    app.job_queue.run_repeating(_check_reload, interval=5, first=5, name="reload_watcher")
 
 
 async def _reload_config(app):
