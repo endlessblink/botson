@@ -61,4 +61,53 @@ The dashboard is the primary control interface. Users should never need to use T
 - Bot logs to `data/bot.log` (RotatingFileHandler)
 - PID lock at `data/bot.pid`
 - Version tracking at `data/bot.version`
-- SIGHUP reloads schedule config without restart
+- Hot reload via `data/reload` flag file (bot checks every 5s), triggered by dashboard on schedule save
+- **Never use `drop_pending_updates=True`** — it causes the bot to miss all queued messages on restart
+
+## Telegram Group Info
+
+- **Main group**: אלהוריים וזה (childfree community, 81 members)
+- **Group ID**: `-1003873409631`
+- **Test group**: Sherlocks Den
+- **Test Group ID**: `-1003747545764`
+- **Bot username**: `@thebotstonbot`
+- **Bot name**: Botson
+
+### Forum Topic IDs (main group)
+
+| Topic ID | Channel Name | Category Key |
+|----------|-------------|-------------|
+| 2184 | יום יום | goals |
+| 1517 | גיימינג + משחקי לוח | gaming |
+| 442 | אנימה / קומיקס וכל הדברים הגיקיים | geek |
+| 54 | סרטים סדרות וכו | movies |
+| 59 | אל הוריים/יות מכירים | singles |
+| 335 | כל מה שחמוד 🐕🦝🐨 | cute |
+| 153 | AI וטכנולוגיה | — |
+| 347 | ערוץ אומנות ויצירה 🎨📷 | art |
+| 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics |
+| 7 | כללי (General) — unconfirmed | general |
+| ? | טבעונים וצמחוניים | vegan |
+| ? | מצחיק / מגניב | funny |
+| 341 | מצטרפים חדשים + עדכונים | welcome |
+
+### Level System
+
+| Level | Points | Tag | Emoji |
+|-------|--------|-----|-------|
+| 1 | 0 | חדש/ה | 🌱 |
+| 2 | 20 | פעיל/ה | ⭐ |
+| 3 | 50 | כוכב/ת | 🌟 |
+| 4 | 100 | סופרסטאר | 💫 |
+| 5 | 250 | אגדה | 🔥 |
+| 6 | 500 | אלוף/ה | 👑 |
+
+### Point Values
+
+| Action | Points |
+|--------|--------|
+| Message in group | 1 (max 10/day) |
+| Goals channel post | 2 |
+| Reply to bot prompt | 3 |
+| Event RSVP | 3 |
+| Correct trivia answer | 5 |

@@ -9,10 +9,63 @@ antispam:
 bot:
   name: Botson
 features:
-  morning_prompt: true
+  morning_prompt:
+    enabled: true
+    groups:
+    - main
+  evening_prompt:
+    enabled: true
+    groups:
+    - main
+  goals:
+    enabled: true
+    groups:
+    - main
+  levels:
+    enabled: true
+    groups:
+    - main
+    - test
+  antispam:
+    enabled: true
+    groups:
+    - main
+    - test
+  discussions:
+    enabled: true
+    groups:
+    - main
+  events:
+    enabled: false
+    groups:
+    - test
+  trivia:
+    enabled: false
+    groups:
+    - test
+  roundup:
+    enabled: false
+    groups:
+    - test
+  welcome:
+    enabled: false
+    groups:
+    - test
 levels:
   max_per_day: 10
 schedule:
+  morning_prompt:
+    days:
+    - 0
+    - 2
+    - 4
+    time: '09:00'
+  evening_prompt:
+    days:
+    - 0
+    - 2
+    - 4
+    time: '21:00'
   discussion_prompt:
     days:
     - 0
@@ -22,43 +75,25 @@ schedule:
     - 4
     times:
     - '18:00'
-  evening_prompt:
-    days:
-    - 0
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-    - 6
-    time: '21:00'
-  morning_prompt:
-    days:
-    - 1
-    - 3
-    time: 09:00
   weekly_leaderboard:
     days:
-    - 5
+    - 6
     time: '18:00'
   weekly_roundup:
     days:
-    - 5
+    - 6
     time: '18:00'
 topics:
   discussions:
-    art: null
-    cute: null
-    funny: null
-    gaming: null
-    geek: null
-    general: null
-    movies: null
-    politics: null
-    singles: null
-    vegan: null
+    art: 347
+    cute: 335
+    gaming: 1517
+    geek: 442
+    movies: 54
+    politics: 1431
+    singles: 59
   general: null
   goals: 2184
-  welcome: null
+  welcome: 341
 welcome:
   batch_window_seconds: 30
