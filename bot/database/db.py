@@ -5,9 +5,18 @@ import logging
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
+from zoneinfo import ZoneInfo
+
 import aiosqlite
 
 from .models import SCHEMA
+
+_IL_TZ = ZoneInfo("Asia/Jerusalem")
+
+
+def _now_il() -> str:
+    """Return current Israel time as ISO string."""
+    return datetime.now(_IL_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +157,7 @@ class Database:
         if row:
             await self._db.execute(
                 "UPDATE daily_prompts SET last_used_at = ? WHERE id = ?",
-                (datetime.now().isoformat(), row[0]),
+                (_now_il(), row[0]),
             )
             await self._db.commit()
             return row[1]
@@ -167,7 +176,7 @@ class Database:
 
     async def get_recent_messages(self, user_id: int, seconds: int = 60) -> list[dict]:
         """Get recent messages from a user for duplicate detection."""
-        since = (datetime.now() - timedelta(seconds=seconds)).isoformat()
+        since = (datetime.now(_IL_TZ) - timedelta(seconds=seconds)).strftime("%Y-%m-%d %H:%M:%S")
         async with self._db.execute(
             "SELECT message_text FROM spam_log WHERE user_id = ? AND timestamp >= ?",
             (user_id, since),
@@ -386,10 +395,10 @@ class Database:
 
     async def log_activity(self, action_type: str, description: str,
                            target_user_id: int | None = None, target_channel: str | None = None):
-        """Log a bot action for the activity dashboard."""
+        """Log a bot action for the activity dashboard. Uses Israel time."""
         await self._db.execute(
-            "INSERT INTO activity_log (action_type, description, target_user_id, target_channel) VALUES (?, ?, ?, ?)",
-            (action_type, description, target_user_id, target_channel),
+            "INSERT INTO activity_log (action_type, description, target_user_id, target_channel, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (action_type, description, target_user_id, target_channel, _now_il()),
         )
         await self._db.commit()
 
@@ -404,13 +413,14 @@ class Database:
     # ── Forum Topics ─────────────────────────────────────────
 
     async def upsert_forum_topic(self, topic_id: int, name: str):
-        """Track a forum topic seen in messages."""
+        """Track a forum topic seen in messages. Uses Israel time."""
+        now = _now_il()
         await self._db.execute(
             """INSERT INTO forum_topics (topic_id, name, last_seen_at)
-               VALUES (?, ?, CURRENT_TIMESTAMP)
+               VALUES (?, ?, ?)
                ON CONFLICT(topic_id) DO UPDATE SET
-               name = excluded.name, last_seen_at = CURRENT_TIMESTAMP""",
-            (topic_id, name),
+               name = excluded.name, last_seen_at = ?""",
+            (topic_id, name, now, now),
         )
         await self._db.commit()
 

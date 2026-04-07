@@ -5,6 +5,7 @@ import re
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
@@ -101,7 +102,7 @@ async def _delete_and_log(
         f"📜 Rule: {rule}\n"
         f"⚡ Action: {action}\n"
         f"💬 Message: {msg_text[:200]}\n"
-        f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"🕐 {datetime.now(ZoneInfo('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M:%S')}"
     )
     await _notify_admins(context, log_msg)
     logger.info("Spam %s: rule=%s action=%s user=%d", "detected (dry run)" if dry_run else "action", rule, action, user_id)

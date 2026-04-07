@@ -82,6 +82,7 @@
 | T-074 | 13 | Dashboard: activity analytics (charts/graphs) | DONE | P2 | T-034 |
 | T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
 | T-076 | — | Rotating admin titles for top members (weekly) | TODO | P1 | T-031 |
+| T-077 | — | Configurable validation-based scoring system | TODO | P1 | T-031, T-003 |
 
 ## Detailed Tasks
 
@@ -599,6 +600,33 @@ Use `setChatAdministratorCustomTitle` to give top-performing members visible tit
 6. Dashboard shows current title holders on health/levels page
 
 Files: `bot/handlers/titles.py` (new), `bot/database/models.py`, `bot/scheduler/jobs.py`
+
+---
+
+#### T-077: Configurable validation-based scoring system
+**Priority:** P1 | **Status:** TODO | **Deps:** T-031, T-003
+
+Replace hardcoded point values with a validation-based scoring model loaded from YAML config. No points for raw message sending — only for actions validated by the bot or community.
+
+**Scoring model:**
+- Reply to bot prompt (morning/evening/discussion): 3-5 pts
+- Reaction received on your message: 1 pt
+- Reply received on your message: 2 pts
+- Correct trivia answer: 12-15 pts
+- Trivia round winner: 20-25 pts
+- Event participation: 6-8 pts
+- Daily streak bonus: 3 pts (ramps at day 7/14/30)
+
+**Implementation:**
+- Add `gamification` section to `config/settings.yaml` with all point values
+- Create `bot/utils/scoring.py` — central scoring logic reading from config
+- Update `bot/handlers/levels.py`, `trivia.py`, `events.py`, `goals.py` to use config values
+- Track bot prompt replies (detect replies to bot's scheduled messages)
+- Track reactions received (new handler)
+- Dashboard page to view/edit scoring config
+- Display scoring breakdown on levels dashboard page
+
+**Key principle:** System is self-limiting by design — bot sends finite prompts/day, trivia is scheduled, reactions require others. No artificial cooldowns needed.
 
 ---
 
