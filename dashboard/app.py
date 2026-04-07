@@ -881,7 +881,10 @@ async def members_page(request: Request, db: Database = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
 
     async with db._db.execute(
-        "SELECT * FROM members ORDER BY joined_at DESC"
+        """SELECT m.*, s.current_streak, s.longest_streak, s.last_post_date
+           FROM members m
+           LEFT JOIN streaks s ON m.user_id = s.user_id
+           ORDER BY m.joined_at DESC"""
     ) as cursor:
         rows = await cursor.fetchall()
         members = [dict(r) for r in rows]

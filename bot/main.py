@@ -217,7 +217,10 @@ def main():
     setup_jobs(app)
 
     logger.info("Bot starting... (polling mode)")
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(
+        drop_pending_updates=False,
+        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
+    )
 
 
 if __name__ == "__main__":

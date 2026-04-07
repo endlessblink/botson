@@ -56,6 +56,8 @@
                     <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">שם משתמש</th>
                     <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">רמה</th>
                     <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">נקודות</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">רצף</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">שיא</th>
                     <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">הצטרף</th>
                 </tr>
             </thead>
@@ -67,12 +69,14 @@
                     <td class="px-4 py-3 text-sm text-[#71717a]">{{ '@' + m.username if m.username else '—' }}</td>
                     <td class="px-4 py-3 text-sm text-[#a1a1aa]">{{ m.level_emoji }} {{ m.level_tag }}</td>
                     <td class="px-4 py-3 text-sm text-[#a1a1aa] stat-number text-left">{{ m.karma_points }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa] stat-number text-left">{{ m.current_streak or 0 }}</td>
+                    <td class="px-4 py-3 text-sm text-[#71717a] stat-number text-left">{{ m.longest_streak or 0 }}</td>
                     <td class="px-4 py-3 text-xs text-[#71717a]">{{ m.joined_at[:10] if m.joined_at else '—' }}</td>
                 </tr>
                 {% endfor %}
                 {% if not members %}
                 <tr>
-                    <td colspan="6" class="px-4 py-10 text-center text-sm text-[#71717a]">אין חברים רשומים עדיין</td>
+                    <td colspan="8" class="px-4 py-10 text-center text-sm text-[#71717a]">אין חברים רשומים עדיין</td>
                 </tr>
                 {% endif %}
             </tbody>
