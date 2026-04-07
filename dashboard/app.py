@@ -370,6 +370,23 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/bot/logs")
+async def get_bot_logs(request: Request, lines: int = 50):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    log_file = Path(__file__).parent.parent / "data" / "bot.log"
+    if not log_file.exists():
+        return {"lines": [], "file": str(log_file)}
+
+    # Read last N lines efficiently
+    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+        all_lines = f.readlines()
+        tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+
+    return {"lines": [l.rstrip() for l in tail], "total": len(all_lines)}
+
+
 @app.post("/api/bot/restart")
 async def restart_bot(request: Request):
     if not request.session.get("authenticated"):

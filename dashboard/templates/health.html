@@ -234,6 +234,23 @@
         </div>
     </div>
 
+    <!-- Bot Logs -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-5 py-3 border-b border-[#1f1f1f] flex items-center justify-between">
+            <span class="text-sm font-medium text-[#fafafa]">לוג הבוט</span>
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" id="log-auto-refresh" checked class="w-3.5 h-3.5 accent-[#d4d4d8] cursor-pointer">
+                    <span class="text-xs text-[#71717a]">רענון אוטומטי</span>
+                </label>
+                <button onclick="loadLogs()" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">רענן</button>
+            </div>
+        </div>
+        <div id="log-container" class="p-4 max-h-[400px] overflow-y-auto font-mono text-xs leading-relaxed" dir="ltr" style="scroll-behavior: smooth;">
+            <div class="text-[#71717a]">טוען לוגים...</div>
+        </div>
+    </div>
+
     <!-- Row 4: Forum Topics -->
     <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
         <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">נושאי פורום מעוקבים</h2>
@@ -293,5 +310,49 @@
     document.getElementById('send-text').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') sendMessage();
     });
+
+    async function loadLogs() {
+        try {
+            var res = await fetch('/api/bot/logs?lines=80', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            var data = await res.json();
+            var container = document.getElementById('log-container');
+            var wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+
+            if (data.lines.length === 0) {
+                container.innerHTML = '<div class="text-[#71717a]">אין לוגים</div>';
+                return;
+            }
+
+            var html = data.lines.map(function(line) {
+                // Color by log level
+                var cls = 'text-[#a1a1aa]';
+                if (line.indexOf(' - ERROR - ') > -1) cls = 'text-red-400';
+                else if (line.indexOf(' - WARNING - ') > -1) cls = 'text-amber-400';
+                else if (line.indexOf(' - INFO - ') > -1 && line.indexOf('HTTP Request') === -1) cls = 'text-[#a1a1aa]';
+                else if (line.indexOf('HTTP Request') > -1) cls = 'text-[#3f3f46]'; // dim HTTP polls
+                return '<div class="' + cls + ' whitespace-pre-wrap break-all py-0.5">' + line.replace(/</g, '&lt;') + '</div>';
+            }).join('');
+
+            container.innerHTML = html;
+
+            // Auto-scroll to bottom if user was already at bottom
+            if (wasAtBottom) {
+                container.scrollTop = container.scrollHeight;
+            }
+        } catch (e) {
+            console.error('Failed to load logs:', e);
+        }
+    }
+
+    // Auto-refresh every 10 seconds
+    var logInterval = setInterval(function() {
+        if (document.getElementById('log-auto-refresh') && document.getElementById('log-auto-refresh').checked) {
+            loadLogs();
+        }
+    }, 10000);
+
+    // Initial load
+    loadLogs();
 </script>
 {% endblock %}

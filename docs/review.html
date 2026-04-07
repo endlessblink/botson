@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Botson — סקירת הודעות</title>
+    <title>Botson — סקירת ניקוד</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, sans-serif;
@@ -22,9 +22,8 @@
             padding: 14px 18px;
             margin: 10px 0;
             font-size: 15px;
+            white-space: pre-line;
         }
-        .keep { border-right: 3px solid #4caf50; }
-        .new { border-right: 3px solid #ff9800; }
         .tag {
             display: inline-block;
             padding: 2px 8px;
@@ -32,35 +31,42 @@
             font-size: 11px;
             margin-bottom: 6px;
         }
-        .tag-keep { background: #1b3a1b; color: #4caf50; }
-        .tag-new { background: #3a2a1b; color: #ff9800; }
+        .tag-poll { background: #4a1b5933; color: #c084fc; }
+        .tag-note { background: #1b3a1b33; color: #4ade80; }
+        .note { color: #71717a; font-size: 13px; margin-top: 4px; }
     </style>
 </head>
 <body>
 
-<h2>☀️ בוקר</h2>
+<h2>🏆 איך צוברים נקודות בקבוצה</h2>
 
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>בוקר טוב 🌞 מה 3 הדברים שאתם רוצים לסמן כ-Done היום?</div>
+<div class="msg">
+🏆 איך צוברים נקודות:
 
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>☀️ מה בתכנון להיום? גם לנוח זו תשובה לגיטימית</div>
+💬 הודעה בערוצים — 1 נקודה
+🧠 תשובה נכונה בטריוויה — 5 נקודות
+🎉 השתתפות באירוע — 3 נקודות
 
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>בוקר! ☀️ יש לכם משימה אחת שאם תסיימו אותה — היום הצליח?</div>
+ככל שתהיו יותר פעילים, כך תעלו ברמות! 🚀
+תוכלו לבדוק את הדירוג עם /level ואת הלידרבורד עם /leaderboard
+</div>
 
-<div class="msg new"><span class="tag tag-new">חדש</span><br>בוקר 🌞 מה תרצו ללמוד או לנסות משהו חדש היום?</div>
+<h2>🗳️ סקר משחק — Clone Drone in the Danger Zone</h2>
+<span class="tag tag-note">ערוץ: גיימינג</span>
 
-<div class="msg new"><span class="tag tag-new">חדש</span><br>☀️ בוקר! משהו מעצבן אתכם לאחרונה? אולי היום הזדמנות לטפל בזה</div>
+<div class="msg">🎮 מי מעוניין לשחק Clone Drone in the Danger Zone ביחד?
 
-<h2>🌙 ערב</h2>
+המשחק חינמי ב-Epic Games:
+https://store.epicgames.com/en-US/p/clone-drone-in-the-danger-zone-4daf6e
 
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>ערב טוב 🌙 איך היה היום? ספרו דבר אחד טוב שקרה</div>
+👇 סמנו:
+✅ — מעוניין/ת ויש לי את המשחק
+📥 — מעוניין/ת, צריך/ה להוריד
+❌ — לא הפעם
 
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>🌙 מה הצלחתם לסיים היום? גם דברים קטנים נחשבים</div>
+אם יש מספיק אנשים נקבע תאריך!</div>
 
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>ערב! ✨ מה הרגע הכי שווה מהיום?</div>
-
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>🌙 מה עשיתם היום בשביל עצמכם?</div>
-
-<div class="msg keep"><span class="tag tag-keep">נשאר</span><br>✨ סוף יום — על מה אתם מרוצים? על מה פחות? הכל לגיטימי</div>
+<p class="note">אפשר להוסיף את זה כסקר טלגרם (Poll) במקום הודעה רגילה — ככה אנשים מצביעים בקליק</p>
 
 </body>
 </html>
