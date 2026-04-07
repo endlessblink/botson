@@ -79,7 +79,9 @@
 | T-071 | 13 | Dashboard: view group stats (same as /stats) | TODO | P1 | T-004 |
 | T-072 | 13 | Dashboard: create event from dashboard | TODO | P1 | T-020 |
 | T-073 | 13 | Dashboard: send weekly roundup manually | TODO | P2 | T-015 |
-| T-074 | 13 | Dashboard: activity analytics (charts/graphs) | TODO | P2 | T-034 |
+| T-074 | 13 | Dashboard: activity analytics (charts/graphs) | DONE | P2 | T-034 |
+| T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
+| T-076 | — | Custom admin titles for level promotions | TODO | P2 | T-031 |
 
 ## Detailed Tasks
 
