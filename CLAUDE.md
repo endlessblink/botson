@@ -64,6 +64,7 @@ The dashboard is the primary control interface. Users should never need to use T
 - Hot reload via `data/reload` flag file (bot checks every 5s), triggered by dashboard on schedule save
 - **Never use `drop_pending_updates=True`** — it causes the bot to miss all queued messages on restart
 - **Always verify before assuming** — check logs/DB with full timestamps before claiming something did or didn't happen. Never guess from memory.
+- **Always check Israel time before any date/time work** — run `date +"%Y-%m-%d %H:%M %A"` before writing schedules, checking logs, or mentioning times. System clock is IDT. Never guess.
 
 ## Telegram Group Info
 

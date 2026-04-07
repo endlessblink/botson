@@ -32,7 +32,7 @@ features:
     - main
     - test
   discussions:
-    enabled: true
+    enabled: false
     groups:
     - main
   events:
