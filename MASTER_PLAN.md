@@ -81,7 +81,7 @@
 | T-073 | 13 | Dashboard: send weekly roundup manually | TODO | P2 | T-015 |
 | T-074 | 13 | Dashboard: activity analytics (charts/graphs) | DONE | P2 | T-034 |
 | T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
-| T-076 | — | Custom admin titles for level promotions | TODO | P2 | T-031 |
+| T-076 | — | Rotating admin titles for top members (weekly) | TODO | P1 | T-031 |
 
 ## Detailed Tasks
 
@@ -560,6 +560,45 @@ Already exists on events page. Enhance: the created event should be announced in
 **Phase:** 13 | **Priority:** P2 | **Status:** TODO
 
 Add simple charts to the overview page: activity over time (line chart), messages per topic (bar chart), member growth. Use Chart.js via CDN.
+
+---
+
+#### T-075: Investigate: levels points given to only some users
+**Priority:** P1 | **Status:** TODO
+
+**Finding:** Not a bug. The `goals` feature is enabled, so the `track_goals_participation` handler gives 2-3 points to anyone who posts in the יום יום topic (thread 2184). The `levels` feature (1 point per message in ANY topic) is NOT enabled. Only goals-topic posters got points. This is by design.
+
+**Action needed:** Decide whether to enable the `levels` feature for all-topic points, or keep it goals-only. Update dashboard to make this clearer.
+
+---
+
+#### T-076: Rotating admin titles for top members (weekly)
+**Priority:** P1 | **Status:** TODO | **Deps:** T-031
+
+Use `setChatAdministratorCustomTitle` to give top-performing members visible titles in the group.
+
+**Design:**
+- Weekly scheduled job (e.g., during roundup): check top 3-5 members by weekly activity/points
+- Promote them to admin with **zero permissions** (all flags false)
+- Set custom title matching their level: "🔥 Fire Starter", "⭐ Rising Star", etc.
+- **Expire after 1 week**: next week's job demotes previous winners and promotes new ones
+- Track promoted users in a `title_holders` DB table to manage demotion
+
+**Constraints:**
+- Max 50 admins per group (Telegram limit) — keep to 3-5 title holders max
+- Bot must have "Add admins" permission
+- Users WILL see they're admin (unavoidable) — frame it as an achievement/reward
+- Zero-permission admin can't do anything harmful
+
+**Flow:**
+1. Weekly job runs → get top N members by points this week
+2. Demote previous title holders (remove admin)
+3. Promote new winners (add admin, zero permissions)
+4. Set custom title via `setChatAdministratorCustomTitle`
+5. Announce in group: "השבוע הזוכים בתואר..."
+6. Dashboard shows current title holders on health/levels page
+
+Files: `bot/handlers/titles.py` (new), `bot/database/models.py`, `bot/scheduler/jobs.py`
 
 ---
 
