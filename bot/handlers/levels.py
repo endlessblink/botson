@@ -1,7 +1,10 @@
-"""Levels system — activity-based progression with level-up announcements."""
+"""Levels system — validation-based progression with level-up announcements.
+
+Points are earned only through validated actions (bot prompt replies, trivia,
+events, streaks) — not raw message activity. See config/settings.yaml gamification section.
+"""
 
 import logging
-from datetime import date
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
@@ -12,9 +15,6 @@ from ..utils.helpers import is_admin, is_bot_user, get_display_name
 from ..utils.levels import get_level, get_progress, check_level_up, make_progress_bar
 
 logger = logging.getLogger(__name__)
-
-# Daily activity point tracking (in-memory)
-_daily_counts: dict[int, dict[str, int]] = {}
 
 
 async def _announce_level_up(context: ContextTypes.DEFAULT_TYPE, user_id: int, user_name: str,
@@ -42,8 +42,8 @@ async def award_and_check_level(db: Database, context: ContextTypes.DEFAULT_TYPE
         await db.log_activity("level_up", f"{user_name} עלה/תה לרמה {new_level['level']}", user_id)
 
 
-async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Award points for regular group activity. Runs on every message."""
+async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Track members from messages (no points for raw messages — validation-based only)."""
     if not update.message or not update.effective_user:
         return
 
@@ -53,25 +53,9 @@ async def award_activity_points(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not is_feature_enabled("levels", update.effective_chat.id):
         return
-    settings = get_settings()
-    max_per_day = settings.get("levels", {}).get("max_per_day", 10)
-
-    # Check daily limit
-    today = date.today().isoformat()
-    if user.id not in _daily_counts:
-        _daily_counts[user.id] = {}
-    daily = _daily_counts[user.id].get(today, 0)
-    if daily >= max_per_day:
-        return
-
-    _daily_counts[user.id] = {today: daily + 1}  # Reset old dates
 
     db: Database = context.bot_data["db"]
-    name = get_display_name(user)
-    await db.upsert_member(user.id, user.username, name)
-    await award_and_check_level(db, context, user.id, name, 1,
-                                chat_id=update.effective_chat.id)
-    await db.log_activity("points", f"+1 נקודה ל-{name} (הודעה)", user.id)
+    await db.upsert_member(user.id, user.username, get_display_name(user))
 
 
 async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,8 +157,8 @@ def register(app):
     app.add_handler(CommandHandler("level", level_command))
     app.add_handler(CommandHandler("leaderboard", leaderboard_command))
     app.add_handler(CommandHandler("resetlevels", reset_levels_command))
-    # Activity points — run on all text messages at lower priority
+    # Track members (no points for raw messages — validation-based scoring)
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, award_activity_points),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, track_member),
         group=3,
     )

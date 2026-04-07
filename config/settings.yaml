@@ -97,3 +97,16 @@ topics:
   welcome: 341
 welcome:
   batch_window_seconds: 30
+
+# Gamification — point values for each validated action
+gamification:
+  prompt_reply: 3
+  discussion_reply: 3
+  goals_post: 2
+  trivia_correct: 12
+  trivia_winner: 20
+  event_rsvp: 5
+  streak_daily: 3
+  streak_7_bonus: 10
+  streak_14_bonus: 15
+  streak_30_bonus: 25

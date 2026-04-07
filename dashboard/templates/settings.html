@@ -95,6 +95,72 @@
         </button>
     </div>
 </div>
+
+<!-- Gamification Settings -->
+{% set gam = settings.gamification or {} %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-6">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">ניקוד (Gamification)</h2>
+        <p class="text-xs text-[#71717a] mt-1">נקודות לכל פעולה מאומתת</p>
+    </div>
+    <div class="px-6 py-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+                <label for="score-prompt-reply" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">תגובה להודעת בוט</label>
+                <input type="number" id="score-prompt-reply" value="{{ gam.prompt_reply or 3 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-discussion-reply" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">תגובה לשאלת דיון</label>
+                <input type="number" id="score-discussion-reply" value="{{ gam.discussion_reply or 3 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-goals-post" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">פוסט בערוץ הישגים</label>
+                <input type="number" id="score-goals-post" value="{{ gam.goals_post or 2 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-trivia-correct" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">תשובה נכונה בטריוויה</label>
+                <input type="number" id="score-trivia-correct" value="{{ gam.trivia_correct or 12 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-trivia-winner" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">זכייה בסיבוב טריוויה</label>
+                <input type="number" id="score-trivia-winner" value="{{ gam.trivia_winner or 20 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-event-rsvp" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">אישור הגעה לאירוע</label>
+                <input type="number" id="score-event-rsvp" value="{{ gam.event_rsvp or 5 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-streak-daily" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">בונוס רצף יומי</label>
+                <input type="number" id="score-streak-daily" value="{{ gam.streak_daily or 3 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-streak-7-bonus" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">בונוס רצף 7 ימים</label>
+                <input type="number" id="score-streak-7-bonus" value="{{ gam.streak_7_bonus or 10 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-streak-14-bonus" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">בונוס רצף 14 ימים</label>
+                <input type="number" id="score-streak-14-bonus" value="{{ gam.streak_14_bonus or 15 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label for="score-streak-30-bonus" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">בונוס רצף 30 ימים</label>
+                <input type="number" id="score-streak-30-bonus" value="{{ gam.streak_30_bonus or 25 }}" min="0"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+        </div>
+    </div>
+    <div class="px-6 py-4 border-t border-[#1f1f1f]">
+        <button onclick="saveGamification()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">שמור ניקוד</button>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -107,6 +173,26 @@ async function saveTopics() {
             goals: parseInt(document.getElementById('topic-goals').value) || null,
         });
         showToast('ערוצים נשמרו בהצלחה');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
+async function saveGamification() {
+    try {
+        await apiCall('/api/settings/gamification', {
+            prompt_reply: parseInt(document.getElementById('score-prompt-reply').value) || 0,
+            discussion_reply: parseInt(document.getElementById('score-discussion-reply').value) || 0,
+            goals_post: parseInt(document.getElementById('score-goals-post').value) || 0,
+            trivia_correct: parseInt(document.getElementById('score-trivia-correct').value) || 0,
+            trivia_winner: parseInt(document.getElementById('score-trivia-winner').value) || 0,
+            event_rsvp: parseInt(document.getElementById('score-event-rsvp').value) || 0,
+            streak_daily: parseInt(document.getElementById('score-streak-daily').value) || 0,
+            streak_7_bonus: parseInt(document.getElementById('score-streak-7-bonus').value) || 0,
+            streak_14_bonus: parseInt(document.getElementById('score-streak-14-bonus').value) || 0,
+            streak_30_bonus: parseInt(document.getElementById('score-streak-30-bonus').value) || 0,
+        });
+        showToast('ניקוד נשמר בהצלחה');
     } catch (e) {
         showToast('שגיאה בשמירה', 'error');
     }

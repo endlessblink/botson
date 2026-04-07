@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from ..database.db import Database
 from ..utils.config import GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
 from ..utils.levels import check_level_up
+from ..utils.scoring import get_points
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
         and update.message.reply_to_message.from_user.is_bot
     )
 
-    points = 3 if is_prompt_reply else 2
+    points = get_points("prompt_reply") if is_prompt_reply else get_points("goals_post")
     label = "תגובה להודעת בוט" if is_prompt_reply else "הישגים"
 
     old_points = await db.add_points(user.id, points)

@@ -771,6 +771,24 @@ async def activity_page(request: Request, db: Database = Depends(get_db)):
     return templates.TemplateResponse(request, name="activity.html", context={"log": log, "settings": settings})
 
 
+@app.post("/api/settings/gamification")
+async def update_gamification(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        settings = yaml.safe_load(f)
+
+    settings["gamification"] = data
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+
+    return {"status": "ok"}
+
+
 @app.post("/api/settings/features")
 async def update_features(request: Request):
     if not request.session.get("authenticated"):

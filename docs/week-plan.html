@@ -32,6 +32,7 @@
         .holiday { display: inline-block; background: #3a2a1b; color: #fbbf24; padding: 2px 10px; border-radius: 6px; font-size: 12px; margin-right: 8px; }
         .sensitive { display: inline-block; background: #3a1b1b; color: #f87171; padding: 2px 10px; border-radius: 6px; font-size: 12px; margin-right: 8px; }
         .you { display: inline-block; background: #1b3a1b; color: #4ade80; padding: 2px 10px; border-radius: 6px; font-size: 12px; margin-right: 8px; }
+        .done { display: inline-block; background: #14532d33; color: #4ade80; padding: 2px 10px; border-radius: 6px; font-size: 12px; margin-right: 8px; }
         .activity {
             display: flex;
             align-items: center;
@@ -52,15 +53,20 @@
         .type-spam { background: #3f1b1b33; color: #f87171; }
         .type-you { background: #1b3a1b33; color: #4ade80; }
         .type-poll { background: #4a1b5933; color: #c084fc; }
+        .type-level { background: #4a1b5933; color: #e879f9; }
         .desc { color: #a1a1aa; font-size: 14px; }
         .note { color: #71717a; font-size: 13px; font-style: italic; margin-top: 8px; }
         .status { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; }
         .on { background: #14532d33; color: #4ade80; }
         .off { background: #3f1b1b33; color: #f87171; }
         .new { background: #7c2d1233; color: #fb923c; }
+        .done-tag { background: #14532d33; color: #4ade80; }
         table { width: 100%; border-collapse: collapse; margin: 12px 0; }
         th, td { padding: 8px 12px; border: 1px solid #2a2a4a; text-align: right; }
         th { background: #16213e; color: #82b1ff; }
+        .stat { background: #0a0a1a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 12px 16px; display: inline-block; margin: 4px; text-align: center; }
+        .stat-num { font-size: 24px; font-weight: bold; color: #fafafa; }
+        .stat-label { font-size: 11px; color: #71717a; }
     </style>
 </head>
 <body>
@@ -68,27 +74,38 @@
 <h1>Botson — תוכנית שבוע 7-13 באפריל 2026</h1>
 <p style="color: #71717a;">סוף פסח + חזרה לשגרה. השקה הדרגתית + אירוע קודניימס בשבת!</p>
 
-<!-- Feature activation plan -->
-<h2>הפעלת פיצ'רים</h2>
+<!-- Today's stats -->
+<h2>📊 סטטיסטיקת היום (שלישי 7.4)</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0;">
+    <div class="stat"><div class="stat-num">12</div><div class="stat-label">חברים פעילים</div></div>
+    <div class="stat"><div class="stat-num">1</div><div class="stat-label">עלייה ברמה</div></div>
+    <div class="stat"><div class="stat-num">3</div><div class="stat-label">ספאם נתפס</div></div>
+    <div class="stat"><div class="stat-num">1</div><div class="stat-label">שאלת דיון</div></div>
+</div>
+
+<!-- Feature status -->
+<h2>סטטוס פיצ'רים</h2>
 <table>
-    <tr><th>פיצ'ר</th><th>סטטוס</th><th>מתי</th><th>קבוצה</th></tr>
-    <tr><td>הודעת בוקר</td><td><span class="status on">פועל</span></td><td>פעיל (לשנות לא-ה)</td><td>ראשית</td></tr>
-    <tr><td>הודעת ערב</td><td><span class="status off">כבוי</span></td><td>היום (7.4)</td><td>ראשית</td></tr>
-    <tr><td>רמות (ניקוד)</td><td><span class="status on">פועל</span></td><td>פעיל</td><td>ראשית</td></tr>
-    <tr><td>שאלות לדיון</td><td><span class="status off">כבוי</span></td><td>היום (7.4)</td><td>ראשית</td></tr>
-    <tr><td>טריוויה</td><td><span class="status off">כבוי</span></td><td>חמישי (9.4)</td><td>ראשית</td></tr>
-    <tr><td>סיכום שבועי</td><td><span class="status off">כבוי</span></td><td>שבת (11.4)</td><td>ראשית</td></tr>
-    <tr><td>ברוכים הבאים</td><td><span class="status off">כבוי</span></td><td>שבת (11.4)</td><td>ראשית</td></tr>
-    <tr><td>ספאם (dry run)</td><td><span class="status off">כבוי</span></td><td>היום (7.4)</td><td>ראשית</td></tr>
+    <tr><th>פיצ'ר</th><th>סטטוס</th><th>קבוצה</th><th>לוח זמנים</th></tr>
+    <tr><td>הודעת בוקר</td><td><span class="status on">פועל</span></td><td>ראשית</td><td>א׳/ג׳/ה׳ 09:00</td></tr>
+    <tr><td>הודעת ערב</td><td><span class="status on">פועל</span></td><td>ראשית</td><td>א׳/ג׳/ה׳ 21:00</td></tr>
+    <tr><td>רמות (ניקוד)</td><td><span class="status on">פועל</span></td><td>ראשית + טסט</td><td>תמיד</td></tr>
+    <tr><td>שאלות לדיון</td><td><span class="status on">פועל</span></td><td>ראשית</td><td>א׳-ה׳ 18:00</td></tr>
+    <tr><td>ספאם (dry run)</td><td><span class="status on">פועל</span></td><td>ראשית + טסט</td><td>תמיד</td></tr>
+    <tr><td>מטרות (רצפים)</td><td><span class="status on">פועל</span></td><td>ראשית</td><td>תמיד</td></tr>
+    <tr><td>טריוויה</td><td><span class="status off">כבוי</span></td><td>—</td><td>חמישי 9.4</td></tr>
+    <tr><td>אירועים</td><td><span class="status off">כבוי</span></td><td>—</td><td>חמישי 9.4</td></tr>
+    <tr><td>סיכום שבועי</td><td><span class="status off">כבוי</span></td><td>—</td><td>שבת 11.4</td></tr>
+    <tr><td>ברוכים הבאים</td><td><span class="status off">כבוי</span></td><td>—</td><td>שבת 11.4</td></tr>
 </table>
 
 <!-- External actions -->
 <h2>פעולות חיצוניות</h2>
 <table>
     <tr><th>מה</th><th>מתי</th><th>הערות</th></tr>
-    <tr><td>🎲 אירוע Codenames (מוצ"ש)</td><td>שבת 11.4</td><td>בוט יוצר אירוע עם RSVP ביום חמישי</td></tr>
-    <tr><td>🗳️ סקר Clone Drone in the Danger Zone</td><td>היום (7.4)</td><td>סקר בערוץ גיימינג — מי מעוניין + מי הוריד</td></tr>
-    <tr><td>📢 עדכון בקבוצת פייסבוק המקורית</td><td>שישי 10.4</td><td>"יש לנו בוט חדש, הקבוצה מתעוררת"</td></tr>
+    <tr><td>🗳️ סקר Clone Drone</td><td>השבוע</td><td>סקר בערוץ גיימינג — מי מעוניין + מי הוריד</td></tr>
+    <tr><td>🎲 אירוע Codenames</td><td>שבת 11.4 ב-18:00</td><td>בוט יוצר אירוע עם RSVP ביום חמישי</td></tr>
+    <tr><td>📢 עדכון בפייסבוק המקורית</td><td>שישי 10.4</td><td>"הקבוצה מתעוררת, יש בוט חדש"</td></tr>
     <tr><td>📢 פרסום בקבוצת CF חדשה</td><td>שישי 10.4</td><td>ביחד עם העדכון בקבוצה המקורית</td></tr>
 </table>
 
@@ -96,61 +113,52 @@
 <h2>לוח זמנים יומי</h2>
 
 <div class="day">
-    <div class="day-header">יום שלישי 7.4 <span class="holiday">חול המועד פסח</span> — היום!</div>
+    <div class="day-header">יום שלישי 7.4 <span class="holiday">חול המועד פסח</span> <span class="done">היום</span></div>
     <div class="activity">
         <span class="time">09:00</span>
         <span class="type type-morning">בוקר</span>
         <span class="desc">הודעת בוקר בערוץ יום יום</span>
+        <span class="status done-tag">✓</span>
     </div>
     <div class="activity">
-        <span class="time">14:00</span>
-        <span class="type type-poll">סקר</span>
-        <span class="desc">סקר משחק מולטיפלייר בערוץ גיימינג</span>
-        <span class="status new">חדש!</span>
-    </div>
-    <div class="activity">
-        <span class="time">18:00</span>
+        <span class="time">15:00</span>
         <span class="type type-discussion">דיון</span>
-        <span class="desc">שאלה לדיון — ערוץ סרטים וסדרות (54)</span>
-        <span class="status new">השקה!</span>
+        <span class="desc">שאלה לדיון — ערוץ פוליטיקה</span>
+        <span class="status done-tag">✓</span>
+    </div>
+    <div class="activity">
+        <span class="time">—</span>
+        <span class="type type-level">רמה</span>
+        <span class="desc">The True Noam עלה לרמה 2! ⭐</span>
+        <span class="status done-tag">✓</span>
+    </div>
+    <div class="activity">
+        <span class="time">—</span>
+        <span class="type type-spam">ספאם</span>
+        <span class="desc">3 הודעות מועברות נתפסו (dry run)</span>
+        <span class="status done-tag">✓</span>
     </div>
     <div class="activity">
         <span class="time">21:00</span>
         <span class="type type-evening">ערב</span>
-        <span class="desc">הודעת ערב ראשונה בערוץ יום יום</span>
-        <span class="status new">השקה!</span>
+        <span class="desc">הודעת ערב ראשונה!</span>
+        <span class="status new">ממתין</span>
     </div>
-    <div class="activity">
-        <span class="time">כל היום</span>
-        <span class="type type-spam">ספאם</span>
-        <span class="desc">ספאם dry run — רק זיהוי ולוג</span>
-        <span class="status new">חדש!</span>
-    </div>
-    <p class="note">⚙️ לעשות: שנות בוקר לא׳-ה׳, להפעיל ערב + ספאם + דיונים, להגדיר topic IDs לערוצים</p>
+    <p class="note">יום מוצלח — 12 חברים פעילים, עלייה ברמה ראשונה, הקבוצה מגיבה</p>
 </div>
 
 <div class="day">
     <div class="day-header">יום רביעי 8.4 <span class="holiday">שביעי של פסח</span></div>
     <div class="activity">
-        <span class="time">09:00</span>
-        <span class="type type-morning">בוקר</span>
-        <span class="desc">הודעת בוקר</span>
-    </div>
-    <div class="activity">
         <span class="time">18:00</span>
         <span class="type type-discussion">דיון</span>
-        <span class="desc">שאלה לדיון — ערוץ אנימה (442)</span>
+        <span class="desc">שאלה לדיון — ערוץ אקראי (לא פוליטיקה)</span>
     </div>
-    <div class="activity">
-        <span class="time">21:00</span>
-        <span class="type type-evening">ערב</span>
-        <span class="desc">הודעת ערב</span>
-    </div>
-    <p class="note">סוף פסח. יום שקט, אנשים חוזרים לשגרה</p>
+    <p class="note">יום שקט — אין בוקר/ערב (רק א׳/ג׳/ה׳). שאלת דיון אחת בלבד</p>
 </div>
 
 <div class="day">
-    <div class="day-header">יום חמישי 9.4</div>
+    <div class="day-header">יום חמישי 9.4 — יום גדול!</div>
     <div class="activity">
         <span class="time">09:00</span>
         <span class="type type-morning">בוקר</span>
@@ -160,43 +168,38 @@
         <span class="time">14:00</span>
         <span class="type type-event">אירוע</span>
         <span class="desc">בוט יוצר אירוע Codenames למוצ"ש עם RSVP</span>
-        <span class="status new">חדש!</span>
+        <span class="status new">להפעיל events</span>
     </div>
     <div class="activity">
         <span class="time">18:00</span>
         <span class="type type-discussion">דיון</span>
-        <span class="desc">שאלה לדיון — ערוץ מכירים (59)</span>
+        <span class="desc">שאלה לדיון — ערוץ אקראי</span>
     </div>
     <div class="activity">
         <span class="time">20:00</span>
         <span class="type type-trivia">טריוויה</span>
         <span class="desc">טריוויה ראשונה!</span>
-        <span class="status new">השקה!</span>
+        <span class="status new">להפעיל trivia</span>
     </div>
     <div class="activity">
         <span class="time">21:00</span>
         <span class="type type-evening">ערב</span>
         <span class="desc">הודעת ערב</span>
     </div>
-    <p class="note">יום עמוס — אירוע + סקר + טריוויה. אנשים חזרו לשגרה, אנרגיה גבוהה</p>
+    <p class="note">⚙️ להפעיל: trivia + events לראשית. יום עמוס — אירוע + טריוויה. אנשים חזרו לשגרה</p>
 </div>
 
 <div class="day">
     <div class="day-header">יום שישי 10.4</div>
     <div class="activity">
-        <span class="time">09:00</span>
-        <span class="type type-morning">בוקר</span>
-        <span class="desc">הודעת בוקר</span>
-    </div>
-    <div class="activity">
-        <span class="time">14:00</span>
+        <span class="time">18:00</span>
         <span class="type type-discussion">דיון</span>
-        <span class="desc">שאלה לדיון — ערוץ חמוד (335)</span>
+        <span class="desc">שאלה לדיון — ערוץ אקראי</span>
     </div>
     <div class="activity">
         <span class="time">—</span>
         <span class="type type-you">אתה</span>
-        <span class="desc">📢 פוסט עדכון בקבוצת פייסבוק המקורית</span>
+        <span class="desc">📢 פוסט עדכון בקבוצות פייסבוק</span>
     </div>
     <p class="note">שישי — אנשים רגועים. הפייסבוק פוסט יביא תנועה לטלגרם</p>
 </div>
@@ -207,25 +210,20 @@
         <span class="time">18:00</span>
         <span class="type type-roundup">סיכום</span>
         <span class="desc">סיכום שבועי ראשון!</span>
-        <span class="status new">השקה!</span>
-    </div>
-    <div class="activity">
-        <span class="time">20:00</span>
-        <span class="type type-trivia">טריוויה</span>
-        <span class="desc">טריוויה מוצ"ש</span>
+        <span class="status new">להפעיל roundup</span>
     </div>
     <div class="activity">
         <span class="time">18:00</span>
         <span class="type type-event">אירוע</span>
-        <span class="desc">🎲 Codenames! (codenames.game — 18:00 מוקדם לפי בקשה)</span>
+        <span class="desc">🎲 Codenames! (codenames.game)</span>
     </div>
     <div class="activity">
         <span class="time">—</span>
         <span class="type type-welcome">ברוכים</span>
         <span class="desc">הפעלת ברוכים הבאים — DM לחברים חדשים</span>
-        <span class="status new">חדש!</span>
+        <span class="status new">להפעיל welcome</span>
     </div>
-    <p class="note">יום הגדול — סיכום + טריוויה + אירוע ראשון. Welcome DM מופעל לקראת חברים חדשים מהפייסבוק</p>
+    <p class="note">⚙️ להפעיל: roundup + welcome לראשית. יום הגדול — סיכום + אירוע ראשון</p>
 </div>
 
 <div class="day">
@@ -238,51 +236,48 @@
     <div class="activity">
         <span class="time">18:00</span>
         <span class="type type-discussion">דיון</span>
-        <span class="desc">שאלה לדיון — ערוץ AI (153)</span>
+        <span class="desc">שאלה לדיון — ערוץ אקראי</span>
     </div>
     <div class="activity">
         <span class="time">21:00</span>
         <span class="type type-evening">ערב</span>
         <span class="desc">הודעת ערב</span>
     </div>
-    <p class="note">שגרה מלאה</p>
+    <p class="note">שגרה מלאה — כל הפיצ'רים פועלים</p>
 </div>
 
 <div class="day">
     <div class="day-header">יום שני 13.4</div>
     <div class="activity">
-        <span class="time">09:00</span>
-        <span class="type type-morning">בוקר</span>
-        <span class="desc">הודעת בוקר</span>
+        <span class="time">18:00</span>
+        <span class="type type-discussion">דיון</span>
+        <span class="desc">שאלה לדיון — ערוץ אקראי</span>
     </div>
-    <div class="activity">
-        <span class="time">21:00</span>
-        <span class="type type-evening">ערב</span>
-        <span class="desc">הודעת ערב</span>
-    </div>
-    <p class="note">⚠️ מחר (14.4) יום הזיכרון לשואה — לכבות הכל חוץ מספאם</p>
+    <p class="note">⚠️ מחר (14.4) יום הזיכרון לשואה — לכבות הכל חוץ מספאם ביום שני בלילה</p>
 </div>
+
+<!-- Settings changes needed -->
+<h2>שינויים נדרשים</h2>
+<table>
+    <tr><th>מתי</th><th>מה לשנות</th></tr>
+    <tr><td>חמישי 9.4 בוקר</td><td>הפעלת trivia + events לראשית</td></tr>
+    <tr><td>שבת 11.4 בוקר</td><td>הפעלת roundup + welcome לראשית</td></tr>
+    <tr><td>שני 13.4 בלילה</td><td>⚠️ כיבוי הכל חוץ מספאם (יום השואה 14.4)</td></tr>
+    <tr><td>רביעי 15.4</td><td>הפעלה מחדש של הכל</td></tr>
+</table>
 
 <!-- Discussion channel rotation -->
 <h2>רוטציית ערוצים לדיון</h2>
-<p style="color: #71717a;">שאלה אחת ביום, ערוץ אחר כל יום:</p>
+<p style="color: #71717a;">שאלה אחת ביום ב-18:00, ערוץ אקראי. הבוט בוחר מהרשימה:</p>
 <table>
-    <tr><th>יום</th><th>ערוץ</th><th>Topic ID</th></tr>
-    <tr><td>שלישי</td><td>סרטים סדרות וכו</td><td>54</td></tr>
-    <tr><td>רביעי</td><td>אנימה / קומיקס</td><td>442</td></tr>
-    <tr><td>חמישי</td><td>אל הוריים מכירים</td><td>59</td></tr>
-    <tr><td>שישי</td><td>כל מה שחמוד</td><td>335</td></tr>
-    <tr><td>ראשון</td><td>AI וטכנולוגיה</td><td>153</td></tr>
-</table>
-
-<!-- Settings changes needed -->
-<h2>שינויים נדרשים בהגדרות</h2>
-<table>
-    <tr><th>מתי</th><th>מה לשנות</th></tr>
-    <tr><td>היום (7.4)</td><td>בוקר: שנות ימים לא׳-ה׳ (0-4) — השבוע יומי, משבוע הבא א׳/ג׳/ה׳. הפעלת: evening, antispam, discussions לראשית. הגדרת topic IDs לדיונים</td></tr>
-    <tr><td>חמישי (9.4)</td><td>הפעלת trivia לראשית. יצירת אירוע Codenames</td></tr>
-    <tr><td>שבת (11.4)</td><td>הפעלת roundup + welcome לראשית</td></tr>
-    <tr><td>שלישי (14.4)</td><td>⚠️ יום השואה — כיבוי כל הפיצ'רים חוץ מספאם</td></tr>
+    <tr><th>ערוץ</th><th>Topic ID</th><th>קטגוריה</th></tr>
+    <tr><td>גיימינג + משחקי לוח</td><td>1517</td><td>gaming</td></tr>
+    <tr><td>אנימה / קומיקס</td><td>442</td><td>geek</td></tr>
+    <tr><td>סרטים סדרות</td><td>54</td><td>movies</td></tr>
+    <tr><td>אל הוריים מכירים</td><td>59</td><td>singles</td></tr>
+    <tr><td>כל מה שחמוד</td><td>335</td><td>cute</td></tr>
+    <tr><td>ערוץ אומנות ויצירה</td><td>347</td><td>art</td></tr>
+    <tr><td>פוליטיקה</td><td>1431</td><td>politics</td></tr>
 </table>
 
 </body>

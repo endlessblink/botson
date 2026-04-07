@@ -11,6 +11,7 @@ from ..database.db import Database
 from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
+from ..utils.scoring import get_points
 
 logger = logging.getLogger(__name__)
 
@@ -155,9 +156,10 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if correct:
         _active_trivia["correct_count"] += 1
-        old_points = await db.add_points(user.id, 5)
-        await db.log_activity("points", f"+5 נקודות ל-{get_display_name(user)} (טריוויה)", user.id)
-        new_level = check_level_up(old_points, old_points + 5)
+        trivia_pts = get_points("trivia_correct")
+        old_points = await db.add_points(user.id, trivia_pts)
+        await db.log_activity("points", f"+{trivia_pts} נקודות ל-{get_display_name(user)} (טריוויה)", user.id)
+        new_level = check_level_up(old_points, old_points + trivia_pts)
         if new_level:
             name = get_display_name(user)
             mention = f"[{name}](tg://user?id={user.id})"
@@ -170,7 +172,7 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
                 )
             except Exception:
                 pass
-        await query.answer("✅ תשובה נכונה! +10 נקודות")
+        await query.answer(f"✅ תשובה נכונה! +{trivia_pts} נקודות")
     else:
         _active_trivia["wrong_count"] += 1
         correct_text = _active_trivia["question"]["options"][correct_idx]
