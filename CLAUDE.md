@@ -40,6 +40,12 @@ The dashboard is the primary control interface. Users should never need to use T
 - Bot health monitoring
 - Config reload / bot restart
 
+## Schedule & Content Rules
+
+- When updating the bot's schedule or weekly plan, **always update `docs/week-plan.html`** to reflect the changes.
+- When suggesting Hebrew text for review, render it in `docs/review.html` (RTL page) so the user can read it properly.
+- Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
+
 ## Tech Stack
 
 - **Bot**: Python 3.12 + python-telegram-bot v20+

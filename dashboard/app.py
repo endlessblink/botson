@@ -664,6 +664,58 @@ async def generate_content(request: Request):
     return {"content": content}
 
 
+# ── Analytics API ────────────────────────────────────────
+
+@app.get("/api/analytics")
+async def get_analytics(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    import datetime
+
+    # Activity per day (last 14 days)
+    fourteen_days_ago = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+    async with db._db.execute(
+        """SELECT DATE(timestamp) as day, COUNT(*) as cnt
+           FROM activity_log WHERE timestamp >= ?
+           GROUP BY DATE(timestamp) ORDER BY day""",
+        (fourteen_days_ago,)
+    ) as cursor:
+        daily_activity = [dict(row) for row in await cursor.fetchall()]
+
+    # Activity by type (all time)
+    async with db._db.execute(
+        "SELECT action_type, COUNT(*) as cnt FROM activity_log GROUP BY action_type ORDER BY cnt DESC"
+    ) as cursor:
+        by_type = [dict(row) for row in await cursor.fetchall()]
+
+    # Member join dates (last 30 days)
+    thirty_days_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    async with db._db.execute(
+        """SELECT DATE(joined_at) as day, COUNT(*) as cnt
+           FROM members WHERE joined_at >= ?
+           GROUP BY DATE(joined_at) ORDER BY day""",
+        (thirty_days_ago,)
+    ) as cursor:
+        member_growth = [dict(row) for row in await cursor.fetchall()]
+
+    # Spam per day (last 14 days)
+    async with db._db.execute(
+        """SELECT DATE(timestamp) as day, COUNT(*) as cnt
+           FROM spam_log WHERE timestamp >= ?
+           GROUP BY DATE(timestamp) ORDER BY day""",
+        (fourteen_days_ago,)
+    ) as cursor:
+        spam_daily = [dict(row) for row in await cursor.fetchall()]
+
+    return {
+        "daily_activity": daily_activity,
+        "by_type": by_type,
+        "member_growth": member_growth,
+        "spam_daily": spam_daily,
+    }
+
+
 # ── Activity Log ─────────────────────────────────────────
 
 @app.get("/activity", response_class=HTMLResponse)
