@@ -1041,7 +1041,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
             "is_today": i == 0,
             "holiday": holiday,
             "sensitive": sensitive,
-            "items": items,
+            "entries": items,
             "note": "הכל כבוי חוץ מספאם" if sensitive else None,
         })
 

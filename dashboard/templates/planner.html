@@ -58,7 +58,7 @@
                 {% if day.holiday %}<span class="text-[10px] bg-amber-500/10 text-amber-300 px-2 py-0.5 rounded-md">{{ day.holiday }}</span>{% endif %}
                 {% if day.sensitive %}<span class="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded-md">{{ day.sensitive }}</span>{% endif %}
             </div>
-            {% for item in day.items %}
+            {% for item in day.entries %}
             <div class="flex items-center gap-3 py-1 mr-4">
                 <span class="text-[11px] text-[#52525b] w-10 stat-number">{{ item.time }}</span>
                 <span class="text-[11px] px-1.5 py-0.5 rounded
