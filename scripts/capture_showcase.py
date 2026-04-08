@@ -155,18 +155,49 @@ def apply_blur(img, regions: list[tuple[int, int, int, int]]):
 # GIF assembly
 # ---------------------------------------------------------------------------
 def build_gif(frames: list, output_path: Path, frame_duration_ms: int = 2500):
-    """Build an animated GIF from a list of PIL images."""
+    """Build an animated GIF from a list of PIL images.
+
+    Each page is held for ~2000 ms, then a crossfade transition of ~8 frames
+    at ~60 ms each leads into the next page (~500 ms total per transition).
+    """
     from PIL import Image
 
     if not frames:
         print("No frames to assemble — skipping GIF.")
         return
 
-    # Convert all frames to palette mode (P) for GIF compatibility
+    STILL_DURATION_MS = 2000
+    TRANSITION_FRAMES = 8
+    TRANSITION_FRAME_MS = 60  # 8 × 60 ms ≈ 500 ms per transition
+
+    # Build the interleaved sequence of (RGB image, duration_ms) pairs.
+    sequence: list[tuple] = []  # (PIL RGB image, int duration_ms)
+
+    rgb_frames = [f.convert("RGB") for f in frames]
+
+    for i, img in enumerate(rgb_frames):
+        # Add the still frame for this page.
+        sequence.append((img, STILL_DURATION_MS))
+
+        # Add transition frames between this page and the next (not after the last).
+        if i < len(rgb_frames) - 1:
+            next_img = rgb_frames[i + 1]
+            for t in range(1, TRANSITION_FRAMES + 1):
+                alpha = t / (TRANSITION_FRAMES + 1)  # 0 < alpha < 1
+                blended = Image.blend(img, next_img, alpha=alpha)
+                sequence.append((blended, TRANSITION_FRAME_MS))
+
+    print(f"  Total GIF frames: {len(sequence)} "
+          f"({len(rgb_frames)} still + "
+          f"{len(sequence) - len(rgb_frames)} transition)")
+
+    # Quantize each frame to palette mode for GIF compatibility.
     palette_frames = []
-    for f in frames:
-        converted = f.convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT)
-        palette_frames.append(converted)
+    durations = []
+    for rgb_img, duration in sequence:
+        quantized = rgb_img.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+        palette_frames.append(quantized)
+        durations.append(duration)
 
     first = palette_frames[0]
     rest = palette_frames[1:]
@@ -176,7 +207,7 @@ def build_gif(frames: list, output_path: Path, frame_duration_ms: int = 2500):
         format="GIF",
         save_all=True,
         append_images=rest,
-        duration=frame_duration_ms,
+        duration=durations,
         loop=0,
         optimize=True,
     )

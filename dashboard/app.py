@@ -1053,8 +1053,8 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
             "entries": [
                 {"time": "09:15", "type": "level", "label": "רמות", "desc": "⭐ הכרזת מערכת רמות חדשה — מצטרפים חדשים", "status": "done"},
                 {"time": "10:00", "type": "poll", "label": "סקר", "desc": "🎮 Clone Drone — סקר תאריכים עם כפתורי הצבעה — גיימינג", "status": "done"},
-                {"time": "12:00", "type": "discussion", "label": "דיון", "desc": "💬 על מה אתם עובדים? שתפו יצירה — אומנות ויצירה (347)", "status": "missed"},
-                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 מה הסדרה שאתם צופים? — סרטים וסדרות (54)", "status": "pending"},
+                {"time": "12:00", "type": "discussion", "label": "דיון", "desc": "💬 על מה אתם עובדים? שתפו יצירה — אומנות ויצירה (347)", "status": "cancelled"},
+                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 מה הסדרה שאתם צופים? — סרטים וסדרות (54)", "status": "done"},
             ],
             "note": "אין בוקר/ערב (רק א׳/ג׳/ה׳). 4 הודעות מפוזרות בערוצים שונים",
         },
