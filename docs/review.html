@@ -9,8 +9,9 @@
         h2 { color: #82b1ff; margin-top: 30px; }
         .msg { background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 14px 18px; margin: 10px 0; font-size: 15px; white-space: pre-line; }
         .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-bottom: 6px; }
+        .tag-done { background: #14532d33; color: #4ade80; }
         .tag-sched { background: #78350f33; color: #fbbf24; }
-        .tag-note { background: #1b3a1b33; color: #4ade80; }
+        .tag-missed { background: #3f1b1b33; color: #f87171; }
         .note { color: #71717a; font-size: 13px; margin-top: 4px; }
         table { width: 100%; border-collapse: collapse; margin: 12px 0; }
         th, td { padding: 8px 12px; border: 1px solid #2a2a4a; text-align: right; }
@@ -19,60 +20,27 @@
 </head>
 <body>
 
-<h2>📅 רביעי 8.4 — לוח מתוזמן</h2>
+<h2>📅 רביעי 8.4 — מה נשאר</h2>
 <table>
-    <tr><th>שעה</th><th>מה</th><th>ערוץ</th></tr>
-    <tr><td>09:15</td><td>הכרזת מערכת רמות</td><td>מצטרפים חדשים (341)</td></tr>
-    <tr><td>10:00</td><td>סקר Clone Drone (כפתורים)</td><td>גיימינג (1517)</td></tr>
-    <tr><td>12:00</td><td>שאלת דיון</td><td>אומנות ויצירה (347)</td></tr>
-    <tr><td>18:00</td><td>שאלת דיון</td><td>כל מה שחמוד (335)</td></tr>
-    <tr><td>18:00</td><td>שאלת דיון אוטומטית (בוט)</td><td>ערוץ אקראי ⚠️</td></tr>
+    <tr><th>שעה</th><th>מה</th><th>ערוץ</th><th>סטטוס</th></tr>
+    <tr><td>09:15</td><td>הכרזת מערכת רמות</td><td>מצטרפים חדשים (341)</td><td><span class="tag tag-done">✓ נשלח</span></td></tr>
+    <tr><td>10:00</td><td>סקר Clone Drone (ישן)</td><td>גיימינג (1517)</td><td><span class="tag tag-done">✓ נשלח</span></td></tr>
+    <tr><td>12:37</td><td>סקר Clone Drone v2 (עם מעקב הצבעות)</td><td>גיימינג (1517)</td><td><span class="tag tag-done">✓ נשלח</span></td></tr>
+    <tr><td>12:00</td><td>דיון — אומנות ויצירה</td><td>אומנות (347)</td><td><span class="tag tag-missed">✗ פספס (תהליך מת)</span></td></tr>
+    <tr><td>18:00</td><td>דיון — סרטים וסדרות</td><td>סרטים (54)</td><td><span class="tag tag-sched">⏳ מתוזמן</span></td></tr>
 </table>
-<p class="note">⚠️ חפיפה ב-18:00 — שאלה ידנית לחמוד + שאלה אוטומטית מהבוט. לשנות חמוד ל-16:00?</p>
 
-<h2>⭐ הכרזת מערכת רמות</h2>
-<span class="tag tag-sched">09:15 | מצטרפים חדשים (341)</span>
+<h2>📺 דיון — סרטים וסדרות</h2>
+<span class="tag tag-sched">18:00 | סרטים וסדרות (54)</span>
 
-<div class="msg">⭐ מערכת רמות חדשה בקבוצה!
+<div class="msg">💬 מה הסדרה שאתם צופים בה עכשיו? שווה?</div>
 
-מהיום אפשר לצבור נקודות ולעלות ברמות בקבוצה.
-איך צוברים?
-
-💬 תגובה להודעות הבוט (בוקר/ערב/דיון) — 3 נקודות
-📝 פוסט בערוץ יום יום — 2 נקודות
-🧠 תשובה נכונה בטריוויה — 12 נקודות
-🎉 אישור הגעה לאירוע — 5 נקודות
-🔥 רצף יומי — 3 נקודות + בונוסים
-
-הרמות:
-🌱 חדש/ה → ⭐ פעיל/ה → 🌟 כוכב/ת → 💫 סופרסטאר → 🔥 אגדה → 👑 אלוף/ה
-
-כשעולים ברמה בוטסון מכריז על זה 🎉
-בדקו את הרמה שלכם עם /level</div>
-
-<h2>🎮 סקר Clone Drone</h2>
-<span class="tag tag-sched">10:00 | גיימינג (1517)</span>
-
-<div class="msg">🎮 Clone Drone in the Danger Zone — קובעים תאריך!
-
-יש מספיק אנשים, עכשיו רק צריך למצוא זמן.
-ואם עדיין לא הורדתם — <a href="https://store.epicgames.com/en-US/p/clone-drone-in-the-danger-zone-4daf6e" style="color: #60a5fa;">זה חינמי ב-Epic Games</a>
-
-מתי מתאים לכם? 👇
-
-[🗓️ רביעי (8.4) ב-20:00]
-[🗓️ שישי (10.4) ב-20:00]
-[🗓️ שבת (11.4) ב-18:00]</div>
-
-<h2>🎨 דיון — אומנות ויצירה</h2>
-<span class="tag tag-sched">12:00 | אומנות ויצירה (347)</span>
-
-<div class="msg">💬 על מה אתם עובדים עכשיו? שתפו יצירה, פרויקט, או משהו שמעורר לכם השראה 🎨</div>
-
-<h2>🐕 דיון — כל מה שחמוד</h2>
-<span class="tag tag-sched">18:00 | כל מה שחמוד (335)</span>
-
-<div class="msg">💬 שתפו את הדבר הכי חמוד שראיתם היום! 📸</div>
+<h2>📋 משימות חדשות</h2>
+<table>
+    <tr><th>ID</th><th>משימה</th><th>עדיפות</th></tr>
+    <tr><td>T-078</td><td>Dashboard: יצירת סקרים אינטראקטיביים מהדשבורד</td><td>P1</td></tr>
+    <tr><td>T-079</td><td>טריוויה: עיצוב מחדש — ניקוד מהירות + ערוצים נושאיים</td><td>P1</td></tr>
+</table>
 
 </body>
 </html>

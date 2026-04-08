@@ -83,6 +83,8 @@
 | T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
 | T-076 | — | Rotating admin titles for top members (weekly) | TODO | P1 | T-031 |
 | T-077 | — | Configurable validation-based scoring system | TODO | P1 | T-031, T-003 |
+| T-078 | 14 | Dashboard: create & send interactive polls | TODO | P1 | T-027, T-047 |
+| T-079 | — | Trivia redesign: speed scoring + themed channels | TODO | P1 | T-023 |
 
 ## Detailed Tasks
 
