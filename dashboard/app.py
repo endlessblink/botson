@@ -949,88 +949,121 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     settings = get_settings()
     schedule = settings.get("schedule", {})
 
-    # Build today's items from schedule config + activity log
+    # Get ALL activity log entries (last 7 days for the week view)
+    all_log = await db.get_activity_log(500)
+
+    # Group log entries by date
+    log_by_date = {}
+    for entry in all_log:
+        ts = entry.get("timestamp", "")
+        if len(ts) >= 10:
+            date_key = ts[:10]
+            if date_key not in log_by_date:
+                log_by_date[date_key] = []
+            log_by_date[date_key].append(entry)
+
+    today_date = now.strftime("%Y-%m-%d")
+
+    # Build today's view — merge scheduled + actual activity
     today_items = []
 
-    # Check morning prompt
-    morning = schedule.get("morning_prompt", {})
-    if isinstance(morning, dict):
-        hebrew_day = (now.weekday() + 1) % 7  # Convert to Hebrew day
-        if hebrew_day in morning.get("days", []):
-            m_time = morning.get("time", "09:00")
-            log_entries = await db.get_activity_log(50)
-            today_date = now.strftime("%Y-%m-%d")
-            fired = any(
-                e.get("action_type") == "goals" and "בוקר" in e.get("description", "")
-                and e.get("timestamp", "").startswith(today_date)
-                for e in log_entries
-            )
+    # Add items from activity log (what actually happened today)
+    for entry in log_by_date.get(today_date, []):
+        action = entry.get("action_type", "")
+        desc = entry.get("description", "")
+        time_str = entry.get("timestamp", "")[11:16] if len(entry.get("timestamp", "")) > 16 else ""
+
+        type_map = {
+            "goals": ("morning" if "בוקר" in desc else "evening", "בוקר" if "בוקר" in desc else "ערב"),
+            "discussion": ("discussion", "דיון"),
+            "points": ("points", "נקודות"),
+            "level_up": ("level", "עליית רמה"),
+            "spam": ("spam", "ספאם"),
+            "trivia": ("trivia", "טריוויה"),
+            "event": ("event", "אירוע"),
+            "roundup": ("roundup", "סיכום"),
+        }
+
+        if action in type_map:
+            t, label = type_map[action]
             today_items.append({
-                "time": m_time, "type": "morning", "label": "בוקר",
-                "desc": "הודעת בוקר — יום יום",
-                "status": "done" if fired else ("missed" if now.strftime("%H:%M") > m_time else "pending")
+                "time": time_str,
+                "type": t,
+                "label": label,
+                "desc": desc,
+                "status": "done",
             })
 
-    # Check evening prompt
+    # Add upcoming scheduled items that haven't fired yet
+    morning = schedule.get("morning_prompt", {})
+    if isinstance(morning, dict):
+        hebrew_day = (now.weekday() + 1) % 7
+        if hebrew_day in morning.get("days", []):
+            m_time = morning.get("time", "09:00")
+            already_fired = any(i["type"] == "morning" for i in today_items)
+            if not already_fired and now.strftime("%H:%M") < m_time:
+                today_items.append({
+                    "time": m_time, "type": "morning", "label": "בוקר",
+                    "desc": "הודעת בוקר — יום יום",
+                    "status": "pending"
+                })
+
     evening = schedule.get("evening_prompt", {})
     if isinstance(evening, dict):
         hebrew_day = (now.weekday() + 1) % 7
         if hebrew_day in evening.get("days", []):
             e_time = evening.get("time", "21:00")
-            log_entries = await db.get_activity_log(50)
-            today_date = now.strftime("%Y-%m-%d")
-            fired = any(
-                e.get("action_type") == "goals" and "ערב" in e.get("description", "")
-                and e.get("timestamp", "").startswith(today_date)
-                for e in log_entries
-            )
-            today_items.append({
-                "time": e_time, "type": "evening", "label": "ערב",
-                "desc": "הודעת ערב — יום יום",
-                "status": "done" if fired else ("missed" if now.strftime("%H:%M") > e_time else "pending")
-            })
+            already_fired = any(i["type"] == "evening" for i in today_items)
+            if not already_fired and now.strftime("%H:%M") < e_time:
+                today_items.append({
+                    "time": e_time, "type": "evening", "label": "ערב",
+                    "desc": "הודעת ערב — יום יום",
+                    "status": "pending"
+                })
 
-    # Check discussion
     disc = schedule.get("discussion_prompt", {})
     if isinstance(disc, dict):
         hebrew_day = (now.weekday() + 1) % 7
         if hebrew_day in disc.get("days", []):
             for t in disc.get("times", []):
-                today_items.append({
-                    "time": t, "type": "discussion", "label": "דיון",
-                    "desc": "שאלה לדיון — ערוץ אקראי",
-                    "status": "pending" if now.strftime("%H:%M") < t else "done"
-                })
+                already_fired = any(i["type"] == "discussion" and i["time"] == t for i in today_items)
+                if not already_fired and now.strftime("%H:%M") < t:
+                    today_items.append({
+                        "time": t, "type": "discussion", "label": "דיון",
+                        "desc": "שאלה לדיון",
+                        "status": "pending"
+                    })
 
     today_items.sort(key=lambda x: x["time"])
 
-    # Build week plan (static for now — will be dynamic later)
+    # Build week plan
     week_plan = []
     for i in range(7):
         d = now + timedelta(days=i)
         day_name = f"יום {hebrew_days[d.weekday()]}"
         day_date = d.strftime("%d.%m")
-
-        items = []
+        d_date_key = d.strftime("%Y-%m-%d")
         hebrew_day = (d.weekday() + 1) % 7
 
-        # Morning
-        if isinstance(morning, dict) and hebrew_day in morning.get("days", []):
-            items.append({"time": morning.get("time", "09:00"), "type": "morning", "label": "בוקר", "desc": "הודעת בוקר"})
+        entries = []
 
-        # Discussion
-        if isinstance(disc, dict) and hebrew_day in disc.get("days", []):
-            for t in disc.get("times", []):
-                items.append({"time": t, "type": "discussion", "label": "דיון", "desc": "שאלה לדיון"})
+        if i == 0:
+            # Today — use the merged today_items
+            entries = today_items
+        else:
+            # Future days — show scheduled items
+            if isinstance(morning, dict) and hebrew_day in morning.get("days", []):
+                entries.append({"time": morning.get("time", "09:00"), "type": "morning", "label": "בוקר", "desc": "הודעת בוקר", "status": ""})
+            if isinstance(disc, dict) and hebrew_day in disc.get("days", []):
+                for t in disc.get("times", []):
+                    entries.append({"time": t, "type": "discussion", "label": "דיון", "desc": "שאלה לדיון", "status": ""})
+            if isinstance(evening, dict) and hebrew_day in evening.get("days", []):
+                entries.append({"time": evening.get("time", "21:00"), "type": "evening", "label": "ערב", "desc": "הודעת ערב", "status": ""})
 
-        # Evening
-        if isinstance(evening, dict) and hebrew_day in evening.get("days", []):
-            items.append({"time": evening.get("time", "21:00"), "type": "evening", "label": "ערב", "desc": "הודעת ערב"})
+        entries.sort(key=lambda x: x.get("time", ""))
 
-        items.sort(key=lambda x: x["time"])
-
-        holiday = None
         sensitive = None
+        holiday = None
         date_str = d.strftime("%m-%d")
         if date_str == "04-14":
             sensitive = "יום השואה"
@@ -1041,11 +1074,10 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
             "is_today": i == 0,
             "holiday": holiday,
             "sensitive": sensitive,
-            "entries": items,
+            "entries": entries,
             "note": "הכל כבוי חוץ מספאם" if sensitive else None,
         })
 
-    # Pending actions
     actions = [
         {"when": "חמישי 9.4", "what": "להפעיל events לראשית + ליצור אירוע Codenames"},
         {"when": "שבת 11.4", "what": "להפעיל roundup + welcome לראשית"},
