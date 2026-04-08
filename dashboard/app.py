@@ -1036,52 +1036,128 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
 
     today_items.sort(key=lambda x: x["time"])
 
-    # Build week plan
+    # Load prompts for real content preview
+    try:
+        prompts = get_prompts()
+        next_morning = prompts.get("morning", ["הודעת בוקר"])[0]
+        next_evening = prompts.get("evening", ["הודעת ערב"])[0]
+    except Exception:
+        next_morning = "הודעת בוקר"
+        next_evening = "הודעת ערב"
+
+    # Build week plan with REAL content — not just action names
+    # This is the manually curated plan from our planning sessions
+    manual_plan = {
+        "04-08": {
+            "holiday": "שביעי של פסח",
+            "entries": [
+                {"time": "09:15", "type": "level", "label": "רמות", "desc": "⭐ הכרזת מערכת רמות חדשה — מצטרפים חדשים", "status": "done"},
+                {"time": "10:00", "type": "poll", "label": "סקר", "desc": "🎮 Clone Drone — סקר תאריכים עם כפתורי הצבעה — גיימינג", "status": "done"},
+                {"time": "12:00", "type": "discussion", "label": "דיון", "desc": "💬 על מה אתם עובדים? שתפו יצירה — אומנות ויצירה (347)", "status": "missed"},
+                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 מה הסדרה שאתם צופים? — סרטים וסדרות (54)", "status": "pending"},
+            ],
+            "note": "אין בוקר/ערב (רק א׳/ג׳/ה׳). 4 הודעות מפוזרות בערוצים שונים",
+        },
+        "04-09": {
+            "entries": [
+                {"time": "09:00", "type": "morning", "label": "בוקר", "desc": f"☀️ {next_morning}", "status": ""},
+                {"time": "14:00", "type": "event", "label": "אירוע", "desc": "🎲 יצירת אירוע Codenames למוצ\"ש 18:00 עם RSVP", "status": ""},
+                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 שאלה לדיון — ערוץ מכירים (59)", "status": ""},
+                {"time": "21:00", "type": "evening", "label": "ערב", "desc": f"🌙 {next_evening}", "status": ""},
+            ],
+            "note": "⚙️ להפעיל events לראשית",
+        },
+        "04-10": {
+            "entries": [
+                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 שאלה לדיון — ערוץ חמוד (335)", "status": ""},
+                {"time": "—", "type": "you", "label": "אתה", "desc": "📢 פוסט עדכון בקבוצות פייסבוק + גיוס חברים", "status": ""},
+            ],
+            "note": "שישי — אנשים רגועים. הפייסבוק פוסט יביא תנועה",
+        },
+        "04-11": {
+            "entries": [
+                {"time": "18:00", "type": "roundup", "label": "סיכום", "desc": "📊 סיכום שבועי ראשון!", "status": ""},
+                {"time": "18:00", "type": "event", "label": "אירוע", "desc": "🎲 Codenames! (codenames.game)", "status": ""},
+                {"time": "—", "type": "welcome", "label": "ברוכים", "desc": "👋 הפעלת ברוכים הבאים — DM לחברים חדשים", "status": ""},
+            ],
+            "note": "⚙️ להפעיל roundup + welcome לראשית",
+        },
+        "04-12": {
+            "entries": [
+                {"time": "09:00", "type": "morning", "label": "בוקר", "desc": f"☀️ {next_morning}", "status": ""},
+                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 שאלה לדיון — ערוץ AI (153)", "status": ""},
+                {"time": "21:00", "type": "evening", "label": "ערב", "desc": f"🌙 {next_evening}", "status": ""},
+            ],
+            "note": "שגרה מלאה — כל הפיצ׳רים פועלים",
+        },
+        "04-13": {
+            "entries": [
+                {"time": "18:00", "type": "discussion", "label": "דיון", "desc": "💬 שאלה לדיון", "status": ""},
+            ],
+            "note": "⚠️ בלילה: לכבות הכל חוץ מספאם — מחר יום השואה",
+        },
+        "04-14": {
+            "sensitive": "יום השואה",
+            "entries": [],
+            "note": "הכל כבוי. רק ספאם dry run פועל.",
+        },
+    }
+
     week_plan = []
     for i in range(7):
         d = now + timedelta(days=i)
         day_name = f"יום {hebrew_days[d.weekday()]}"
         day_date = d.strftime("%d.%m")
-        d_date_key = d.strftime("%Y-%m-%d")
-        hebrew_day = (d.weekday() + 1) % 7
+        date_key = d.strftime("%m-%d")
 
-        entries = []
+        plan = manual_plan.get(date_key, {})
+        entries = plan.get("entries", [])
 
-        if i == 0:
-            # Today — use the merged today_items
-            entries = today_items
-        else:
-            # Future days — show scheduled items
+        # For today, merge with activity log data
+        if i == 0 and today_items:
+            # Merge: keep manual plan entries, update status from activity
+            log_types = {(i["type"], i["time"]): i for i in today_items}
+            for entry in entries:
+                key = (entry["type"], entry["time"])
+                if key in log_types:
+                    entry["status"] = log_types[key]["status"]
+                    if log_types[key].get("desc"):
+                        entry["desc"] = log_types[key]["desc"]
+            # Add any activity log items not in the manual plan
+            manual_keys = {(e["type"], e["time"]) for e in entries}
+            for item in today_items:
+                key = (item["type"], item["time"])
+                if key not in manual_keys and item["type"] not in ("points",):
+                    entries.append(item)
+            entries.sort(key=lambda x: x.get("time", "zz"))
+
+        # If no manual plan and not today, fall back to scheduled items
+        if not entries and i > 0:
+            hebrew_day = (d.weekday() + 1) % 7
             if isinstance(morning, dict) and hebrew_day in morning.get("days", []):
-                entries.append({"time": morning.get("time", "09:00"), "type": "morning", "label": "בוקר", "desc": "הודעת בוקר", "status": ""})
+                entries.append({"time": morning.get("time", "09:00"), "type": "morning", "label": "בוקר", "desc": f"☀️ {next_morning}", "status": ""})
             if isinstance(disc, dict) and hebrew_day in disc.get("days", []):
                 for t in disc.get("times", []):
-                    entries.append({"time": t, "type": "discussion", "label": "דיון", "desc": "שאלה לדיון", "status": ""})
+                    entries.append({"time": t, "type": "discussion", "label": "דיון", "desc": "💬 שאלה לדיון — ערוץ אקראי", "status": ""})
             if isinstance(evening, dict) and hebrew_day in evening.get("days", []):
-                entries.append({"time": evening.get("time", "21:00"), "type": "evening", "label": "ערב", "desc": "הודעת ערב", "status": ""})
-
-        entries.sort(key=lambda x: x.get("time", ""))
-
-        sensitive = None
-        holiday = None
-        date_str = d.strftime("%m-%d")
-        if date_str == "04-14":
-            sensitive = "יום השואה"
+                entries.append({"time": evening.get("time", "21:00"), "type": "evening", "label": "ערב", "desc": f"🌙 {next_evening}", "status": ""})
+            entries.sort(key=lambda x: x.get("time", ""))
 
         week_plan.append({
             "name": day_name,
             "date": day_date,
             "is_today": i == 0,
-            "holiday": holiday,
-            "sensitive": sensitive,
+            "holiday": plan.get("holiday"),
+            "sensitive": plan.get("sensitive"),
             "entries": entries,
-            "note": "הכל כבוי חוץ מספאם" if sensitive else None,
+            "note": plan.get("note"),
         })
 
     actions = [
         {"when": "חמישי 9.4", "what": "להפעיל events לראשית + ליצור אירוע Codenames"},
         {"when": "שבת 11.4", "what": "להפעיל roundup + welcome לראשית"},
         {"when": "שני 13.4 לילה", "what": "לכבות הכל חוץ מספאם (יום השואה)"},
+        {"when": "רביעי 15.4", "what": "הפעלה מחדש של הכל"},
     ]
 
     return templates.TemplateResponse(request, name="planner.html", context={

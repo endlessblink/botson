@@ -42,9 +42,13 @@ PAGES = [
 # These cover name/description columns in tables to obscure member data.
 # ---------------------------------------------------------------------------
 BLUR_REGIONS = {
-    "home":     [(0, 300, 400, 620)],
-    "activity": [(0, 250, 780, 680)],
-    "levels":   [(0, 300, 400, 680)],
+    # RTL layout: names are on the RIGHT side of tables
+    "home": [
+        (300, 140, 1050, 260),   # stat cards row — member names in "highest level" and "longest streak"
+        (530, 330, 1050, 570),   # leaderboard table — name column
+    ],
+    "activity": [(100, 250, 900, 700)],    # description column (wide, center)
+    "levels": [(530, 280, 1050, 720)],     # member name column — extended to bottom
 }
 
 BLUR_RADIUS = 8
