@@ -77,6 +77,10 @@
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
                     ספאם
                 </a>
+                <a href="/blocked" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'blocked' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                    משתמשים חסומים
+                </a>
                 <a href="/members" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'members' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                     חברים
@@ -84,6 +88,9 @@
                 <a href="/activity" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'activity' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2"/></svg>
                     לוג פעילות
+                </a>
+                <a href="/planner" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'planner' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                    <span class="text-base leading-none">📅</span> תכנון שבועי
                 </a>
                 <a href="/health" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'health' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -130,6 +137,10 @@
                 <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
                 ספאם
             </a>
+            <a href="/blocked" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'blocked' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                משתמשים חסומים
+            </a>
             <a href="/members" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'members' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                 <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 חברים
@@ -137,6 +148,9 @@
             <a href="/activity" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'activity' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                 <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2"/></svg>
                 לוג פעילות
+            </a>
+            <a href="/planner" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'planner' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
+                <span class="text-base leading-none">📅</span> תכנון שבועי
             </a>
             <a href="/health" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'health' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">
                 <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>

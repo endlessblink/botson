@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set active_page = "planner" %}
+{% block title %}Botson — תכנון שבועי{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון שבועי</h1>
+    <p class="text-sm text-[#71717a] mt-1">{{ today_str }} — שעה {{ now_time }}</p>
+</div>
+
+<!-- Today's schedule -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-5 py-3 border-b border-[#1f1f1f]">
+        <span class="text-sm font-medium text-[#fafafa]">📋 היום — {{ today_name }}</span>
+    </div>
+    <div class="px-5 py-4">
+        {% if today_items %}
+        {% for item in today_items %}
+        <div class="flex items-center gap-3 py-2 {% if not loop.last %}border-b border-[#1f1f1f]{% endif %}">
+            <span class="text-xs text-[#71717a] w-12 stat-number">{{ item.time }}</span>
+            <span class="text-xs px-2 py-0.5 rounded-md
+                {% if item.type == 'morning' %}bg-amber-500/10 text-amber-400
+                {% elif item.type == 'evening' %}bg-indigo-500/10 text-indigo-400
+                {% elif item.type == 'discussion' %}bg-sky-500/10 text-sky-400
+                {% elif item.type == 'trivia' %}bg-green-500/10 text-green-400
+                {% elif item.type == 'event' %}bg-pink-500/10 text-pink-400
+                {% elif item.type == 'roundup' %}bg-orange-500/10 text-orange-400
+                {% elif item.type == 'poll' %}bg-purple-500/10 text-purple-400
+                {% elif item.type == 'config' %}bg-zinc-500/10 text-zinc-400
+                {% else %}bg-zinc-500/10 text-zinc-400{% endif %}">{{ item.label }}</span>
+            <span class="text-sm text-[#a1a1aa] flex-1">{{ item.desc }}</span>
+            {% if item.status == 'done' %}
+            <span class="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded-md">✓</span>
+            {% elif item.status == 'missed' %}
+            <span class="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded-md">✗</span>
+            {% elif item.status == 'pending' %}
+            <span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">⏳</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-[#71717a] text-sm">אין פעילויות מתוכננות להיום</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Weekly overview -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-5 py-3 border-b border-[#1f1f1f]">
+        <span class="text-sm font-medium text-[#fafafa]">📅 תכנון שבועי</span>
+    </div>
+    <div class="px-5 py-4">
+        {% for day in week_plan %}
+        <div class="mb-4 {% if not loop.last %}pb-4 border-b border-[#1f1f1f]{% endif %}">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-sm font-medium {% if day.is_today %}text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">{{ day.name }} {{ day.date }}</span>
+                {% if day.is_today %}<span class="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">היום</span>{% endif %}
+                {% if day.holiday %}<span class="text-[10px] bg-amber-500/10 text-amber-300 px-2 py-0.5 rounded-md">{{ day.holiday }}</span>{% endif %}
+                {% if day.sensitive %}<span class="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded-md">{{ day.sensitive }}</span>{% endif %}
+            </div>
+            {% for item in day.items %}
+            <div class="flex items-center gap-3 py-1 mr-4">
+                <span class="text-[11px] text-[#52525b] w-10 stat-number">{{ item.time }}</span>
+                <span class="text-[11px] px-1.5 py-0.5 rounded
+                    {% if item.type == 'morning' %}bg-amber-500/10 text-amber-400
+                    {% elif item.type == 'evening' %}bg-indigo-500/10 text-indigo-400
+                    {% elif item.type == 'discussion' %}bg-sky-500/10 text-sky-400
+                    {% elif item.type == 'trivia' %}bg-green-500/10 text-green-400
+                    {% elif item.type == 'event' %}bg-pink-500/10 text-pink-400
+                    {% elif item.type == 'roundup' %}bg-orange-500/10 text-orange-400
+                    {% elif item.type == 'poll' %}bg-purple-500/10 text-purple-400
+                    {% elif item.type == 'you' %}bg-green-500/10 text-green-400
+                    {% else %}bg-zinc-500/10 text-zinc-400{% endif %}">{{ item.label }}</span>
+                <span class="text-[12px] text-[#71717a]">{{ item.desc }}</span>
+            </div>
+            {% endfor %}
+            {% if day.note %}
+            <p class="text-[11px] text-[#52525b] mt-1 mr-4 italic">{{ day.note }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Pending actions -->
+{% if actions %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-5 py-3 border-b border-[#1f1f1f]">
+        <span class="text-sm font-medium text-[#fafafa]">⚙️ פעולות נדרשות</span>
+    </div>
+    <div class="px-5 py-4">
+        {% for action in actions %}
+        <div class="flex items-center gap-3 py-2 {% if not loop.last %}border-b border-[#1f1f1f]{% endif %}">
+            <span class="text-xs text-[#71717a] w-20">{{ action.when }}</span>
+            <span class="text-sm text-[#a1a1aa]">{{ action.what }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

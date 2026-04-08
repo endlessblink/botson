@@ -410,6 +410,40 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+    # ── Blocked Users ────────────────────────────────────────
+
+    async def block_user(self, user_id: int, blocked_by: str = "", reason: str = ""):
+        """Block a user. Silently ignores if already blocked."""
+        await self._db.execute(
+            "INSERT OR IGNORE INTO blocked_users (user_id, blocked_by, reason) VALUES (?, ?, ?)",
+            (user_id, blocked_by, reason),
+        )
+        await self._db.commit()
+
+    async def unblock_user(self, user_id: int):
+        """Remove a user from the blocked list."""
+        await self._db.execute(
+            "DELETE FROM blocked_users WHERE user_id = ?", (user_id,)
+        )
+        await self._db.commit()
+
+    async def is_blocked(self, user_id: int) -> bool:
+        """Return True if the user is blocked."""
+        async with self._db.execute(
+            "SELECT 1 FROM blocked_users WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def get_blocked_users(self) -> list[dict]:
+        """Get all blocked users with display names where available."""
+        async with self._db.execute(
+            """SELECT b.*, m.display_name FROM blocked_users b
+               LEFT JOIN members m ON b.user_id = m.user_id
+               ORDER BY b.timestamp DESC""",
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
     # ── Forum Topics ─────────────────────────────────────────
 
     async def upsert_forum_topic(self, topic_id: int, name: str):

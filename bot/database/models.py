@@ -81,4 +81,12 @@ CREATE TABLE IF NOT EXISTS forum_topics (
     name TEXT NOT NULL,
     last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS blocked_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    blocked_by TEXT,
+    reason TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% set active_page = "blocked" %}
+
+{% block title %}Botson — משתמשים חסומים{% endblock %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">משתמשים חסומים</h1>
+        <p class="text-sm text-[#71717a] mt-1">ניהול משתמשים שחסומים מהבוט</p>
+    </div>
+    <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2.5 py-1 rounded-md">
+        {{ blocked | length }}
+    </span>
+</div>
+
+<!-- Add Blocked User Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <h3 class="text-sm font-semibold text-[#fafafa] mb-4">הוסף משתמש לחסימה</h3>
+    <div class="flex flex-col sm:flex-row gap-3">
+        <input
+            type="number"
+            id="block-user-id"
+            placeholder="User ID"
+            dir="ltr"
+            class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full sm:w-48"
+        >
+        <input
+            type="text"
+            id="block-reason"
+            placeholder="סיבה (אופציונלי)"
+            class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] flex-1"
+        >
+        <button
+            onclick="blockUser()"
+            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors whitespace-nowrap shrink-0"
+        >
+            הוסף
+        </button>
+    </div>
+</div>
+
+<!-- Blocked Users Table -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center gap-3">
+        <h3 class="text-sm font-semibold text-[#fafafa]">רשימת חסומים</h3>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-[#1f1f1f]">
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">משתמש</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">User ID</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">סיבה</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">תאריך חסימה</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">פעולה</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in blocked %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                    <td class="px-4 py-3 text-sm text-[#fafafa]">
+                        {% if user.display_name %}
+                            {{ user.display_name }}
+                        {% else %}
+                            <span class="text-[#71717a]">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa] font-mono" dir="ltr">{{ user.user_id }}</td>
+                    <td class="px-4 py-3 text-sm text-[#71717a]">
+                        {% if user.reason %}
+                            {{ user.reason }}
+                        {% else %}
+                            <span class="text-[#3f3f46]">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-[#71717a] whitespace-nowrap">
+                        {% if user.timestamp %}{{ user.timestamp[:16] }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        <button
+                            onclick="unblockUser({{ user.user_id }})"
+                            class="text-xs text-red-400 hover:text-red-300 border border-red-900/40 hover:border-red-700/60 px-3 py-1 rounded-md transition-colors cursor-pointer"
+                        >
+                            הסר חסימה
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not blocked %}
+                <tr>
+                    <td colspan="5" class="px-4 py-14 text-center">
+                        <div class="flex flex-col items-center gap-2 text-[#3f3f46]">
+                            <svg class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                            <span class="text-sm text-[#71717a]">אין משתמשים חסומים</span>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function blockUser() {
+    var userIdInput = document.getElementById('block-user-id');
+    var reasonInput = document.getElementById('block-reason');
+    var userId = parseInt(userIdInput.value);
+
+    if (!userId) {
+        showToast('יש להזין User ID', 'error');
+        return;
+    }
+
+    try {
+        await apiCall('/api/blocked/add', {
+            user_id: userId,
+            reason: reasonInput.value.trim()
+        });
+        showToast('המשתמש נחסם בהצלחה');
+        setTimeout(function () { location.reload(); }, 800);
+    } catch (e) {
+        showToast('שגיאה בחסימת המשתמש', 'error');
+    }
+}
+
+function unblockUser(userId) {
+    showConfirm('האם להסיר את החסימה ממשתמש ' + userId + '?', async function () {
+        try {
+            await apiCall('/api/blocked/' + userId + '/remove');
+            showToast('החסימה הוסרה');
+            setTimeout(function () { location.reload(); }, 800);
+        } catch (e) {
+            showToast('שגיאה בהסרת החסימה', 'error');
+        }
+    });
+}
+</script>
+{% endblock %}

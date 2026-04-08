@@ -133,6 +133,11 @@ async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     spam_settings = settings.get("antispam", {})
     db: Database = context.bot_data["db"]
 
+    # ── Block check: reject messages from blocked users ──
+    if await db.is_blocked(user.id):
+        await _delete_and_log(update, context, "user_blocked", "delete (blocked user)")
+        return
+
     # Ensure member exists in DB
     member = await db.get_member(user.id)
 

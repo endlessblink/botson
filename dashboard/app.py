@@ -545,6 +545,44 @@ async def delete_event(event_id: int, request: Request, db: Database = Depends(g
     return {"status": "ok"}
 
 
+# ── Blocked Users ────────────────────────────────────────
+
+@app.get("/blocked", response_class=HTMLResponse)
+async def blocked_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    blocked = await db.get_blocked_users()
+    return templates.TemplateResponse(request, name="blocked.html", context={
+        "blocked": blocked,
+    })
+
+
+@app.post("/api/blocked/add")
+async def add_blocked_user(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    user_id = data.get("user_id")
+    reason = data.get("reason", "")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+
+    await db.block_user(int(user_id), blocked_by="dashboard", reason=reason)
+    return {"status": "ok"}
+
+
+@app.post("/api/blocked/{user_id}/remove")
+async def remove_blocked_user(user_id: int, request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    await db.unblock_user(user_id)
+    return {"status": "ok"}
+
+
 # ── Trivia API ───────────────────────────────────────────
 
 @app.get("/trivia", response_class=HTMLResponse)
@@ -888,6 +926,139 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
         "code_version": code_version,
         "bot_start_time": bot_start_time,
         "needs_restart": needs_restart,
+    })
+
+
+# ── Planner Page ─────────────────────────────────────────
+
+@app.get("/planner", response_class=HTMLResponse)
+async def planner_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Jerusalem")
+    now = datetime.now(tz)
+
+    hebrew_days = ['שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת', 'ראשון']
+    today_name = f"יום {hebrew_days[now.weekday()]}"
+    today_str = now.strftime("%d.%m.%Y")
+    now_time = now.strftime("%H:%M")
+
+    settings = get_settings()
+    schedule = settings.get("schedule", {})
+
+    # Build today's items from schedule config + activity log
+    today_items = []
+
+    # Check morning prompt
+    morning = schedule.get("morning_prompt", {})
+    if isinstance(morning, dict):
+        hebrew_day = (now.weekday() + 1) % 7  # Convert to Hebrew day
+        if hebrew_day in morning.get("days", []):
+            m_time = morning.get("time", "09:00")
+            log_entries = await db.get_activity_log(50)
+            today_date = now.strftime("%Y-%m-%d")
+            fired = any(
+                e.get("action_type") == "goals" and "בוקר" in e.get("description", "")
+                and e.get("timestamp", "").startswith(today_date)
+                for e in log_entries
+            )
+            today_items.append({
+                "time": m_time, "type": "morning", "label": "בוקר",
+                "desc": "הודעת בוקר — יום יום",
+                "status": "done" if fired else ("missed" if now.strftime("%H:%M") > m_time else "pending")
+            })
+
+    # Check evening prompt
+    evening = schedule.get("evening_prompt", {})
+    if isinstance(evening, dict):
+        hebrew_day = (now.weekday() + 1) % 7
+        if hebrew_day in evening.get("days", []):
+            e_time = evening.get("time", "21:00")
+            log_entries = await db.get_activity_log(50)
+            today_date = now.strftime("%Y-%m-%d")
+            fired = any(
+                e.get("action_type") == "goals" and "ערב" in e.get("description", "")
+                and e.get("timestamp", "").startswith(today_date)
+                for e in log_entries
+            )
+            today_items.append({
+                "time": e_time, "type": "evening", "label": "ערב",
+                "desc": "הודעת ערב — יום יום",
+                "status": "done" if fired else ("missed" if now.strftime("%H:%M") > e_time else "pending")
+            })
+
+    # Check discussion
+    disc = schedule.get("discussion_prompt", {})
+    if isinstance(disc, dict):
+        hebrew_day = (now.weekday() + 1) % 7
+        if hebrew_day in disc.get("days", []):
+            for t in disc.get("times", []):
+                today_items.append({
+                    "time": t, "type": "discussion", "label": "דיון",
+                    "desc": "שאלה לדיון — ערוץ אקראי",
+                    "status": "pending" if now.strftime("%H:%M") < t else "done"
+                })
+
+    today_items.sort(key=lambda x: x["time"])
+
+    # Build week plan (static for now — will be dynamic later)
+    week_plan = []
+    for i in range(7):
+        d = now + timedelta(days=i)
+        day_name = f"יום {hebrew_days[d.weekday()]}"
+        day_date = d.strftime("%d.%m")
+
+        items = []
+        hebrew_day = (d.weekday() + 1) % 7
+
+        # Morning
+        if isinstance(morning, dict) and hebrew_day in morning.get("days", []):
+            items.append({"time": morning.get("time", "09:00"), "type": "morning", "label": "בוקר", "desc": "הודעת בוקר"})
+
+        # Discussion
+        if isinstance(disc, dict) and hebrew_day in disc.get("days", []):
+            for t in disc.get("times", []):
+                items.append({"time": t, "type": "discussion", "label": "דיון", "desc": "שאלה לדיון"})
+
+        # Evening
+        if isinstance(evening, dict) and hebrew_day in evening.get("days", []):
+            items.append({"time": evening.get("time", "21:00"), "type": "evening", "label": "ערב", "desc": "הודעת ערב"})
+
+        items.sort(key=lambda x: x["time"])
+
+        holiday = None
+        sensitive = None
+        date_str = d.strftime("%m-%d")
+        if date_str == "04-14":
+            sensitive = "יום השואה"
+
+        week_plan.append({
+            "name": day_name,
+            "date": day_date,
+            "is_today": i == 0,
+            "holiday": holiday,
+            "sensitive": sensitive,
+            "items": items,
+            "note": "הכל כבוי חוץ מספאם" if sensitive else None,
+        })
+
+    # Pending actions
+    actions = [
+        {"when": "חמישי 9.4", "what": "להפעיל events לראשית + ליצור אירוע Codenames"},
+        {"when": "שבת 11.4", "what": "להפעיל roundup + welcome לראשית"},
+        {"when": "שני 13.4 לילה", "what": "לכבות הכל חוץ מספאם (יום השואה)"},
+    ]
+
+    return templates.TemplateResponse(request, name="planner.html", context={
+        "today_name": today_name,
+        "today_str": today_str,
+        "now_time": now_time,
+        "today_items": today_items,
+        "week_plan": week_plan,
+        "actions": actions,
     })
 
 
