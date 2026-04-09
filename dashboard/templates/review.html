@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set active_page = "review" %}
+{% block title %}Botson — סקירת הודעות{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">סקירת הודעות</h1>
+    <p class="text-sm text-[#71717a] mt-1">הודעות שממתינות לאישור לפני שליחה</p>
+</div>
+
+{% if not pending %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-8 text-center">
+    <p class="text-[#52525b] text-base">אין הודעות ממתינות לאישור</p>
+    <p class="text-[#3f3f46] text-sm mt-2">כשתתכנן הודעות חדשות, הן יופיעו כאן</p>
+</div>
+{% endif %}
+
+{% for msg in pending %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+        <span class="text-base font-medium text-[#fafafa]">{{ msg.title }}</span>
+        <div class="flex gap-2">
+            {% if msg.channel %}<span class="text-xs bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded-md">{{ msg.channel }}</span>{% endif %}
+            {% if msg.when %}<span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">{{ msg.when }}</span>{% endif %}
+        </div>
+    </div>
+    <div class="px-5 py-5">
+        {% if msg.options %}
+        <p class="text-sm text-[#71717a] mb-3">בחר/י אפשרות:</p>
+        {% for opt in msg.options %}
+        <div class="bg-[#111318] border border-[#272727] hover:border-[#3f3f46] rounded-lg px-5 py-3.5 mb-2.5 text-[15px] text-[#d4d4d8] transition-colors cursor-pointer">
+            <span class="text-[#52525b] font-medium ml-2">{{ loop.index }}.</span> {{ opt }}
+        </div>
+        {% endfor %}
+        <p class="text-xs text-[#3f3f46] mt-3">או תגיד/י מה אתה/את רוצה ואני אכתוב</p>
+        {% endif %}
+
+        {% if msg.preview %}
+        <div class="bg-[#111318] border border-[#272727] rounded-lg px-5 py-4 text-[15px] text-[#d4d4d8] whitespace-pre-line leading-relaxed">{{ msg.preview }}</div>
+        {% endif %}
+
+        {% if msg.buttons %}
+        <div class="mt-4 space-y-2">
+            {% for btn in msg.buttons %}
+            <div class="bg-[#16213e] border border-[#2a2a4a] rounded-lg px-4 py-2.5 text-sm text-[#a1a1aa] text-center">{{ btn }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if msg.note %}
+        <p class="text-xs text-[#52525b] mt-4 italic">{{ msg.note }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+{% endblock %}
