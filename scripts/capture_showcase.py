@@ -90,7 +90,7 @@ def do_login(page, base_url: str, password: str) -> bool:
 # ---------------------------------------------------------------------------
 # Video capture (default mode)
 # ---------------------------------------------------------------------------
-def capture_video(base_url: str, password: str) -> Path | None:
+def capture_video(base_url: str, password: str) -> tuple[Path | None, list]:
     """
     Launch Playwright with video recording, walk through each dashboard page
     via sidebar navigation clicks, then return the path to the saved .webm file.
@@ -122,22 +122,32 @@ def capture_video(base_url: str, password: str) -> Path | None:
                 print("Login failed. Aborting video capture.")
                 context.close()
                 browser.close()
-                return None
+                return None, []
 
-            # Wait a moment after login so the home page is fully visible.
-            page.wait_for_timeout(1000)
+            # After login we're already on the home page — wait for its
+            # animations to play, then record timestamps for blur regions.
+            page.wait_for_load_state("networkidle", timeout=15_000)
+            page.wait_for_timeout(2000)
+            timestamps = [{"name": PAGES[0]["name"], "start": 0.0}]
+            import time as _time
+            t0 = _time.monotonic()
+            print(f"  Already on: {PAGES[0]['label']} (after login)")
 
-            # Walk through each page by clicking the sidebar nav link.
-            for i, page_def in enumerate(PAGES):
+            # Walk through remaining pages by clicking the sidebar nav link.
+            for i, page_def in enumerate(PAGES[1:], start=1):
                 nav_text = page_def["nav_text"]
                 label = page_def["label"]
                 print(f"  Navigating to: {label} (clicking '{nav_text}') ...")
 
                 try:
-                    page.click(f"text={nav_text}", timeout=8_000)
+                    # Desktop sidebar is the <aside> with lg:flex; use it to avoid
+                    # matching the hidden mobile overlay duplicate links.
+                    sidebar = page.locator("aside.lg\\:flex")
+                    sidebar.locator(f"text={nav_text}").click(timeout=8_000)
                     page.wait_for_load_state("networkidle", timeout=15_000)
                     # Let animations / JS-rendered content settle.
                     page.wait_for_timeout(2000)
+                    timestamps.append({"name": page_def["name"], "start": _time.monotonic() - t0})
                     print(f"    OK — {page.url}")
                 except Exception as exc:
                     print(f"    WARNING: Could not click nav link for '{label}': {exc}")
@@ -147,6 +157,7 @@ def capture_video(base_url: str, password: str) -> Path | None:
                         print(f"    Falling back to goto: {fallback_url}")
                         page.goto(fallback_url, wait_until="networkidle", timeout=15_000)
                         page.wait_for_timeout(2000)
+                        timestamps.append({"name": page_def["name"], "start": _time.monotonic() - t0})
                     except Exception as exc2:
                         print(f"    ERROR on fallback: {exc2} — skipping page.")
 
@@ -161,7 +172,7 @@ def capture_video(base_url: str, password: str) -> Path | None:
         webm_files = list(tmp_path.glob("*.webm"))
         if not webm_files:
             print("ERROR: No .webm file found after recording.")
-            return None
+            return None, []
 
         # Move it to the final output path.
         src = webm_files[0]
@@ -170,55 +181,107 @@ def capture_video(base_url: str, password: str) -> Path | None:
         shutil.move(str(src), str(WEBM_OUTPUT))
         size_mb = WEBM_OUTPUT.stat().st_size / (1024 * 1024)
         print(f"\n  Video saved: {WEBM_OUTPUT}  ({size_mb:.2f} MB)")
-        return WEBM_OUTPUT
+        return WEBM_OUTPUT, timestamps
 
 
 # ---------------------------------------------------------------------------
 # FFmpeg: webm → gif
 # ---------------------------------------------------------------------------
-def convert_webm_to_gif(webm_path: Path, gif_path: Path) -> bool:
+def convert_webm_to_gif(webm_path: Path, gif_path: Path,
+                        timestamps=None, do_blur: bool = True) -> bool:
     """
-    Convert a .webm file to an animated GIF using ffmpeg with palette optimisation.
+    Convert a .webm file to an animated GIF.
+    1. Extract frames via ffmpeg
+    2. Apply Pillow-based privacy blur per page (reusing BLUR_REGIONS)
+    3. Assemble palette-optimised GIF via ffmpeg
     Returns True on success.
     """
-    print(f"\n  Converting {webm_path.name} → {gif_path.name} with ffmpeg ...")
+    from PIL import Image
 
-    # High-quality palette-optimised GIF filter graph.
-    vf = (
-        "fps=12,"
-        "scale=960:-1:flags=lanczos,"
-        "split[s0][s1];"
-        "[s0]palettegen=max_colors=128:stats_mode=diff[p];"
-        "[s1][p]paletteuse=dither=bayer:bayer_scale=3"
-    )
+    print(f"\n  Converting {webm_path.name} → {gif_path.name} ...")
 
-    cmd = [
-        "ffmpeg",
-        "-y",                       # overwrite output without asking
-        "-i", str(webm_path),
-        "-vf", vf,
-        "-loop", "0",               # loop forever
-        str(gif_path),
-    ]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        frames_dir = Path(tmp_dir) / "frames"
+        blurred_dir = Path(tmp_dir) / "blurred"
+        frames_dir.mkdir()
+        blurred_dir.mkdir()
 
-    print(f"  Running: {' '.join(cmd)}")
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,            # 5-minute safety timeout
-        )
+        # Step 1: Extract frames at 12 fps, scaled to 960px wide
+        print("  Extracting frames ...")
+        extract_cmd = [
+            "ffmpeg", "-y", "-i", str(webm_path),
+            "-vf", "fps=12,scale=960:-1:flags=lanczos",
+            str(frames_dir / "frame_%05d.png"),
+        ]
+        result = subprocess.run(extract_cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
-            print(f"  ERROR: ffmpeg exited with code {result.returncode}")
-            print(result.stderr[-2000:])  # last 2 KB of stderr
+            print(f"  ERROR extracting frames: {result.stderr[-500:]}")
             return False
-    except FileNotFoundError:
-        print("  ERROR: ffmpeg not found. Install it: sudo apt install ffmpeg")
-        return False
-    except subprocess.TimeoutExpired:
-        print("  ERROR: ffmpeg timed out after 5 minutes.")
-        return False
+
+        frame_files = sorted(frames_dir.glob("frame_*.png"))
+        print(f"  Extracted {len(frame_files)} frames")
+
+        if not frame_files:
+            return False
+
+        # Step 2: Apply blur to frames belonging to pages with BLUR_REGIONS
+        fps = 12
+        scale = 960 / 1280  # coords were defined for 1280px viewport
+
+        # Build a map: frame_index → page_name (based on timestamps)
+        def get_page_for_frame(frame_idx):
+            if not timestamps:
+                return None
+            t = frame_idx / fps
+            current_page = timestamps[0]["name"]
+            for ts in timestamps:
+                if t >= ts["start"]:
+                    current_page = ts["name"]
+            return current_page
+
+        blur_count = 0
+        for idx, frame_path in enumerate(frame_files):
+            page_name = get_page_for_frame(idx)
+            out_path = blurred_dir / frame_path.name
+
+            if do_blur and page_name and page_name in BLUR_REGIONS:
+                img = Image.open(str(frame_path))
+                # Scale blur regions to match the 960px output
+                scaled_regions = [
+                    (int(x0 * scale), int(y0 * scale),
+                     int(x1 * scale), int(y1 * scale))
+                    for (x0, y0, x1, y1) in BLUR_REGIONS[page_name]
+                ]
+                img = apply_blur(img, scaled_regions)
+                img.save(str(out_path))
+                blur_count += 1
+            else:
+                # Just copy the frame as-is
+                import shutil
+                shutil.copy2(str(frame_path), str(out_path))
+
+        if blur_count:
+            print(f"  Applied blur to {blur_count} frames")
+
+        # Step 3: Reassemble into palette-optimised GIF
+        print("  Assembling GIF ...")
+        vf = (
+            "split[s0][s1];"
+            "[s0]palettegen=max_colors=128:stats_mode=diff[p];"
+            "[s1][p]paletteuse=dither=bayer:bayer_scale=3"
+        )
+        assemble_cmd = [
+            "ffmpeg", "-y",
+            "-framerate", "12",
+            "-i", str(blurred_dir / "frame_%05d.png"),
+            "-filter_complex", vf,
+            "-loop", "0",
+            str(gif_path),
+        ]
+        result = subprocess.run(assemble_cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            print(f"  ERROR assembling GIF: {result.stderr[-500:]}")
+            return False
 
     size_bytes = gif_path.stat().st_size
     size_mb = size_bytes / (1024 * 1024)
@@ -491,13 +554,13 @@ def main():
     # -------------------------------------------------------------------------
     if not args.screenshots:
         print("[1/2] Recording video walkthrough ...")
-        webm_path = capture_video(base_url, password)
+        webm_path, timestamps = capture_video(base_url, password)
         if webm_path is None:
             print("Video capture failed. Exiting.")
             sys.exit(1)
 
         print("\n[2/2] Converting to GIF ...")
-        success = convert_webm_to_gif(webm_path, GIF_OUTPUT)
+        success = convert_webm_to_gif(webm_path, GIF_OUTPUT, timestamps, not args.no_blur)
         if not success:
             print("FFmpeg conversion failed. The raw .webm is still available at:")
             print(f"  {webm_path}")

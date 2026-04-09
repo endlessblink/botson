@@ -6,7 +6,15 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
+from ..utils.config import GOALS_TOPIC_ID as _ENV_GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
+
+
+def _get_goals_topic_id():
+    """Get goals topic ID from env or settings.yaml fallback."""
+    if _ENV_GOALS_TOPIC_ID:
+        return _ENV_GOALS_TOPIC_ID
+    settings = get_settings()
+    return settings.get("topics", {}).get("goals")
 from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
 
@@ -25,13 +33,14 @@ async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
     db: Database = context.bot_data["db"]
     prompt = await db.get_random_prompt("morning")
 
-    if not GOALS_TOPIC_ID:
+    goals_topic = _get_goals_topic_id()
+    if not goals_topic:
         logger.warning("GOALS_TOPIC_ID not set, skipping morning prompt")
         return
 
     kwargs = {"chat_id": GROUP_ID, "text": prompt}
-    if GOALS_TOPIC_ID:
-        kwargs["message_thread_id"] = GOALS_TOPIC_ID
+    if goals_topic:
+        kwargs["message_thread_id"] = goals_topic
 
     try:
         msg = await context.bot.send_message(**kwargs)
@@ -63,7 +72,8 @@ async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
     db: Database = context.bot_data["db"]
     prompt = await db.get_random_prompt("evening")
 
-    if not GOALS_TOPIC_ID:
+    goals_topic = _get_goals_topic_id()
+    if not goals_topic:
         logger.warning("GOALS_TOPIC_ID not set, skipping evening prompt")
         return
 
@@ -79,8 +89,8 @@ async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Failed to unpin morning prompt: %s", e)
 
     kwargs = {"chat_id": GROUP_ID, "text": prompt}
-    if GOALS_TOPIC_ID:
-        kwargs["message_thread_id"] = GOALS_TOPIC_ID
+    if goals_topic:
+        kwargs["message_thread_id"] = goals_topic
 
     try:
         msg = await context.bot.send_message(**kwargs)
@@ -101,7 +111,8 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
 
     # Only track messages in the goals topic
     thread_id = getattr(update.message, "message_thread_id", None)
-    if thread_id != GOALS_TOPIC_ID:
+    goals_topic = _get_goals_topic_id()
+    if thread_id != goals_topic:
         return
 
     user = update.effective_user
@@ -167,7 +178,7 @@ def register(app):
     """Register goals handlers."""
     app.add_handler(CommandHandler("streak", streak_command))
     # Track participation in goals channel
-    if GOALS_TOPIC_ID:
+    if _get_goals_topic_id():
         app.add_handler(
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND & filters.Chat(chat_id=GROUP_ID),
