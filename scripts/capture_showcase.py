@@ -118,48 +118,67 @@ def capture_video(base_url: str, password: str) -> tuple[Path | None, list]:
                 "Object.defineProperty(window, 'matchMedia', {value: (q) => ({matches: q.includes('dark'), media: q, onchange: null, addListener: ()=>{}, removeListener: ()=>{}, addEventListener: ()=>{}, removeEventListener: ()=>{}, dispatchEvent: ()=>false})});"
             )
 
+            import time as _time
+            # t0 = video recording start (context.new_page triggers recording)
+            t0 = _time.monotonic()
+
             if not do_login(page, base_url, password):
                 print("Login failed. Aborting video capture.")
                 context.close()
                 browser.close()
                 return None, []
 
-            # After login we're already on the home page — wait for its
-            # animations to play, then record timestamps for blur regions.
+            # After login we're already on the home page — wait for animations.
             page.wait_for_load_state("networkidle", timeout=15_000)
             page.wait_for_timeout(2000)
-            timestamps = [{"name": PAGES[0]["name"], "start": 0.0}]
-            import time as _time
-            t0 = _time.monotonic()
+
+            # Track precise start/end times for each page (relative to t0).
+            # "start" = page fully loaded, "end" = just before clicking away.
+            # Login page and transitions between pages are NOT tracked → no blur.
+            timestamps = []
+            home_start = _time.monotonic() - t0
             print(f"  Already on: {PAGES[0]['label']} (after login)")
 
             # Walk through remaining pages by clicking the sidebar nav link.
-            for i, page_def in enumerate(PAGES[1:], start=1):
+            for page_def in PAGES[1:]:
                 nav_text = page_def["nav_text"]
                 label = page_def["label"]
                 print(f"  Navigating to: {label} (clicking '{nav_text}') ...")
 
+                # Mark end of previous page BEFORE clicking
+                prev_end = _time.monotonic() - t0
+                if timestamps:
+                    timestamps[-1]["end"] = prev_end
+                else:
+                    # First entry: home page
+                    timestamps.append({"name": PAGES[0]["name"],
+                                       "start": home_start, "end": prev_end})
+
                 try:
-                    # Desktop sidebar is the <aside> with lg:flex; use it to avoid
-                    # matching the hidden mobile overlay duplicate links.
                     sidebar = page.locator("aside.lg\\:flex")
                     sidebar.locator(f"text={nav_text}").click(timeout=8_000)
                     page.wait_for_load_state("networkidle", timeout=15_000)
-                    # Let animations / JS-rendered content settle.
                     page.wait_for_timeout(2000)
-                    timestamps.append({"name": page_def["name"], "start": _time.monotonic() - t0})
+                    timestamps.append({"name": page_def["name"],
+                                       "start": _time.monotonic() - t0,
+                                       "end": 0})  # filled on next iteration or at end
                     print(f"    OK — {page.url}")
                 except Exception as exc:
                     print(f"    WARNING: Could not click nav link for '{label}': {exc}")
-                    # Fall back to direct navigation so we don't skip the page.
                     try:
                         fallback_url = f"{base_url}{page_def['path']}"
                         print(f"    Falling back to goto: {fallback_url}")
                         page.goto(fallback_url, wait_until="networkidle", timeout=15_000)
                         page.wait_for_timeout(2000)
-                        timestamps.append({"name": page_def["name"], "start": _time.monotonic() - t0})
+                        timestamps.append({"name": page_def["name"],
+                                           "start": _time.monotonic() - t0,
+                                           "end": 0})
                     except Exception as exc2:
                         print(f"    ERROR on fallback: {exc2} — skipping page.")
+
+            # Mark the end of the last page.
+            if timestamps:
+                timestamps[-1]["end"] = _time.monotonic() - t0
 
             # Extra second after the last page before closing.
             page.wait_for_timeout(1000)
@@ -228,16 +247,23 @@ def convert_webm_to_gif(webm_path: Path, gif_path: Path,
         fps = 12
         scale = 960 / 1280  # coords were defined for 1280px viewport
 
-        # Build a map: frame_index → page_name (based on timestamps)
+        # Determine which page a frame belongs to using precise start/end windows.
+        # Frames during login or page transitions (between end→start) get NO blur.
         def get_page_for_frame(frame_idx):
             if not timestamps:
                 return None
             t = frame_idx / fps
-            current_page = timestamps[0]["name"]
             for ts in timestamps:
-                if t >= ts["start"]:
-                    current_page = ts["name"]
-            return current_page
+                if ts["start"] <= t <= ts["end"]:
+                    return ts["name"]
+            return None  # login screen or transition → no blur
+
+        # Debug: print timestamp windows
+        if timestamps:
+            print(f"  Timestamp windows (video has {len(frame_files)} frames = {len(frame_files)/fps:.1f}s):")
+            for ts in timestamps:
+                needs_blur = ts["name"] in BLUR_REGIONS
+                print(f"    {ts['name']:12s}  {ts['start']:5.1f}s – {ts['end']:5.1f}s  {'BLUR' if needs_blur else ''}")
 
         blur_count = 0
         for idx, frame_path in enumerate(frame_files):

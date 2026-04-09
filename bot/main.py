@@ -116,8 +116,15 @@ async def post_shutdown(app: Application):
 
 
 def _setup_reload_watcher(app):
-    """Watch for a reload flag file and reload schedule when found."""
+    """Watch for a reload flag file and reload schedule when found.
+    Also periodically verify jobs are registered (health check).
+    """
     reload_flag = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "reload")
+
+    # Clean stale reload flag on startup
+    if os.path.exists(reload_flag):
+        os.unlink(reload_flag)
+        logger.info("Cleaned stale reload flag")
 
     async def _check_reload(context):
         if os.path.exists(reload_flag):
@@ -125,8 +132,20 @@ def _setup_reload_watcher(app):
             logger.info("Reload flag detected — reloading schedule...")
             await _reload_config(app)
 
-    # Check every 5 seconds
+    async def _health_check(context):
+        """Verify jobs are registered. Re-register if missing."""
+        jq = app.job_queue
+        if not jq:
+            return
+        job_names = [j.name for j in jq.jobs() if j.name != "reload_watcher" and j.name != "job_health_check"]
+        if len(job_names) < 2:
+            logger.warning("Health check: only %d jobs found (%s). Re-registering...", len(job_names), job_names)
+            await _reload_config(app)
+
+    # Check reload every 5 seconds
     app.job_queue.run_repeating(_check_reload, interval=5, first=5, name="reload_watcher")
+    # Health check every 5 minutes
+    app.job_queue.run_repeating(_health_check, interval=300, first=60, name="job_health_check")
 
 
 async def _reload_config(app):
