@@ -116,9 +116,7 @@ async def post_shutdown(app: Application):
 
 
 def _setup_reload_watcher(app):
-    """Watch for a reload flag file and reload schedule when found.
-    Also periodically verify jobs are registered (health check).
-    """
+    """Watch for a reload flag file and reload schedule when found."""
     reload_flag = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "reload")
 
     # Clean stale reload flag on startup
@@ -132,37 +130,45 @@ def _setup_reload_watcher(app):
             logger.info("Reload flag detected — reloading schedule...")
             await _reload_config(app)
 
-    async def _health_check(context):
-        """Verify jobs are registered. Re-register if missing."""
-        jq = app.job_queue
-        if not jq:
-            return
-        job_names = [j.name for j in jq.jobs() if j.name != "reload_watcher" and j.name != "job_health_check"]
-        if len(job_names) < 2:
-            logger.warning("Health check: only %d jobs found (%s). Re-registering...", len(job_names), job_names)
-            await _reload_config(app)
-
     # Check reload every 5 seconds
     app.job_queue.run_repeating(_check_reload, interval=5, first=5, name="reload_watcher")
-    # Health check every 5 minutes
-    app.job_queue.run_repeating(_health_check, interval=300, first=60, name="job_health_check")
 
 
 async def _reload_config(app):
-    """Reload schedule config and re-register jobs."""
-    try:
-        # Cancel all existing scheduled jobs
-        if app.job_queue:
-            jobs = app.job_queue.jobs()
-            for job in jobs:
-                job.schedule_removal()
-            logger.info("Cleared %d existing jobs", len(jobs))
+    """Atomic reload: re-register jobs from fresh config.
 
-        # Re-register from fresh config
+    If setup_jobs fails, the old jobs are restored.
+    Never clears the reload_watcher itself.
+    """
+    jq = app.job_queue
+    if not jq:
+        logger.error("No JobQueue — cannot reload")
+        return
+
+    # Save old jobs (excluding system jobs) so we can restore on failure
+    system_jobs = {"reload_watcher"}
+    old_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
+
+    # Remove only schedule jobs (not the reload_watcher)
+    for job in old_jobs:
+        job.schedule_removal()
+    logger.info("Cleared %d schedule jobs for reload", len(old_jobs))
+
+    try:
         setup_jobs(app)
-        logger.info("Config reloaded successfully")
+        # Verify jobs were actually registered
+        new_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
+        if len(new_jobs) == 0:
+            raise RuntimeError("setup_jobs registered 0 jobs")
+        logger.info("Config reloaded successfully — %d jobs active", len(new_jobs))
     except Exception as e:
-        logger.error("Failed to reload config: %s", e)
+        logger.error("Failed to reload config: %s — re-registering from old config", e)
+        # Restore: call setup_jobs again (reads same settings, should work)
+        try:
+            setup_jobs(app)
+            logger.info("Restored jobs after failed reload")
+        except Exception as e2:
+            logger.critical("CRITICAL: Could not restore jobs: %s — bot has no scheduled jobs!", e2)
 
 
 def _acquire_pid_lock():

@@ -130,62 +130,66 @@ def capture_video(base_url: str, password: str) -> tuple[Path | None, list]:
 
             # After login we're already on the home page — wait for animations.
             page.wait_for_load_state("networkidle", timeout=15_000)
-            page.wait_for_timeout(2000)
 
             # Track precise start/end times for each page (relative to t0).
-            # "start" = page fully loaded, "end" = just before clicking away.
+            # "start" = page loaded (before hold), "end" = just before clicking away.
             # Login page and transitions between pages are NOT tracked → no blur.
             timestamps = []
-            home_start = _time.monotonic() - t0
-            print(f"  Already on: {PAGES[0]['label']} (after login)")
+            home_loaded = _time.monotonic() - t0
+            timestamps.append({"name": PAGES[0]["name"],
+                                "start": home_loaded, "end": 0})
+            print(f"  Already on: {PAGES[0]['label']} (after login, t={home_loaded:.1f}s)")
+            page.wait_for_timeout(2000)  # hold on page AFTER recording start
 
             # Walk through remaining pages by clicking the sidebar nav link.
             for page_def in PAGES[1:]:
                 nav_text = page_def["nav_text"]
                 label = page_def["label"]
-                print(f"  Navigating to: {label} (clicking '{nav_text}') ...")
 
                 # Mark end of previous page BEFORE clicking
-                prev_end = _time.monotonic() - t0
-                if timestamps:
-                    timestamps[-1]["end"] = prev_end
-                else:
-                    # First entry: home page
-                    timestamps.append({"name": PAGES[0]["name"],
-                                       "start": home_start, "end": prev_end})
+                timestamps[-1]["end"] = _time.monotonic() - t0
+                print(f"  Navigating to: {label} (clicking '{nav_text}') ...")
 
                 try:
                     sidebar = page.locator("aside.lg\\:flex")
                     sidebar.locator(f"text={nav_text}").click(timeout=8_000)
                     page.wait_for_load_state("networkidle", timeout=15_000)
-                    page.wait_for_timeout(2000)
+                    page_loaded = _time.monotonic() - t0
                     timestamps.append({"name": page_def["name"],
-                                       "start": _time.monotonic() - t0,
-                                       "end": 0})  # filled on next iteration or at end
-                    print(f"    OK — {page.url}")
+                                       "start": page_loaded, "end": 0})
+                    page.wait_for_timeout(2000)  # hold AFTER recording start
+                    print(f"    OK — {page.url} (t={page_loaded:.1f}s)")
                 except Exception as exc:
                     print(f"    WARNING: Could not click nav link for '{label}': {exc}")
                     try:
                         fallback_url = f"{base_url}{page_def['path']}"
                         print(f"    Falling back to goto: {fallback_url}")
                         page.goto(fallback_url, wait_until="networkidle", timeout=15_000)
-                        page.wait_for_timeout(2000)
+                        page_loaded = _time.monotonic() - t0
                         timestamps.append({"name": page_def["name"],
-                                           "start": _time.monotonic() - t0,
-                                           "end": 0})
+                                           "start": page_loaded, "end": 0})
+                        page.wait_for_timeout(2000)
                     except Exception as exc2:
                         print(f"    ERROR on fallback: {exc2} — skipping page.")
 
             # Mark the end of the last page.
-            if timestamps:
-                timestamps[-1]["end"] = _time.monotonic() - t0
+            timestamps[-1]["end"] = _time.monotonic() - t0
 
             # Extra second after the last page before closing.
-            page.wait_for_timeout(1000)
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                pass  # page may have been closed
 
             # Closing the context triggers Playwright to flush and save the video file.
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except Exception:
+                pass
+            try:
+                browser.close()
+            except Exception:
+                pass
 
         # Find the recorded .webm file (Playwright names it with a UUID).
         webm_files = list(tmp_path.glob("*.webm"))
