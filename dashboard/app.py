@@ -1160,6 +1160,29 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         {"when": "רביעי 15.4", "what": "הפעלה מחדש של הכל"},
     ]
 
+    # Pending messages for approval
+    pending_messages = [
+        {
+            "title": "שאלה לדיון — מגניב / מצחיק",
+            "channel": "מגניב / מצחיק (153)",
+            "when": "היום",
+            "options": [
+                "💬 מה הדבר הכי אבסורדי שראיתם השבוע?",
+                "💬 ספרו בדיחה — הכי גרועה שיש! 😂",
+                "💬 מה הדבר הכי מביך שקרה לכם?",
+                "💬 אם החיים שלכם היו סיטקום, מה היה השם?",
+                "💬 מה המם הכי טוב שראיתם לאחרונה?",
+            ],
+        },
+        {
+            "title": "אירוע Splendor — שבת 11.4",
+            "channel": "גיימינג (1517)",
+            "when": "שבת 18:00",
+            "preview": "🎲 Splendor — ערב משחק מוצ\"ש!\n\nמשחקים Splendor ביחד במוצ\"ש.\nעד 4 שחקנים, משחק אחד לוקח בערך שעה.\n\n📅 שבת 11.4 ב-18:00\n👥 עד 4 שחקנים\n⏱️ כשעה\n\nמי בפנים? 👇",
+            "buttons": ["🗓️ שבת (11.4) ב-18:00 — מגיע/ה!", "🤔 אולי", "❌ לא הפעם"],
+        },
+    ]
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "today_name": today_name,
         "today_str": today_str,
@@ -1167,6 +1190,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "today_items": today_items,
         "week_plan": week_plan,
         "actions": actions,
+        "pending_messages": pending_messages,
     })
 
 

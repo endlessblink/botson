@@ -43,7 +43,7 @@ The dashboard is the primary control interface. Users should never need to use T
 ## Schedule & Content Rules
 
 - When updating the bot's schedule or weekly plan, **always update `docs/week-plan.html`** to reflect the changes.
-- When suggesting Hebrew text for review, render it in `docs/review.html` (RTL page) so the user can read it properly.
+- **NEVER present Hebrew text options in the terminal** — always render in `docs/review.html` (RTL page) for approval. This includes message drafts, discussion questions, poll text, event announcements — anything Hebrew.
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
 
 ## Tech Stack

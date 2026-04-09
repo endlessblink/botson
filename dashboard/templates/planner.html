@@ -8,8 +8,51 @@
     <p class="text-sm text-[#71717a] mt-1">{{ today_str }} — שעה {{ now_time }}</p>
 </div>
 
+<!-- Pending messages for approval -->
+{% if pending_messages %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6 animate-fade-in-up stagger-1">
+    <div class="px-5 py-4 border-b border-[#1f1f1f]">
+        <span class="text-base font-medium text-[#fafafa]">✏️ ממתין לאישור</span>
+    </div>
+    <div class="px-5 py-4 space-y-6">
+        {% for msg in pending_messages %}
+        <div class="{% if not loop.last %}pb-6 border-b border-[#1f1f1f]{% endif %}">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="text-base font-medium text-[#fafafa]">{{ msg.title }}</span>
+            </div>
+            <div class="flex gap-2 mb-3">
+                <span class="text-xs bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded-md">{{ msg.channel }}</span>
+                <span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">{{ msg.when }}</span>
+            </div>
+
+            {% if msg.options %}
+            <p class="text-sm text-[#71717a] mb-2">בחר/י אפשרות:</p>
+            {% for opt in msg.options %}
+            <div class="bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 mb-2 text-[15px] text-[#d4d4d8]">
+                <span class="text-[#52525b] ml-2">{{ loop.index }}.</span> {{ opt }}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if msg.preview %}
+            <div class="bg-[#111318] border border-[#272727] rounded-lg px-4 py-4 mb-3 text-[15px] text-[#d4d4d8] whitespace-pre-line">{{ msg.preview }}</div>
+            {% endif %}
+
+            {% if msg.buttons %}
+            <div class="space-y-2">
+                {% for btn in msg.buttons %}
+                <div class="bg-[#16213e] border border-[#2a2a4a] rounded-lg px-4 py-2.5 text-sm text-[#a1a1aa] text-center">{{ btn }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Weekly overview -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6 animate-fade-in-up stagger-2">
     <div class="px-5 py-4 border-b border-[#1f1f1f]">
         <span class="text-base font-medium text-[#fafafa]">📅 תכנון שבועי</span>
     </div>

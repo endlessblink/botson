@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
 """
-capture_showcase.py — Captures Botson dashboard screenshots and creates an animated GIF.
+capture_showcase.py — Captures Botson dashboard as a video walkthrough and converts to GIF.
 
 Usage:
-    python scripts/capture_showcase.py [--no-blur] [--collage]
+    python scripts/capture_showcase.py               # video mode (default)
+    python scripts/capture_showcase.py --screenshots # screenshot mode (fallback)
 
 Requirements:
     pip install playwright pillow
     playwright install chromium
+    ffmpeg must be available in PATH (for video mode)
 """
 
 import argparse
 import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SCREENSHOTS_DIR = PROJECT_ROOT / "media" / "screenshots"
-GIF_OUTPUT = PROJECT_ROOT / "media" / "botson-showcase.gif"
-COLLAGE_OUTPUT = PROJECT_ROOT / "media" / "botson-collage.png"
+MEDIA_DIR = PROJECT_ROOT / "media"
+SCREENSHOTS_DIR = MEDIA_DIR / "screenshots"
+GIF_OUTPUT = MEDIA_DIR / "botson-showcase.gif"
+WEBM_OUTPUT = MEDIA_DIR / "botson-showcase.webm"
+COLLAGE_OUTPUT = MEDIA_DIR / "botson-collage.png"
 
 TELEGRAM_SIZE_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -29,12 +35,12 @@ TELEGRAM_SIZE_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
 # Pages to capture
 # ---------------------------------------------------------------------------
 PAGES = [
-    {"path": "/",          "name": "home",      "label": "Home — Overview"},
-    {"path": "/health",    "name": "health",    "label": "Bot Status"},
-    {"path": "/prompts",   "name": "prompts",   "label": "Engagement System"},
-    {"path": "/planner",   "name": "planner",   "label": "Weekly Calendar"},
-    {"path": "/activity",  "name": "activity",  "label": "Activity Log"},
-    {"path": "/levels",    "name": "levels",    "label": "Member Levels"},
+    {"path": "/",          "name": "home",      "label": "Home — Overview",      "nav_text": "סקירה כללית"},
+    {"path": "/health",    "name": "health",    "label": "Bot Status",           "nav_text": "מצב הבוט"},
+    {"path": "/prompts",   "name": "prompts",   "label": "Engagement System",    "nav_text": "הודעות ושאלות"},
+    {"path": "/planner",   "name": "planner",   "label": "Weekly Calendar",      "nav_text": "תכנון שבועי"},
+    {"path": "/activity",  "name": "activity",  "label": "Activity Log",         "nav_text": "לוג פעילות"},
+    {"path": "/levels",    "name": "levels",    "label": "Member Levels",        "nav_text": "רמות"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -82,7 +88,156 @@ def do_login(page, base_url: str, password: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Screenshot capture
+# Video capture (default mode)
+# ---------------------------------------------------------------------------
+def capture_video(base_url: str, password: str) -> Path | None:
+    """
+    Launch Playwright with video recording, walk through each dashboard page
+    via sidebar navigation clicks, then return the path to the saved .webm file.
+    """
+    from playwright.sync_api import sync_playwright
+
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720},
+                color_scheme="dark",
+                record_video_dir=str(tmp_path),
+                record_video_size={"width": 1280, "height": 720},
+            )
+            page = context.new_page()
+
+            # Inject dark-mode CSS so the page renders correctly even if
+            # prefers-color-scheme isn't detected by media query alone.
+            page.add_init_script(
+                "Object.defineProperty(window, 'matchMedia', {value: (q) => ({matches: q.includes('dark'), media: q, onchange: null, addListener: ()=>{}, removeListener: ()=>{}, addEventListener: ()=>{}, removeEventListener: ()=>{}, dispatchEvent: ()=>false})});"
+            )
+
+            if not do_login(page, base_url, password):
+                print("Login failed. Aborting video capture.")
+                context.close()
+                browser.close()
+                return None
+
+            # Wait a moment after login so the home page is fully visible.
+            page.wait_for_timeout(1000)
+
+            # Walk through each page by clicking the sidebar nav link.
+            for i, page_def in enumerate(PAGES):
+                nav_text = page_def["nav_text"]
+                label = page_def["label"]
+                print(f"  Navigating to: {label} (clicking '{nav_text}') ...")
+
+                try:
+                    page.click(f"text={nav_text}", timeout=8_000)
+                    page.wait_for_load_state("networkidle", timeout=15_000)
+                    # Let animations / JS-rendered content settle.
+                    page.wait_for_timeout(2000)
+                    print(f"    OK — {page.url}")
+                except Exception as exc:
+                    print(f"    WARNING: Could not click nav link for '{label}': {exc}")
+                    # Fall back to direct navigation so we don't skip the page.
+                    try:
+                        fallback_url = f"{base_url}{page_def['path']}"
+                        print(f"    Falling back to goto: {fallback_url}")
+                        page.goto(fallback_url, wait_until="networkidle", timeout=15_000)
+                        page.wait_for_timeout(2000)
+                    except Exception as exc2:
+                        print(f"    ERROR on fallback: {exc2} — skipping page.")
+
+            # Extra second after the last page before closing.
+            page.wait_for_timeout(1000)
+
+            # Closing the context triggers Playwright to flush and save the video file.
+            context.close()
+            browser.close()
+
+        # Find the recorded .webm file (Playwright names it with a UUID).
+        webm_files = list(tmp_path.glob("*.webm"))
+        if not webm_files:
+            print("ERROR: No .webm file found after recording.")
+            return None
+
+        # Move it to the final output path.
+        src = webm_files[0]
+        WEBM_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.move(str(src), str(WEBM_OUTPUT))
+        size_mb = WEBM_OUTPUT.stat().st_size / (1024 * 1024)
+        print(f"\n  Video saved: {WEBM_OUTPUT}  ({size_mb:.2f} MB)")
+        return WEBM_OUTPUT
+
+
+# ---------------------------------------------------------------------------
+# FFmpeg: webm → gif
+# ---------------------------------------------------------------------------
+def convert_webm_to_gif(webm_path: Path, gif_path: Path) -> bool:
+    """
+    Convert a .webm file to an animated GIF using ffmpeg with palette optimisation.
+    Returns True on success.
+    """
+    print(f"\n  Converting {webm_path.name} → {gif_path.name} with ffmpeg ...")
+
+    # High-quality palette-optimised GIF filter graph.
+    vf = (
+        "fps=12,"
+        "scale=960:-1:flags=lanczos,"
+        "split[s0][s1];"
+        "[s0]palettegen=max_colors=128:stats_mode=diff[p];"
+        "[s1][p]paletteuse=dither=bayer:bayer_scale=3"
+    )
+
+    cmd = [
+        "ffmpeg",
+        "-y",                       # overwrite output without asking
+        "-i", str(webm_path),
+        "-vf", vf,
+        "-loop", "0",               # loop forever
+        str(gif_path),
+    ]
+
+    print(f"  Running: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,            # 5-minute safety timeout
+        )
+        if result.returncode != 0:
+            print(f"  ERROR: ffmpeg exited with code {result.returncode}")
+            print(result.stderr[-2000:])  # last 2 KB of stderr
+            return False
+    except FileNotFoundError:
+        print("  ERROR: ffmpeg not found. Install it: sudo apt install ffmpeg")
+        return False
+    except subprocess.TimeoutExpired:
+        print("  ERROR: ffmpeg timed out after 5 minutes.")
+        return False
+
+    size_bytes = gif_path.stat().st_size
+    size_mb = size_bytes / (1024 * 1024)
+    print(f"\n  GIF saved: {gif_path}")
+    print(f"  File size: {size_mb:.2f} MB ({size_bytes:,} bytes)")
+
+    if size_bytes > TELEGRAM_SIZE_LIMIT_BYTES:
+        print(
+            f"  WARNING: GIF exceeds Telegram's 10 MB limit "
+            f"({size_mb:.2f} MB). Consider reducing scale or fps."
+        )
+    else:
+        print("  Size is within Telegram's 10 MB limit.")
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Screenshot capture (fallback / --screenshots mode)
 # ---------------------------------------------------------------------------
 def capture_pages(base_url: str, password: str) -> list[tuple[str, Path]]:
     """Launch Playwright, log in, capture each page. Returns list of (name, path)."""
@@ -152,7 +307,7 @@ def apply_blur(img, regions: list[tuple[int, int, int, int]]):
 
 
 # ---------------------------------------------------------------------------
-# GIF assembly
+# GIF assembly (screenshot mode)
 # ---------------------------------------------------------------------------
 def build_gif(frames: list, output_path: Path, frame_duration_ms: int = 2500):
     """Build an animated GIF from a list of PIL images.
@@ -277,17 +432,30 @@ def build_collage(frames, output_path: Path):
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
-        description="Capture Botson dashboard screenshots and build an animated GIF showcase."
+        description="Capture Botson dashboard as a video walkthrough and convert to GIF.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Modes:\n"
+            "  (default)      Video mode — records a live browser walkthrough via Playwright,\n"
+            "                 then converts to GIF with ffmpeg.\n"
+            "  --screenshots  Screenshot mode — takes static screenshots per page and\n"
+            "                 assembles them into an animated GIF using Pillow.\n"
+        ),
+    )
+    parser.add_argument(
+        "--screenshots",
+        action="store_true",
+        help="Use screenshot mode instead of video recording (fallback).",
     )
     parser.add_argument(
         "--no-blur",
         action="store_true",
-        help="Skip privacy blurring of member names/descriptions.",
+        help="Skip privacy blurring of member names/descriptions (screenshot mode only).",
     )
     parser.add_argument(
         "--collage",
         action="store_true",
-        help="Also generate a 2×3 grid collage PNG.",
+        help="Also generate a 2×3 grid collage PNG (screenshot mode only).",
     )
     parser.add_argument(
         "--base-url",
@@ -308,13 +476,39 @@ def main():
     )
     base_url = args.base_url.rstrip("/")
 
+    mode = "screenshots" if args.screenshots else "video"
+
     print("=== Botson Dashboard Showcase Capture ===")
+    print(f"Mode     : {mode}")
     print(f"Base URL : {base_url}")
-    print(f"Blur     : {'disabled' if args.no_blur else 'enabled'}")
-    print(f"Collage  : {'yes' if args.collage else 'no'}")
+    if args.screenshots:
+        print(f"Blur     : {'disabled' if args.no_blur else 'enabled'}")
+        print(f"Collage  : {'yes' if args.collage else 'no'}")
     print()
 
-    # --- Step 1: Capture screenshots ---
+    # -------------------------------------------------------------------------
+    # VIDEO MODE (default)
+    # -------------------------------------------------------------------------
+    if not args.screenshots:
+        print("[1/2] Recording video walkthrough ...")
+        webm_path = capture_video(base_url, password)
+        if webm_path is None:
+            print("Video capture failed. Exiting.")
+            sys.exit(1)
+
+        print("\n[2/2] Converting to GIF ...")
+        success = convert_webm_to_gif(webm_path, GIF_OUTPUT)
+        if not success:
+            print("FFmpeg conversion failed. The raw .webm is still available at:")
+            print(f"  {webm_path}")
+            sys.exit(1)
+
+        print("\nDone.")
+        return
+
+    # -------------------------------------------------------------------------
+    # SCREENSHOT MODE (--screenshots flag)
+    # -------------------------------------------------------------------------
     print("[1/3] Capturing screenshots ...")
     captured = capture_pages(base_url, password)
 

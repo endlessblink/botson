@@ -3,44 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Botson — סקירה</title>
+    <title>Botson — אישור הודעות</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1a1a2e; color: #e0e0e0; max-width: 600px; margin: 40px auto; padding: 20px; line-height: 1.8; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1a1a2e; color: #e0e0e0; max-width: 650px; margin: 40px auto; padding: 20px; line-height: 1.8; }
         h2 { color: #82b1ff; margin-top: 30px; }
-        .msg { background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 14px 18px; margin: 10px 0; font-size: 15px; white-space: pre-line; }
-        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-bottom: 6px; }
-        .tag-done { background: #14532d33; color: #4ade80; }
-        .tag-sched { background: #78350f33; color: #fbbf24; }
-        .tag-missed { background: #3f1b1b33; color: #f87171; }
-        .note { color: #71717a; font-size: 13px; margin-top: 4px; }
-        table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-        th, td { padding: 8px 12px; border: 1px solid #2a2a4a; text-align: right; }
-        th { background: #16213e; color: #82b1ff; }
+        .msg { background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 16px 20px; margin: 10px 0; font-size: 16px; white-space: pre-line; }
+        .option { background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 14px 18px; margin: 8px 0; font-size: 16px; cursor: pointer; }
+        .option:hover { border-color: #4a4a6a; }
+        .option-num { color: #82b1ff; font-weight: bold; margin-left: 8px; }
+        .tag { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
+        .tag-channel { background: #0c4a6e33; color: #38bdf8; }
+        .tag-event { background: #701a7533; color: #e879f9; }
+        .tag-time { background: #78350f33; color: #fbbf24; }
+        .note { color: #71717a; font-size: 14px; margin-top: 6px; }
+        .btn { display: block; background: #16213e; border: 1px solid #3a3a5a; border-radius: 8px; padding: 10px 16px; margin: 6px 0; font-size: 15px; color: #d4d4d8; text-align: center; }
     </style>
 </head>
 <body>
 
-<h2>📅 רביעי 8.4 — מה נשאר</h2>
-<table>
-    <tr><th>שעה</th><th>מה</th><th>ערוץ</th><th>סטטוס</th></tr>
-    <tr><td>09:15</td><td>הכרזת מערכת רמות</td><td>מצטרפים חדשים (341)</td><td><span class="tag tag-done">✓ נשלח</span></td></tr>
-    <tr><td>10:00</td><td>סקר Clone Drone (ישן)</td><td>גיימינג (1517)</td><td><span class="tag tag-done">✓ נשלח</span></td></tr>
-    <tr><td>12:37</td><td>סקר Clone Drone v2 (עם מעקב הצבעות)</td><td>גיימינג (1517)</td><td><span class="tag tag-done">✓ נשלח</span></td></tr>
-    <tr><td>12:00</td><td>דיון — אומנות ויצירה</td><td>אומנות (347)</td><td><span class="tag tag-missed">✗ פספס (תהליך מת)</span></td></tr>
-    <tr><td>18:00</td><td>דיון — סרטים וסדרות</td><td>סרטים (54)</td><td><span class="tag tag-sched">⏳ מתוזמן</span></td></tr>
-</table>
+<h2>💬 שאלה לדיון — מגניב / מצחיק</h2>
+<span class="tag tag-channel">ערוץ: מגניב / מצחיק (153)</span>
+<span class="tag tag-time">היום חמישי 9.4</span>
 
-<h2>📺 דיון — סרטים וסדרות</h2>
-<span class="tag tag-sched">18:00 | סרטים וסדרות (54)</span>
+<p class="note">בחר/י אחת מהאפשרויות:</p>
 
-<div class="msg">💬 מה הסדרה שאתם צופים בה עכשיו? שווה?</div>
+<div class="option"><span class="option-num">1.</span> 💬 מה הדבר הכי אבסורדי שראיתם השבוע?</div>
 
-<h2>📋 משימות חדשות</h2>
-<table>
-    <tr><th>ID</th><th>משימה</th><th>עדיפות</th></tr>
-    <tr><td>T-078</td><td>Dashboard: יצירת סקרים אינטראקטיביים מהדשבורד</td><td>P1</td></tr>
-    <tr><td>T-079</td><td>טריוויה: עיצוב מחדש — ניקוד מהירות + ערוצים נושאיים</td><td>P1</td></tr>
-</table>
+<div class="option"><span class="option-num">2.</span> 💬 ספרו בדיחה — הכי גרועה שיש! 😂</div>
+
+<div class="option"><span class="option-num">3.</span> 💬 מה הדבר הכי מביך שקרה לכם?</div>
+
+<div class="option"><span class="option-num">4.</span> 💬 אם החיים שלכם היו סיטקום, מה היה השם?</div>
+
+<div class="option"><span class="option-num">5.</span> 💬 מה המם הכי טוב שראיתם לאחרונה?</div>
+
+<p class="note">או תגיד לי מה אתה רוצה ואני אכתוב</p>
+
+<hr style="border-color: #2a2a4a; margin: 30px 0;">
+
+<h2>🎲 אירוע Splendor — שבת 11.4</h2>
+<span class="tag tag-event">אירוע</span>
+<span class="tag tag-time">שבת 18:00 | עד 4 שחקנים | שעה</span>
+
+<div class="msg">🎲 Splendor — ערב משחק מוצ"ש!
+
+משחקים Splendor ביחד במוצ"ש.
+עד 4 שחקנים, משחק אחד לוקח בערך שעה.
+
+📅 שבת 11.4 ב-18:00
+👥 עד 4 שחקנים
+⏱️ כשעה
+
+מי בפנים? 👇</div>
+
+<div class="btn">🗓️ שבת (11.4) ב-18:00 — מגיע/ה!</div>
+<div class="btn">🤔 אולי</div>
+<div class="btn">❌ לא הפעם</div>
+
+<p class="note">ישלח קודם ל-Den לאישור, ואז לערוץ גיימינג בקבוצה הראשית</p>
 
 </body>
 </html>

@@ -38,7 +38,7 @@
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
         <!-- Bot Status -->
-        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-scale-in stagger-1">
             <div class="flex items-center gap-2 mb-2">
                 <span class="w-2 h-2 rounded-full {% if bot_version %}bg-emerald-400{% else %}bg-[#71717a]{% endif %} shrink-0"></span>
                 <span class="text-xs font-medium {% if bot_version %}text-emerald-400{% else %}text-[#71717a]{% endif %}">{% if bot_version %}פעיל{% else %}לא פעיל{% endif %}</span>
@@ -48,7 +48,7 @@
         </div>
 
         <!-- Members -->
-        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-scale-in stagger-2">
             <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ member_count }}</div>
             <div class="text-xs text-[#71717a] mt-1">חברים רשומים</div>
         </div>
@@ -58,13 +58,13 @@
         {% for k, v in today_activity.items() %}
             {% set total_today.val = total_today.val + v %}
         {% endfor %}
-        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-scale-in stagger-3">
             <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ total_today.val }}</div>
             <div class="text-xs text-[#71717a] mt-1">פעולות היום</div>
         </div>
 
         <!-- Spam Blocked -->
-        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-scale-in stagger-4">
             <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ spam_today }}</div>
             <div class="text-xs text-[#71717a] mt-1">ספאם שנחסם היום</div>
         </div>
@@ -75,7 +75,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         <!-- Feature Status -->
-        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-fade-in-up stagger-5">
             <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">מצב תכונות</h2>
             {% set feature_labels = {
                 'morning_prompt': 'הודעת בוקר',
@@ -104,7 +104,7 @@
         </div>
 
         <!-- Schedule Overview -->
-        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-fade-in-up stagger-6">
             <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">לוח זמנים היום</h2>
             {% set schedule = settings.schedule or {} %}
             {% set today_wd = today_weekday %}
@@ -172,7 +172,7 @@
     </div>
 
     <!-- Row 3: Recent Activity Log -->
-    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-fade-in-up stagger-7">
         <h2 class="text-[#fafafa] font-semibold tracking-tight mb-3">פעילות אחרונה</h2>
         {% if recent_log %}
             <div class="overflow-x-auto">

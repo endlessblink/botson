@@ -25,7 +25,7 @@
 </div>
 
 <!-- Telegram Preview -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4 animate-fade-in-up stagger-1">
     <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה</p>
     <div class="flex flex-col sm:flex-row gap-4">
         <!-- Level-up announcement -->
@@ -50,7 +50,7 @@
 </div>
 
 <!-- Levels Settings -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4 animate-fade-in-up stagger-1">
     <div class="flex items-center justify-between">
         <span class="text-sm text-[#a1a1aa]">מקסימום נקודות ביום למשתמש</span>
         <span class="text-sm text-[#fafafa] stat-number">{{ settings.levels.max_per_day if settings.levels and settings.levels.max_per_day else '—' }}</span>
@@ -58,7 +58,7 @@
 </div>
 
 <!-- Leaderboard -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg animate-fade-in-up stagger-2">
     <div class="overflow-x-auto">
         <table class="w-full">
             <thead>
