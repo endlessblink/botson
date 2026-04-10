@@ -13,6 +13,7 @@ PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot
 
 from .database.db import Database
 from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, topic_tracker, polls
+from .handlers.calendar import check_and_send_due_messages
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_prompts
 
@@ -133,6 +134,9 @@ def _setup_reload_watcher(app):
     # Check reload every 5 seconds
     app.job_queue.run_repeating(_check_reload, interval=5, first=5, name="reload_watcher")
 
+    # Content calendar checker — runs every minute
+    app.job_queue.run_repeating(check_and_send_due_messages, interval=60, first=10, name="calendar_checker")
+
 
 async def _reload_config(app):
     """Atomic reload: re-register jobs from fresh config.
@@ -146,7 +150,7 @@ async def _reload_config(app):
         return
 
     # Save old jobs (excluding system jobs) so we can restore on failure
-    system_jobs = {"reload_watcher"}
+    system_jobs = {"reload_watcher", "calendar_checker"}
     old_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
 
     # Remove only schedule jobs (not the reload_watcher)

@@ -961,6 +961,111 @@ async def review_page(request: Request):
     })
 
 
+# ── Content Calendar API ─────────────────────────────────
+
+@app.get("/api/calendar")
+async def get_calendar(request: Request, db: Database = Depends(get_db)):
+    """Get scheduled messages for a week."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Jerusalem")
+    now = datetime.now(tz)
+
+    week_start = request.query_params.get("from", now.strftime("%Y-%m-%d"))
+    week_end_dt = datetime.strptime(week_start, "%Y-%m-%d") + timedelta(days=7)
+    week_end = week_end_dt.strftime("%Y-%m-%d")
+
+    messages = await db.get_scheduled_messages(week_start, week_end)
+    return {"messages": messages}
+
+
+@app.post("/api/calendar")
+async def create_calendar_item(request: Request, db: Database = Depends(get_db)):
+    """Create a new scheduled message."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    msg_id = await db.create_scheduled_message(
+        text=data["text"],
+        message_type=data.get("message_type", "custom"),
+        channel_topic_id=data.get("channel_topic_id"),
+        target_group=data.get("target_group", "main"),
+        scheduled_date=data["scheduled_date"],
+        scheduled_time=data["scheduled_time"],
+        recurrence=data.get("recurrence"),
+        recurrence_days=json.dumps(data["recurrence_days"]) if data.get("recurrence_days") else None,
+        auto_pin=data.get("auto_pin", False),
+    )
+    return {"status": "ok", "id": msg_id}
+
+
+@app.put("/api/calendar/{msg_id}")
+async def update_calendar_item(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Update a scheduled message."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    allowed = {"text", "channel_topic_id", "target_group", "scheduled_date", "scheduled_time",
+               "recurrence", "recurrence_days", "status", "auto_pin", "message_type"}
+    fields = {k: v for k, v in data.items() if k in allowed}
+    if "recurrence_days" in fields and isinstance(fields["recurrence_days"], list):
+        fields["recurrence_days"] = json.dumps(fields["recurrence_days"])
+
+    await db.update_scheduled_message(msg_id, **fields)
+    return {"status": "ok"}
+
+
+@app.delete("/api/calendar/{msg_id}")
+async def delete_calendar_item(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Cancel a scheduled message."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    await db.delete_scheduled_message(msg_id)
+    return {"status": "ok"}
+
+
+@app.post("/api/calendar/{msg_id}/send-now")
+async def send_calendar_item_now(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Send a scheduled message immediately."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    target = data.get("target", "main")  # "main" or "test"
+
+    # Get the message
+    messages = await db.get_scheduled_messages("2000-01-01", "2099-12-31")
+    msg = next((m for m in messages if m["id"] == msg_id), None)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    from telegram import Bot
+    bot = Bot(os.getenv("BOT_TOKEN", ""))
+
+    if target == "test":
+        group_id = int(os.getenv("TEST_GROUP_ID", "0"))
+    else:
+        group_id = int(os.getenv("GROUP_ID", "0"))
+
+    kwargs = {"chat_id": group_id, "text": msg["text"]}
+    if msg.get("channel_topic_id"):
+        kwargs["message_thread_id"] = msg["channel_topic_id"]
+
+    try:
+        sent = await bot.send_message(**kwargs)
+        if target != "test":
+            await db.mark_message_sent(msg_id, sent.message_id)
+        return {"status": "ok", "message_id": sent.message_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Planner Page ─────────────────────────────────────────
 
 @app.get("/planner", response_class=HTMLResponse)

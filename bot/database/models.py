@@ -89,4 +89,23 @@ CREATE TABLE IF NOT EXISTS blocked_users (
     reason TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    message_type TEXT NOT NULL DEFAULT 'custom',
+    channel_topic_id INTEGER,
+    target_group TEXT DEFAULT 'main',
+    scheduled_date DATE NOT NULL,
+    scheduled_time TIME NOT NULL,
+    recurrence TEXT,
+    recurrence_days TEXT,
+    status TEXT DEFAULT 'scheduled',
+    sent_at TIMESTAMP,
+    sent_message_id INTEGER,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT DEFAULT 'dashboard',
+    auto_pin BOOLEAN DEFAULT FALSE
+);
 """

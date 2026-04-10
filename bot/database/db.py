@@ -464,3 +464,86 @@ class Database:
             "SELECT topic_id, name, last_seen_at FROM forum_topics ORDER BY name"
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
+
+    # ── Scheduled Messages (Content Calendar) ────────────────
+
+    async def get_scheduled_messages(self, date_from: str, date_to: str) -> list[dict]:
+        """Get scheduled messages for a date range."""
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE scheduled_date >= ? AND scheduled_date <= ?
+               ORDER BY scheduled_date, scheduled_time""",
+            (date_from, date_to),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_due_messages(self, current_date: str, current_time: str) -> list[dict]:
+        """Get messages that are due to be sent now."""
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE status = 'scheduled'
+               AND scheduled_date = ?
+               AND scheduled_time <= ?
+               ORDER BY scheduled_time""",
+            (current_date, current_time),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def create_scheduled_message(self, text: str, message_type: str,
+                                        channel_topic_id: int | None,
+                                        target_group: str,
+                                        scheduled_date: str, scheduled_time: str,
+                                        recurrence: str | None = None,
+                                        recurrence_days: str | None = None,
+                                        auto_pin: bool = False,
+                                        created_by: str = "dashboard") -> int:
+        """Create a new scheduled message. Returns ID."""
+        async with self._db.execute(
+            """INSERT INTO scheduled_messages
+               (text, message_type, channel_topic_id, target_group,
+                scheduled_date, scheduled_time, recurrence, recurrence_days,
+                auto_pin, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (text, message_type, channel_topic_id, target_group,
+             scheduled_date, scheduled_time, recurrence, recurrence_days,
+             auto_pin, created_by),
+        ) as cursor:
+            msg_id = cursor.lastrowid
+        await self._db.commit()
+        return msg_id
+
+    async def update_scheduled_message(self, msg_id: int, **fields):
+        """Update a scheduled message."""
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [msg_id]
+        await self._db.execute(
+            f"UPDATE scheduled_messages SET {set_clause} WHERE id = ?", values
+        )
+        await self._db.commit()
+
+    async def mark_message_sent(self, msg_id: int, sent_message_id: int):
+        """Mark a scheduled message as sent."""
+        await self._db.execute(
+            "UPDATE scheduled_messages SET status = 'sent', sent_at = ?, sent_message_id = ? WHERE id = ?",
+            (_now_il(), sent_message_id, msg_id),
+        )
+        await self._db.commit()
+
+    async def mark_message_failed(self, msg_id: int, error: str):
+        """Mark a scheduled message as failed."""
+        await self._db.execute(
+            "UPDATE scheduled_messages SET status = 'failed', error_message = ? WHERE id = ?",
+            (error, msg_id),
+        )
+        await self._db.commit()
+
+    async def delete_scheduled_message(self, msg_id: int):
+        """Delete a scheduled message."""
+        await self._db.execute(
+            "UPDATE scheduled_messages SET status = 'cancelled' WHERE id = ?", (msg_id,)
+        )
+        await self._db.commit()
