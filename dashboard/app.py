@@ -965,7 +965,7 @@ async def review_page(request: Request):
 
 @app.get("/api/calendar")
 async def get_calendar(request: Request, db: Database = Depends(get_db)):
-    """Get scheduled messages for a week."""
+    """Get scheduled messages in FullCalendar event format."""
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
@@ -974,12 +974,55 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     tz = ZoneInfo("Asia/Jerusalem")
     now = datetime.now(tz)
 
-    week_start = request.query_params.get("from", now.strftime("%Y-%m-%d"))
-    week_end_dt = datetime.strptime(week_start, "%Y-%m-%d") + timedelta(days=7)
-    week_end = week_end_dt.strftime("%Y-%m-%d")
+    date_from = request.query_params.get("start", now.strftime("%Y-%m-%d"))
+    date_to = request.query_params.get("end", (now + timedelta(days=42)).strftime("%Y-%m-%d"))
 
-    messages = await db.get_scheduled_messages(week_start, week_end)
-    return {"messages": messages}
+    messages = await db.get_scheduled_messages(date_from, date_to)
+
+    # Channel color map
+    channel_colors = {
+        1517: "#6366f1",  # gaming - indigo
+        442: "#6366f1",   # geek/anime - indigo
+        54: "#ef4444",    # movies - red
+        347: "#a855f7",   # art - purple
+        1431: "#f59e0b",  # politics - amber
+        335: "#ec4899",   # cute - pink
+        59: "#ec4899",    # singles - pink
+        153: "#06b6d4",   # funny/cool - cyan
+        2184: "#f59e0b",  # goals/yom yom - amber
+        341: "#3b82f6",   # welcome - blue
+    }
+
+    # Convert to FullCalendar format
+    events = []
+    for m in messages:
+        if m.get("status") == "cancelled":
+            continue
+
+        color = channel_colors.get(m.get("channel_topic_id"), "#71717a")
+        status = m.get("status", "scheduled")
+
+        event = {
+            "id": str(m["id"]),
+            "title": m.get("text", "")[:60],
+            "start": f"{m['scheduled_date']}T{m.get('scheduled_time', '09:00')}:00",
+            "allDay": False,
+            "backgroundColor": color if status != "sent" else "#1a1a2e",
+            "borderColor": "#22c55e" if status == "sent" else color,
+            "textColor": "#fafafa" if status != "sent" else "#71717a",
+            "extendedProps": {
+                "fullText": m.get("text", ""),
+                "status": status,
+                "messageType": m.get("message_type", "custom"),
+                "channelTopicId": m.get("channel_topic_id"),
+                "recurrence": m.get("recurrence"),
+                "sentAt": m.get("sent_at"),
+                "createdBy": m.get("created_by"),
+            },
+        }
+        events.append(event)
+
+    return events
 
 
 @app.post("/api/calendar")
@@ -1073,23 +1116,13 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
-    from datetime import datetime, timedelta
+    from datetime import datetime
     from zoneinfo import ZoneInfo
-    tz = ZoneInfo("Asia/Jerusalem")
-    now = datetime.now(tz)
+    now = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
-    hebrew_days = ['שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת', 'ראשון']
-    today_name = f"יום {hebrew_days[now.weekday()]}"
-    today_str = now.strftime("%d.%m.%Y")
-    now_time = now.strftime("%H:%M")
-
-    # Forum topics for channel dropdowns
     forum_topics = await db.get_forum_topics() if hasattr(db, 'get_forum_topics') else []
-
-    # Draft messages (Claude's suggestions awaiting approval)
     drafts = await db.get_draft_messages() if hasattr(db, 'get_draft_messages') else []
 
-    # Parse draft_options JSON for each draft
     import json as _json
     for d in drafts:
         opts = d.get("draft_options")
@@ -1101,49 +1134,13 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         else:
             d["draft_options_list"] = []
 
-    # Scheduled messages for the next 7 days (not drafts, not cancelled)
-    date_from = now.strftime("%Y-%m-%d")
-    date_to = (now + timedelta(days=7)).strftime("%Y-%m-%d")
-    all_messages = await db.get_scheduled_messages(date_from, date_to)
-    # Filter out drafts and cancelled from calendar view
-    calendar_messages = [m for m in all_messages if m.get("status") in ("scheduled", "sent", "failed")]
-
-    # Group by date
-    week_plan = []
-    for i in range(7):
-        d = now + timedelta(days=i)
-        day_name = f"יום {hebrew_days[d.weekday()]}"
-        day_date = d.strftime("%d.%m")
-        date_key = d.strftime("%Y-%m-%d")
-
-        entries = [m for m in calendar_messages if m.get("scheduled_date") == date_key]
-        entries.sort(key=lambda x: x.get("scheduled_time", ""))
-
-        # Special dates
-        sensitive = None
-        if d.strftime("%m-%d") == "04-14":
-            sensitive = "יום השואה"
-
-        week_plan.append({
-            "name": day_name,
-            "date": day_date,
-            "date_key": date_key,
-            "is_today": i == 0,
-            "sensitive": sensitive,
-            "entries": entries,
-        })
-
-    # Channel name lookup for display
     topic_names = {t["topic_id"]: t["name"] for t in forum_topics}
 
     return templates.TemplateResponse(request, name="planner.html", context={
-        "today_name": today_name,
-        "today_str": today_str,
-        "now_time": now_time,
-        "week_plan": week_plan,
-        "drafts": drafts,
+        "now_date": now.strftime("%Y-%m-%d"),
         "forum_topics": forum_topics,
         "topic_names": topic_names,
+        "drafts": drafts,
     })
 
 
