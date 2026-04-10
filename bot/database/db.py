@@ -541,8 +541,16 @@ class Database:
         )
         await self._db.commit()
 
+    async def get_draft_messages(self) -> list[dict]:
+        """Get all draft messages awaiting approval."""
+        async with self._db.execute(
+            "SELECT * FROM scheduled_messages WHERE status = 'draft' ORDER BY created_at DESC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
     async def delete_scheduled_message(self, msg_id: int):
-        """Delete a scheduled message."""
+        """Cancel a scheduled message."""
         await self._db.execute(
             "UPDATE scheduled_messages SET status = 'cancelled' WHERE id = ?", (msg_id,)
         )

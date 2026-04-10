@@ -1083,17 +1083,32 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     today_str = now.strftime("%d.%m.%Y")
     now_time = now.strftime("%H:%M")
 
-    # Load forum topics for channel dropdowns
-    forum_topics = []
-    if hasattr(db, 'get_forum_topics'):
-        forum_topics = await db.get_forum_topics()
+    # Forum topics for channel dropdowns
+    forum_topics = await db.get_forum_topics() if hasattr(db, 'get_forum_topics') else []
 
-    # Load scheduled messages for the next 7 days
+    # Draft messages (Claude's suggestions awaiting approval)
+    drafts = await db.get_draft_messages() if hasattr(db, 'get_draft_messages') else []
+
+    # Parse draft_options JSON for each draft
+    import json as _json
+    for d in drafts:
+        opts = d.get("draft_options")
+        if opts and isinstance(opts, str):
+            try:
+                d["draft_options_list"] = _json.loads(opts)
+            except Exception:
+                d["draft_options_list"] = []
+        else:
+            d["draft_options_list"] = []
+
+    # Scheduled messages for the next 7 days (not drafts, not cancelled)
     date_from = now.strftime("%Y-%m-%d")
     date_to = (now + timedelta(days=7)).strftime("%Y-%m-%d")
     all_messages = await db.get_scheduled_messages(date_from, date_to)
+    # Filter out drafts and cancelled from calendar view
+    calendar_messages = [m for m in all_messages if m.get("status") in ("scheduled", "sent", "failed")]
 
-    # Group messages by date
+    # Group by date
     week_plan = []
     for i in range(7):
         d = now + timedelta(days=i)
@@ -1101,13 +1116,12 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         day_date = d.strftime("%d.%m")
         date_key = d.strftime("%Y-%m-%d")
 
-        entries = [m for m in all_messages if m.get("scheduled_date") == date_key]
+        entries = [m for m in calendar_messages if m.get("scheduled_date") == date_key]
         entries.sort(key=lambda x: x.get("scheduled_time", ""))
 
-        # Known special dates
+        # Special dates
         sensitive = None
-        date_mm_dd = d.strftime("%m-%d")
-        if date_mm_dd == "04-14":
+        if d.strftime("%m-%d") == "04-14":
             sensitive = "יום השואה"
 
         week_plan.append({
@@ -1119,13 +1133,17 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
             "entries": entries,
         })
 
+    # Channel name lookup for display
+    topic_names = {t["topic_id"]: t["name"] for t in forum_topics}
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "today_name": today_name,
         "today_str": today_str,
         "now_time": now_time,
         "week_plan": week_plan,
+        "drafts": drafts,
         "forum_topics": forum_topics,
-        "test_group_id": os.getenv("TEST_GROUP_ID", ""),
+        "topic_names": topic_names,
     })
 
 

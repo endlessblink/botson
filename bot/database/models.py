@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
     error_message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by TEXT DEFAULT 'dashboard',
-    auto_pin BOOLEAN DEFAULT FALSE
+    auto_pin BOOLEAN DEFAULT FALSE,
+    draft_options TEXT
 );
 """
