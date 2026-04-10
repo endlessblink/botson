@@ -3,238 +3,197 @@
 {% block title %}Botson — תכנון ושליחה{% endblock %}
 
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון ושליחה</h1>
-    <p class="text-sm text-[#71717a] mt-1">{{ today_str }} — שעה {{ now_time }}</p>
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון ושליחה</h1>
+        <p class="text-sm text-[#71717a] mt-1">{{ today_str }} — שעה {{ now_time }}</p>
+    </div>
 </div>
 
-<!-- Pending messages for approval -->
-{% if pending_messages %}
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
-    <div class="px-5 py-4 border-b border-[#1f1f1f]">
-        <span class="text-base font-medium text-[#fafafa]">✏️ ממתין לאישור</span>
+<!-- New message form (collapsed by default) -->
+<div id="new-msg-form" class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6 hidden">
+    <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+        <span class="text-base font-medium text-[#fafafa]">📝 הודעה חדשה</span>
+        <button onclick="document.getElementById('new-msg-form').classList.add('hidden')" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer text-lg">&times;</button>
     </div>
-    <div class="px-5 py-4 space-y-6">
-        {% for msg in pending_messages %}
-        <div class="{% if not loop.last %}pb-6 border-b border-[#1f1f1f]{% endif %}">
-            <div class="flex items-center justify-between mb-3">
-                <span class="text-base font-medium text-[#fafafa]">{{ msg.title }}</span>
-                <div class="flex gap-2">
-                    {% if msg.channel %}<span class="text-xs bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded-md">{{ msg.channel }}</span>{% endif %}
-                    {% if msg.when %}<span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">{{ msg.when }}</span>{% endif %}
-                </div>
+    <div class="px-5 py-4 space-y-4">
+        <div>
+            <label class="text-xs text-[#71717a] mb-1 block">תוכן ההודעה</label>
+            <textarea id="new-text" rows="4" dir="rtl" class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none"></textarea>
+        </div>
+        <div class="flex gap-4">
+            <div>
+                <label class="text-xs text-[#71717a] mb-1 block">תאריך</label>
+                <input type="date" id="new-date" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none">
             </div>
-
-            {% if msg.options %}
-            <p class="text-sm text-[#71717a] mb-2">בחר/י אפשרות:</p>
-            {% for opt in msg.options %}
-            <div class="bg-[#111318] border border-[#272727] hover:border-[#52525b] rounded-lg px-5 py-3.5 mb-2 text-[15px] text-[#d4d4d8] cursor-pointer transition-colors"
-                 onclick="selectOption(this, '{{ opt | e }}', {{ msg.topic_id or 'null' }})">
-                <span class="text-[#52525b] font-medium ml-2">{{ loop.index }}.</span> {{ opt }}
+            <div>
+                <label class="text-xs text-[#71717a] mb-1 block">שעה</label>
+                <input type="time" id="new-time" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none">
             </div>
-            {% endfor %}
-            {% endif %}
-
-            {% if msg.preview %}
-            <div class="bg-[#111318] border border-[#272727] rounded-lg px-5 py-4 mb-3 text-[15px] text-[#d4d4d8] whitespace-pre-line leading-relaxed">{{ msg.preview }}</div>
-            {% endif %}
-
-            {% if msg.buttons %}
-            <div class="mt-3 space-y-2">
-                {% for btn in msg.buttons %}
-                <div class="bg-[#16213e] border border-[#2a2a4a] rounded-lg px-4 py-2.5 text-sm text-[#a1a1aa] text-center">{{ btn }}</div>
-                {% endfor %}
-            </div>
-            {% endif %}
-
-            <!-- Send controls -->
-            <div class="mt-4 flex items-center gap-3">
-                <select class="msg-topic-select bg-transparent border border-[#272727] rounded-md h-8 px-2 text-xs text-[#fafafa] focus:outline-none w-[180px]" data-default="{{ msg.topic_id or '' }}">
+            <div>
+                <label class="text-xs text-[#71717a] mb-1 block">ערוץ</label>
+                <select id="new-topic" class="bg-transparent border border-[#272727] rounded-md h-9 px-2 text-sm text-[#fafafa] focus:outline-none w-[200px]">
                     <option value="" class="bg-[#0a0a0a]">כללי</option>
                     {% for t in forum_topics %}
-                    <option value="{{ t.topic_id }}" class="bg-[#0a0a0a]" {% if t.topic_id == (msg.topic_id or 0) %}selected{% endif %}>{{ t.name }}</option>
+                    <option value="{{ t.topic_id }}" class="bg-[#0a0a0a]">{{ t.name }}</option>
                     {% endfor %}
                 </select>
-                <button onclick="sendToDen(this)" class="text-xs text-[#71717a] hover:text-sky-400 border border-[#272727] hover:border-sky-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">🧪 שלח ל-Den</button>
-                <button onclick="sendToGroup(this)" class="text-xs text-[#71717a] hover:text-green-400 border border-[#272727] hover:border-green-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">📤 שלח לקבוצה</button>
+            </div>
+            <div>
+                <label class="text-xs text-[#71717a] mb-1 block">חזרה</label>
+                <select id="new-recurrence" class="bg-transparent border border-[#272727] rounded-md h-9 px-2 text-sm text-[#fafafa] focus:outline-none">
+                    <option value="" class="bg-[#0a0a0a]">חד פעמי</option>
+                    <option value="daily" class="bg-[#0a0a0a]">יומי</option>
+                    <option value="weekdays" class="bg-[#0a0a0a]">ימי חול</option>
+                    <option value="weekly" class="bg-[#0a0a0a]">שבועי</option>
+                </select>
             </div>
         </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
-
-<!-- Quick send box -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
-    <div class="px-5 py-4 border-b border-[#1f1f1f]">
-        <span class="text-base font-medium text-[#fafafa]">📤 שליחה מהירה</span>
-    </div>
-    <div class="px-5 py-4">
-        <textarea id="quick-send-text" rows="3" dir="rtl" placeholder="כתוב הודעה לשליחה..."
-            class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none"></textarea>
-        <div class="mt-3 flex items-center gap-3">
-            <select id="quick-send-topic" class="bg-transparent border border-[#272727] rounded-md h-8 px-2 text-xs text-[#fafafa] focus:outline-none w-[180px]">
-                <option value="" class="bg-[#0a0a0a]">כללי</option>
-                {% for t in forum_topics %}
-                <option value="{{ t.topic_id }}" class="bg-[#0a0a0a]">{{ t.name }}</option>
-                {% endfor %}
-            </select>
-            <button onclick="quickSendDen()" class="text-xs text-[#71717a] hover:text-sky-400 border border-[#272727] hover:border-sky-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">🧪 Den</button>
-            <button onclick="quickSendGroup()" class="text-xs text-[#71717a] hover:text-green-400 border border-[#272727] hover:border-green-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">📤 קבוצה</button>
+        <div class="flex gap-3">
+            <label class="flex items-center gap-2 text-sm text-[#a1a1aa]">
+                <input type="checkbox" id="new-pin" class="w-4 h-4"> הצמד הודעה
+            </label>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="createMessage()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">תזמן</button>
+            <button onclick="createAndSendDen()" class="text-sm text-[#71717a] hover:text-sky-400 border border-[#272727] hover:border-sky-500/30 px-4 h-9 rounded-md cursor-pointer transition-colors">🧪 שלח ל-Den</button>
+            <button onclick="createAndSendGroup()" class="text-sm text-[#71717a] hover:text-green-400 border border-[#272727] hover:border-green-500/30 px-4 h-9 rounded-md cursor-pointer transition-colors">📤 שלח עכשיו</button>
         </div>
     </div>
 </div>
 
-<!-- Weekly overview -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
-    <div class="px-5 py-4 border-b border-[#1f1f1f]">
-        <span class="text-base font-medium text-[#fafafa]">📅 תכנון שבועי</span>
+<!-- Week calendar -->
+<div class="space-y-4">
+{% for day in week_plan %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-5 py-3 border-b border-[#1f1f1f] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <span class="text-base font-medium {% if day.is_today %}text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">{{ day.name }} {{ day.date }}</span>
+            {% if day.is_today %}<span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">היום</span>{% endif %}
+            {% if day.sensitive %}<span class="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded-md">{{ day.sensitive }}</span>{% endif %}
+        </div>
+        <button onclick="openNewForm('{{ day.date_key }}')" class="text-xs text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors">+ הוסף</button>
     </div>
-    <div class="px-5 py-4">
-        {% for day in week_plan %}
-        <div class="mb-5 {% if not loop.last %}pb-5 border-b border-[#1f1f1f]{% endif %}">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="text-base font-medium {% if day.is_today %}text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">{{ day.name }} {{ day.date }}</span>
-                {% if day.is_today %}<span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">היום</span>{% endif %}
-                {% if day.holiday %}<span class="text-xs bg-amber-500/10 text-amber-300 px-2 py-0.5 rounded-md">{{ day.holiday }}</span>{% endif %}
-                {% if day.sensitive %}<span class="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded-md">{{ day.sensitive }}</span>{% endif %}
+    <div class="px-5 py-3">
+        {% if day.entries %}
+        {% for item in day.entries %}
+        <div class="flex gap-4 py-3 items-start {% if not loop.last %}border-b border-[#1f1f1f]{% endif %}" data-msg-id="{{ item.id }}">
+            <div class="w-14 shrink-0">
+                <span class="text-sm text-[#52525b] stat-number">{{ item.scheduled_time[:5] if item.scheduled_time else '' }}</span>
             </div>
-            {% if day.entries %}
-            {% for item in day.entries %}
-            <div class="flex gap-4 py-2 mr-4 items-center">
-                <span class="text-sm text-[#52525b] w-12 stat-number">{{ item.time }}</span>
-                <span class="text-xs px-2 py-0.5 rounded-md shrink-0
-                    {% if item.type == 'morning' %}bg-amber-500/10 text-amber-400
-                    {% elif item.type == 'evening' %}bg-indigo-500/10 text-indigo-400
-                    {% elif item.type == 'discussion' %}bg-sky-500/10 text-sky-400
-                    {% elif item.type == 'trivia' %}bg-green-500/10 text-green-400
-                    {% elif item.type == 'event' %}bg-pink-500/10 text-pink-400
-                    {% elif item.type == 'roundup' %}bg-orange-500/10 text-orange-400
-                    {% elif item.type == 'poll' %}bg-purple-500/10 text-purple-400
-                    {% elif item.type == 'level' %}bg-purple-500/10 text-purple-400
-                    {% elif item.type == 'spam' %}bg-red-500/10 text-red-400
-                    {% elif item.type == 'you' %}bg-green-500/10 text-green-400
-                    {% elif item.type == 'welcome' %}bg-blue-500/10 text-blue-400
-                    {% else %}bg-zinc-500/10 text-zinc-400{% endif %}">{{ item.label }}</span>
-                <span class="text-sm text-[#a1a1aa] flex-1">{{ item.desc }}</span>
-                {% if item.status == 'done' %}
-                <span class="text-xs text-green-400 shrink-0">✓</span>
-                {% elif item.status == 'pending' %}
-                <span class="text-xs text-amber-400 shrink-0">⏳</span>
-                {% elif item.status == 'missed' %}
-                <span class="text-xs text-red-400 shrink-0">✗</span>
-                {% elif item.status == 'cancelled' %}
-                <span class="text-xs text-zinc-500 shrink-0 line-through">בוטל</span>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs px-2 py-0.5 rounded-md shrink-0
+                        {% if item.message_type == 'morning' %}bg-amber-500/10 text-amber-400
+                        {% elif item.message_type == 'evening' %}bg-indigo-500/10 text-indigo-400
+                        {% elif item.message_type == 'discussion' %}bg-sky-500/10 text-sky-400
+                        {% elif item.message_type == 'event' %}bg-pink-500/10 text-pink-400
+                        {% elif item.message_type == 'poll' %}bg-purple-500/10 text-purple-400
+                        {% else %}bg-zinc-500/10 text-zinc-400{% endif %}">{{ item.message_type }}</span>
+                    {% if item.status == 'sent' %}
+                    <span class="text-xs text-green-400">✓ נשלח</span>
+                    {% elif item.status == 'failed' %}
+                    <span class="text-xs text-red-400">✗ נכשל</span>
+                    {% elif item.status == 'scheduled' %}
+                    <span class="text-xs text-amber-400">⏳</span>
+                    {% elif item.status == 'cancelled' %}
+                    <span class="text-xs text-zinc-500 line-through">בוטל</span>
+                    {% endif %}
+                    {% if item.recurrence %}
+                    <span class="text-[10px] text-[#52525b]">🔄 {{ item.recurrence }}</span>
+                    {% endif %}
+                </div>
+                <p class="text-sm text-[#d4d4d8] whitespace-pre-line leading-relaxed">{{ item.text[:200] }}{% if item.text|length > 200 %}...{% endif %}</p>
+            </div>
+            <div class="flex gap-2 shrink-0">
+                {% if item.status == 'scheduled' %}
+                <button onclick="sendNow({{ item.id }}, 'test')" class="text-[10px] text-[#71717a] hover:text-sky-400 border border-[#272727] px-2 py-1 rounded cursor-pointer transition-colors">🧪</button>
+                <button onclick="sendNow({{ item.id }}, 'main')" class="text-[10px] text-[#71717a] hover:text-green-400 border border-[#272727] px-2 py-1 rounded cursor-pointer transition-colors">📤</button>
+                <button onclick="cancelMsg({{ item.id }})" class="text-[10px] text-[#71717a] hover:text-red-400 border border-[#272727] px-2 py-1 rounded cursor-pointer transition-colors">✗</button>
                 {% endif %}
             </div>
-            {% endfor %}
-            {% else %}
-            <p class="text-sm text-[#3f3f46] mr-4">אין פעילויות מתוכננות</p>
-            {% endif %}
-            {% if day.note %}
-            <p class="text-sm text-[#52525b] mt-2 mr-4 italic">{{ day.note }}</p>
-            {% endif %}
         </div>
         {% endfor %}
+        {% else %}
+        <p class="text-sm text-[#3f3f46] py-2">אין הודעות מתוזמנות</p>
+        {% endif %}
     </div>
 </div>
-
-<!-- Pending actions -->
-{% if actions %}
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
-    <div class="px-5 py-4 border-b border-[#1f1f1f]">
-        <span class="text-base font-medium text-[#fafafa]">⚙️ פעולות נדרשות</span>
-    </div>
-    <div class="px-5 py-4 space-y-3">
-        {% for action in actions %}
-        <div class="flex gap-4 {% if not loop.last %}pb-3 border-b border-[#1f1f1f]{% endif %}">
-            <span class="text-sm text-[#71717a] w-28 shrink-0">{{ action.when }}</span>
-            <span class="text-sm text-[#d4d4d8]">{{ action.what }}</span>
-        </div>
-        {% endfor %}
-    </div>
+{% endfor %}
 </div>
-{% endif %}
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-    var TEST_GROUP_ID = '{{ test_group_id }}';
-    var GROUP_ID = '{{ settings.get("group_id", "") if settings else "" }}';
-
-    // Selected text from options
-    var selectedText = '';
-
-    function selectOption(el, text, topicId) {
-        // Highlight selected
-        el.closest('.space-y-6').querySelectorAll('.bg-\\[\\#111318\\]').forEach(function(d) {
-            d.classList.remove('border-sky-500/40');
-            d.classList.add('border-[#272727]');
-        });
-        el.classList.remove('border-[#272727]');
-        el.classList.add('border-sky-500/40');
-        selectedText = text;
+    function openNewForm(dateKey) {
+        document.getElementById('new-date').value = dateKey;
+        document.getElementById('new-msg-form').classList.remove('hidden');
+        document.getElementById('new-text').focus();
     }
 
-    function getTextAndTopic(btn, isDen) {
-        var section = btn.closest('.pb-6, [class*="space-y"]') || btn.closest('.px-5');
-        var textarea = section ? section.querySelector('textarea') : null;
-        var text = textarea ? textarea.value.trim() : selectedText;
-        var select = section ? section.querySelector('.msg-topic-select, select') : null;
-        var topicId = select ? select.value : '';
-        return { text: text, topicId: topicId };
-    }
-
-    async function sendToDen(btn) {
-        var data = getTextAndTopic(btn, true);
-        if (!data.text) { showToast('אין טקסט לשליחה', 'error'); return; }
-        btn.disabled = true;
-        var orig = btn.textContent;
-        btn.textContent = '...שולח';
+    async function createMessage() {
+        var text = document.getElementById('new-text').value.trim();
+        if (!text) { showToast('כתוב הודעה', 'error'); return; }
         try {
-            // Send to test group
+            await apiCall('/api/calendar', {
+                text: text,
+                scheduled_date: document.getElementById('new-date').value,
+                scheduled_time: document.getElementById('new-time').value || '09:00',
+                channel_topic_id: document.getElementById('new-topic').value || null,
+                recurrence: document.getElementById('new-recurrence').value || null,
+                auto_pin: document.getElementById('new-pin').checked,
+                message_type: 'custom',
+                target_group: 'main',
+            });
+            showToast('הודעה תוזמנה ✓');
+            setTimeout(function() { location.reload(); }, 800);
+        } catch (e) { showToast('שגיאה', 'error'); }
+    }
+
+    async function createAndSendDen() {
+        var text = document.getElementById('new-text').value.trim();
+        if (!text) { showToast('כתוב הודעה', 'error'); return; }
+        try {
             await apiCall('/api/bot/send-message', {
-                text: data.text,
-                topic_id: null,
-                target: 'test'
+                text: text,
+                topic_id: document.getElementById('new-topic').value || null,
+                target: 'test',
             });
             showToast('נשלח ל-Den ✓');
-        } catch (e) { showToast('שגיאה בשליחה', 'error'); }
-        finally { btn.disabled = false; btn.textContent = orig; }
+        } catch (e) { showToast('שגיאה', 'error'); }
     }
 
-    async function sendToGroup(btn) {
-        var data = getTextAndTopic(btn, false);
-        if (!data.text) { showToast('אין טקסט לשליחה', 'error'); return; }
-        btn.disabled = true;
-        var orig = btn.textContent;
-        btn.textContent = '...שולח';
+    async function createAndSendGroup() {
+        var text = document.getElementById('new-text').value.trim();
+        if (!text) { showToast('כתוב הודעה', 'error'); return; }
+        if (!confirm('לשלוח לקבוצה הראשית?')) return;
         try {
             await apiCall('/api/bot/send-message', {
-                text: data.text,
-                topic_id: data.topicId || null
+                text: text,
+                topic_id: document.getElementById('new-topic').value || null,
+                target: 'main',
             });
             showToast('נשלח לקבוצה ✓');
+        } catch (e) { showToast('שגיאה', 'error'); }
+    }
+
+    async function sendNow(msgId, target) {
+        if (target === 'main' && !confirm('לשלוח לקבוצה הראשית?')) return;
+        try {
+            await apiCall('/api/calendar/' + msgId + '/send-now', { target: target });
+            showToast(target === 'test' ? 'נשלח ל-Den ✓' : 'נשלח לקבוצה ✓');
+            setTimeout(function() { location.reload(); }, 800);
         } catch (e) { showToast('שגיאה בשליחה', 'error'); }
-        finally { btn.disabled = false; btn.textContent = orig; }
     }
 
-    function quickSendDen() {
-        var text = document.getElementById('quick-send-text').value.trim();
-        if (!text) { showToast('אין טקסט', 'error'); return; }
-        apiCall('/api/bot/send-message', { text: text, topic_id: null, target: 'test' })
-            .then(function() { showToast('נשלח ל-Den ✓'); document.getElementById('quick-send-text').value = ''; })
-            .catch(function() { showToast('שגיאה', 'error'); });
-    }
-
-    function quickSendGroup() {
-        var text = document.getElementById('quick-send-text').value.trim();
-        var topicId = document.getElementById('quick-send-topic').value;
-        if (!text) { showToast('אין טקסט', 'error'); return; }
-        apiCall('/api/bot/send-message', { text: text, topic_id: topicId || null })
-            .then(function() { showToast('נשלח לקבוצה ✓'); document.getElementById('quick-send-text').value = ''; })
-            .catch(function() { showToast('שגיאה', 'error'); });
+    async function cancelMsg(msgId) {
+        if (!confirm('לבטל הודעה?')) return;
+        try {
+            await fetch('/api/calendar/' + msgId, { method: 'DELETE' });
+            showToast('הודעה בוטלה');
+            setTimeout(function() { location.reload(); }, 500);
+        } catch (e) { showToast('שגיאה', 'error'); }
     }
 </script>
 {% endblock %}
