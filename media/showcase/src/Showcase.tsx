@@ -11,7 +11,7 @@ import {
 import { TransitionSeries, linearTiming } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
 import { BlurOverlay } from "./BlurOverlay";
-import { PAGE_REGIONS, ElementRegion } from "./PageRegions";
+import { PAGE_REGIONS } from "./PageRegions";
 
 const PAGES = [
   "home.png",
@@ -23,53 +23,50 @@ const PAGES = [
 ];
 
 const FPS = 15;
-export const PAGE_DURATION = Math.round(3.5 * FPS); // 52 frames (3.5s per page)
-export const TRANSITION_DURATION = Math.round(0.4 * FPS); // 6 frames (0.4s transition)
+export const PAGE_DURATION = Math.round(3.5 * FPS);
+export const TRANSITION_DURATION = Math.round(0.5 * FPS);
 
-// Output dimensions
 const W = 960;
 const H = 540;
-
-// Sidebar is on the right ~200px; content is the left 760px
 const SIDEBAR_WIDTH = 200;
-const CONTENT_WIDTH = W - SIDEBAR_WIDTH;
 
-const SNAPPY_CONFIG = { damping: 20, stiffness: 200 };
-const SMOOTH_CONFIG = { damping: 200 };
-
+/**
+ * Renders one region of the page screenshot.
+ *
+ * KEY: The <Img> is NEVER transformed (no scale, no translate).
+ * Only the clipPath animates (expands from a shrunken inset to full region)
+ * and opacity fades in. This prevents any pixel shifting artifacts.
+ */
 const RevealElement: React.FC<{
   page: string;
-  region: ElementRegion;
-}> = ({ page, region }) => {
+  top: number;
+  bottom: number;
+  delay: number;
+}> = ({ page, top, bottom, delay }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Spring starts at frame offset by the region's stagger delay
-  // Add a global delay of 3 frames so sidebar settles first
   const GLOBAL_DELAY = 3;
   const progress = spring({
-    frame: frame - region.delay - GLOBAL_DELAY,
+    frame: frame - delay - GLOBAL_DELAY,
     fps,
-    config: SNAPPY_CONFIG,
+    config: { damping: 20, stiffness: 200 },
   });
 
-  const opacity = progress;
-  const translateY = interpolate(progress, [0, 1], [25, 0]);
-  const scale = interpolate(progress, [0, 1], [0.96, 1]);
-
-  // clipPath inset: top right bottom left
-  const clipTop = region.top;
-  const clipBottom = H - region.bottom;
+  // Clip inset shrinks inward by PAD pixels, then expands to exact region
+  const PAD = 10;
+  const clipTop = interpolate(progress, [0, 1], [top + PAD, top]);
+  const clipRight = interpolate(progress, [0, 1], [SIDEBAR_WIDTH + PAD, SIDEBAR_WIDTH]);
+  const clipBottom = interpolate(progress, [0, 1], [H - bottom + PAD, H - bottom]);
+  const clipLeft = interpolate(progress, [0, 1], [PAD, 0]);
 
   return (
     <div
       style={{
         position: "absolute",
         inset: 0,
-        clipPath: `inset(${clipTop}px ${SIDEBAR_WIDTH}px ${clipBottom}px 0px)`,
-        opacity,
-        transform: `translateY(${translateY}px) scale(${scale})`,
-        transformOrigin: "center top",
+        clipPath: `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px round 6px)`,
+        opacity: progress,
       }}
     >
       <Img
@@ -84,29 +81,25 @@ const PageSlide: React.FC<{ page: string }> = ({ page }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Sidebar appears first with a smooth, fast spring
+  // Sidebar fades in immediately
   const sidebarProgress = spring({
     frame,
     fps,
-    config: SMOOTH_CONFIG,
+    config: { damping: 200 },
+    durationInFrames: 10,
   });
-
-  const sidebarOpacity = sidebarProgress;
-  const sidebarTranslateX = interpolate(sidebarProgress, [0, 1], [30, 0]);
 
   const regions = PAGE_REGIONS[page] || [];
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#09090b" }}>
-      {/* Sidebar — clips to right 200px, slides in from right */}
+      {/* Sidebar — always at correct position, no transform, just opacity */}
       <div
         style={{
           position: "absolute",
           inset: 0,
-          clipPath: `inset(0 0 0 ${CONTENT_WIDTH}px)`,
-          opacity: sidebarOpacity,
-          transform: `translateX(${sidebarTranslateX}px)`,
-          transformOrigin: "right center",
+          clipPath: `inset(0 0 0 ${W - SIDEBAR_WIDTH}px)`,
+          opacity: sidebarProgress,
         }}
       >
         <Img
@@ -115,12 +108,18 @@ const PageSlide: React.FC<{ page: string }> = ({ page }) => {
         />
       </div>
 
-      {/* Content regions — each reveals with staggered spring */}
+      {/* Content regions — staggered expanding reveal */}
       {regions.map((region, i) => (
-        <RevealElement key={i} page={page} region={region} />
+        <RevealElement
+          key={i}
+          page={page}
+          top={region.top}
+          bottom={region.bottom}
+          delay={region.delay}
+        />
       ))}
 
-      {/* Blur overlay sits above all image layers */}
+      {/* Blur overlay — always on top */}
       <BlurOverlay page={page} />
     </AbsoluteFill>
   );
@@ -138,7 +137,9 @@ export const Showcase: React.FC = () => {
             {i < PAGES.length - 1 && (
               <TransitionSeries.Transition
                 presentation={fade()}
-                timing={linearTiming({ durationInFrames: TRANSITION_DURATION })}
+                timing={linearTiming({
+                  durationInFrames: TRANSITION_DURATION,
+                })}
               />
             )}
           </React.Fragment>
