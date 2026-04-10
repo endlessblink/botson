@@ -1,58 +1,92 @@
 {% extends "base.html" %}
 {% set active_page = "planner" %}
-{% block title %}Botson — תכנון שבועי{% endblock %}
+{% block title %}Botson — תכנון ושליחה{% endblock %}
 
 {% block content %}
 <div class="mb-6">
-    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון שבועי</h1>
+    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון ושליחה</h1>
     <p class="text-sm text-[#71717a] mt-1">{{ today_str }} — שעה {{ now_time }}</p>
 </div>
 
 <!-- Pending messages for approval -->
 {% if pending_messages %}
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6 animate-fade-in-up stagger-1">
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
     <div class="px-5 py-4 border-b border-[#1f1f1f]">
         <span class="text-base font-medium text-[#fafafa]">✏️ ממתין לאישור</span>
     </div>
     <div class="px-5 py-4 space-y-6">
         {% for msg in pending_messages %}
         <div class="{% if not loop.last %}pb-6 border-b border-[#1f1f1f]{% endif %}">
-            <div class="flex items-center gap-2 mb-3">
+            <div class="flex items-center justify-between mb-3">
                 <span class="text-base font-medium text-[#fafafa]">{{ msg.title }}</span>
-            </div>
-            <div class="flex gap-2 mb-3">
-                <span class="text-xs bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded-md">{{ msg.channel }}</span>
-                <span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">{{ msg.when }}</span>
+                <div class="flex gap-2">
+                    {% if msg.channel %}<span class="text-xs bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded-md">{{ msg.channel }}</span>{% endif %}
+                    {% if msg.when %}<span class="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md">{{ msg.when }}</span>{% endif %}
+                </div>
             </div>
 
             {% if msg.options %}
             <p class="text-sm text-[#71717a] mb-2">בחר/י אפשרות:</p>
             {% for opt in msg.options %}
-            <div class="bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 mb-2 text-[15px] text-[#d4d4d8]">
-                <span class="text-[#52525b] ml-2">{{ loop.index }}.</span> {{ opt }}
+            <div class="bg-[#111318] border border-[#272727] hover:border-[#52525b] rounded-lg px-5 py-3.5 mb-2 text-[15px] text-[#d4d4d8] cursor-pointer transition-colors"
+                 onclick="selectOption(this, '{{ opt | e }}', {{ msg.topic_id or 'null' }})">
+                <span class="text-[#52525b] font-medium ml-2">{{ loop.index }}.</span> {{ opt }}
             </div>
             {% endfor %}
             {% endif %}
 
             {% if msg.preview %}
-            <div class="bg-[#111318] border border-[#272727] rounded-lg px-4 py-4 mb-3 text-[15px] text-[#d4d4d8] whitespace-pre-line">{{ msg.preview }}</div>
+            <div class="bg-[#111318] border border-[#272727] rounded-lg px-5 py-4 mb-3 text-[15px] text-[#d4d4d8] whitespace-pre-line leading-relaxed">{{ msg.preview }}</div>
             {% endif %}
 
             {% if msg.buttons %}
-            <div class="space-y-2">
+            <div class="mt-3 space-y-2">
                 {% for btn in msg.buttons %}
                 <div class="bg-[#16213e] border border-[#2a2a4a] rounded-lg px-4 py-2.5 text-sm text-[#a1a1aa] text-center">{{ btn }}</div>
                 {% endfor %}
             </div>
             {% endif %}
+
+            <!-- Send controls -->
+            <div class="mt-4 flex items-center gap-3">
+                <select class="msg-topic-select bg-transparent border border-[#272727] rounded-md h-8 px-2 text-xs text-[#fafafa] focus:outline-none w-[180px]" data-default="{{ msg.topic_id or '' }}">
+                    <option value="" class="bg-[#0a0a0a]">כללי</option>
+                    {% for t in forum_topics %}
+                    <option value="{{ t.topic_id }}" class="bg-[#0a0a0a]" {% if t.topic_id == (msg.topic_id or 0) %}selected{% endif %}>{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+                <button onclick="sendToDen(this)" class="text-xs text-[#71717a] hover:text-sky-400 border border-[#272727] hover:border-sky-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">🧪 שלח ל-Den</button>
+                <button onclick="sendToGroup(this)" class="text-xs text-[#71717a] hover:text-green-400 border border-[#272727] hover:border-green-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">📤 שלח לקבוצה</button>
+            </div>
         </div>
         {% endfor %}
     </div>
 </div>
 {% endif %}
 
+<!-- Quick send box -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-5 py-4 border-b border-[#1f1f1f]">
+        <span class="text-base font-medium text-[#fafafa]">📤 שליחה מהירה</span>
+    </div>
+    <div class="px-5 py-4">
+        <textarea id="quick-send-text" rows="3" dir="rtl" placeholder="כתוב הודעה לשליחה..."
+            class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none"></textarea>
+        <div class="mt-3 flex items-center gap-3">
+            <select id="quick-send-topic" class="bg-transparent border border-[#272727] rounded-md h-8 px-2 text-xs text-[#fafafa] focus:outline-none w-[180px]">
+                <option value="" class="bg-[#0a0a0a]">כללי</option>
+                {% for t in forum_topics %}
+                <option value="{{ t.topic_id }}" class="bg-[#0a0a0a]">{{ t.name }}</option>
+                {% endfor %}
+            </select>
+            <button onclick="quickSendDen()" class="text-xs text-[#71717a] hover:text-sky-400 border border-[#272727] hover:border-sky-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">🧪 Den</button>
+            <button onclick="quickSendGroup()" class="text-xs text-[#71717a] hover:text-green-400 border border-[#272727] hover:border-green-500/30 px-3 py-1.5 rounded cursor-pointer transition-colors">📤 קבוצה</button>
+        </div>
+    </div>
+</div>
+
 <!-- Weekly overview -->
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6 animate-fade-in-up stagger-2">
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
     <div class="px-5 py-4 border-b border-[#1f1f1f]">
         <span class="text-base font-medium text-[#fafafa]">📅 תכנון שבועי</span>
     </div>
@@ -67,7 +101,7 @@
             </div>
             {% if day.entries %}
             {% for item in day.entries %}
-            <div class="flex gap-4 py-2 mr-4">
+            <div class="flex gap-4 py-2 mr-4 items-center">
                 <span class="text-sm text-[#52525b] w-12 stat-number">{{ item.time }}</span>
                 <span class="text-xs px-2 py-0.5 rounded-md shrink-0
                     {% if item.type == 'morning' %}bg-amber-500/10 text-amber-400
@@ -77,12 +111,12 @@
                     {% elif item.type == 'event' %}bg-pink-500/10 text-pink-400
                     {% elif item.type == 'roundup' %}bg-orange-500/10 text-orange-400
                     {% elif item.type == 'poll' %}bg-purple-500/10 text-purple-400
-                    {% elif item.type == 'points' %}bg-zinc-500/10 text-zinc-400
                     {% elif item.type == 'level' %}bg-purple-500/10 text-purple-400
                     {% elif item.type == 'spam' %}bg-red-500/10 text-red-400
                     {% elif item.type == 'you' %}bg-green-500/10 text-green-400
+                    {% elif item.type == 'welcome' %}bg-blue-500/10 text-blue-400
                     {% else %}bg-zinc-500/10 text-zinc-400{% endif %}">{{ item.label }}</span>
-                <span class="text-sm text-[#a1a1aa]">{{ item.desc }}</span>
+                <span class="text-sm text-[#a1a1aa] flex-1">{{ item.desc }}</span>
                 {% if item.status == 'done' %}
                 <span class="text-xs text-green-400 shrink-0">✓</span>
                 {% elif item.status == 'pending' %}
@@ -122,4 +156,85 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+    var TEST_GROUP_ID = '{{ test_group_id }}';
+    var GROUP_ID = '{{ settings.get("group_id", "") if settings else "" }}';
+
+    // Selected text from options
+    var selectedText = '';
+
+    function selectOption(el, text, topicId) {
+        // Highlight selected
+        el.closest('.space-y-6').querySelectorAll('.bg-\\[\\#111318\\]').forEach(function(d) {
+            d.classList.remove('border-sky-500/40');
+            d.classList.add('border-[#272727]');
+        });
+        el.classList.remove('border-[#272727]');
+        el.classList.add('border-sky-500/40');
+        selectedText = text;
+    }
+
+    function getTextAndTopic(btn, isDen) {
+        var section = btn.closest('.pb-6, [class*="space-y"]') || btn.closest('.px-5');
+        var textarea = section ? section.querySelector('textarea') : null;
+        var text = textarea ? textarea.value.trim() : selectedText;
+        var select = section ? section.querySelector('.msg-topic-select, select') : null;
+        var topicId = select ? select.value : '';
+        return { text: text, topicId: topicId };
+    }
+
+    async function sendToDen(btn) {
+        var data = getTextAndTopic(btn, true);
+        if (!data.text) { showToast('אין טקסט לשליחה', 'error'); return; }
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '...שולח';
+        try {
+            // Send to test group
+            await apiCall('/api/bot/send-message', {
+                text: data.text,
+                topic_id: null,
+                target: 'test'
+            });
+            showToast('נשלח ל-Den ✓');
+        } catch (e) { showToast('שגיאה בשליחה', 'error'); }
+        finally { btn.disabled = false; btn.textContent = orig; }
+    }
+
+    async function sendToGroup(btn) {
+        var data = getTextAndTopic(btn, false);
+        if (!data.text) { showToast('אין טקסט לשליחה', 'error'); return; }
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '...שולח';
+        try {
+            await apiCall('/api/bot/send-message', {
+                text: data.text,
+                topic_id: data.topicId || null
+            });
+            showToast('נשלח לקבוצה ✓');
+        } catch (e) { showToast('שגיאה בשליחה', 'error'); }
+        finally { btn.disabled = false; btn.textContent = orig; }
+    }
+
+    function quickSendDen() {
+        var text = document.getElementById('quick-send-text').value.trim();
+        if (!text) { showToast('אין טקסט', 'error'); return; }
+        apiCall('/api/bot/send-message', { text: text, topic_id: null, target: 'test' })
+            .then(function() { showToast('נשלח ל-Den ✓'); document.getElementById('quick-send-text').value = ''; })
+            .catch(function() { showToast('שגיאה', 'error'); });
+    }
+
+    function quickSendGroup() {
+        var text = document.getElementById('quick-send-text').value.trim();
+        var topicId = document.getElementById('quick-send-topic').value;
+        if (!text) { showToast('אין טקסט', 'error'); return; }
+        apiCall('/api/bot/send-message', { text: text, topic_id: topicId || null })
+            .then(function() { showToast('נשלח לקבוצה ✓'); document.getElementById('quick-send-text').value = ''; })
+            .catch(function() { showToast('שגיאה', 'error'); });
+    }
+</script>
 {% endblock %}

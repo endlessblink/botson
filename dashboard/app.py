@@ -375,14 +375,22 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
 
     data = await request.json()
     text = data.get("text", "").strip()
-    topic_id = data.get("topic_id")  # None = general chat
+    topic_id = data.get("topic_id")
+    target = data.get("target", "main")  # "main" or "test"
 
     if not text:
         raise HTTPException(status_code=400, detail="Message text required")
 
     from telegram import Bot
     bot = Bot(os.getenv("BOT_TOKEN", ""))
-    group_id = int(os.getenv("GROUP_ID", "0"))
+
+    if target == "test":
+        group_id = int(os.getenv("TEST_GROUP_ID", "0"))
+    else:
+        group_id = int(os.getenv("GROUP_ID", "0"))
+
+    if not group_id:
+        raise HTTPException(status_code=400, detail=f"No {target} group ID configured")
 
     kwargs = {"chat_id": group_id, "text": text}
     if topic_id:
@@ -390,7 +398,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
 
     try:
         msg = await bot.send_message(**kwargs)
-        await db.log_activity("goals", f"שלח הודעה ידנית", target_channel=str(topic_id or "general"))
+        await db.log_activity("manual_send", f"שלח הודעה ידנית ({'טסט' if target == 'test' else 'ראשית'})", target_channel=str(topic_id or "general"))
         return {"status": "ok", "message_id": msg.message_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -971,6 +979,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     now_time = now.strftime("%H:%M")
 
     settings = get_settings()
+    forum_topics = await db.get_forum_topics() if hasattr(db, 'get_forum_topics') else []
     schedule = settings.get("schedule", {})
 
     # Get ALL activity log entries (last 7 days for the week view)
@@ -1184,6 +1193,30 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         {"when": "רביעי 15.4", "what": "הפעלה מחדש של הכל"},
     ]
 
+    pending_messages = [
+        {
+            "title": "💬 שאלה לדיון — מגניב / מצחיק",
+            "channel": "מגניב / מצחיק (153)",
+            "topic_id": 153,
+            "when": "היום",
+            "options": [
+                "💬 מה הדבר הכי אבסורדי שראיתם השבוע?",
+                "💬 ספרו בדיחה — הכי גרועה שיש! 😂",
+                "💬 מה הדבר הכי מביך שקרה לכם?",
+                "💬 אם החיים שלכם היו סיטקום, מה היה השם?",
+                "💬 מה המם הכי טוב שראיתם לאחרונה?",
+            ],
+        },
+        {
+            "title": "🎲 אירוע Splendor — שבת 11.4",
+            "channel": "גיימינג (1517)",
+            "topic_id": 1517,
+            "when": "שבת 18:00",
+            "preview": "🎲 Splendor — ערב משחק מוצ\"ש!\n\nמשחקים Splendor ביחד במוצ\"ש.\nעד 4 שחקנים, משחק אחד לוקח בערך שעה.\n\n📅 שבת 11.4 ב-18:00\n👥 עד 4 שחקנים\n⏱️ כשעה\n\nמי בפנים? 👇",
+            "buttons": ["🗓️ שבת (11.4) ב-18:00 — מגיע/ה!", "🤔 אולי", "❌ לא הפעם"],
+        },
+    ]
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "today_name": today_name,
         "today_str": today_str,
@@ -1191,6 +1224,10 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "today_items": today_items,
         "week_plan": week_plan,
         "actions": actions,
+        "forum_topics": forum_topics,
+        "pending_messages": pending_messages,
+        "test_group_id": os.getenv("TEST_GROUP_ID", ""),
+        "settings": settings,
     })
 
 

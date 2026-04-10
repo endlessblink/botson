@@ -49,15 +49,16 @@ PAGES = [
 # ---------------------------------------------------------------------------
 BLUR_REGIONS = {
     # RTL layout: names are on the RIGHT side of tables
+    # Coordinates at 1280x720 viewport — scaled by 0.75 for 960px output
     "home": [
-        (300, 140, 1050, 260),   # stat cards row — member names in "highest level" and "longest streak"
-        (530, 330, 1050, 570),   # leaderboard table — name column
+        (300, 140, 1050, 260),   # stat cards row — member names
+        (530, 300, 1050, 600),   # leaderboard table — name column (extended)
     ],
-    "activity": [(100, 250, 900, 700)],    # description column (wide, center)
-    "levels": [(530, 280, 1050, 720)],     # member name column — extended to bottom
+    "activity": [(50, 150, 950, 720)],     # log entries with member names (full height)
+    "levels": [(500, 260, 1060, 720)],     # member name column (full height, tighter x)
 }
 
-BLUR_RADIUS = 8
+BLUR_RADIUS = 15  # strong enough to be unreadable at 960px GIF resolution
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +149,11 @@ def capture_video(base_url: str, password: str) -> tuple[Path | None, list]:
 
                 # Mark end of previous page BEFORE clicking
                 timestamps[-1]["end"] = _time.monotonic() - t0
+                # Small breathing room between navigations to avoid server overload
+                try:
+                    page.wait_for_timeout(300)
+                except Exception:
+                    break  # browser/page closed, stop navigating
                 print(f"  Navigating to: {label} (clicking '{nav_text}') ...")
 
                 try:
@@ -251,16 +257,26 @@ def convert_webm_to_gif(webm_path: Path, gif_path: Path,
         fps = 12
         scale = 960 / 1280  # coords were defined for 1280px viewport
 
-        # Determine which page a frame belongs to using precise start/end windows.
-        # Frames during login or page transitions (between end→start) get NO blur.
+        # Determine which page a frame belongs to.
+        # Extend blur windows by BLUR_PAD seconds in each direction to cover
+        # the load-in animation and the moment before clicking away.
+        BLUR_PAD = 1.0  # seconds of padding on each side
         def get_page_for_frame(frame_idx):
             if not timestamps:
                 return None
             t = frame_idx / fps
-            for ts in timestamps:
-                if ts["start"] <= t <= ts["end"]:
+            for i, ts in enumerate(timestamps):
+                # Only consider pages that actually need blur
+                if ts["name"] not in BLUR_REGIONS:
+                    continue
+                # Pad the window but clamp to not overlap neighbors
+                prev_end = timestamps[i - 1]["end"] if i > 0 else 0
+                next_start = timestamps[i + 1]["start"] if i + 1 < len(timestamps) else 9999
+                padded_start = max(prev_end, ts["start"] - BLUR_PAD)
+                padded_end = min(next_start, ts["end"] + BLUR_PAD)
+                if padded_start <= t <= padded_end:
                     return ts["name"]
-            return None  # login screen or transition → no blur
+            return None
 
         # Debug: print timestamp windows
         if timestamps:
