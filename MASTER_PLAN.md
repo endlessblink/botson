@@ -100,6 +100,7 @@
 | T-092 | — | Join request notifications to Den | TODO | P3 | T-007 |
 | ~~T-093~~ | — | ✅ Anti-spam live mode + dashboard ban/unban | ✅ DONE (2026-04-11) | P1 | — |
 | T-094 | — | Onboarding video: side panel topic switching | TODO | P3 | — |
+| T-095 | — | Planner calendar: show recurring schedule as dots | TODO | P2 | T-080 |
 
 ## Detailed Tasks
 

@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
+from ..utils.commitment import has_committed_row
 from ..utils.config import GOALS_TOPIC_ID as _ENV_GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
 
 
@@ -31,6 +32,8 @@ async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
 
     global _last_prompt_message_id
     db: Database = context.bot_data["db"]
+    if await has_committed_row(db, "morning"):
+        return  # calendar checker will send the committed row
     prompt = await db.get_random_prompt("morning")
 
     goals_topic = _get_goals_topic_id()
@@ -70,6 +73,8 @@ async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
 
     global _last_prompt_message_id
     db: Database = context.bot_data["db"]
+    if await has_committed_row(db, "evening"):
+        return  # calendar checker will send the committed row
     prompt = await db.get_random_prompt("evening")
 
     goals_topic = _get_goals_topic_id()

@@ -74,6 +74,24 @@
         {% endfor %}
     </div>
 
+    <!-- AI bulk fill -->
+    <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-[10px] text-[#52525b] uppercase tracking-wider font-medium mr-2">מלא באמצעות AI:</span>
+        <button onclick="aiFill('morning')" id="ai-fill-morning" class="ai-fill-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-amber-500/20 rounded-md text-amber-400 hover:bg-amber-500/10 transition-colors inline-flex items-center gap-1.5">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+            בוקר
+        </button>
+        <button onclick="aiFill('discussion')" id="ai-fill-discussion" class="ai-fill-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-sky-500/20 rounded-md text-sky-400 hover:bg-sky-500/10 transition-colors inline-flex items-center gap-1.5">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            דיונים
+        </button>
+        <button onclick="aiFill('evening')" id="ai-fill-evening" class="ai-fill-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-indigo-500/20 rounded-md text-indigo-400 hover:bg-indigo-500/10 transition-colors inline-flex items-center gap-1.5">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            ערב
+        </button>
+        <span id="ai-fill-status" class="text-[11px] text-[#52525b]"></span>
+    </div>
+
     <!-- Week grid: workdays -->
     <div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -102,7 +120,7 @@
                 <div class="flex-1 px-3 py-2 space-y-2">
                     {% if day.activities %}
                         {% for act in day.activities %}
-                        {% set is_editable = act.type in ('morning', 'evening', 'discussion') and act.get('pool_idx', -1) >= 0 %}
+                        {% set is_editable = act.type in ('morning', 'evening', 'discussion') and (act.get('pool_idx', -1) >= 0 or act.get('committed', False)) %}
                         {% if is_editable %}
                         <div onclick="openPromptModal(this)"
                              data-pool="{{ act.pool }}"
@@ -112,6 +130,9 @@
                              data-topic-id="{{ act.get('topic_id', '') }}"
                              data-category="{{ act.get('category', '') }}"
                              data-full-text="{{ act.full_text }}"
+                             data-date="{{ day.date.isoformat() }}"
+                             data-scheduled-id="{{ act.get('scheduled_id', '') or '' }}"
+                             data-committed="{{ '1' if act.get('committed', False) else '0' }}"
                              class="block text-xs group cursor-pointer {% if not act.enabled %}opacity-40 pointer-events-none{% endif %} hover:bg-[#171717]/40 -mx-1.5 px-1.5 py-1 rounded transition-colors">
                         {% else %}
                         <a href="{% if act.type == 'leaderboard' %}/levels{% elif act.type == 'roundup' %}/settings{% elif act.type == 'calendar' %}/planner{% else %}#{% endif %}"
@@ -133,6 +154,9 @@
                                     <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">{{ act.label }}</span>
                                 {% else %}
                                     <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#272727] text-[#71717a]">{{ act.label }}</span>
+                                {% endif %}
+                                {% if act.get('committed', False) %}
+                                    <span class="shrink-0 text-[10px] text-emerald-400" title="מתוכנן">✓</span>
                                 {% endif %}
                                 {% if act.get('channel') %}
                                     <span class="text-[10px] text-[#52525b] truncate">{{ act.channel }}</span>
@@ -180,14 +204,19 @@
                     <div class="flex-1 px-3 py-2 space-y-2">
                         {% if day.activities %}
                             {% for act in day.activities %}
-                            {% set is_editable = act.type in ('morning', 'evening', 'discussion') and act.get('pool_idx', -1) >= 0 %}
+                            {% set is_editable = act.type in ('morning', 'evening', 'discussion') and (act.get('pool_idx', -1) >= 0 or act.get('committed', False)) %}
                             {% if is_editable %}
                             <div onclick="openPromptModal(this)"
                                  data-pool="{{ act.pool }}"
                                  data-idx="{{ act.pool_idx }}"
                                  data-type="{{ act.type }}"
                                  data-channel="{{ act.get('channel', '') }}"
+                                 data-topic-id="{{ act.get('topic_id', '') }}"
+                                 data-category="{{ act.get('category', '') }}"
                                  data-full-text="{{ act.full_text }}"
+                                 data-date="{{ day.date.isoformat() }}"
+                                 data-scheduled-id="{{ act.get('scheduled_id', '') or '' }}"
+                                 data-committed="{{ '1' if act.get('committed', False) else '0' }}"
                                  class="block text-xs group cursor-pointer {% if not act.enabled %}opacity-40 pointer-events-none{% endif %} hover:bg-[#171717]/40 -mx-1.5 px-1.5 py-1 rounded transition-colors">
                             {% else %}
                             <a href="{% if act.type == 'leaderboard' %}/levels{% elif act.type == 'roundup' %}/settings{% elif act.type == 'calendar' %}/planner{% else %}#{% endif %}"
@@ -209,6 +238,9 @@
                                         <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">{{ act.label }}</span>
                                     {% else %}
                                         <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#272727] text-[#71717a]">{{ act.label }}</span>
+                                    {% endif %}
+                                    {% if act.get('committed', False) %}
+                                        <span class="shrink-0 text-[10px] text-emerald-400" title="מתוכנן">✓</span>
                                     {% endif %}
                                     {% if act.get('channel') %}
                                         <span class="text-[10px] text-[#52525b] truncate">{{ act.channel }}</span>
@@ -269,29 +301,26 @@
     <div id="promptModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center" onclick="if(event.target===this)closePromptModal()">
         <div class="bg-[#0a0a0a] border border-[#272727] rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" dir="rtl">
             <div class="flex items-center justify-between px-5 py-3.5 border-b border-[#1f1f1f] sticky top-0 bg-[#0a0a0a] z-10">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-1">
                     <span id="modalBadge" class="px-2 py-0.5 rounded text-[11px] font-medium"></span>
                     <span id="modalChannel" class="text-[11px] text-[#52525b]"></span>
+                    <div id="modalHeaderChannelWrap" class="hidden relative">
+                        <select id="modalHeaderChannelSelect" onchange="onChannelChange(this)" class="appearance-none bg-[#171717] border border-[#272727] rounded-md pr-2 pl-7 py-1 text-[11px] text-[#fafafa] hover:border-[#3f3f46] focus:outline-none focus:border-[#3f3f46] cursor-pointer transition-colors">
+                            {% for ch in discussion_channels %}
+                            <option value="{{ ch.topic_id }}" data-name="{{ ch.name }}" data-key="{{ ch.key }}">{{ ch.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <svg class="w-3 h-3 absolute left-1.5 top-1/2 -translate-y-1/2 text-[#71717a] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                    </div>
                 </div>
                 <button onclick="closePromptModal()" class="text-[#52525b] hover:text-[#fafafa] transition-colors p-1">
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                 </button>
             </div>
 
-            <!-- Channel selector (discussion only) -->
-            <div id="modalChannelRow" class="hidden px-5 pt-4">
-                <label class="text-[10px] text-[#52525b] uppercase tracking-wider font-medium block mb-1.5">ערוץ</label>
-                <select id="modalChannelSelect" onchange="onChannelChange()" class="w-full bg-[#171717] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:border-[#3f3f46]">
-                    {% for ch in discussion_channels %}
-                    <option value="{{ ch.topic_id }}" data-name="{{ ch.name }}" data-key="{{ ch.key }}">{{ ch.name }}</option>
-                    {% endfor %}
-                </select>
-                <p class="text-[10px] text-[#3f3f46] mt-1.5">שינוי הערוץ יטען שאלה מהמאגר של הערוץ הנבחר</p>
-            </div>
-
             <div class="px-5 py-4">
                 <textarea id="modalText" class="w-full bg-[#171717] border border-[#272727] rounded-lg px-4 py-3 text-sm text-[#fafafa] resize-none focus:outline-none focus:border-[#3f3f46] transition-colors" dir="rtl" rows="5" placeholder="טקסט ההודעה..."></textarea>
-                <p class="text-[10px] text-[#3f3f46] mt-2">* שמירה תעדכן את הטקסט במאגר ההודעות</p>
+                <p class="text-[10px] text-[#3f3f46] mt-2">* שמירה תעדכן את הטקסט במאגר של הערוץ המקורי</p>
             </div>
 
             <!-- AI Actions -->
@@ -380,24 +409,40 @@ if (window.location.pathname === '/weekplan' && !window.location.search) {
     }
 }
 
-// Edit prompt modal
-var _modalState = {pool: '', idx: -1, type: '', category: '', topicId: ''};
+// Edit prompt modal — v3 per-day scheduled_messages + AI fill
+console.log('[weekplan] script loaded — modal v3 (per-day commits)');
+var _modalState = {pool: '', idx: -1, type: '', category: '', topicId: '', date: '', scheduledId: '', committed: false, time: ''};
 
 function openPromptModal(el) {
     var pool = el.dataset.pool || '';
     var idx = parseInt(el.dataset.idx, 10);
+    if (isNaN(idx)) idx = -1;
     var type = el.dataset.type || '';
     var channel = el.dataset.channel || '';
     var fullText = el.dataset.fullText || '';
     var topicId = el.dataset.topicId || '';
     var category = el.dataset.category || '';
+    var date = el.dataset.date || '';
+    var scheduledId = el.dataset.scheduledId || '';
+    var committed = el.dataset.committed === '1';
+    // Extract time from the activity's time span (LTR dir)
+    var timeEl = el.querySelector('[dir="ltr"]');
+    var time = (timeEl && timeEl.textContent.trim()) || '';
 
-    if (!pool || isNaN(idx) || idx < 0) return;
+    console.log('[modal.open] type=%s date=%s time=%s topicId=%s committed=%s scheduledId=%s textLen=%d',
+                type, date, time, topicId, committed, scheduledId, fullText.length);
 
-    _modalState = {pool: pool, idx: idx, type: type, category: category, topicId: topicId};
+    if (!type || !date || !time) {
+        console.warn('[modal.open] REJECTED: missing type/date/time');
+        return;
+    }
+
+    _modalState = {
+        pool: pool, idx: idx, type: type, category: category, topicId: topicId,
+        date: date, scheduledId: scheduledId, committed: committed, time: time
+    };
 
     document.getElementById('modalText').value = fullText;
-    document.getElementById('modalChannel').textContent = channel;
 
     var badge = document.getElementById('modalBadge');
     var labels = {morning: 'בוקר', evening: 'ערב', discussion: 'דיון'};
@@ -407,15 +452,19 @@ function openPromptModal(el) {
     else if (type === 'evening') badge.className += 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/20';
     else if (type === 'discussion') badge.className += 'bg-sky-500/15 text-sky-400 border border-sky-500/20';
 
-    // Show channel dropdown only for discussion
-    var channelRow = document.getElementById('modalChannelRow');
+    // Header channel: plain text for non-discussion, clickable dropdown for discussion
+    var channelLabel = document.getElementById('modalChannel');
+    var headerChannelWrap = document.getElementById('modalHeaderChannelWrap');
+    var headerSelect = document.getElementById('modalHeaderChannelSelect');
     if (type === 'discussion') {
-        channelRow.classList.remove('hidden');
-        // Pre-select current category's topic
-        var sel = document.getElementById('modalChannelSelect');
-        if (topicId) sel.value = String(topicId);
+        channelLabel.textContent = '';
+        channelLabel.classList.add('hidden');
+        headerChannelWrap.classList.remove('hidden');
+        if (topicId) headerSelect.value = String(topicId);
     } else {
-        channelRow.classList.add('hidden');
+        channelLabel.textContent = channel;
+        channelLabel.classList.remove('hidden');
+        headerChannelWrap.classList.add('hidden');
     }
 
     // Reset schedule-once section
@@ -447,25 +496,21 @@ function closePromptModal() {
     _modalState = {pool: '', idx: -1, type: '', category: '', topicId: ''};
 }
 
-async function onChannelChange() {
-    var sel = document.getElementById('modalChannelSelect');
+async function onChannelChange(sel) {
+    sel = sel || document.getElementById('modalHeaderChannelSelect');
     var opt = sel.options[sel.selectedIndex];
     var newKey = opt.dataset.key;
-    var newName = opt.dataset.name;
     var newTopicId = opt.value;
 
     if (!newKey) return;
 
-    // Update state
+    console.log('[modal.channelChange] switching to category=%s', newKey);
+
     _modalState.category = newKey;
     _modalState.topicId = newTopicId;
     _modalState.pool = 'discussion:' + newKey;
     _modalState.idx = 0;
 
-    // Update header label
-    document.getElementById('modalChannel').textContent = newName;
-
-    // Load first question from new category pool
     try {
         var resp = await fetch('/api/weekplan/discussion-sample?category=' + encodeURIComponent(newKey));
         if (resp.ok) {
@@ -473,9 +518,12 @@ async function onChannelChange() {
             if (data.text) {
                 document.getElementById('modalText').value = data.text;
                 _modalState.idx = data.idx;
+                console.log('[modal.channelChange] loaded %s[%d]', newKey, data.idx);
             }
         }
-    } catch(e) {}
+    } catch(e) {
+        console.error('[modal.channelChange] sample fetch failed', e);
+    }
 }
 
 function toggleInstructions() {
@@ -550,7 +598,36 @@ async function regeneratePrompt(which) {
 
 async function savePrompt() {
     var text = document.getElementById('modalText').value.trim();
-    if (!text || !_modalState.pool || _modalState.idx < 0) return;
+    console.log('[modal.save] type=%s date=%s time=%s scheduledId=%s textLen=%d',
+                _modalState.type, _modalState.date, _modalState.time, _modalState.scheduledId, text.length);
+
+    if (!text) {
+        alert('אין טקסט לשמירה');
+        return;
+    }
+    if (!_modalState.type || !_modalState.date || !_modalState.time) {
+        alert('חסרים פרטי יום/שעה/סוג');
+        console.warn('[modal.save] REJECTED: state=', _modalState);
+        return;
+    }
+
+    // For discussion, use the current dropdown selection for topic_id
+    var topicId = _modalState.topicId;
+    if (_modalState.type === 'discussion') {
+        var sel = document.getElementById('modalHeaderChannelSelect');
+        if (sel && sel.value) topicId = sel.value;
+    }
+
+    var body = {
+        date: _modalState.date,
+        time: _modalState.time,
+        type: _modalState.type,
+        text: text,
+        channel_topic_id: topicId ? parseInt(topicId, 10) : null,
+    };
+    if (_modalState.scheduledId) {
+        body.scheduled_id = parseInt(_modalState.scheduledId, 10);
+    }
 
     var btn = document.getElementById('modalSaveBtn');
     var origText = btn.textContent;
@@ -558,20 +635,26 @@ async function savePrompt() {
     btn.disabled = true;
 
     try {
-        var resp = await fetch('/api/weekplan/update-prompt', {
+        console.log('[modal.save] POST /api/weekplan/save-day', body);
+        var resp = await fetch('/api/weekplan/save-day', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({pool: _modalState.pool, idx: _modalState.idx, text: text})
+            body: JSON.stringify(body)
         });
+        console.log('[modal.save] response status:', resp.status);
         if (resp.ok) {
+            var data = await resp.json();
+            console.log('[modal.save] saved:', data);
             closePromptModal();
             window.location.reload();
         } else {
             var err = await resp.json().catch(function() { return {}; });
             alert('שגיאה: ' + (err.detail || 'Unknown error'));
+            console.error('[modal.save] server error:', err);
         }
     } catch(e) {
-        alert('שגיאה בשמירה');
+        alert('שגיאה בשמירה: ' + e.message);
+        console.error('[modal.save] exception:', e);
     } finally {
         btn.textContent = origText;
         btn.disabled = false;
@@ -632,5 +715,42 @@ async function scheduleOneOff() {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closePromptModal();
 });
+
+// AI bulk fill for the current week
+async function aiFill(type) {
+    var btn = document.getElementById('ai-fill-' + type);
+    var statusEl = document.getElementById('ai-fill-status');
+    var allBtns = document.querySelectorAll('.ai-fill-btn');
+    allBtns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.5'; });
+    statusEl.textContent = '⏳ Claude יוצר תוכן לכל הימים בשבוע... (עד ~50 שניות)';
+
+    // Get current week_offset from URL
+    var params = new URLSearchParams(window.location.search);
+    var offset = parseInt(params.get('week_offset') || '0', 10);
+
+    try {
+        console.log('[ai-fill] POST /api/weekplan/ai-fill', {week_offset: offset, type: type});
+        var resp = await fetch('/api/weekplan/ai-fill', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({week_offset: offset, type: type})
+        });
+        if (resp.ok) {
+            var data = await resp.json();
+            console.log('[ai-fill] result:', data);
+            statusEl.textContent = '✓ נוצרו ' + data.created + ', דולגו ' + data.skipped;
+            setTimeout(function() { window.location.reload(); }, 800);
+        } else {
+            var err = await resp.json().catch(function() { return {}; });
+            statusEl.textContent = '❌ שגיאה: ' + (err.detail || 'Unknown');
+            console.error('[ai-fill] server error:', err);
+            allBtns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+        }
+    } catch(e) {
+        statusEl.textContent = '❌ ' + e.message;
+        console.error('[ai-fill] exception:', e);
+        allBtns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+    }
+}
 </script>
 {% endblock %}

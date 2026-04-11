@@ -5,6 +5,7 @@ import random
 
 from telegram.ext import ContextTypes
 
+from ..utils.commitment import has_committed_row
 from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,9 @@ async def send_discussion_prompt(context: ContextTypes.DEFAULT_TYPE):
     """
     if not is_feature_enabled("discussions"):
         return
+    db = context.bot_data["db"]
+    if await has_committed_row(db, "discussion"):
+        return  # calendar checker will send the committed row
     settings = get_settings()
     topic_ids = settings.get("topics", {}).get("discussions", {})
 
@@ -86,7 +90,6 @@ async def send_discussion_prompt(context: ContextTypes.DEFAULT_TYPE):
     prompt = _pick_prompt(category, discussions[category])
     topic_id = topic_ids[category]
 
-    db = context.bot_data["db"]
     try:
         await context.bot.send_message(
             chat_id=GROUP_ID,

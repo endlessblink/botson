@@ -9,6 +9,12 @@ import signal
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(_h)
+    logger.propagate = False
 
 import yaml
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
@@ -936,13 +942,211 @@ async def get_discussion_sample(request: Request, category: str):
 
     try:
         pool = load_yaml("discussions.yaml") or {}
-    except Exception:
+    except Exception as e:
+        logger.error("[sample] failed to load discussions.yaml: %s", e)
         pool = {}
 
     questions = pool.get(category, [])
+    logger.info("[sample] category=%s → %d questions, first=%r", category, len(questions), (questions[0][:60] if questions else None))
     if not questions:
         return {"text": "", "idx": -1}
     return {"text": questions[0], "idx": 0}
+
+
+@app.post("/api/weekplan/save-day")
+async def save_weekplan_day(request: Request, db: Database = Depends(get_db)):
+    """Save or update a committed scheduled_messages row for a weekplan day slot.
+
+    Body: {date, time, type, text, channel_topic_id?, scheduled_id?}
+    - If scheduled_id is provided, updates that row.
+    - Otherwise, creates a new scheduled_messages row.
+    Returns: {status, id}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    date_str = (data.get("date") or "").strip()
+    time_str = (data.get("time") or "").strip()
+    mtype = (data.get("type") or "").strip()
+    text = (data.get("text") or "").strip()
+    channel_topic_id = data.get("channel_topic_id")
+    scheduled_id = data.get("scheduled_id")
+
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing text")
+    if not date_str or not time_str:
+        raise HTTPException(status_code=400, detail="Missing date or time")
+    if mtype not in ("morning", "evening", "discussion"):
+        raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
+
+    # Normalize topic_id to int or None
+    if channel_topic_id in (None, "", "0", 0):
+        channel_topic_id = None
+    else:
+        try:
+            channel_topic_id = int(channel_topic_id)
+        except (ValueError, TypeError):
+            channel_topic_id = None
+
+    logger.info("[weekplan.save-day] date=%s time=%s type=%s topic=%s scheduled_id=%s text=%r",
+                date_str, time_str, mtype, channel_topic_id, scheduled_id, text[:60])
+
+    if scheduled_id:
+        # Update existing row
+        try:
+            scheduled_id_int = int(scheduled_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid scheduled_id")
+        await db.update_scheduled_message(
+            scheduled_id_int,
+            text=text,
+            channel_topic_id=channel_topic_id,
+            scheduled_date=date_str,
+            scheduled_time=time_str,
+            message_type=mtype,
+        )
+        logger.info("[weekplan.save-day] updated scheduled_messages id=%d", scheduled_id_int)
+        return {"status": "ok", "id": scheduled_id_int, "action": "updated"}
+    else:
+        new_id = await db.create_scheduled_message(
+            text=text,
+            message_type=mtype,
+            channel_topic_id=channel_topic_id,
+            target_group="main",
+            scheduled_date=date_str,
+            scheduled_time=time_str,
+            created_by="weekplan",
+        )
+        logger.info("[weekplan.save-day] created scheduled_messages id=%d", new_id)
+        return {"status": "ok", "id": new_id, "action": "created"}
+
+
+@app.post("/api/weekplan/ai-fill")
+async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
+    """Bulk-generate content via Claude for all non-committed slots of a given type in a week.
+
+    Body: {week_offset, type}
+    type in {morning, evening, discussion}
+    Returns: {created, skipped, errors}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    week_offset = int(data.get("week_offset", 0))
+    mtype = (data.get("type") or "").strip()
+    if mtype not in ("morning", "evening", "discussion"):
+        raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
+
+    settings = get_settings()
+    schedule = settings.get("schedule", {})
+    topic_ids = settings.get("topics", {}).get("discussions", {})
+    goals_topic = settings.get("topics", {}).get("goals")
+
+    # Compute week's Sunday
+    from datetime import date, timedelta
+    today = date.today()
+    python_weekday = today.weekday()
+    days_since_sunday = (python_weekday + 1) % 7
+    current_sunday = today - timedelta(days=days_since_sunday)
+    sunday = current_sunday + timedelta(weeks=week_offset)
+
+    # Build committed index for this week
+    raw_committed = await db.get_scheduled_messages(
+        sunday.isoformat(), (sunday + timedelta(days=6)).isoformat()
+    )
+    committed_keys = set()
+    for row in raw_committed:
+        if row.get("status") != "scheduled":
+            continue
+        committed_keys.add((
+            row.get("scheduled_date", ""),
+            (row.get("scheduled_time") or "")[:5],
+            row.get("message_type", ""),
+        ))
+
+    # Determine schedule info for this type
+    if mtype == "morning":
+        sched_key = "morning_prompt"
+        times = [schedule.get(sched_key, {}).get("time", "09:00")]
+        days_list = schedule.get(sched_key, {}).get("days", [])
+    elif mtype == "evening":
+        sched_key = "evening_prompt"
+        times = [schedule.get(sched_key, {}).get("time", "21:00")]
+        days_list = schedule.get(sched_key, {}).get("days", [])
+    else:  # discussion
+        sched_key = "discussion_prompt"
+        times = schedule.get(sched_key, {}).get("times", ["18:00"])
+        days_list = schedule.get(sched_key, {}).get("days", [])
+
+    # Load pools for discussion category rotation
+    try:
+        discussions_pool = load_yaml("discussions.yaml") or {}
+    except Exception:
+        discussions_pool = {}
+    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for i in range(7):
+        if i not in days_list:
+            continue
+        day_date = sunday + timedelta(days=i)
+        for t in times:
+            key = (day_date.isoformat(), t, mtype)
+            if key in committed_keys:
+                skipped += 1
+                continue
+
+            # Generate content
+            if mtype == "morning":
+                prompt = build_generation_prompt("morning", "single", "", "")
+                topic = goals_topic
+            elif mtype == "evening":
+                prompt = build_generation_prompt("evening", "single", "", "")
+                topic = goals_topic
+            else:  # discussion
+                if not active_categories:
+                    errors.append(f"no active discussion categories for day {i}")
+                    continue
+                cat = active_categories[i % len(active_categories)]
+                prompt = build_generation_prompt("discussion", "single", "", cat)
+                topic = topic_ids.get(cat)
+
+            try:
+                content = await _generate_via_cli(prompt)
+            except Exception:
+                try:
+                    content = await _generate_via_api(prompt)
+                except Exception as e:
+                    errors.append(f"day {i}: generation failed: {e}")
+                    continue
+
+            # Clean up: take first non-empty line, strip surrounding quotes
+            content = content.strip().replace('"', '').replace("'", "")
+            lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
+            content = lines[0] if lines else content
+
+            try:
+                new_id = await db.create_scheduled_message(
+                    text=content,
+                    message_type=mtype,
+                    channel_topic_id=int(topic) if topic else None,
+                    target_group="main",
+                    scheduled_date=day_date.isoformat(),
+                    scheduled_time=t,
+                    created_by="ai-fill",
+                )
+                created += 1
+                logger.info("[weekplan.ai-fill] created %s id=%d for %s %s: %r",
+                            mtype, new_id, day_date.isoformat(), t, content[:60])
+            except Exception as e:
+                errors.append(f"day {i}: db insert failed: {e}")
+
+    return {"created": created, "skipped": skipped, "errors": errors}
 
 
 @app.post("/api/weekplan/update-prompt")
@@ -956,7 +1160,10 @@ async def update_weekplan_prompt(request: Request):
     idx = data.get("idx", -1)
     new_text = (data.get("text") or "").strip()
 
+    logger.info("[weekplan.update] received: pool=%r idx=%r text=%r", pool, idx, new_text[:80])
+
     if not new_text or not isinstance(idx, int) or idx < 0:
+        logger.warning("[weekplan.update] rejected: empty text or bad idx (idx=%r text_len=%d)", idx, len(new_text))
         raise HTTPException(status_code=400, detail="Missing text or invalid index")
 
     if pool in ("morning", "evening"):
@@ -964,12 +1171,16 @@ async def update_weekplan_prompt(request: Request):
         with open(path, "r", encoding="utf-8") as f:
             content = yaml.safe_load(f) or {}
         pool_list = content.get(pool, [])
+        logger.info("[weekplan.update] pool=%s has %d entries, replacing idx=%d", pool, len(pool_list), idx)
         if idx >= len(pool_list):
+            logger.warning("[weekplan.update] idx %d out of range for pool %s (len=%d)", idx, pool, len(pool_list))
             raise HTTPException(status_code=400, detail="Index out of range")
+        old_text = pool_list[idx]
         pool_list[idx] = new_text
         content[pool] = pool_list
         with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
+            yaml.dump(content, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        logger.info("[weekplan.update] saved %s[%d]: %r -> %r", pool, idx, old_text[:60], new_text[:60])
         return {"status": "ok"}
 
     if pool.startswith("discussion:"):
@@ -978,14 +1189,19 @@ async def update_weekplan_prompt(request: Request):
         with open(path, "r", encoding="utf-8") as f:
             content = yaml.safe_load(f) or {}
         cat_list = content.get(category, [])
+        logger.info("[weekplan.update] category=%s has %d entries, replacing idx=%d", category, len(cat_list), idx)
         if idx >= len(cat_list):
+            logger.warning("[weekplan.update] idx %d out of range for category %s (len=%d)", idx, category, len(cat_list))
             raise HTTPException(status_code=400, detail="Index out of range")
+        old_text = cat_list[idx]
         cat_list[idx] = new_text
         content[category] = cat_list
         with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
+            yaml.dump(content, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        logger.info("[weekplan.update] saved discussion:%s[%d]: %r -> %r", category, idx, old_text[:60], new_text[:60])
         return {"status": "ok"}
 
+    logger.warning("[weekplan.update] unknown pool: %r", pool)
     raise HTTPException(status_code=400, detail="Unknown pool")
 
 
@@ -1017,11 +1233,18 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     # Discussion categories: only those present in both YAML and settings
     topic_ids = settings.get("topics", {}).get("discussions", {})
     active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+    logger.info("[weekplan.render] week_offset=%d active_categories=%s", week_offset, active_categories)
+    logger.info("[weekplan.render] discussions_pool keys (in yaml order)=%s", list(discussions_pool.keys()))
+    # Show the actual first question for each active category (for sanity-checking saves)
+    for _cat in active_categories:
+        _qs = discussions_pool.get(_cat, [])
+        logger.info("[weekplan.render]   %s[0]=%r (pool has %d entries)", _cat, (_qs[0][:70] if _qs else None), len(_qs))
 
     # Track prompt indices for rotating previews across the week
     morning_idx = 0
     evening_idx = 0
     discussion_idx = 0
+    day_to_category_map = {}
 
     def _truncate(text: str, limit: int = 60) -> str:
         if len(text) <= limit:
@@ -1039,6 +1262,27 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
 
     hebrew_day_names = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
 
+    # Build committed-row index: (date_iso, "HH:MM", type) -> row
+    # Only status='scheduled' rows count as committed; cancelled/failed/sent fall back to preview
+    committed_index: dict[tuple[str, str, str], dict] = {}
+    try:
+        _raw_committed = await db.get_scheduled_messages(
+            sunday.isoformat(), (sunday + timedelta(days=6)).isoformat()
+        )
+        for row in _raw_committed:
+            if row.get("status") != "scheduled":
+                continue
+            mtype = row.get("message_type", "")
+            if mtype not in ("morning", "evening", "discussion"):
+                continue
+            dkey = row.get("scheduled_date", "")
+            tkey = (row.get("scheduled_time") or "")[:5]
+            committed_index[(dkey, tkey, mtype)] = row
+        logger.info("[weekplan.render] committed_index has %d entries: %s",
+                    len(committed_index), list(committed_index.keys()))
+    except Exception as e:
+        logger.warning("[weekplan.render] failed to load committed_index: %s", e)
+
     week_days = []
     for i in range(7):
         day_date = sunday + timedelta(days=i)
@@ -1047,82 +1291,153 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
         # Check each schedule item
         if i in schedule.get("morning_prompt", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "morning_prompt")
-            preview = ""
-            full_text = ""
-            used_idx = -1
-            if morning_queue and morning_idx < len(morning_queue):
-                full_text = morning_queue[morning_idx]
-                preview = _truncate(full_text)
-                used_idx = morning_idx
-                morning_idx += 1
+            m_time = schedule["morning_prompt"].get("time", "09:00")
             goals_topic = settings.get("topics", {}).get("goals")
-            activities.append({
-                "time": schedule["morning_prompt"].get("time", "09:00"),
-                "type": "morning", "label": "בוקר",
-                "desc": preview or "הודעת בוקר — יום יום",
-                "full_text": full_text,
-                "pool": "morning",
-                "pool_idx": used_idx,
-                "topic_id": goals_topic if goals_topic else "",
-                "channel": "", "enabled": enabled
-            })
+            committed_row = committed_index.get((day_date.isoformat(), m_time, "morning"))
+            if committed_row:
+                full_text = committed_row.get("text", "")
+                preview = _truncate(full_text)
+                committed_topic = committed_row.get("channel_topic_id") or goals_topic or ""
+                activities.append({
+                    "time": m_time,
+                    "type": "morning", "label": "בוקר",
+                    "desc": preview or "הודעת בוקר — יום יום",
+                    "full_text": full_text,
+                    "pool": "morning",
+                    "pool_idx": -1,
+                    "topic_id": committed_topic,
+                    "channel": "", "enabled": enabled,
+                    "committed": True,
+                    "scheduled_id": committed_row.get("id"),
+                })
+            else:
+                preview = ""
+                full_text = ""
+                used_idx = -1
+                if morning_queue and morning_idx < len(morning_queue):
+                    full_text = morning_queue[morning_idx]
+                    preview = _truncate(full_text)
+                    used_idx = morning_idx
+                    morning_idx += 1
+                activities.append({
+                    "time": m_time,
+                    "type": "morning", "label": "בוקר",
+                    "desc": preview or "הודעת בוקר — יום יום",
+                    "full_text": full_text,
+                    "pool": "morning",
+                    "pool_idx": used_idx,
+                    "topic_id": goals_topic if goals_topic else "",
+                    "channel": "", "enabled": enabled,
+                    "committed": False,
+                    "scheduled_id": None,
+                })
 
         if i in schedule.get("discussion_prompt", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "discussions")
             times = schedule["discussion_prompt"].get("times", ["18:00"])
             for t in times:
-                preview = ""
-                full_text = ""
-                channel_hint = ""
-                disc_pool = ""
-                disc_idx = -1
-                disc_topic_id = ""
-                disc_category = ""
-                if active_categories and discussions_pool:
-                    cat = active_categories[discussion_idx % len(active_categories)]
-                    cat_questions = discussions_pool.get(cat, [])
-                    if cat_questions:
-                        q_idx = (discussion_idx // len(active_categories)) % len(cat_questions)
-                        full_text = cat_questions[q_idx]
-                        preview = _truncate(full_text)
-                        disc_pool = f"discussion:{cat}"
-                        disc_idx = q_idx
-                    channel_hint = CATEGORY_NAMES.get(cat, cat)
-                    disc_topic_id = topic_ids.get(cat) or ""
-                    disc_category = cat
-                    discussion_idx += 1
-                activities.append({
-                    "time": t, "type": "discussion", "label": "דיון",
-                    "desc": preview or "שאלה לדיון",
-                    "full_text": full_text,
-                    "pool": disc_pool,
-                    "pool_idx": disc_idx,
-                    "topic_id": disc_topic_id,
-                    "category": disc_category,
-                    "channel": channel_hint, "enabled": enabled
-                })
+                committed_row = committed_index.get((day_date.isoformat(), t, "discussion"))
+                if committed_row:
+                    full_text = committed_row.get("text", "")
+                    preview = _truncate(full_text)
+                    committed_topic = committed_row.get("channel_topic_id") or ""
+                    # Reverse-lookup category name from topic_id
+                    cat_key = ""
+                    for _ck, _tid in topic_ids.items():
+                        if _tid == committed_topic:
+                            cat_key = _ck
+                            break
+                    channel_hint = CATEGORY_NAMES.get(cat_key, cat_key) if cat_key else ""
+                    activities.append({
+                        "time": t, "type": "discussion", "label": "דיון",
+                        "desc": preview or "שאלה לדיון",
+                        "full_text": full_text,
+                        "pool": f"discussion:{cat_key}" if cat_key else "",
+                        "pool_idx": -1,
+                        "topic_id": committed_topic,
+                        "category": cat_key,
+                        "channel": channel_hint, "enabled": enabled,
+                        "committed": True,
+                        "scheduled_id": committed_row.get("id"),
+                    })
+                else:
+                    preview = ""
+                    full_text = ""
+                    channel_hint = ""
+                    disc_pool = ""
+                    disc_idx = -1
+                    disc_topic_id = ""
+                    disc_category = ""
+                    if active_categories and discussions_pool:
+                        cat = active_categories[discussion_idx % len(active_categories)]
+                        cat_questions = discussions_pool.get(cat, [])
+                        if cat_questions:
+                            q_idx = (discussion_idx // len(active_categories)) % len(cat_questions)
+                            full_text = cat_questions[q_idx]
+                            preview = _truncate(full_text)
+                            disc_pool = f"discussion:{cat}"
+                            disc_idx = q_idx
+                            logger.info("[weekplan.render]   day %d (%s) → %s[%d] = %r", i, hebrew_day_names[i], cat, q_idx, full_text[:60])
+                            day_to_category_map[i] = f"{cat}[{q_idx}]"
+                        channel_hint = CATEGORY_NAMES.get(cat, cat)
+                        disc_topic_id = topic_ids.get(cat) or ""
+                        disc_category = cat
+                        discussion_idx += 1
+                    activities.append({
+                        "time": t, "type": "discussion", "label": "דיון",
+                        "desc": preview or "שאלה לדיון",
+                        "full_text": full_text,
+                        "pool": disc_pool,
+                        "pool_idx": disc_idx,
+                        "topic_id": disc_topic_id,
+                        "category": disc_category,
+                        "channel": channel_hint, "enabled": enabled,
+                        "committed": False,
+                        "scheduled_id": None,
+                    })
 
         if i in schedule.get("evening_prompt", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "evening_prompt")
-            preview = ""
-            full_text = ""
-            used_idx = -1
-            if evening_queue and evening_idx < len(evening_queue):
-                full_text = evening_queue[evening_idx]
-                preview = _truncate(full_text)
-                used_idx = evening_idx
-                evening_idx += 1
+            e_time = schedule["evening_prompt"].get("time", "21:00")
             goals_topic = settings.get("topics", {}).get("goals")
-            activities.append({
-                "time": schedule["evening_prompt"].get("time", "21:00"),
-                "type": "evening", "label": "ערב",
-                "desc": preview or "הודעת ערב — יום יום",
-                "full_text": full_text,
-                "pool": "evening",
-                "pool_idx": used_idx,
-                "topic_id": goals_topic if goals_topic else "",
-                "channel": "", "enabled": enabled
-            })
+            committed_row = committed_index.get((day_date.isoformat(), e_time, "evening"))
+            if committed_row:
+                full_text = committed_row.get("text", "")
+                preview = _truncate(full_text)
+                committed_topic = committed_row.get("channel_topic_id") or goals_topic or ""
+                activities.append({
+                    "time": e_time,
+                    "type": "evening", "label": "ערב",
+                    "desc": preview or "הודעת ערב — יום יום",
+                    "full_text": full_text,
+                    "pool": "evening",
+                    "pool_idx": -1,
+                    "topic_id": committed_topic,
+                    "channel": "", "enabled": enabled,
+                    "committed": True,
+                    "scheduled_id": committed_row.get("id"),
+                })
+            else:
+                preview = ""
+                full_text = ""
+                used_idx = -1
+                if evening_queue and evening_idx < len(evening_queue):
+                    full_text = evening_queue[evening_idx]
+                    preview = _truncate(full_text)
+                    used_idx = evening_idx
+                    evening_idx += 1
+                activities.append({
+                    "time": e_time,
+                    "type": "evening", "label": "ערב",
+                    "desc": preview or "הודעת ערב — יום יום",
+                    "full_text": full_text,
+                    "pool": "evening",
+                    "pool_idx": used_idx,
+                    "topic_id": goals_topic if goals_topic else "",
+                    "channel": "", "enabled": enabled,
+                    "committed": False,
+                    "scheduled_id": None,
+                })
 
         if i in schedule.get("weekly_leaderboard", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "levels")
@@ -1164,9 +1479,13 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     except Exception:
         calendar_events = []
 
-    # Add calendar events to the right days
+    # Add calendar events to the right days (skip rows already in committed_index)
+    committed_ids = {row.get("id") for row in committed_index.values()}
     for evt in calendar_events:
         try:
+            # Skip rows already rendered as committed activities
+            if evt.get("id") in committed_ids:
+                continue
             evt_date_str = evt.get("scheduled_date", "")
             evt_time_str = evt.get("scheduled_time", "00:00")
             from datetime import date as date_cls
@@ -1196,6 +1515,8 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                 "name": CATEGORY_NAMES.get(cat, cat),
                 "topic_id": tid,
             })
+
+    logger.info("[weekplan.render] day→discussion map for week starting %s: %s", sunday, day_to_category_map)
 
     return templates.TemplateResponse(request, name="weekplan.html", context={
         "settings": settings,
