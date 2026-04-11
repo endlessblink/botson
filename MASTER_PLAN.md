@@ -83,9 +83,20 @@
 | T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
 | T-076 | — | Rotating admin titles for top members (weekly) | TODO | P1 | T-031 |
 | T-077 | — | Configurable validation-based scoring system | TODO | P1 | T-031, T-003 |
-| T-078 | 14 | Dashboard: create & send interactive polls | TODO | P1 | T-027, T-047 |
+| T-078 | 14 | Dashboard: create & send interactive polls | DONE | P1 | T-027, T-047 |
 | T-079 | — | Trivia redesign: speed scoring + themed channels | TODO | P1 | T-023 |
-| T-080 | 14 | Planner page redesign — full content + activity | TODO | P1 | T-078 |
+| ~~T-080~~ | 14 | ~~Planner page redesign~~ → Content calendar (FullCalendar) | IN PROGRESS | P0 | T-078 |
+| T-081 | 15 | Calendar Session 1: FullCalendar render + dark theme + RTL | DONE | P0 | T-080 |
+| T-082 | 15 | Calendar Session 2: Type-first creation drawer wizard | TODO | P0 | T-081 |
+| T-083 | 15 | Calendar Session 3: Status lifecycle + queued lock | TODO | P1 | T-081 |
+| T-084 | 15 | Calendar Session 4: Recurring rules with rrule | TODO | P1 | T-083 |
+| T-085 | 15 | Calendar Session 5: AI draft button in wizard | TODO | P1 | T-082 |
+| T-086 | 15 | Calendar Session 6: Post-send metrics badges | TODO | P2 | T-083 |
+| T-087 | — | Content calendar auto-sender (calendar_checker job) | DONE | P0 | T-080 |
+| T-088 | — | Calendar CRUD API endpoints | DONE | P0 | T-080 |
+| T-089 | — | Atomic schedule reload (no job loss) | DONE | P1 | T-053 |
+| T-090 | — | Validation-based scoring (no points for raw messages) | DONE | P1 | T-077 |
+| T-091 | — | Inline poll vote tracking (poll_ handler) | DONE | P1 | T-078 |
 
 ## Detailed Tasks
 
