@@ -99,6 +99,7 @@
 | T-091 | — | Inline poll vote tracking (poll_ handler) | DONE | P1 | T-078 |
 | T-092 | — | Join request notifications to Den | TODO | P3 | T-007 |
 | ~~T-093~~ | — | ✅ Anti-spam live mode + dashboard ban/unban | ✅ DONE (2026-04-11) | P1 | — |
+| T-094 | — | Onboarding video: side panel topic switching | TODO | P3 | — |
 
 ## Detailed Tasks
 
@@ -656,6 +657,14 @@ Replace hardcoded point values with a validation-based scoring model loaded from
 | `TIMEZONE` | For scheduled posts | `Asia/Jerusalem` |
 | `DB_PATH` | SQLite database path | `./data/bot.db` |
 | `GOALS_TOPIC_ID` | Forum topic ID for goals channel | TBD after creation |
+
+#### T-094: Onboarding video: side panel topic switching
+**Priority:** P3 | **Status:** TODO
+Replace the full-screen TopicsScene with animated side panel topic switching. Instead of a dedicated topic list scene, show topic navigation happening in the side panel during chat scenes — highlight different topics, animate switching between them. The side panel IS the topic navigation, not a separate screen.
+- Files: `media/showcase/src/scenes/TopicsScene.tsx`, `media/showcase/src/scenes/BotFeaturesScene.tsx`, `media/showcase/src/components/telegram/TopicSidePanel.tsx`
+- Consider merging TopicsScene into BotFeaturesScene with the side panel animating topic switches
+
+---
 
 ## Tech Stack
 

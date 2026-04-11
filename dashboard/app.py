@@ -668,7 +668,44 @@ COMMUNITY_CONTEXT = """קהילת "אלהוריים וזה" — קהילת צ'י
 הקהילה היא חמה, תומכת ומהנה. השפה עברית. התוכן רלוונטי לאורח חיים של מבוגרים, צמיחה אישית, וחיזוק הקשר הקהילתי."""
 
 
-def build_generation_prompt(field: str, mode: str, existing: str, category: str) -> str:
+def build_generation_prompt(field: str, mode: str, existing: str, category: str, instructions: str = "") -> str:
+    # Single-item rewrite mode — used by the weekplan modal
+    if mode == "rewrite":
+        type_he = {"morning": "הודעת בוקר", "evening": "הודעת ערב", "discussion": "שאלה לדיון"}.get(field, "הודעה")
+        base = f"""שכתב את ה{type_he} הבאה בעברית. שמור על הרעיון המרכזי אבל הפוך אותה לטובה יותר — יותר מעניינת, טבעית ומזמינה. פלט: רק ההודעה החדשה, בלי הסברים, בלי מרכאות, בלי מספור.
+
+ההודעה המקורית:
+{existing}"""
+        if instructions:
+            base += f"\n\nהוראות נוספות: {instructions}"
+        return base
+
+    # Single-item fresh generate — weekplan modal, one prompt only
+    if mode == "single":
+        if field == "morning":
+            base = f"""צור הודעת בוקר אחת מעוררת השראה בעברית עבור {COMMUNITY_CONTEXT}
+
+ההודעה צריכה להיות שורה או שתיים, לפתוח באמוג'י רלוונטי, לעודד את חברי הקהילה לבוקר טוב.
+הטון: חם, מעודד, קליל.
+פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."""
+        elif field == "evening":
+            base = f"""צור הודעת ערב אחת רפלקטיבית בעברית עבור {COMMUNITY_CONTEXT}
+
+ההודעה צריכה להיות שורה או שתיים, לפתוח באמוג'י רלוונטי, לעודד חשיבה על היום שעבר.
+הטון: רגוע, מחבק, מעודד רפלקציה.
+פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."""
+        elif field == "discussion":
+            base = f"""צור שאלה אחת לדיון בקטגוריה "{category}" בעברית עבור {COMMUNITY_CONTEXT}
+
+השאלה צריכה להיות שורה אחת, מעוררת שיחה ומעניינת.
+הטון: סקרני, פתוח, מזמין.
+פלט: רק השאלה, בלי מספור, בלי מרכאות, בלי הסברים."""
+        else:
+            base = f"צור תוכן בעברית עבור {COMMUNITY_CONTEXT}"
+        if instructions:
+            base += f"\n\nהוראות נוספות: {instructions}"
+        return base
+
     count = "5-8" if mode == "append" else "15-20"
 
     if field == "morning":
@@ -760,11 +797,12 @@ async def generate_content(request: Request):
 
     data = await request.json()
     field = data["field"]       # "morning", "evening", "discussion", "trivia"
-    mode = data["mode"]         # "append" or "replace"
+    mode = data["mode"]         # "append", "replace", "single", or "rewrite"
     existing = data.get("existing", "")
     category = data.get("category", "")
+    instructions = (data.get("instructions") or "").strip()
 
-    prompt = build_generation_prompt(field, mode, existing, category)
+    prompt = build_generation_prompt(field, mode, existing, category, instructions)
 
     # Try Claude Code CLI first, fall back to Anthropic API
     try:
@@ -890,6 +928,67 @@ def _is_feature_enabled_simple(features: dict, key: str) -> bool:
     return False
 
 
+@app.get("/api/weekplan/discussion-sample")
+async def get_discussion_sample(request: Request, category: str):
+    """Return the first question from a discussion category pool."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    try:
+        pool = load_yaml("discussions.yaml") or {}
+    except Exception:
+        pool = {}
+
+    questions = pool.get(category, [])
+    if not questions:
+        return {"text": "", "idx": -1}
+    return {"text": questions[0], "idx": 0}
+
+
+@app.post("/api/weekplan/update-prompt")
+async def update_weekplan_prompt(request: Request):
+    """Update a single prompt text in its YAML pool from the weekplan modal."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    pool = (data.get("pool") or "").strip()
+    idx = data.get("idx", -1)
+    new_text = (data.get("text") or "").strip()
+
+    if not new_text or not isinstance(idx, int) or idx < 0:
+        raise HTTPException(status_code=400, detail="Missing text or invalid index")
+
+    if pool in ("morning", "evening"):
+        path = CONFIG_DIR / "prompts.yaml"
+        with open(path, "r", encoding="utf-8") as f:
+            content = yaml.safe_load(f) or {}
+        pool_list = content.get(pool, [])
+        if idx >= len(pool_list):
+            raise HTTPException(status_code=400, detail="Index out of range")
+        pool_list[idx] = new_text
+        content[pool] = pool_list
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
+        return {"status": "ok"}
+
+    if pool.startswith("discussion:"):
+        category = pool.split(":", 1)[1]
+        path = CONFIG_DIR / "discussions.yaml"
+        with open(path, "r", encoding="utf-8") as f:
+            content = yaml.safe_load(f) or {}
+        cat_list = content.get(category, [])
+        if idx >= len(cat_list):
+            raise HTTPException(status_code=400, detail="Index out of range")
+        cat_list[idx] = new_text
+        content[category] = cat_list
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
+        return {"status": "ok"}
+
+    raise HTTPException(status_code=400, detail="Unknown pool")
+
+
 @app.get("/weekplan", response_class=HTMLResponse)
 async def weekplan_page(request: Request, week_offset: int = 0, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
@@ -949,13 +1048,22 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
         if i in schedule.get("morning_prompt", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "morning_prompt")
             preview = ""
+            full_text = ""
+            used_idx = -1
             if morning_queue and morning_idx < len(morning_queue):
-                preview = _truncate(morning_queue[morning_idx])
+                full_text = morning_queue[morning_idx]
+                preview = _truncate(full_text)
+                used_idx = morning_idx
                 morning_idx += 1
+            goals_topic = settings.get("topics", {}).get("goals")
             activities.append({
                 "time": schedule["morning_prompt"].get("time", "09:00"),
                 "type": "morning", "label": "בוקר",
                 "desc": preview or "הודעת בוקר — יום יום",
+                "full_text": full_text,
+                "pool": "morning",
+                "pool_idx": used_idx,
+                "topic_id": goals_topic if goals_topic else "",
                 "channel": "", "enabled": enabled
             })
 
@@ -964,31 +1072,55 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             times = schedule["discussion_prompt"].get("times", ["18:00"])
             for t in times:
                 preview = ""
+                full_text = ""
                 channel_hint = ""
+                disc_pool = ""
+                disc_idx = -1
+                disc_topic_id = ""
+                disc_category = ""
                 if active_categories and discussions_pool:
                     cat = active_categories[discussion_idx % len(active_categories)]
                     cat_questions = discussions_pool.get(cat, [])
                     if cat_questions:
-                        q_idx = (discussion_idx // len(active_categories)) if len(active_categories) > 0 else 0
-                        preview = _truncate(cat_questions[q_idx % len(cat_questions)])
+                        q_idx = (discussion_idx // len(active_categories)) % len(cat_questions)
+                        full_text = cat_questions[q_idx]
+                        preview = _truncate(full_text)
+                        disc_pool = f"discussion:{cat}"
+                        disc_idx = q_idx
                     channel_hint = CATEGORY_NAMES.get(cat, cat)
+                    disc_topic_id = topic_ids.get(cat) or ""
+                    disc_category = cat
                     discussion_idx += 1
                 activities.append({
                     "time": t, "type": "discussion", "label": "דיון",
                     "desc": preview or "שאלה לדיון",
+                    "full_text": full_text,
+                    "pool": disc_pool,
+                    "pool_idx": disc_idx,
+                    "topic_id": disc_topic_id,
+                    "category": disc_category,
                     "channel": channel_hint, "enabled": enabled
                 })
 
         if i in schedule.get("evening_prompt", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "evening_prompt")
             preview = ""
+            full_text = ""
+            used_idx = -1
             if evening_queue and evening_idx < len(evening_queue):
-                preview = _truncate(evening_queue[evening_idx])
+                full_text = evening_queue[evening_idx]
+                preview = _truncate(full_text)
+                used_idx = evening_idx
                 evening_idx += 1
+            goals_topic = settings.get("topics", {}).get("goals")
             activities.append({
                 "time": schedule["evening_prompt"].get("time", "21:00"),
                 "type": "evening", "label": "ערב",
                 "desc": preview or "הודעת ערב — יום יום",
+                "full_text": full_text,
+                "pool": "evening",
+                "pool_idx": used_idx,
+                "topic_id": goals_topic if goals_topic else "",
                 "channel": "", "enabled": enabled
             })
 
@@ -997,7 +1129,9 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             activities.append({
                 "time": schedule["weekly_leaderboard"].get("time", "18:00"),
                 "type": "leaderboard", "label": "לידרבורד",
-                "desc": "טבלת מובילים שבועית", "enabled": enabled
+                "desc": "טבלת מובילים שבועית",
+                "full_text": "", "pool": "", "pool_idx": -1,
+                "channel": "", "enabled": enabled
             })
 
         if i in schedule.get("weekly_roundup", {}).get("days", []):
@@ -1005,7 +1139,9 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             activities.append({
                 "time": schedule["weekly_roundup"].get("time", "18:00"),
                 "type": "roundup", "label": "סיכום",
-                "desc": "סיכום שבועי", "enabled": enabled
+                "desc": "סיכום שבועי",
+                "full_text": "", "pool": "", "pool_idx": -1,
+                "channel": "", "enabled": enabled
             })
 
         # Sort by time
@@ -1043,18 +1179,30 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "type": "calendar",
                     "label": evt.get("message_type", "הודעה"),
                     "desc": (evt.get("text", "") or "")[:60],
-                    "enabled": True,
+                    "full_text": "", "pool": "", "pool_idx": -1,
+                    "channel": "", "enabled": True,
                     "status": evt.get("status", "")
                 })
                 week_days[day_idx]["activities"].sort(key=lambda a: a["time"])
         except (ValueError, TypeError, IndexError):
             pass
 
+    # Build discussion channel list for the modal dropdown
+    discussion_channels = []
+    for cat, tid in topic_ids.items():
+        if tid:
+            discussion_channels.append({
+                "key": cat,
+                "name": CATEGORY_NAMES.get(cat, cat),
+                "topic_id": tid,
+            })
+
     return templates.TemplateResponse(request, name="weekplan.html", context={
         "settings": settings,
         "week_days": week_days,
         "features": features,
         "week_offset": week_offset,
+        "discussion_channels": discussion_channels,
     })
 
 
