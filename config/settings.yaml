@@ -9,14 +9,20 @@ antispam:
 bot:
   name: Botson
 features:
-  morning_prompt:
+  antispam:
     enabled: true
     groups:
     - main
+    - test
+  discussions: true
   evening_prompt:
     enabled: true
     groups:
     - main
+  events:
+    enabled: false
+    groups:
+    - test
   goals:
     enabled: true
     groups:
@@ -26,24 +32,15 @@ features:
     groups:
     - main
     - test
-  antispam:
+  morning_prompt:
     enabled: true
     groups:
     - main
-    - test
-  discussions:
-    enabled: false
-    groups:
-    - main
-  events:
+  roundup:
     enabled: false
     groups:
     - test
   trivia:
-    enabled: false
-    groups:
-    - test
-  roundup:
     enabled: false
     groups:
     - test
@@ -52,21 +49,20 @@ features:
     groups:
     - main
     - test
+gamification:
+  discussion_reply: 3
+  event_rsvp: 5
+  goals_post: 2
+  prompt_reply: 3
+  streak_14_bonus: 15
+  streak_30_bonus: 25
+  streak_7_bonus: 10
+  streak_daily: 3
+  trivia_correct: 12
+  trivia_winner: 20
 levels:
   max_per_day: 10
 schedule:
-  morning_prompt:
-    days:
-    - 0
-    - 2
-    - 4
-    time: '09:00'
-  evening_prompt:
-    days:
-    - 0
-    - 2
-    - 4
-    time: '21:00'
   discussion_prompt:
     days:
     - 0
@@ -76,6 +72,18 @@ schedule:
     - 4
     times:
     - '18:00'
+  evening_prompt:
+    days:
+    - 0
+    - 2
+    - 4
+    time: '21:00'
+  morning_prompt:
+    days:
+    - 0
+    - 2
+    - 4
+    time: 09:00
   weekly_leaderboard:
     days:
     - 6
@@ -98,16 +106,3 @@ topics:
   welcome: 341
 welcome:
   batch_window_seconds: 30
-
-# Gamification — point values for each validated action
-gamification:
-  prompt_reply: 3
-  discussion_reply: 3
-  goals_post: 2
-  trivia_correct: 12
-  trivia_winner: 20
-  event_rsvp: 5
-  streak_daily: 3
-  streak_7_bonus: 10
-  streak_14_bonus: 15
-  streak_30_bonus: 25

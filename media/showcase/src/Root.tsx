@@ -1,6 +1,10 @@
 import React from "react";
 import { Composition } from "remotion";
 import { Showcase, PAGE_DURATION, TRANSITION_DURATION } from "./Showcase";
+import {
+  TelegramOnboarding,
+  TOTAL_DURATION as ONBOARDING_TOTAL,
+} from "./TelegramOnboarding";
 
 const PAGES_COUNT = 4;
 const TOTAL =
@@ -15,6 +19,14 @@ export const RemotionRoot: React.FC = () => (
       fps={15}
       width={960}
       height={540}
+    />
+    <Composition
+      id="TelegramOnboarding"
+      component={TelegramOnboarding}
+      durationInFrames={ONBOARDING_TOTAL}
+      fps={15}
+      width={720}
+      height={720}
     />
   </>
 );

@@ -97,6 +97,8 @@
 | T-089 | — | Atomic schedule reload (no job loss) | DONE | P1 | T-053 |
 | T-090 | — | Validation-based scoring (no points for raw messages) | DONE | P1 | T-077 |
 | T-091 | — | Inline poll vote tracking (poll_ handler) | DONE | P1 | T-078 |
+| T-092 | — | Join request notifications to Den | TODO | P3 | T-007 |
+| ~~T-093~~ | — | ✅ Anti-spam live mode + dashboard ban/unban | ✅ DONE (2026-04-11) | P1 | — |
 
 ## Detailed Tasks
 

@@ -85,7 +85,6 @@ The dashboard is the primary control interface. Users should never need to use T
 | 54 | סרטים סדרות וכו | movies |
 | 59 | אל הוריים/יות מכירים | singles |
 | 335 | כל מה שחמוד 🐕🦝🐨 | cute |
-| 153 | AI וטכנולוגיה | — |
 | 347 | ערוץ אומנות ויצירה 🎨📷 | art |
 | 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics |
 | 7 | כללי (General) — unconfirmed | general |

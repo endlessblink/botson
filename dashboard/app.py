@@ -2,10 +2,13 @@
 
 import asyncio
 import json
+import logging
 import os
 import secrets
 import signal
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import yaml
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
@@ -579,6 +582,17 @@ async def add_blocked_user(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="user_id required")
 
     await db.block_user(int(user_id), blocked_by="dashboard", reason=reason)
+
+    # Also ban from Telegram group
+    try:
+        from telegram import Bot
+        bot = Bot(os.getenv("BOT_TOKEN", ""))
+        group_id = int(os.getenv("GROUP_ID", "0"))
+        if group_id:
+            await bot.ban_chat_member(chat_id=group_id, user_id=int(user_id))
+    except Exception as e:
+        logger.warning("Failed to ban user %s from Telegram: %s", user_id, e)
+
     return {"status": "ok"}
 
 
@@ -588,6 +602,17 @@ async def remove_blocked_user(user_id: int, request: Request, db: Database = Dep
         raise HTTPException(status_code=401)
 
     await db.unblock_user(user_id)
+
+    # Also unban from Telegram group (allows them to rejoin)
+    try:
+        from telegram import Bot
+        bot = Bot(os.getenv("BOT_TOKEN", ""))
+        group_id = int(os.getenv("GROUP_ID", "0"))
+        if group_id:
+            await bot.unban_chat_member(chat_id=group_id, user_id=user_id)
+    except Exception as e:
+        logger.warning("Failed to unban user %d from Telegram: %s", user_id, e)
+
     return {"status": "ok"}
 
 
@@ -853,6 +878,186 @@ async def update_features(request: Request):
     return {"status": "ok"}
 
 
+# ── Weekly Plan Page ────────────────────────────────────
+
+def _is_feature_enabled_simple(features: dict, key: str) -> bool:
+    """Check if a feature is enabled (simple check for template use)."""
+    feat = features.get(key, {})
+    if isinstance(feat, bool):
+        return feat
+    if isinstance(feat, dict):
+        return feat.get("enabled", False)
+    return False
+
+
+@app.get("/weekplan", response_class=HTMLResponse)
+async def weekplan_page(request: Request, week_offset: int = 0, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    settings = get_settings()
+    schedule = settings.get("schedule", {})
+    features = settings.get("features", {})
+
+    # Load prompt pools for content previews
+    try:
+        prompts_pool = load_yaml("prompts.yaml")
+    except Exception:
+        prompts_pool = {}
+
+    try:
+        discussions_pool = load_yaml("discussions.yaml")
+    except Exception:
+        discussions_pool = {}
+
+    from bot.handlers.discussions import CATEGORY_NAMES
+
+    morning_queue = list(prompts_pool.get("morning", []))
+    evening_queue = list(prompts_pool.get("evening", []))
+
+    # Discussion categories: only those present in both YAML and settings
+    topic_ids = settings.get("topics", {}).get("discussions", {})
+    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+
+    # Track prompt indices for rotating previews across the week
+    morning_idx = 0
+    evening_idx = 0
+    discussion_idx = 0
+
+    def _truncate(text: str, limit: int = 60) -> str:
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."
+
+    # Build week days (Sunday-Saturday for current week)
+    from datetime import date, timedelta
+    today = date.today()
+    # Python weekday: Mon=0..Sun=6 → Hebrew: Sun=0..Sat=6
+    python_weekday = today.weekday()  # 0=Mon
+    days_since_sunday = (python_weekday + 1) % 7
+    current_sunday = today - timedelta(days=days_since_sunday)
+    sunday = current_sunday + timedelta(weeks=week_offset)
+
+    hebrew_day_names = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
+
+    week_days = []
+    for i in range(7):
+        day_date = sunday + timedelta(days=i)
+        activities = []
+
+        # Check each schedule item
+        if i in schedule.get("morning_prompt", {}).get("days", []):
+            enabled = _is_feature_enabled_simple(features, "morning_prompt")
+            preview = ""
+            if morning_queue and morning_idx < len(morning_queue):
+                preview = _truncate(morning_queue[morning_idx])
+                morning_idx += 1
+            activities.append({
+                "time": schedule["morning_prompt"].get("time", "09:00"),
+                "type": "morning", "label": "בוקר",
+                "desc": preview or "הודעת בוקר — יום יום",
+                "channel": "", "enabled": enabled
+            })
+
+        if i in schedule.get("discussion_prompt", {}).get("days", []):
+            enabled = _is_feature_enabled_simple(features, "discussions")
+            times = schedule["discussion_prompt"].get("times", ["18:00"])
+            for t in times:
+                preview = ""
+                channel_hint = ""
+                if active_categories and discussions_pool:
+                    cat = active_categories[discussion_idx % len(active_categories)]
+                    cat_questions = discussions_pool.get(cat, [])
+                    if cat_questions:
+                        q_idx = (discussion_idx // len(active_categories)) if len(active_categories) > 0 else 0
+                        preview = _truncate(cat_questions[q_idx % len(cat_questions)])
+                    channel_hint = CATEGORY_NAMES.get(cat, cat)
+                    discussion_idx += 1
+                activities.append({
+                    "time": t, "type": "discussion", "label": "דיון",
+                    "desc": preview or "שאלה לדיון",
+                    "channel": channel_hint, "enabled": enabled
+                })
+
+        if i in schedule.get("evening_prompt", {}).get("days", []):
+            enabled = _is_feature_enabled_simple(features, "evening_prompt")
+            preview = ""
+            if evening_queue and evening_idx < len(evening_queue):
+                preview = _truncate(evening_queue[evening_idx])
+                evening_idx += 1
+            activities.append({
+                "time": schedule["evening_prompt"].get("time", "21:00"),
+                "type": "evening", "label": "ערב",
+                "desc": preview or "הודעת ערב — יום יום",
+                "channel": "", "enabled": enabled
+            })
+
+        if i in schedule.get("weekly_leaderboard", {}).get("days", []):
+            enabled = _is_feature_enabled_simple(features, "levels")
+            activities.append({
+                "time": schedule["weekly_leaderboard"].get("time", "18:00"),
+                "type": "leaderboard", "label": "לידרבורד",
+                "desc": "טבלת מובילים שבועית", "enabled": enabled
+            })
+
+        if i in schedule.get("weekly_roundup", {}).get("days", []):
+            enabled = _is_feature_enabled_simple(features, "roundup")
+            activities.append({
+                "time": schedule["weekly_roundup"].get("time", "18:00"),
+                "type": "roundup", "label": "סיכום",
+                "desc": "סיכום שבועי", "enabled": enabled
+            })
+
+        # Sort by time
+        activities.sort(key=lambda a: a["time"])
+
+        week_days.append({
+            "date": day_date,
+            "day_name": hebrew_day_names[i],
+            "day_num": i,
+            "is_today": day_date == today,
+            "is_weekend": i >= 5,
+            "activities": activities
+        })
+
+    # Get calendar events (scheduled messages) for this week
+    try:
+        calendar_events = await db.get_scheduled_messages(
+            sunday.isoformat(), (sunday + timedelta(days=6)).isoformat()
+        )
+    except Exception:
+        calendar_events = []
+
+    # Add calendar events to the right days
+    for evt in calendar_events:
+        try:
+            evt_date_str = evt.get("scheduled_date", "")
+            evt_time_str = evt.get("scheduled_time", "00:00")
+            from datetime import date as date_cls
+            parts = evt_date_str.split("-")
+            evt_date = date_cls(int(parts[0]), int(parts[1]), int(parts[2]))
+            day_idx = (evt_date - sunday).days
+            if 0 <= day_idx < 7:
+                week_days[day_idx]["activities"].append({
+                    "time": evt_time_str or "00:00",
+                    "type": "calendar",
+                    "label": evt.get("message_type", "הודעה"),
+                    "desc": (evt.get("text", "") or "")[:60],
+                    "enabled": True,
+                    "status": evt.get("status", "")
+                })
+                week_days[day_idx]["activities"].sort(key=lambda a: a["time"])
+        except (ValueError, TypeError, IndexError):
+            pass
+
+    return templates.TemplateResponse(request, name="weekplan.html", context={
+        "settings": settings,
+        "week_days": week_days,
+        "features": features,
+        "week_offset": week_offset,
+    })
+
+
 # ── Health Page ─────────────────────────────────────────
 
 @app.get("/health", response_class=HTMLResponse)
@@ -988,7 +1193,6 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
         1431: "#f59e0b",  # politics - amber
         335: "#ec4899",   # cute - pink
         59: "#ec4899",    # singles - pink
-        153: "#06b6d4",   # funny/cool - cyan
         2184: "#f59e0b",  # goals/yom yom - amber
         341: "#3b82f6",   # welcome - blue
     }

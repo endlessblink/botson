@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% set active_page = "weekplan" %}
+{% block title %}Botson — תוכנית שבועית{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Page header with week navigation -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-xl font-semibold text-[#fafafa] flex items-center gap-2">
+                <span class="text-lg">📅</span> תוכנית שבועית
+            </h1>
+            <p class="text-[#71717a] text-sm mt-1">
+                {% set months_he = {1:'ינואר',2:'פברואר',3:'מרץ',4:'אפריל',5:'מאי',6:'יוני',7:'יולי',8:'אוגוסט',9:'ספטמבר',10:'אוקטובר',11:'נובמבר',12:'דצמבר'} %}
+                {{ week_days[0].date.strftime('%d.%-m') }} – {{ week_days[6].date.strftime('%d.%-m') }}
+                {% if week_days[0].date.month == week_days[6].date.month %}
+                    ב{{ months_he[week_days[0].date.month] }} {{ week_days[0].date.year }}
+                {% else %}
+                    ב{{ months_he[week_days[0].date.month] }}–{{ months_he[week_days[6].date.month] }} {{ week_days[6].date.year }}
+                {% endif %}
+                {% if week_offset == 0 %}
+                    <span class="text-emerald-400 text-xs mr-1">(השבוע)</span>
+                {% elif week_offset == 1 %}
+                    <span class="text-sky-400 text-xs mr-1">(שבוע הבא)</span>
+                {% elif week_offset == -1 %}
+                    <span class="text-[#52525b] text-xs mr-1">(שבוע שעבר)</span>
+                {% endif %}
+            </p>
+        </div>
+        <div class="flex items-center gap-1">
+            <a href="/weekplan?week_offset={{ week_offset - 1 }}" class="p-2 rounded-md hover:bg-[#171717] text-[#71717a] hover:text-[#fafafa] transition-colors" title="שבוע קודם">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </a>
+            {% if week_offset != 0 %}
+            <a href="/weekplan" onclick="localStorage.removeItem('weekplan_offset')" class="px-2.5 py-1 rounded-md text-xs text-[#71717a] hover:text-[#fafafa] hover:bg-[#171717] transition-colors border border-[#272727]">היום</a>
+            {% endif %}
+            <a href="/weekplan?week_offset={{ week_offset + 1 }}" class="p-2 rounded-md hover:bg-[#171717] text-[#71717a] hover:text-[#fafafa] transition-colors" title="שבוע הבא">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </a>
+        </div>
+    </div>
+
+    <!-- Feature status bar -->
+    <div class="flex flex-wrap gap-2">
+        {% set feature_labels = [
+            ("morning_prompt", "בוקר"),
+            ("evening_prompt", "ערב"),
+            ("discussions", "דיונים"),
+            ("levels", "רמות"),
+            ("roundup", "סיכום"),
+            ("antispam", "ספאם")
+        ] %}
+        {% for key, label in feature_labels %}
+            {% set feat = features.get(key, {}) %}
+            {% if feat is mapping %}
+                {% set on = feat.get("enabled", false) %}
+            {% else %}
+                {% set on = feat %}
+            {% endif %}
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border
+                {% if on %}
+                    border-emerald-500/20 bg-emerald-500/10 text-emerald-400
+                {% else %}
+                    border-[#272727] bg-[#171717] text-[#52525b]
+                {% endif %}">
+                {% if on %}
+                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                {% else %}
+                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                {% endif %}
+                {{ label }}
+            </span>
+        {% endfor %}
+    </div>
+
+    <!-- Week grid: workdays -->
+    <div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {% for day in week_days[:5] %}
+            <div class="rounded-lg border bg-[#0a0a0a] flex flex-col
+                {% if day.is_today %}
+                    border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.06)]
+                {% else %}
+                    border-[#1f1f1f]
+                {% endif %}">
+
+                <!-- Day header -->
+                <div class="px-3 py-2.5 border-b border-[#1f1f1f] flex items-center justify-between">
+                    <div>
+                        <span class="text-sm font-semibold {% if day.is_today %}text-emerald-400{% else %}text-[#fafafa]{% endif %}">
+                            {{ day.day_name }}
+                        </span>
+                        <span class="text-xs text-[#52525b] mr-1.5">{{ day.date.strftime('%d.%-m') }}</span>
+                    </div>
+                    {% if day.is_today %}
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">היום</span>
+                    {% endif %}
+                </div>
+
+                <!-- Activities -->
+                <div class="flex-1 px-3 py-2 space-y-2">
+                    {% if day.activities %}
+                        {% for act in day.activities %}
+                        <a href="{% if act.type == 'morning' or act.type == 'evening' %}/prompts{% elif act.type == 'discussion' %}/prompts{% elif act.type == 'leaderboard' %}/levels{% elif act.type == 'roundup' %}/settings{% elif act.type == 'calendar' %}/planner{% else %}#{% endif %}"
+                           class="block text-xs group {% if not act.enabled %}opacity-40 pointer-events-none{% endif %} hover:bg-[#171717]/40 -mx-1.5 px-1.5 py-1 rounded transition-colors">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[#52525b] font-mono whitespace-nowrap tabular-nums" dir="ltr">{{ act.time }}</span>
+                                {% if act.type == 'morning' %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">{{ act.label }}</span>
+                                {% elif act.type == 'evening' %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">{{ act.label }}</span>
+                                {% elif act.type == 'discussion' %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-500/15 text-sky-400 border border-sky-500/20">{{ act.label }}</span>
+                                {% elif act.type == 'leaderboard' %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-pink-500/15 text-pink-400 border border-pink-500/20">{{ act.label }}</span>
+                                {% elif act.type == 'roundup' %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20">{{ act.label }}</span>
+                                {% elif act.type == 'calendar' %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">{{ act.label }}</span>
+                                {% else %}
+                                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#272727] text-[#71717a]">{{ act.label }}</span>
+                                {% endif %}
+                                {% if act.get('channel') %}
+                                    <span class="text-[10px] text-[#52525b] truncate">{{ act.channel }}</span>
+                                {% endif %}
+                            </div>
+                            <p class="text-[#a1a1aa] text-[11px] leading-snug mt-1 line-clamp-2 group-hover:text-[#d4d4d8] transition-colors {% if not act.enabled %}line-through{% endif %}">{{ act.desc }}</p>
+                        </a>
+                        {% endfor %}
+                    {% else %}
+                        <div class="flex items-center justify-center py-4">
+                            <span class="text-[11px] text-[#3f3f46]">אין פעילות מתוזמנת</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Weekend -->
+        <div class="mt-3">
+            <div class="text-[10px] text-[#3f3f46] uppercase tracking-wider font-medium mb-2 px-1">סוף שבוע</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {% for day in week_days[5:] %}
+                <div class="rounded-lg border flex flex-col
+                    {% if day.is_today %}
+                        border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.06)] bg-[#0a0a0a]
+                    {% else %}
+                        border-[#1a1a1a] bg-[#09090b]
+                    {% endif %}">
+
+                    <!-- Day header -->
+                    <div class="px-3 py-2.5 border-b border-[#1a1a1a] flex items-center justify-between">
+                        <div>
+                            <span class="text-sm font-semibold {% if day.is_today %}text-emerald-400{% else %}text-[#a1a1aa]{% endif %}">
+                                {{ day.day_name }}
+                            </span>
+                            <span class="text-xs text-[#3f3f46] mr-1.5">{{ day.date.strftime('%d.%-m') }}</span>
+                        </div>
+                        {% if day.is_today %}
+                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">היום</span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Activities -->
+                    <div class="flex-1 px-3 py-2 space-y-2">
+                        {% if day.activities %}
+                            {% for act in day.activities %}
+                            <a href="{% if act.type == 'leaderboard' %}/levels{% elif act.type == 'roundup' %}/settings{% elif act.type == 'calendar' %}/planner{% else %}#{% endif %}"
+                               class="block text-xs group {% if not act.enabled %}opacity-40 pointer-events-none{% endif %} hover:bg-[#171717]/40 -mx-1.5 px-1.5 py-1 rounded transition-colors">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[#52525b] font-mono whitespace-nowrap tabular-nums" dir="ltr">{{ act.time }}</span>
+                                    {% if act.type == 'leaderboard' %}
+                                        <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-pink-500/15 text-pink-400 border border-pink-500/20">{{ act.label }}</span>
+                                    {% elif act.type == 'roundup' %}
+                                        <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20">{{ act.label }}</span>
+                                    {% elif act.type == 'calendar' %}
+                                        <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">{{ act.label }}</span>
+                                    {% else %}
+                                        <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#272727] text-[#71717a]">{{ act.label }}</span>
+                                    {% endif %}
+                                    {% if act.get('channel') %}
+                                        <span class="text-[10px] text-[#52525b] truncate">{{ act.channel }}</span>
+                                    {% endif %}
+                                </div>
+                                <p class="text-[#a1a1aa] text-[11px] leading-snug mt-1 line-clamp-2 group-hover:text-[#d4d4d8] transition-colors {% if not act.enabled %}line-through{% endif %}">{{ act.desc }}</p>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="flex items-center justify-center py-4">
+                                <span class="text-[11px] text-[#3f3f46]">אין פעילות מתוזמנת</span>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Pool preview note -->
+        <div class="text-left mt-1 px-1">
+            <span class="text-[10px] text-[#3f3f46]">* התוכן נבחר אקראית מהמאגר</span>
+        </div>
+    </div>
+
+    <!-- Always-on section -->
+    <div class="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-4 py-3">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs font-medium text-[#71717a]">פעיל תמיד</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        </div>
+        <div class="flex flex-wrap gap-3 text-xs text-[#52525b]">
+            {% set always_on = [
+                ("antispam", "זיהוי ספאם (dry run)"),
+                ("welcome", "ברוכים הבאים (DM)"),
+                ("levels", "מעקב רמות ונקודות")
+            ] %}
+            {% for key, label in always_on %}
+                {% set feat = features.get(key, {}) %}
+                {% if feat is mapping %}
+                    {% set on = feat.get("enabled", false) %}
+                {% else %}
+                    {% set on = feat %}
+                {% endif %}
+                <span class="inline-flex items-center gap-1.5 {% if on %}text-[#71717a]{% else %}text-[#3f3f46] line-through{% endif %}">
+                    {% if on %}
+                        <span class="w-1 h-1 rounded-full bg-emerald-500/60"></span>
+                    {% else %}
+                        <span class="w-1 h-1 rounded-full bg-[#3f3f46]"></span>
+                    {% endif %}
+                    {{ label }}
+                </span>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+<script>
+// Persist week offset in localStorage
+(function() {
+    var params = new URLSearchParams(window.location.search);
+    var offset = params.get('week_offset');
+    if (offset !== null) {
+        localStorage.setItem('weekplan_offset', offset);
+    }
+})();
+
+// When navigating to /weekplan without params, restore saved offset
+if (window.location.pathname === '/weekplan' && !window.location.search) {
+    var saved = localStorage.getItem('weekplan_offset');
+    if (saved && saved !== '0') {
+        window.location.replace('/weekplan?week_offset=' + saved);
+    }
+}
+</script>
+{% endblock %}

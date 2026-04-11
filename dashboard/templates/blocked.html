@@ -9,7 +9,7 @@
 <div class="flex items-center justify-between mb-6">
     <div>
         <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">משתמשים חסומים</h1>
-        <p class="text-sm text-[#71717a] mt-1">ניהול משתמשים שחסומים מהבוט</p>
+        <p class="text-sm text-[#71717a] mt-1">ניהול משתמשים חסומים — חסימה מוחקת ומסירה מהקבוצה</p>
     </div>
     <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2.5 py-1 rounded-md">
         {{ blocked | length }}
@@ -37,7 +37,7 @@
             onclick="blockUser()"
             class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors whitespace-nowrap shrink-0"
         >
-            הוסף
+            חסום והסר מהקבוצה
         </button>
     </div>
 </div>
@@ -123,7 +123,7 @@ async function blockUser() {
             user_id: userId,
             reason: reasonInput.value.trim()
         });
-        showToast('המשתמש נחסם בהצלחה');
+        showToast('המשתמש נחסם והוסר מהקבוצה');
         setTimeout(function () { location.reload(); }, 800);
     } catch (e) {
         showToast('שגיאה בחסימת המשתמש', 'error');

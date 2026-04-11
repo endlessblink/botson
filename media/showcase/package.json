@@ -5,12 +5,15 @@
   "scripts": {
     "studio": "npx remotion studio src/index.tsx",
     "render": "npx remotion render src/index.tsx Showcase --codec gif ../../botson-showcase.gif",
-    "render:mp4": "npx remotion render src/index.tsx Showcase --codec h264 ../../botson-showcase.mp4"
+    "render:mp4": "npx remotion render src/index.tsx Showcase --codec h264 ../../botson-showcase.mp4",
+    "render:onboarding": "npx remotion render src/index.tsx TelegramOnboarding --codec gif ../../media/telegram-onboarding.gif",
+    "render:onboarding:mp4": "npx remotion render src/index.tsx TelegramOnboarding --codec h264 ../../media/telegram-onboarding.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.242",
+    "@remotion/google-fonts": "^4.0.242",
     "@remotion/renderer": "4.0.242",
-    "@remotion/transitions": "^4.0.447",
+    "@remotion/transitions": "^4.0.242",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "remotion": "4.0.242"
