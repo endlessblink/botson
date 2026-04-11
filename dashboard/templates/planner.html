@@ -66,12 +66,84 @@
     .event-chip { display: flex; align-items: center; gap: 4px; overflow: hidden; }
     .event-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
     .event-chip-type { font-size: 10px; opacity: 0.7; }
+
+    /* ── Wizard styles ── */
+    .wizard-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #272727; transition: background 0.2s, box-shadow 0.2s;
+        display: inline-block;
+    }
+    .wizard-dot.active { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.3); }
+    .wizard-dot.done { background: #52525b; }
+    .wizard-label { color: #52525b; transition: color 0.2s; }
+    .wizard-label.active { color: #fafafa; }
+
+    /* Type cards */
+    .type-card {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 6px; height: 80px; cursor: pointer;
+        background: #111318; border: 1px solid #272727; border-radius: 8px;
+        transition: border-color 0.15s, background 0.15s;
+    }
+    .type-card:hover { border-color: #52525b; }
+    .type-card.selected { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.05); }
+    .type-card-emoji { font-size: 22px; line-height: 1; }
+    .type-card-label { font-size: 12px; color: #a1a1aa; }
+    .type-card.selected .type-card-label { color: #fbbf24; }
+
+    /* Channel chips */
+    .channel-chip {
+        display: inline-flex; align-items: center; height: 26px;
+        padding: 0 10px; border-radius: 13px; font-size: 11px;
+        background: transparent; border: 1px solid #272727; color: #71717a;
+        cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    }
+    .channel-chip:hover { border-color: #52525b; color: #a1a1aa; }
+    .channel-chip.selected { background: rgba(245, 158, 11, 0.08); color: #fbbf24; }
+
+    /* Day toggle buttons */
+    .day-toggle {
+        width: 32px; height: 32px; border-radius: 6px; font-size: 12px;
+        display: flex; align-items: center; justify-content: center;
+        background: transparent; border: 1px solid #272727; color: #71717a;
+        cursor: pointer; transition: all 0.15s;
+    }
+    .day-toggle:hover { border-color: #52525b; color: #a1a1aa; }
+    .day-toggle.active {
+        background: rgba(245, 158, 11, 0.2); color: #fbbf24;
+        border-color: rgba(245, 158, 11, 0.5);
+    }
+
+    /* Telegram bubble */
+    .tg-bubble {
+        background: #1a2234; border-radius: 12px; border-top-right-radius: 0;
+        padding: 12px 16px; font-size: 14px; color: #d4d4d8;
+        min-height: 60px; white-space: pre-line; direction: rtl;
+        line-height: 1.6;
+    }
+
+    /* Poll option preview */
+    .preview-poll-btn {
+        display: block; width: 100%; text-align: right; direction: rtl;
+        padding: 8px 12px; border-radius: 8px; font-size: 13px;
+        background: #111318; border: 1px solid #272727; color: #a1a1aa;
+        cursor: default;
+    }
+
+    /* Conflict warning */
+    .conflict-warning {
+        background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);
+        color: #fbbf24; font-size: 12px; border-radius: 6px;
+        padding: 8px 12px; direction: rtl;
+        animation: conflictFadeIn 0.3s ease;
+    }
+    @keyframes conflictFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון ושליחה</h1>
     <div class="flex gap-2">
-        <button onclick="document.getElementById('create-drawer').classList.remove('translate-x-full')" class="text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1.5 rounded-md cursor-pointer transition-colors">+ הודעה חדשה</button>
+        <button onclick="openDrawer(null)" class="text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1.5 rounded-md cursor-pointer transition-colors">+ הודעה חדשה</button>
     </div>
 </div>
 
@@ -112,7 +184,7 @@
                 <button onclick="approveDraft({{ draft.id }}, this)" class="text-xs bg-[#fafafa] text-[#0a0a0a] px-3 py-1 rounded font-medium cursor-pointer">אשר</button>
                 <button onclick="sendDraft({{ draft.id }}, 'test')" class="text-xs text-[#71717a] hover:text-sky-400 border border-[#272727] px-2 py-1 rounded cursor-pointer">Den</button>
                 <button onclick="sendDraft({{ draft.id }}, 'main')" class="text-xs text-[#71717a] hover:text-green-400 border border-[#272727] px-2 py-1 rounded cursor-pointer">שלח</button>
-                <button onclick="dismissDraft({{ draft.id }})" class="text-xs text-[#52525b] hover:text-red-400 cursor-pointer mr-auto">x</button>
+                <button onclick="dismissDraft({{ draft.id }})" class="text-xs text-red-400/60 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 px-2 py-1 rounded cursor-pointer transition-colors mr-auto">מחק
             </div>
         </div>
         {% endfor %}
@@ -124,68 +196,203 @@
 <div id="calendar" class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4"></div>
 
 <!-- Create drawer (slides in from left for RTL) -->
-<div id="create-drawer" class="fixed top-12 right-0 w-[420px] h-[calc(100vh-48px)] bg-[#0a0a0a] border-r border-[#1f1f1f] z-30 transform translate-x-full transition-transform duration-200 overflow-y-auto">
-    <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between sticky top-0 bg-[#0a0a0a] z-10">
-        <span class="text-base font-medium text-[#fafafa]">הודעה חדשה</span>
-        <button onclick="document.getElementById('create-drawer').classList.add('translate-x-full')" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer">&times;</button>
+<div id="create-drawer" class="fixed top-12 right-0 lg:right-56 w-full max-w-[420px] h-[calc(100vh-48px)] bg-[#0a0a0a] border-r border-[#1f1f1f] z-[35] transform translate-x-full transition-transform duration-200 flex flex-col overflow-hidden">
+    <!-- Sticky Header -->
+    <div class="px-5 py-4 border-b border-[#1f1f1f] bg-[#0a0a0a] z-10 flex-shrink-0">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-base font-medium text-[#fafafa]">הודעה חדשה</span>
+            <button onclick="closeDrawer()" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer text-lg leading-none">&times;</button>
+        </div>
+        <!-- Step dots -->
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-1.5">
+                <span class="wizard-dot active" data-dot="1"></span>
+                <span class="wizard-dot" data-dot="2"></span>
+                <span class="wizard-dot" data-dot="3"></span>
+                <span class="wizard-dot" data-dot="4"></span>
+            </div>
+            <div class="flex items-center gap-3 text-[11px] mr-2">
+                <span class="wizard-label active" data-label="1">סוג</span>
+                <span class="wizard-label" data-label="2">תוכן</span>
+                <span class="wizard-label" data-label="3">תצוגה</span>
+                <span class="wizard-label" data-label="4">תזמון</span>
+            </div>
+        </div>
     </div>
-    <div class="px-5 py-4 space-y-4">
-        <div>
-            <label class="text-xs text-[#71717a] mb-1 block">סוג</label>
-            <select id="create-type" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
-                <option value="custom">הודעה חופשית</option>
-                <option value="morning">הודעת בוקר</option>
-                <option value="evening">הודעת ערב</option>
-                <option value="discussion">שאלה לדיון</option>
-                <option value="event">אירוע</option>
-                <option value="poll">סקר</option>
-            </select>
-        </div>
-        <div>
-            <label class="text-xs text-[#71717a] mb-1 block">תוכן</label>
-            <textarea id="create-text" rows="5" dir="rtl" placeholder="כתוב את ההודעה..."
-                class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none"></textarea>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-            <div>
-                <label class="text-xs text-[#71717a] mb-1 block">תאריך</label>
-                <input type="date" id="create-date" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
-            </div>
-            <div>
-                <label class="text-xs text-[#71717a] mb-1 block">שעה</label>
-                <input type="time" id="create-time" value="18:00" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
-            </div>
-        </div>
-        <div>
-            <label class="text-xs text-[#71717a] mb-1 block">ערוץ</label>
-            <select id="create-topic" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
-                <option value="">כללי</option>
-                {% for t in forum_topics %}
-                <option value="{{ t.topic_id }}">{{ t.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div>
-            <label class="text-xs text-[#71717a] mb-1 block">חזרה</label>
-            <select id="create-recurrence" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
-                <option value="">חד פעמי</option>
-                <option value="daily">יומי</option>
-                <option value="weekdays">ימי חול</option>
-                <option value="weekly">שבועי</option>
-            </select>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-[#a1a1aa]">
-            <input type="checkbox" id="create-pin" class="w-4 h-4"> הצמד הודעה
-        </label>
 
-        <!-- Live RTL preview -->
-        <div>
-            <label class="text-xs text-[#71717a] mb-1 block">תצוגה מקדימה</label>
-            <div id="create-preview" dir="rtl" class="bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[14px] text-[#d4d4d8] min-h-[60px] whitespace-pre-line"></div>
+    <!-- Scrollable Step Content -->
+    <div class="flex-1 overflow-y-auto">
+        <!-- Step 1: Type Picker -->
+        <div id="wizard-step-1" class="wizard-step px-5 py-4">
+            <p class="text-xs text-[#71717a] mb-3">בחר סוג הודעה</p>
+            <div class="grid grid-cols-2 gap-2">
+                <div class="type-card" data-type="morning" onclick="selectType('morning')">
+                    <span class="type-card-emoji">🌅</span>
+                    <span class="type-card-label">הודעת בוקר</span>
+                </div>
+                <div class="type-card" data-type="discussion" onclick="selectType('discussion')">
+                    <span class="type-card-emoji">💬</span>
+                    <span class="type-card-label">שאלה לדיון</span>
+                </div>
+                <div class="type-card" data-type="poll" onclick="selectType('poll')">
+                    <span class="type-card-emoji">📊</span>
+                    <span class="type-card-label">סקר</span>
+                </div>
+                <div class="type-card" data-type="event" onclick="selectType('event')">
+                    <span class="type-card-emoji">🎮</span>
+                    <span class="type-card-label">אירוע</span>
+                </div>
+                <div class="type-card" data-type="digest" onclick="selectType('digest')">
+                    <span class="type-card-emoji">🔁</span>
+                    <span class="type-card-label">סיכום שבועי</span>
+                </div>
+                <div class="type-card" data-type="custom" onclick="selectType('custom')">
+                    <span class="type-card-emoji">⚡</span>
+                    <span class="type-card-label">הודעה חופשית</span>
+                </div>
+            </div>
         </div>
 
-        <div class="flex gap-2 pt-2">
-            <button onclick="scheduleMsg()" class="flex-1 bg-[#fafafa] text-[#0a0a0a] h-9 rounded-md text-sm font-medium cursor-pointer hover:bg-[#e4e4e7] transition-colors">תזמן</button>
+        <!-- Step 2: Content Panel -->
+        <div id="wizard-step-2" class="wizard-step px-5 py-4 hidden">
+            <div class="space-y-4">
+                <!-- Text area -->
+                <div>
+                    <label class="text-xs text-[#71717a] mb-1 block">תוכן</label>
+                    <textarea id="create-text" rows="5" dir="rtl" placeholder="כתוב את ההודעה..."
+                        class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none transition-colors"></textarea>
+                </div>
+
+                <!-- Channel chips -->
+                <div>
+                    <label class="text-xs text-[#71717a] mb-1.5 block">ערוץ</label>
+                    <div class="flex flex-wrap gap-1.5" id="channel-chips">
+                        <button type="button" class="channel-chip" data-topic="" onclick="selectChannel(this, '')">כללי</button>
+                        {% for t in forum_topics %}
+                        <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" onclick="selectChannel(this, '{{ t.topic_id }}')">{{ t.name }}</button>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Poll fields (poll only) -->
+                <div id="poll-fields" class="hidden space-y-2">
+                    <label class="text-xs text-[#71717a] mb-1 block">אפשרויות סקר</label>
+                    <div id="poll-options-list" class="space-y-2">
+                        <input type="text" dir="rtl" placeholder="אפשרות 1" class="poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors" oninput="updatePollOption(0, this.value)">
+                        <input type="text" dir="rtl" placeholder="אפשרות 2" class="poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors" oninput="updatePollOption(1, this.value)">
+                    </div>
+                    <button type="button" onclick="addPollOption()" class="text-xs text-[#71717a] hover:text-amber-400 transition-colors cursor-pointer">+ אפשרות</button>
+                    <div class="mt-2">
+                        <label class="text-xs text-[#71717a] mb-1 block">משך סקר</label>
+                        <select id="poll-duration" onchange="wizardState.pollDuration=parseInt(this.value)" class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                            <option value="1">1 שעה</option>
+                            <option value="6">6 שעות</option>
+                            <option value="12">12 שעות</option>
+                            <option value="24" selected>24 שעות</option>
+                            <option value="48">48 שעות</option>
+                            <option value="168">7 ימים</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Event fields (event only) -->
+                <div id="event-fields" class="hidden space-y-2">
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">מיקום</label>
+                        <input type="text" id="event-location" dir="rtl" placeholder="מיקום" oninput="wizardState.eventLocation=this.value"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">מקסימום משתתפים</label>
+                        <input type="number" id="event-max" placeholder="מקסימום משתתפים" oninput="wizardState.eventMaxAttendees=this.value?parseInt(this.value):null"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                </div>
+
+                <!-- Day-of-week picker (morning/digest) -->
+                <div id="days-fields" class="hidden">
+                    <label class="text-xs text-[#71717a] mb-1.5 block">ימים</label>
+                    <div class="flex gap-1.5 flex-row-reverse">
+                        <button type="button" class="day-toggle" data-day="0" onclick="toggleDay(0)">א</button>
+                        <button type="button" class="day-toggle" data-day="1" onclick="toggleDay(1)">ב</button>
+                        <button type="button" class="day-toggle" data-day="2" onclick="toggleDay(2)">ג</button>
+                        <button type="button" class="day-toggle" data-day="3" onclick="toggleDay(3)">ד</button>
+                        <button type="button" class="day-toggle" data-day="4" onclick="toggleDay(4)">ה</button>
+                        <button type="button" class="day-toggle" data-day="5" onclick="toggleDay(5)">ו</button>
+                        <button type="button" class="day-toggle" data-day="6" onclick="toggleDay(6)">ש</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Live RTL Preview -->
+        <div id="wizard-step-3" class="wizard-step px-5 py-4 hidden">
+            <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה</p>
+            <div id="preview-channel-tag" class="hidden text-[11px] text-[#a1a1aa] mb-1.5 px-1"></div>
+            <div id="create-preview" dir="rtl" class="tg-bubble">
+                <span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>
+            </div>
+            <div id="preview-poll-options" class="hidden mt-2 space-y-1.5"></div>
+            <div id="preview-event-info" class="hidden mt-2 text-xs text-[#71717a]"></div>
+            <div id="preview-time" class="mt-2 text-[11px] text-[#52525b]"></div>
+        </div>
+
+        <!-- Step 4: Schedule Slot -->
+        <div id="wizard-step-4" class="wizard-step px-5 py-4 hidden">
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">תאריך</label>
+                        <input type="date" id="create-date" onchange="wizardState.date=this.value;checkConflicts()"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">שעה</label>
+                        <input type="time" id="create-time" onchange="wizardState.time=this.value"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                </div>
+
+                <!-- Conflict warning -->
+                <div id="conflict-warning" class="hidden conflict-warning">
+                    <span id="conflict-text"></span>
+                </div>
+
+                <!-- Recurring -->
+                <div>
+                    <label class="flex items-center gap-2 text-sm text-[#a1a1aa] cursor-pointer">
+                        <input type="checkbox" id="recurrence-toggle" onchange="toggleRecurrence(this.checked)" class="w-4 h-4"> חוזר
+                    </label>
+                    <div id="recurrence-options" class="hidden mt-2">
+                        <select id="create-recurrence" onchange="wizardState.recurrence=this.value"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                            <option value="daily">יומי</option>
+                            <option value="weekdays">ימי חול</option>
+                            <option value="weekly">שבועי</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Pin -->
+                <label class="flex items-center gap-2 text-sm text-[#a1a1aa] cursor-pointer">
+                    <input type="checkbox" id="create-pin" onchange="wizardState.autoPin=this.checked" class="w-4 h-4"> הצמד הודעה
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sticky Footer -->
+    <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex-shrink-0">
+        <div id="wizard-footer-nav" class="flex items-center justify-between">
+            <button id="btn-back" onclick="wizardGo(wizardState.step - 1)" class="hidden text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">חזרה</button>
+            <div class="flex-1"></div>
+            <button id="btn-next" onclick="wizardGo(wizardState.step + 1)" class="hidden text-sm bg-[#fafafa] text-[#0a0a0a] px-4 h-9 rounded-md font-medium cursor-pointer hover:bg-[#e4e4e7] transition-colors">הבא</button>
+        </div>
+        <div id="wizard-footer-actions" class="hidden flex gap-2">
+            <button id="edit-delete-btn" onclick="deleteEvent()" class="hidden text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 px-3 h-9 rounded-md cursor-pointer transition-colors">מחק</button>
+            <button onclick="wizardGo(wizardState.step - 1)" class="text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">חזרה</button>
+            <div class="flex-1"></div>
+            <button onclick="scheduleMsg()" class="text-sm bg-[#fafafa] text-[#0a0a0a] px-4 h-9 rounded-md font-medium cursor-pointer hover:bg-[#e4e4e7] transition-colors">תזמן</button>
             <button onclick="sendNowFromDrawer('test')" class="text-sm text-[#71717a] hover:text-sky-400 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">Den</button>
             <button onclick="sendNowFromDrawer('main')" class="text-sm text-[#71717a] hover:text-green-400 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">שלח</button>
         </div>
@@ -199,16 +406,557 @@
 var calendar;
 var selectedDraftText = {};
 
+// ─── Wizard State ───
+var wizardState = {
+    step: 1, type: null, text: '', channelTopicId: null,
+    date: '{{ now_date }}', time: '18:00',
+    recurrence: null, recurrenceDays: [],
+    autoPin: false,
+    pollOptions: ['', ''], pollDuration: 24,
+    eventLocation: '', eventMaxAttendees: null,
+    editingId: null,
+};
+
+var CHANNEL_COLORS = {
+    1517: '#6366f1', 442: '#6366f1', 54: '#ef4444',
+    347: '#a855f7', 1431: '#f59e0b', 335: '#ec4899',
+    59: '#ec4899', 153: '#06b6d4', 2184: '#f59e0b', 341: '#3b82f6'
+};
+
+var TYPE_DEFAULTS = {
+    morning:    { time: '09:00', days: [0, 2, 4], recurrence: 'custom' },
+    discussion: { time: '18:00' },
+    poll:       { time: '18:00' },
+    event:      { time: '18:00' },
+    digest:     { time: '10:00', days: [5], recurrence: 'custom' },
+    custom:     { time: '18:00' },
+};
+
+var TYPE_PLACEHOLDERS = {
+    morning: 'כתוב את הודעת הבוקר...',
+    discussion: 'מה השאלה לדיון?',
+    poll: 'שאלת הסקר...',
+    event: 'פרטי האירוע...',
+    digest: 'סיכום שבועי...',
+    custom: 'כתוב את ההודעה...',
+};
+
+var TOPIC_NAMES = {
+    {% for t in forum_topics %}'{{ t.topic_id }}': '{{ t.name }}',{% endfor %}
+};
+
+var _conflictTimer = null;
+
+// ─── Wizard Navigation ───
+function wizardGo(step) {
+    if (step < 1 || step > 4) return;
+    wizardState.step = step;
+
+    // Toggle step visibility
+    for (var i = 1; i <= 4; i++) {
+        var el = document.getElementById('wizard-step-' + i);
+        if (i === step) el.classList.remove('hidden');
+        else el.classList.add('hidden');
+    }
+
+    // Update dots
+    document.querySelectorAll('.wizard-dot').forEach(function(dot) {
+        var n = parseInt(dot.getAttribute('data-dot'));
+        dot.classList.remove('active', 'done');
+        if (n === step) dot.classList.add('active');
+        else if (n < step) dot.classList.add('done');
+    });
+
+    // Update labels
+    document.querySelectorAll('.wizard-label').forEach(function(lbl) {
+        var n = parseInt(lbl.getAttribute('data-label'));
+        lbl.classList.toggle('active', n === step);
+    });
+
+    // Footer: steps 1-3 get nav buttons, step 4 gets action buttons
+    var navFooter = document.getElementById('wizard-footer-nav');
+    var actFooter = document.getElementById('wizard-footer-actions');
+    if (step === 4) {
+        navFooter.classList.add('hidden');
+        actFooter.classList.remove('hidden');
+        // Update schedule button text for edit mode
+        var schedBtn = actFooter.querySelector('button[onclick="scheduleMsg()"]');
+        if (schedBtn) schedBtn.textContent = wizardState.editingId ? 'עדכן' : 'תזמן';
+    } else {
+        navFooter.classList.remove('hidden');
+        actFooter.classList.add('hidden');
+    }
+
+    // Back button visibility
+    var btnBack = document.getElementById('btn-back');
+    if (step <= 1) btnBack.classList.add('hidden');
+    else btnBack.classList.remove('hidden');
+
+    // Next button visibility (not on step 1 since cards auto-advance, not on step 4)
+    var btnNext = document.getElementById('btn-next');
+    if (step >= 1 && step < 4) btnNext.classList.remove('hidden');
+    else btnNext.classList.add('hidden');
+
+    // Step 3: render preview
+    if (step === 3) renderPreview();
+
+    // Step 4: sync date/time inputs
+    if (step === 4) {
+        document.getElementById('create-date').value = wizardState.date;
+        document.getElementById('create-time').value = wizardState.time;
+        // Auto-check recurrence if type has days
+        var def = TYPE_DEFAULTS[wizardState.type];
+        if (def && def.days && wizardState.recurrenceDays.length > 0) {
+            document.getElementById('recurrence-toggle').checked = true;
+            document.getElementById('recurrence-options').classList.remove('hidden');
+            wizardState.recurrence = 'weekly';
+            document.getElementById('create-recurrence').value = 'weekly';
+        }
+        checkConflicts();
+    }
+}
+
+// ─── Type Selection ───
+function selectType(type) {
+    wizardState.type = type;
+
+    // Highlight card
+    document.querySelectorAll('.type-card').forEach(function(c) {
+        c.classList.toggle('selected', c.getAttribute('data-type') === type);
+    });
+
+    // Apply defaults
+    var def = TYPE_DEFAULTS[type] || {};
+    wizardState.time = def.time || '18:00';
+    if (def.days) {
+        wizardState.recurrenceDays = def.days.slice();
+    } else {
+        wizardState.recurrenceDays = [];
+    }
+
+    // Update placeholder
+    var textarea = document.getElementById('create-text');
+    if (textarea) textarea.placeholder = TYPE_PLACEHOLDERS[type] || TYPE_PLACEHOLDERS.custom;
+
+    // Show/hide conditional fields
+    document.getElementById('poll-fields').classList.toggle('hidden', type !== 'poll');
+    document.getElementById('event-fields').classList.toggle('hidden', type !== 'event');
+    document.getElementById('days-fields').classList.toggle('hidden', type !== 'morning' && type !== 'digest');
+
+    // Pre-fill day toggles
+    document.querySelectorAll('.day-toggle').forEach(function(btn) {
+        var d = parseInt(btn.getAttribute('data-day'));
+        btn.classList.toggle('active', wizardState.recurrenceDays.indexOf(d) !== -1);
+    });
+
+    // Auto-advance after brief delay
+    setTimeout(function() { wizardGo(2); }, 150);
+}
+
+// ─── Channel Selection ───
+function selectChannel(el, topicId) {
+    var prev = wizardState.channelTopicId;
+    var newId = topicId ? String(topicId) : null;
+
+    // Deselect if clicking same channel
+    if (prev === newId) {
+        wizardState.channelTopicId = null;
+        el.classList.remove('selected');
+        el.style.borderColor = '';
+        return;
+    }
+
+    wizardState.channelTopicId = newId;
+
+    // Update chip styles
+    document.querySelectorAll('.channel-chip').forEach(function(chip) {
+        chip.classList.remove('selected');
+        chip.style.borderColor = '';
+    });
+    el.classList.add('selected');
+    if (newId && CHANNEL_COLORS[parseInt(newId)]) {
+        el.style.borderColor = CHANNEL_COLORS[parseInt(newId)];
+    }
+}
+
+// ─── Day Toggle ───
+function toggleDay(day) {
+    var idx = wizardState.recurrenceDays.indexOf(day);
+    if (idx === -1) wizardState.recurrenceDays.push(day);
+    else wizardState.recurrenceDays.splice(idx, 1);
+
+    document.querySelectorAll('.day-toggle').forEach(function(btn) {
+        var d = parseInt(btn.getAttribute('data-day'));
+        btn.classList.toggle('active', wizardState.recurrenceDays.indexOf(d) !== -1);
+    });
+}
+
+// ─── Poll Options ───
+function updatePollOption(idx, val) {
+    wizardState.pollOptions[idx] = val;
+}
+
+function addPollOption() {
+    if (wizardState.pollOptions.length >= 10) return;
+    var idx = wizardState.pollOptions.length;
+    wizardState.pollOptions.push('');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.dir = 'rtl';
+    input.placeholder = 'אפשרות ' + (idx + 1);
+    input.className = 'poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors';
+    input.oninput = function() { updatePollOption(idx, this.value); };
+    document.getElementById('poll-options-list').appendChild(input);
+    input.focus();
+}
+
+// ─── Recurrence Toggle ───
+function toggleRecurrence(checked) {
+    document.getElementById('recurrence-options').classList.toggle('hidden', !checked);
+    if (!checked) {
+        wizardState.recurrence = null;
+    } else {
+        wizardState.recurrence = document.getElementById('create-recurrence').value;
+    }
+}
+
+// ─── Live Preview ───
+function renderPreview() {
+    var text = wizardState.text || '';
+    var previewEl = document.getElementById('create-preview');
+    var channelTag = document.getElementById('preview-channel-tag');
+    var pollContainer = document.getElementById('preview-poll-options');
+    var eventInfo = document.getElementById('preview-event-info');
+    var timeEl = document.getElementById('preview-time');
+
+    // Channel tag
+    if (wizardState.channelTopicId && TOPIC_NAMES[wizardState.channelTopicId]) {
+        channelTag.textContent = '# ' + TOPIC_NAMES[wizardState.channelTopicId];
+        channelTag.classList.remove('hidden');
+    } else {
+        channelTag.classList.add('hidden');
+    }
+
+    // Message bubble
+    if (text) {
+        previewEl.textContent = text;
+    } else {
+        previewEl.innerHTML = '<span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>';
+    }
+
+    // Poll options
+    if (wizardState.type === 'poll' && wizardState.pollOptions.some(function(o) { return o.trim(); })) {
+        pollContainer.innerHTML = '';
+        wizardState.pollOptions.forEach(function(opt) {
+            if (!opt.trim()) return;
+            var btn = document.createElement('div');
+            btn.className = 'preview-poll-btn';
+            btn.textContent = opt;
+            pollContainer.appendChild(btn);
+        });
+        pollContainer.classList.remove('hidden');
+    } else {
+        pollContainer.classList.add('hidden');
+    }
+
+    // Event info
+    if (wizardState.type === 'event') {
+        var parts = [];
+        if (wizardState.eventLocation) parts.push('📍 ' + wizardState.eventLocation);
+        if (wizardState.eventMaxAttendees) parts.push('👥 עד ' + wizardState.eventMaxAttendees + ' משתתפים');
+        if (parts.length) {
+            eventInfo.textContent = parts.join(' · ');
+            eventInfo.classList.remove('hidden');
+        } else {
+            eventInfo.classList.add('hidden');
+        }
+    } else {
+        eventInfo.classList.add('hidden');
+    }
+
+    // Time
+    timeEl.textContent = (wizardState.date || '') + ' ' + (wizardState.time || '');
+}
+
+// ─── Conflict Check ───
+function checkConflicts() {
+    clearTimeout(_conflictTimer);
+    _conflictTimer = setTimeout(async function() {
+        var date = wizardState.date;
+        if (!date) return;
+        var warningEl = document.getElementById('conflict-warning');
+        var textEl = document.getElementById('conflict-text');
+        try {
+            // Fetch with next day as end for exclusive range
+            var nextDay = new Date(date + 'T12:00:00');
+            nextDay.setDate(nextDay.getDate() + 1);
+            var endStr = nextDay.toISOString().split('T')[0];
+            var resp = await fetch('/api/calendar?start=' + date + '&end=' + endStr);
+            var events = await resp.json();
+            var conflict = null;
+            if (wizardState.channelTopicId) {
+                for (var i = 0; i < events.length; i++) {
+                    var ep = events[i].extendedProps || {};
+                    if (String(ep.channelTopicId) === String(wizardState.channelTopicId)) {
+                        var chName = TOPIC_NAMES[wizardState.channelTopicId] || 'ערוץ';
+                        conflict = 'כבר יש הודעה ב' + chName + ' ביום הזה';
+                        break;
+                    }
+                }
+            }
+            if (conflict) {
+                textEl.textContent = conflict;
+                warningEl.classList.remove('hidden');
+            } else {
+                warningEl.classList.add('hidden');
+            }
+        } catch (e) {
+            warningEl.classList.add('hidden');
+        }
+    }, 300);
+}
+
+// ─── Drawer Open/Close ───
+function openDrawer(date) {
+    resetWizard();
+    if (date) wizardState.date = date;
+    // Close mobile sidebar if open
+    var mobileOverlay = document.getElementById('mobile-overlay');
+    if (mobileOverlay) mobileOverlay.classList.add('hidden');
+    document.getElementById('create-drawer').classList.remove('translate-x-full');
+}
+
+function closeDrawer() {
+    document.getElementById('create-drawer').classList.add('translate-x-full');
+    resetWizard();
+}
+
+function openEditDrawer(id, props, start) {
+    resetWizard();
+    wizardState.editingId = id;
+    wizardState.type = props.messageType || 'custom';
+    wizardState.text = props.fullText || '';
+    wizardState.channelTopicId = props.channelTopicId ? String(props.channelTopicId) : null;
+    wizardState.date = start.toISOString().split('T')[0];
+    wizardState.time = start.toTimeString().substring(0, 5);
+    wizardState.recurrence = props.recurrence || null;
+
+    // Update drawer title
+    document.querySelector('#create-drawer .text-base').textContent = 'עריכת הודעה';
+
+    // Highlight the type card
+    document.querySelectorAll('.type-card').forEach(function(c) {
+        if (c.getAttribute('data-type') === wizardState.type) {
+            c.classList.add('selected');
+        }
+    });
+
+    // Show type-specific fields
+    document.getElementById('poll-fields').classList.toggle('hidden', wizardState.type !== 'poll');
+    document.getElementById('event-fields').classList.toggle('hidden', wizardState.type !== 'event');
+    document.getElementById('days-fields').classList.toggle('hidden', wizardState.type !== 'morning' && wizardState.type !== 'digest');
+
+    // Fill text
+    var textarea = document.getElementById('create-text');
+    textarea.value = wizardState.text;
+    textarea.placeholder = TYPE_PLACEHOLDERS[wizardState.type] || 'כתוב את ההודעה...';
+
+    // Select channel chip
+    if (wizardState.channelTopicId) {
+        document.querySelectorAll('.channel-chip').forEach(function(c) {
+            if (c.getAttribute('data-topic') === String(wizardState.channelTopicId)) {
+                c.classList.add('selected');
+                var color = CHANNEL_COLORS[wizardState.channelTopicId];
+                if (color) c.style.borderColor = color;
+            }
+        });
+    }
+
+    // Set recurrence if present
+    if (wizardState.recurrence) {
+        var recToggle = document.getElementById('recurrence-toggle');
+        if (recToggle) recToggle.checked = true;
+        var recOpts = document.getElementById('recurrence-options');
+        if (recOpts) recOpts.classList.remove('hidden');
+        var recSelect = document.getElementById('create-recurrence');
+        if (recSelect) recSelect.value = wizardState.recurrence;
+    }
+
+    // Show delete button
+    document.getElementById('edit-delete-btn').classList.remove('hidden');
+
+    // Close mobile sidebar if open
+    var mobileOverlay = document.getElementById('mobile-overlay');
+    if (mobileOverlay) mobileOverlay.classList.add('hidden');
+
+    // Skip to step 2 (content) since we already know the type
+    wizardGo(2);
+    document.getElementById('create-drawer').classList.remove('translate-x-full');
+}
+
+function resetWizard() {
+    wizardState.step = 1;
+    wizardState.type = null;
+    wizardState.text = '';
+    wizardState.channelTopicId = null;
+    wizardState.date = '{{ now_date }}';
+    wizardState.time = '18:00';
+    wizardState.recurrence = null;
+    wizardState.recurrenceDays = [];
+    wizardState.autoPin = false;
+    wizardState.pollOptions = ['', ''];
+    wizardState.pollDuration = 24;
+    wizardState.eventLocation = '';
+    wizardState.eventMaxAttendees = null;
+    wizardState.editingId = null;
+
+    // Reset title
+    document.querySelector('#create-drawer .text-base').textContent = 'הודעה חדשה';
+
+    // Hide delete button
+    document.getElementById('edit-delete-btn').classList.add('hidden');
+
+    // Reset UI
+    document.querySelectorAll('.type-card').forEach(function(c) { c.classList.remove('selected'); });
+    document.querySelectorAll('.channel-chip').forEach(function(c) { c.classList.remove('selected'); c.style.borderColor = ''; });
+    document.querySelectorAll('.day-toggle').forEach(function(b) { b.classList.remove('active'); });
+
+    var textarea = document.getElementById('create-text');
+    if (textarea) { textarea.value = ''; textarea.placeholder = 'כתוב את ההודעה...'; }
+
+    // Reset poll options to 2
+    var pollList = document.getElementById('poll-options-list');
+    if (pollList) {
+        pollList.innerHTML =
+            '<input type="text" dir="rtl" placeholder="אפשרות 1" class="poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors" oninput="updatePollOption(0, this.value)">' +
+            '<input type="text" dir="rtl" placeholder="אפשרות 2" class="poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors" oninput="updatePollOption(1, this.value)">';
+    }
+
+    // Reset event fields
+    var locEl = document.getElementById('event-location');
+    if (locEl) locEl.value = '';
+    var maxEl = document.getElementById('event-max');
+    if (maxEl) maxEl.value = '';
+
+    // Reset recurrence
+    var recToggle = document.getElementById('recurrence-toggle');
+    if (recToggle) recToggle.checked = false;
+    var recOpts = document.getElementById('recurrence-options');
+    if (recOpts) recOpts.classList.add('hidden');
+
+    // Reset pin
+    var pinEl = document.getElementById('create-pin');
+    if (pinEl) pinEl.checked = false;
+
+    // Reset poll duration
+    var durEl = document.getElementById('poll-duration');
+    if (durEl) durEl.value = '24';
+
+    // Hide conditional fields
+    document.getElementById('poll-fields').classList.add('hidden');
+    document.getElementById('event-fields').classList.add('hidden');
+    document.getElementById('days-fields').classList.add('hidden');
+
+    // Hide conflict warning
+    document.getElementById('conflict-warning').classList.add('hidden');
+
+    // Go to step 1
+    wizardGo(1);
+}
+
+// ─── Create / Edit message ───
+async function scheduleMsg() {
+    var text = wizardState.text.trim();
+    if (!text) { showToast('כתוב הודעה', 'error'); return; }
+
+    // Compose event text for event type
+    var finalText = text;
+    if (wizardState.type === 'event') {
+        if (wizardState.eventLocation) finalText += '\n📍 ' + wizardState.eventLocation;
+        if (wizardState.eventMaxAttendees) finalText += '\n👥 עד ' + wizardState.eventMaxAttendees + ' משתתפים';
+    }
+
+    try {
+        if (wizardState.editingId) {
+            // Edit existing message via PUT
+            await fetch('/api/calendar/' + wizardState.editingId, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    text: finalText,
+                    message_type: wizardState.type || 'custom',
+                    scheduled_date: wizardState.date,
+                    scheduled_time: wizardState.time || '18:00',
+                    channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
+                    recurrence: wizardState.recurrence || null,
+                    auto_pin: wizardState.autoPin,
+                })
+            });
+            showToast('עודכן');
+        } else {
+            // Create new message via POST
+            await apiCall('/api/calendar', {
+                text: finalText,
+                message_type: wizardState.type || 'custom',
+                scheduled_date: wizardState.date,
+                scheduled_time: wizardState.time || '18:00',
+                channel_topic_id: wizardState.channelTopicId || null,
+                recurrence: wizardState.recurrence || null,
+                auto_pin: wizardState.autoPin,
+                target_group: 'main',
+                poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
+                poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
+            });
+            showToast('תוזמן');
+        }
+        calendar.refetchEvents();
+        closeDrawer();
+    } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+async function deleteEvent() {
+    if (!wizardState.editingId) return;
+    try {
+        await fetch('/api/calendar/' + wizardState.editingId, {method: 'DELETE'});
+        showToast('נמחק');
+        calendar.refetchEvents();
+        closeDrawer();
+    } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+async function sendNowFromDrawer(target) {
+    var text = wizardState.text.trim();
+    if (!text) { showToast('כתוב הודעה', 'error'); return; }
+    if (target === 'main' && !confirm('לשלוח לקבוצה?')) return;
+
+    var finalText = text;
+    if (wizardState.type === 'event') {
+        if (wizardState.eventLocation) finalText += '\n📍 ' + wizardState.eventLocation;
+        if (wizardState.eventMaxAttendees) finalText += '\n👥 עד ' + wizardState.eventMaxAttendees + ' משתתפים';
+    }
+
+    try {
+        await apiCall('/api/bot/send-message', {
+            text: finalText,
+            topic_id: wizardState.channelTopicId || null,
+            target: target,
+        });
+        showToast(target === 'test' ? 'נשלח ל-Den' : 'נשלח');
+        closeDrawer();
+    } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+// ─── Calendar Init ───
 document.addEventListener('DOMContentLoaded', function() {
     var calendarEl = document.getElementById('calendar');
 
     calendar = new FullCalendar.Calendar(calendarEl, {
         locale: 'he',
         direction: 'rtl',
-        firstDay: 0, // Sunday
+        firstDay: 0,
         initialView: 'dayGridMonth',
         initialDate: '{{ now_date }}',
-        height: 'auto',
+        contentHeight: 600,
 
         headerToolbar: {
             start: 'title',
@@ -224,18 +972,16 @@ document.addEventListener('DOMContentLoaded', function() {
         editable: true,
         selectable: true,
 
-        // Load events from API
         events: {
             url: '/api/calendar',
             method: 'GET',
             failure: function() { showToast('שגיאה בטעינת אירועים', 'error'); }
         },
 
-        // Custom event chip rendering
         eventContent: function(arg) {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
-            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',custom:'⚡'}[props.messageType] || '📌';
+            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡'}[props.messageType] || '📌';
 
             return {
                 html: '<div class="event-chip">' +
@@ -246,14 +992,11 @@ document.addEventListener('DOMContentLoaded', function() {
             };
         },
 
-        // Click to edit
         eventClick: function(info) {
-            // TODO Session 2: open edit drawer
             var props = info.event.extendedProps;
-            alert(props.fullText || info.event.title);
+            openEditDrawer(info.event.id, props, info.event.start);
         },
 
-        // Drag to reschedule
         eventDrop: async function(info) {
             var id = info.event.id;
             var newStart = info.event.start;
@@ -272,60 +1015,20 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         },
 
-        // Click on empty date to create
         dateClick: function(info) {
-            document.getElementById('create-date').value = info.dateStr;
-            document.getElementById('create-drawer').classList.remove('translate-x-full');
-            document.getElementById('create-text').focus();
+            openDrawer(info.dateStr);
         },
     });
 
     calendar.render();
 
-    // Live preview
+    // Wire up textarea live updates
     document.getElementById('create-text').addEventListener('input', function() {
-        document.getElementById('create-preview').textContent = this.value;
+        wizardState.text = this.value;
     });
 });
 
-// ─── Create message ───
-async function scheduleMsg() {
-    var text = document.getElementById('create-text').value.trim();
-    if (!text) { showToast('כתוב הודעה', 'error'); return; }
-    try {
-        await apiCall('/api/calendar', {
-            text: text,
-            message_type: document.getElementById('create-type').value,
-            scheduled_date: document.getElementById('create-date').value,
-            scheduled_time: document.getElementById('create-time').value || '18:00',
-            channel_topic_id: document.getElementById('create-topic').value || null,
-            recurrence: document.getElementById('create-recurrence').value || null,
-            auto_pin: document.getElementById('create-pin').checked,
-            target_group: 'main',
-        });
-        showToast('תוזמן');
-        calendar.refetchEvents();
-        document.getElementById('create-drawer').classList.add('translate-x-full');
-        document.getElementById('create-text').value = '';
-        document.getElementById('create-preview').textContent = '';
-    } catch (e) { showToast('שגיאה', 'error'); }
-}
-
-async function sendNowFromDrawer(target) {
-    var text = document.getElementById('create-text').value.trim();
-    if (!text) { showToast('כתוב הודעה', 'error'); return; }
-    if (target === 'main' && !confirm('לשלוח לקבוצה?')) return;
-    try {
-        await apiCall('/api/bot/send-message', {
-            text: text,
-            topic_id: document.getElementById('create-topic').value || null,
-            target: target,
-        });
-        showToast(target === 'test' ? 'נשלח ל-Den' : 'נשלח');
-    } catch (e) { showToast('שגיאה', 'error'); }
-}
-
-// ─── Draft actions ───
+// ─── Draft actions (preserved) ───
 function pickDraftOption(draftId, el, text) {
     var container = el.closest('[data-draft-id]');
     container.querySelectorAll('.bg-\\[\\#111318\\]').forEach(function(d) {

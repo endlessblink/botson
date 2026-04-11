@@ -295,6 +295,9 @@
             var backdrop = document.getElementById('mobile-backdrop');
 
             function openSidebar() {
+                // Close the planner drawer if open
+                var drawer = document.getElementById('create-drawer');
+                if (drawer) drawer.classList.add('translate-x-full');
                 overlay.classList.remove('hidden');
             }
             function closeSidebar() {
