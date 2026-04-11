@@ -1,5 +1,5 @@
 antispam:
-  dry_run: true
+  dry_run: false
   duplicate_threshold: 3
   duplicate_window_seconds: 60
   max_links_new_member: 3
@@ -48,8 +48,9 @@ features:
     groups:
     - test
   welcome:
-    enabled: false
+    enabled: true
     groups:
+    - main
     - test
 levels:
   max_per_day: 10

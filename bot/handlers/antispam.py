@@ -135,7 +135,15 @@ async def check_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Block check: reject messages from blocked users ──
     if await db.is_blocked(user.id):
-        await _delete_and_log(update, context, "user_blocked", "delete (blocked user)")
+        await _delete_and_log(update, context, "user_blocked", "delete + ban (blocked user)")
+        if not spam_settings.get("dry_run", True):
+            try:
+                await context.bot.ban_chat_member(
+                    chat_id=msg.chat_id,
+                    user_id=user.id,
+                )
+            except Exception as e:
+                logger.error("Failed to ban blocked user %d: %s", user.id, e)
         return
 
     # Ensure member exists in DB
