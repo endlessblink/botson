@@ -1,0 +1,400 @@
+<!-- Edit prompt modal (shared between weekplan and planner) -->
+<div id="promptModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center" onclick="if(event.target===this)closePromptModal()">
+    <div class="bg-[#0a0a0a] border border-[#272727] rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" dir="rtl">
+        <div class="flex items-center justify-between px-5 py-3.5 border-b border-[#1f1f1f] sticky top-0 bg-[#0a0a0a] z-10">
+            <div class="flex items-center gap-2 flex-1">
+                <span id="modalBadge" class="px-2 py-0.5 rounded text-[11px] font-medium"></span>
+                <span id="modalChannel" class="text-[11px] text-[#52525b]"></span>
+                <div id="modalHeaderChannelWrap" class="hidden relative">
+                    <select id="modalHeaderChannelSelect" onchange="onChannelChange(this)" class="appearance-none bg-[#171717] border border-[#272727] rounded-md pr-2 pl-7 py-1 text-[11px] text-[#fafafa] hover:border-[#3f3f46] focus:outline-none focus:border-[#3f3f46] cursor-pointer transition-colors">
+                        {% for ch in discussion_channels %}
+                        <option value="{{ ch.topic_id }}" data-name="{{ ch.name }}" data-key="{{ ch.key }}">{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <svg class="w-3 h-3 absolute left-1.5 top-1/2 -translate-y-1/2 text-[#71717a] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+            </div>
+            <button onclick="closePromptModal()" class="text-[#52525b] hover:text-[#fafafa] transition-colors p-1">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+
+        <div class="px-5 py-4">
+            <textarea id="modalText" class="w-full bg-[#171717] border border-[#272727] rounded-lg px-4 py-3 text-sm text-[#fafafa] resize-none focus:outline-none focus:border-[#3f3f46] transition-colors" dir="rtl" rows="5" placeholder="טקסט ההודעה..."></textarea>
+            <p class="text-[10px] text-[#3f3f46] mt-2">* שמירה תעדכן את הטקסט במאגר של הערוץ המקורי</p>
+        </div>
+
+        <!-- AI Actions -->
+        <div class="px-5 pb-4">
+            <div class="text-[10px] text-[#52525b] uppercase tracking-wider font-medium mb-2">AI</div>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="regeneratePrompt('single')" class="ai-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] rounded-md text-[#a1a1aa] hover:text-[#fafafa] hover:border-[#3f3f46] transition-colors inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                    רענן
+                </button>
+                <button onclick="regeneratePrompt('rewrite')" class="ai-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] rounded-md text-[#a1a1aa] hover:text-[#fafafa] hover:border-[#3f3f46] transition-colors inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                    שכתב את הטקסט הנוכחי
+                </button>
+                <button onclick="toggleInstructions()" class="px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] rounded-md text-[#a1a1aa] hover:text-[#fafafa] hover:border-[#3f3f46] transition-colors inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    הוראות מותאמות
+                </button>
+            </div>
+            <div id="modalInstructions" class="hidden mt-2 flex gap-2">
+                <input id="modalInstructionsInput" type="text" dir="rtl" placeholder="לדוגמה: קצר יותר, מצחיק, על סופ״ש..." class="ai-btn flex-1 bg-[#171717] border border-[#272727] rounded-md px-3 py-1.5 text-xs text-[#fafafa] focus:outline-none focus:border-[#3f3f46] transition-colors">
+                <button onclick="regeneratePrompt('withInstructions')" class="ai-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] rounded-md text-[#a1a1aa] hover:text-[#fafafa] hover:border-[#3f3f46] transition-colors">
+                    רענן עם הוראות
+                </button>
+            </div>
+        </div>
+
+        <!-- Schedule one-off -->
+        <div class="px-5 pb-4 border-t border-[#1f1f1f] pt-4">
+            <button onclick="toggleScheduleOnce()" class="flex items-center justify-between w-full text-xs font-medium text-[#a1a1aa] hover:text-[#fafafa] transition-colors">
+                <span class="inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+                    קבע לתאריך ושעה ספציפיים
+                </span>
+                <svg id="scheduleChevron" class="w-3.5 h-3.5 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div id="scheduleOnceBody" class="hidden mt-3 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="text-[10px] text-[#52525b] block mb-1">תאריך</label>
+                        <input id="modalDate" type="date" class="w-full bg-[#171717] border border-[#272727] rounded-md px-3 py-1.5 text-xs text-[#fafafa] focus:outline-none focus:border-[#3f3f46]">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-[#52525b] block mb-1">שעה</label>
+                        <input id="modalTime" type="time" class="w-full bg-[#171717] border border-[#272727] rounded-md px-3 py-1.5 text-xs text-[#fafafa] focus:outline-none focus:border-[#3f3f46]">
+                    </div>
+                </div>
+                <button id="modalScheduleBtn" onclick="scheduleOneOff()" class="w-full px-3 py-1.5 text-xs font-medium bg-[#171717] border border-emerald-500/30 rounded-md text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                    📅 קבע
+                </button>
+            </div>
+        </div>
+
+        <!-- Global schedule link -->
+        <div class="px-5 pb-4">
+            <a href="/prompts" class="text-[11px] text-[#52525b] hover:text-[#a1a1aa] transition-colors inline-flex items-center gap-1">
+                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                לעריכת זמנים קבועים בעמוד ההודעות
+            </a>
+        </div>
+
+        <div class="flex items-center justify-between px-5 py-3 border-t border-[#1f1f1f] sticky bottom-0 bg-[#0a0a0a]">
+            <button onclick="closePromptModal()" class="px-3 py-1.5 text-xs text-[#71717a] hover:text-[#fafafa] transition-colors">ביטול</button>
+            <button id="modalSaveBtn" onclick="savePrompt()" class="px-4 py-1.5 text-xs font-medium bg-[#fafafa] text-[#09090b] rounded-md hover:bg-[#e4e4e7] transition-colors">שמירה במאגר</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Edit prompt modal — v3 per-day scheduled_messages + AI fill
+console.log('[prompt-modal] script loaded — modal v3 (per-day commits)');
+var _modalState = {pool: '', idx: -1, type: '', category: '', topicId: '', date: '', scheduledId: '', committed: false, time: ''};
+
+function openPromptModal(el) {
+    var pool = el.dataset.pool || '';
+    var idx = parseInt(el.dataset.idx, 10);
+    if (isNaN(idx)) idx = -1;
+    var type = el.dataset.type || '';
+    var channel = el.dataset.channel || '';
+    var fullText = el.dataset.fullText || '';
+    var topicId = el.dataset.topicId || '';
+    var category = el.dataset.category || '';
+    var date = el.dataset.date || '';
+    var scheduledId = el.dataset.scheduledId || '';
+    var committed = el.dataset.committed === '1';
+    // Extract time from the activity's time span (LTR dir)
+    var timeEl = el.querySelector('[dir="ltr"]');
+    var time = (timeEl && timeEl.textContent.trim()) || '';
+
+    console.log('[modal.open] type=%s date=%s time=%s topicId=%s committed=%s scheduledId=%s textLen=%d',
+                type, date, time, topicId, committed, scheduledId, fullText.length);
+
+    if (!type || !date || !time) {
+        console.warn('[modal.open] REJECTED: missing type/date/time');
+        return;
+    }
+
+    _modalState = {
+        pool: pool, idx: idx, type: type, category: category, topicId: topicId,
+        date: date, scheduledId: scheduledId, committed: committed, time: time
+    };
+
+    document.getElementById('modalText').value = fullText;
+
+    var badge = document.getElementById('modalBadge');
+    var labels = {morning: 'בוקר', evening: 'ערב', discussion: 'דיון'};
+    badge.textContent = labels[type] || type;
+    badge.className = 'px-2 py-0.5 rounded text-[11px] font-medium ';
+    if (type === 'morning') badge.className += 'bg-amber-500/15 text-amber-400 border border-amber-500/20';
+    else if (type === 'evening') badge.className += 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/20';
+    else if (type === 'discussion') badge.className += 'bg-sky-500/15 text-sky-400 border border-sky-500/20';
+
+    // Header channel: plain text for non-discussion, clickable dropdown for discussion
+    var channelLabel = document.getElementById('modalChannel');
+    var headerChannelWrap = document.getElementById('modalHeaderChannelWrap');
+    var headerSelect = document.getElementById('modalHeaderChannelSelect');
+    if (type === 'discussion') {
+        channelLabel.textContent = '';
+        channelLabel.classList.add('hidden');
+        headerChannelWrap.classList.remove('hidden');
+        if (topicId) headerSelect.value = String(topicId);
+    } else {
+        channelLabel.textContent = channel;
+        channelLabel.classList.remove('hidden');
+        headerChannelWrap.classList.add('hidden');
+    }
+
+    // Reset schedule-once section
+    document.getElementById('scheduleOnceBody').classList.add('hidden');
+    document.getElementById('scheduleChevron').style.transform = '';
+    document.getElementById('modalInstructions').classList.add('hidden');
+    document.getElementById('modalInstructionsInput').value = '';
+
+    // Default date/time: today + current activity time
+    var today = new Date();
+    var yyyy = today.getFullYear();
+    var mm = String(today.getMonth() + 1).padStart(2, '0');
+    var dd = String(today.getDate()).padStart(2, '0');
+    document.getElementById('modalDate').value = yyyy + '-' + mm + '-' + dd;
+    // Time comes from the activity row
+    var timeEl = el.querySelector('[dir="ltr"]');
+    document.getElementById('modalTime').value = (timeEl && timeEl.textContent.trim()) || '09:00';
+
+    var modal = document.getElementById('promptModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(function() { document.getElementById('modalText').focus(); }, 50);
+}
+
+function closePromptModal() {
+    var modal = document.getElementById('promptModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    _modalState = {pool: '', idx: -1, type: '', category: '', topicId: ''};
+}
+
+async function onChannelChange(sel) {
+    sel = sel || document.getElementById('modalHeaderChannelSelect');
+    var opt = sel.options[sel.selectedIndex];
+    var newKey = opt.dataset.key;
+    var newTopicId = opt.value;
+
+    if (!newKey) return;
+
+    console.log('[modal.channelChange] switching to category=%s', newKey);
+
+    _modalState.category = newKey;
+    _modalState.topicId = newTopicId;
+    _modalState.pool = 'discussion:' + newKey;
+    _modalState.idx = 0;
+
+    try {
+        var resp = await fetch('/api/weekplan/discussion-sample?category=' + encodeURIComponent(newKey));
+        if (resp.ok) {
+            var data = await resp.json();
+            if (data.text) {
+                document.getElementById('modalText').value = data.text;
+                _modalState.idx = data.idx;
+                console.log('[modal.channelChange] loaded %s[%d]', newKey, data.idx);
+            }
+        }
+    } catch(e) {
+        console.error('[modal.channelChange] sample fetch failed', e);
+    }
+}
+
+function toggleInstructions() {
+    var box = document.getElementById('modalInstructions');
+    box.classList.toggle('hidden');
+    if (!box.classList.contains('hidden')) {
+        setTimeout(function() { document.getElementById('modalInstructionsInput').focus(); }, 50);
+    }
+}
+
+function toggleScheduleOnce() {
+    var body = document.getElementById('scheduleOnceBody');
+    var chev = document.getElementById('scheduleChevron');
+    body.classList.toggle('hidden');
+    chev.style.transform = body.classList.contains('hidden') ? '' : 'rotate(180deg)';
+}
+
+function _setBtnsDisabled(disabled) {
+    var btns = document.querySelectorAll('#promptModal .ai-btn');
+    btns.forEach(function(b) { b.disabled = disabled; b.style.opacity = disabled ? '0.5' : ''; });
+}
+
+async function regeneratePrompt(which) {
+    if (!_modalState.type) return;
+    // Map type to /api/generate field (discussion = "discussion")
+    var field = _modalState.type;
+    var currentText = document.getElementById('modalText').value;
+    var instructions = document.getElementById('modalInstructionsInput').value.trim();
+
+    var body = {field: field, category: _modalState.category || ''};
+    if (which === 'rewrite') {
+        body.mode = 'rewrite';
+        body.existing = currentText;
+    } else if (which === 'withInstructions') {
+        body.mode = 'single';
+        body.instructions = instructions;
+    } else {
+        body.mode = 'single';
+    }
+
+    _setBtnsDisabled(true);
+    var textarea = document.getElementById('modalText');
+    var origText = textarea.value;
+    textarea.value = '⏳ יוצר...';
+
+    try {
+        var resp = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        if (resp.ok) {
+            var data = await resp.json();
+            var generated = (data.content || '').trim();
+            // Strip surrounding quotes if any
+            generated = generated.replace(/^["']|["']$/g, '').trim();
+            // Take first non-empty line if multiple returned
+            var firstLine = generated.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; })[0] || generated;
+            textarea.value = firstLine;
+        } else {
+            var err = await resp.json().catch(function() { return {}; });
+            textarea.value = origText;
+            alert('שגיאה ביצירה: ' + (err.detail || 'Unknown error'));
+        }
+    } catch(e) {
+        textarea.value = origText;
+        alert('שגיאה ביצירה');
+    } finally {
+        _setBtnsDisabled(false);
+    }
+}
+
+async function savePrompt() {
+    var text = document.getElementById('modalText').value.trim();
+    console.log('[modal.save] type=%s date=%s time=%s scheduledId=%s textLen=%d',
+                _modalState.type, _modalState.date, _modalState.time, _modalState.scheduledId, text.length);
+
+    if (!text) {
+        alert('אין טקסט לשמירה');
+        return;
+    }
+    if (!_modalState.type || !_modalState.date || !_modalState.time) {
+        alert('חסרים פרטי יום/שעה/סוג');
+        console.warn('[modal.save] REJECTED: state=', _modalState);
+        return;
+    }
+
+    // For discussion, use the current dropdown selection for topic_id
+    var topicId = _modalState.topicId;
+    if (_modalState.type === 'discussion') {
+        var sel = document.getElementById('modalHeaderChannelSelect');
+        if (sel && sel.value) topicId = sel.value;
+    }
+
+    var body = {
+        date: _modalState.date,
+        time: _modalState.time,
+        type: _modalState.type,
+        text: text,
+        channel_topic_id: topicId ? parseInt(topicId, 10) : null,
+    };
+    if (_modalState.scheduledId) {
+        body.scheduled_id = parseInt(_modalState.scheduledId, 10);
+    }
+
+    var btn = document.getElementById('modalSaveBtn');
+    var origText = btn.textContent;
+    btn.textContent = '...';
+    btn.disabled = true;
+
+    try {
+        console.log('[modal.save] POST /api/weekplan/save-day', body);
+        var resp = await fetch('/api/weekplan/save-day', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        console.log('[modal.save] response status:', resp.status);
+        if (resp.ok) {
+            var data = await resp.json();
+            console.log('[modal.save] saved:', data);
+            closePromptModal();
+            window.location.reload();
+        } else {
+            var err = await resp.json().catch(function() { return {}; });
+            alert('שגיאה: ' + (err.detail || 'Unknown error'));
+            console.error('[modal.save] server error:', err);
+        }
+    } catch(e) {
+        alert('שגיאה בשמירה: ' + e.message);
+        console.error('[modal.save] exception:', e);
+    } finally {
+        btn.textContent = origText;
+        btn.disabled = false;
+    }
+}
+
+async function scheduleOneOff() {
+    var text = document.getElementById('modalText').value.trim();
+    var date = document.getElementById('modalDate').value;
+    var time = document.getElementById('modalTime').value;
+
+    if (!text) { alert('אין טקסט'); return; }
+    if (!date || !time) { alert('חסר תאריך או שעה'); return; }
+
+    // Determine topic_id: for discussion use dropdown value, otherwise use activity's own topic_id
+    var topicId = _modalState.topicId;
+    if (_modalState.type === 'discussion') {
+        var sel = document.getElementById('modalChannelSelect');
+        if (sel.value) topicId = sel.value;
+    }
+
+    var btn = document.getElementById('modalScheduleBtn');
+    var origText = btn.textContent;
+    btn.textContent = '...';
+    btn.disabled = true;
+
+    var body = {
+        text: text,
+        message_type: _modalState.type || 'custom',
+        scheduled_date: date,
+        scheduled_time: time,
+        target_group: 'main'
+    };
+    if (topicId) body.channel_topic_id = parseInt(topicId, 10);
+
+    try {
+        var resp = await fetch('/api/calendar', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        if (resp.ok) {
+            closePromptModal();
+            window.location.reload();
+        } else {
+            var err = await resp.json().catch(function() { return {}; });
+            alert('שגיאה בקביעה: ' + (err.detail || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('שגיאה בקביעה');
+    } finally {
+        btn.textContent = origText;
+        btn.disabled = false;
+    }
+}
+
+// Close modal on Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closePromptModal();
+});
+</script>

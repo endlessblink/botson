@@ -6,7 +6,6 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.commitment import has_committed_row
 from ..utils.config import GOALS_TOPIC_ID as _ENV_GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
 
 
@@ -20,90 +19,6 @@ from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
 
 logger = logging.getLogger(__name__)
-
-# Track the last prompt message ID so we can detect replies to it
-_last_prompt_message_id: int | None = None
-
-
-async def send_morning_prompt(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduled job: send morning prompt to goals channel and pin it."""
-    if not is_feature_enabled("morning_prompt") and not is_feature_enabled("goals"):
-        return
-
-    global _last_prompt_message_id
-    db: Database = context.bot_data["db"]
-    if await has_committed_row(db, "morning"):
-        return  # calendar checker will send the committed row
-    prompt = await db.get_random_prompt("morning")
-
-    goals_topic = _get_goals_topic_id()
-    if not goals_topic:
-        logger.warning("GOALS_TOPIC_ID not set, skipping morning prompt")
-        return
-
-    kwargs = {"chat_id": GROUP_ID, "text": prompt}
-    if goals_topic:
-        kwargs["message_thread_id"] = goals_topic
-
-    try:
-        msg = await context.bot.send_message(**kwargs)
-        _last_prompt_message_id = msg.message_id
-        logger.info("Sent morning prompt")
-        await db.log_activity("goals", "שלח הודעת בוקר", target_channel="goals")
-
-        # Pin the message
-        try:
-            await context.bot.pin_chat_message(
-                chat_id=GROUP_ID,
-                message_id=msg.message_id,
-                disable_notification=True,
-            )
-            logger.info("Pinned morning prompt")
-        except Exception as e:
-            logger.warning("Failed to pin morning prompt: %s", e)
-
-    except Exception as e:
-        logger.error("Failed to send morning prompt: %s", e)
-
-
-async def send_evening_prompt(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduled job: send evening prompt to goals channel. Unpins morning prompt."""
-    if not is_feature_enabled("evening_prompt") and not is_feature_enabled("goals"):
-        return
-
-    global _last_prompt_message_id
-    db: Database = context.bot_data["db"]
-    if await has_committed_row(db, "evening"):
-        return  # calendar checker will send the committed row
-    prompt = await db.get_random_prompt("evening")
-
-    goals_topic = _get_goals_topic_id()
-    if not goals_topic:
-        logger.warning("GOALS_TOPIC_ID not set, skipping evening prompt")
-        return
-
-    # Unpin the morning prompt
-    if _last_prompt_message_id:
-        try:
-            await context.bot.unpin_chat_message(
-                chat_id=GROUP_ID,
-                message_id=_last_prompt_message_id,
-            )
-            logger.info("Unpinned morning prompt")
-        except Exception as e:
-            logger.warning("Failed to unpin morning prompt: %s", e)
-
-    kwargs = {"chat_id": GROUP_ID, "text": prompt}
-    if goals_topic:
-        kwargs["message_thread_id"] = goals_topic
-
-    try:
-        msg = await context.bot.send_message(**kwargs)
-        _last_prompt_message_id = msg.message_id
-        logger.info("Sent evening prompt")
-        await db.log_activity("goals", "שלח הודעת ערב", target_channel="goals")
-    except Exception as e:
-        logger.error("Failed to send evening prompt: %s", e)
 
 
 async def track_goals_participation(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -105,6 +105,15 @@ async def post_init(app: Application):
     # Setup reload watcher (checks for data/reload flag file every 5s)
     _setup_reload_watcher(app)
 
+    # Materialize the next 14 days of morning/evening/discussion slots
+    # into scheduled_messages so calendar_checker owns every send.
+    from .scheduler.materializer import materialize_forward
+    try:
+        inserted = await materialize_forward(db)
+        logger.info("Bootstrap materialize: %d new rows", inserted)
+    except Exception as e:
+        logger.error("Bootstrap materialize failed: %s", e)
+
     logger.info("Bot initialized successfully")
 
 
@@ -139,9 +148,16 @@ def _setup_reload_watcher(app):
 
 
 async def _reload_config(app):
-    """Atomic reload: re-register jobs from fresh config.
+    """Atomic reload: re-register cron jobs and re-materialize text-content rows.
 
-    If setup_jobs fails, the old jobs are restored.
+    Two things must happen in sync:
+      1. Cron jobs (leaderboard/roundup/trivia/event_reminder) re-registered
+         from fresh settings.yaml — picks up new days/times.
+      2. Future auto-materialized rows in scheduled_messages are purged and
+         re-created from fresh settings + pools. User-committed rows are
+         untouched.
+
+    If setup_jobs fails, the old cron jobs are restored.
     Never clears the reload_watcher itself.
     """
     jq = app.job_queue
@@ -164,7 +180,7 @@ async def _reload_config(app):
         new_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
         if len(new_jobs) == 0:
             raise RuntimeError("setup_jobs registered 0 jobs")
-        logger.info("Config reloaded successfully — %d jobs active", len(new_jobs))
+        logger.info("Config reloaded successfully — %d cron jobs active", len(new_jobs))
     except Exception as e:
         logger.error("Failed to reload config: %s — re-registering from old config", e)
         # Restore: call setup_jobs again (reads same settings, should work)
@@ -173,6 +189,17 @@ async def _reload_config(app):
             logger.info("Restored jobs after failed reload")
         except Exception as e2:
             logger.critical("CRITICAL: Could not restore jobs: %s — bot has no scheduled jobs!", e2)
+
+    # Re-materialize text-content rows from fresh config.
+    db = app.bot_data.get("db")
+    if db:
+        try:
+            from .scheduler.materializer import purge_future_auto_rows, materialize_forward
+            purged = await purge_future_auto_rows(db)
+            inserted = await materialize_forward(db)
+            logger.info("Reload materialize: purged %d, inserted %d rows", purged, inserted)
+        except Exception as e:
+            logger.error("Reload materialize failed: %s", e)
 
 
 def _acquire_pid_lock():

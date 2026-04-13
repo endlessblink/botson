@@ -32,22 +32,73 @@
         font-family: 'Inter', system-ui, sans-serif;
         font-size: 13px;
     }
-    .fc .fc-col-header-cell-cushion,
+    .fc .fc-col-header-cell-cushion {
+        color: #e4e4e7;
+        font-weight: 500;
+        padding: 10px 8px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
     .fc .fc-daygrid-day-number {
-        color: #a1a1aa;
+        color: #fafafa;
+        font-weight: 500;
+        font-size: 14px;
+        padding: 6px 10px;
+    }
+    .fc .fc-day-other .fc-daygrid-day-number {
+        color: #52525b;
+        font-weight: 400;
+    }
+    .fc .fc-day-today {
+        background: rgba(245, 158, 11, 0.08) !important;
+        box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.45);
+        position: relative;
     }
     .fc .fc-day-today .fc-daygrid-day-number {
-        color: #fbbf24;
+        color: #0a0a0a;
+        background: #fbbf24;
+        font-weight: 700;
+        font-size: 13px;
+        border-radius: 999px;
+        padding: 3px 10px;
+        margin: 6px 6px 0 auto;
+        display: inline-flex;
+        align-items: center;
+        min-width: 28px;
+        justify-content: center;
+        box-shadow: 0 1px 4px rgba(245, 158, 11, 0.3);
+    }
+    .fc .fc-day-today .fc-daygrid-day-number::before {
+        content: 'היום · ';
+        font-size: 11px;
         font-weight: 600;
+        margin-left: 2px;
+        opacity: 0.8;
     }
     .fc-theme-standard td, .fc-theme-standard th {
         border-color: #1f1f1f;
     }
+    /* Taller rows so events don't get cut off */
+    .fc .fc-daygrid-day-frame {
+        min-height: 140px;
+    }
     .fc .fc-daygrid-event {
-        border-radius: 4px;
-        padding: 2px 4px;
-        font-size: 12px;
+        border-radius: 5px;
+        padding: 4px 7px;
+        font-size: 13px;
         cursor: pointer;
+        margin: 2px 2px;
+        white-space: normal !important;
+    }
+    .fc .fc-daygrid-event .event-chip-text {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        line-height: 1.35;
     }
     .fc .fc-toolbar-title {
         color: #fafafa;
@@ -60,12 +111,14 @@
     .status-scheduled { background: #3b82f6; }
     .status-sent { background: #22c55e; }
     .status-failed { background: #ef4444; animation: pulse 1.5s infinite; }
+    .status-preview { background: transparent; border: 1px dashed #71717a; box-sizing: border-box; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
     /* Event chip custom content */
-    .event-chip { display: flex; align-items: center; gap: 4px; overflow: hidden; }
-    .event-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-    .event-chip-type { font-size: 10px; opacity: 0.7; }
+    .event-chip { display: flex; align-items: center; gap: 5px; overflow: hidden; }
+    .event-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; }
+    .event-chip-type { font-size: 12px; opacity: 0.85; }
+    .event-chip-time { font-size: 11px; color: #a1a1aa; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
     /* ── Wizard styles ── */
     .wizard-dot {
@@ -93,10 +146,12 @@
 
     /* Channel chips */
     .channel-chip {
-        display: inline-flex; align-items: center; height: 26px;
-        padding: 0 10px; border-radius: 13px; font-size: 11px;
+        display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+        min-height: 26px; padding: 4px 10px; border-radius: 6px; font-size: 11px;
         background: transparent; border: 1px solid #272727; color: #71717a;
-        cursor: pointer; transition: all 0.15s; white-space: nowrap;
+        cursor: pointer; transition: all 0.15s;
+        max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+        line-height: 1.3; text-align: right;
     }
     .channel-chip:hover { border-color: #52525b; color: #a1a1aa; }
     .channel-chip.selected { background: rgba(245, 158, 11, 0.08); color: #fbbf24; }
@@ -138,6 +193,57 @@
         animation: conflictFadeIn 0.3s ease;
     }
     @keyframes conflictFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    /* Schedule pattern dots */
+    .schedule-dots {
+        display: flex; justify-content: center; gap: 3px;
+        position: absolute; bottom: 2px; left: 0; right: 0;
+        pointer-events: none;
+    }
+    .schedule-dot {
+        width: 5px; height: 5px; border-radius: 50%;
+        opacity: 0.5;
+    }
+    .fc .fc-daygrid-day-frame { position: relative; }
+    /* Per-day "+" add button */
+    .fc .fc-daygrid-day-top { display: flex; align-items: center; flex-direction: row-reverse; }
+    .day-add-btn {
+        margin-left: auto;
+        margin-right: 6px;
+        width: 22px; height: 22px;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%;
+        background: transparent;
+        border: 1px solid #272727;
+        color: #71717a;
+        font-size: 16px; font-weight: 400; line-height: 1;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .fc .fc-daygrid-day:hover .day-add-btn { opacity: 1; }
+    .day-add-btn:hover {
+        background: rgba(245, 158, 11, 0.12);
+        border-color: rgba(245, 158, 11, 0.4);
+        color: #fbbf24;
+    }
+    .fc .fc-day-today .day-add-btn { opacity: 0.6; border-color: rgba(245,158,11,0.25); color: #fbbf24; }
+    /* Preview events from weekplan — distinct from committed */
+    /* Preview events — distinguished by lighter background, no border */
+    .fc .fc-daygrid-event.preview-event {
+        border-width: 0 !important;
+        border-right: 3px solid !important;
+        border-right-color: inherit !important;
+    }
+    .fc .fc-daygrid-event.preview-event .event-chip-text {
+        color: #e4e4e7;
+        font-weight: 400;
+    }
+    .fc .fc-daygrid-event:not(.preview-event) .event-chip-text {
+        font-weight: 500;
+    }
+    .fc .fc-daygrid-event.preview-event:hover {
+        filter: brightness(1.2);
+    }
 </style>
 
 <div class="flex items-center justify-between mb-4">
@@ -192,11 +298,28 @@
 </div>
 {% endif %}
 
+<!-- Calendar legend + actions -->
+<div class="flex items-center justify-between mb-2 px-1" dir="rtl">
+    <div class="flex items-center gap-4 text-xs text-[#71717a]">
+        <div class="flex items-center gap-1.5">
+            <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#3b82f6;"></span>
+            <span>מחויב</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:rgba(59,130,246,0.12);border-right:3px solid #3b82f6;"></span>
+            <span>טיוטה (ימולא אוטומטית)</span>
+        </div>
+    </div>
+    <button id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+        ✨ מלא טיוטות ב-AI
+    </button>
+</div>
+
 <!-- Calendar container -->
 <div id="calendar" class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4"></div>
 
 <!-- Create drawer (slides in from left for RTL) -->
-<div id="create-drawer" class="fixed top-12 right-0 lg:right-56 w-full max-w-[420px] h-[calc(100vh-48px)] bg-[#0a0a0a] border-r border-[#1f1f1f] z-[35] transform translate-x-full transition-transform duration-200 flex flex-col overflow-hidden">
+<div id="create-drawer" class="fixed top-12 right-0 lg:right-56 w-full max-w-[420px] h-[calc(100vh-48px)] bg-[#0a0a0a] border-l border-[#1f1f1f] z-[35] transform translate-x-full transition-transform duration-200 flex flex-col overflow-hidden">
     <!-- Sticky Header -->
     <div class="px-5 py-4 border-b border-[#1f1f1f] bg-[#0a0a0a] z-10 flex-shrink-0">
         <div class="flex items-center justify-between mb-3">
@@ -258,7 +381,12 @@
             <div class="space-y-4">
                 <!-- Text area -->
                 <div>
-                    <label class="text-xs text-[#71717a] mb-1 block">תוכן</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs text-[#71717a]">תוכן</label>
+                        <button type="button" id="ai-gen-btn" onclick="aiGenerateContent()" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer flex items-center gap-1">
+                            <span>✨</span><span id="ai-gen-btn-text">צור עם AI</span>
+                        </button>
+                    </div>
                     <textarea id="create-text" rows="5" dir="rtl" placeholder="כתוב את ההודעה..."
                         class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none transition-colors"></textarea>
                 </div>
@@ -266,11 +394,40 @@
                 <!-- Channel chips -->
                 <div>
                     <label class="text-xs text-[#71717a] mb-1.5 block">ערוץ</label>
-                    <div class="flex flex-wrap gap-1.5" id="channel-chips">
-                        <button type="button" class="channel-chip" data-topic="" onclick="selectChannel(this, '')">כללי</button>
-                        {% for t in forum_topics %}
-                        <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" onclick="selectChannel(this, '{{ t.topic_id }}')">{{ t.name }}</button>
-                        {% endfor %}
+                    <div id="channel-chips" class="space-y-3">
+                        <div class="flex flex-wrap gap-1.5">
+                            <button type="button" class="channel-chip" data-topic="" data-category="" onclick="selectChannel(this, '', '')">כללי</button>
+                        </div>
+                        {% if grouped_channels.discussions %}
+                        <div>
+                            <div class="text-[10px] text-[#52525b] mb-1">לדיונים</div>
+                            <div class="flex flex-wrap gap-1.5">
+                                {% for t in grouped_channels.discussions %}
+                                <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" data-category="{{ t.category }}" onclick="selectChannel(this, '{{ t.topic_id }}', '{{ t.category }}')">{{ t.name }}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if grouped_channels.daily %}
+                        <div>
+                            <div class="text-[10px] text-[#52525b] mb-1">למטרות יומיות</div>
+                            <div class="flex flex-wrap gap-1.5">
+                                {% for t in grouped_channels.daily %}
+                                <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" data-category="" onclick="selectChannel(this, '{{ t.topic_id }}', '')">{{ t.name }}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if grouped_channels.other %}
+                        <div>
+                            <div class="text-[10px] text-[#52525b] mb-1">אחר</div>
+                            <div class="flex flex-wrap gap-1.5">
+                                {% for t in grouped_channels.other %}
+                                <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" data-category="" onclick="selectChannel(this, '{{ t.topic_id }}', '')">{{ t.name }}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
 
@@ -399,6 +556,8 @@
     </div>
 </div>
 
+{% include "_prompt_modal.html" %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -408,7 +567,7 @@ var selectedDraftText = {};
 
 // ─── Wizard State ───
 var wizardState = {
-    step: 1, type: null, text: '', channelTopicId: null,
+    step: 1, type: null, text: '', channelTopicId: null, category: null,
     date: '{{ now_date }}', time: '18:00',
     recurrence: null, recurrenceDays: [],
     autoPin: false,
@@ -554,19 +713,21 @@ function selectType(type) {
 }
 
 // ─── Channel Selection ───
-function selectChannel(el, topicId) {
+function selectChannel(el, topicId, category) {
     var prev = wizardState.channelTopicId;
     var newId = topicId ? String(topicId) : null;
 
     // Deselect if clicking same channel
     if (prev === newId) {
         wizardState.channelTopicId = null;
+        wizardState.category = null;
         el.classList.remove('selected');
         el.style.borderColor = '';
         return;
     }
 
     wizardState.channelTopicId = newId;
+    wizardState.category = category || null;
 
     // Update chip styles
     document.querySelectorAll('.channel-chip').forEach(function(chip) {
@@ -576,6 +737,51 @@ function selectChannel(el, topicId) {
     el.classList.add('selected');
     if (newId && CHANNEL_COLORS[parseInt(newId)]) {
         el.style.borderColor = CHANNEL_COLORS[parseInt(newId)];
+    }
+}
+
+async function aiGenerateContent() {
+    var btn = document.getElementById('ai-gen-btn');
+    var btnText = document.getElementById('ai-gen-btn-text');
+    var ta = document.getElementById('create-text');
+    var type = wizardState.type;
+    if (!type || ['morning','evening','discussion'].indexOf(type) === -1) {
+        showToast('AI זמין רק לסוגים: בוקר, ערב, דיון', 'error');
+        return;
+    }
+    if (type === 'discussion' && !wizardState.category) {
+        showToast('בחר ערוץ דיון (גיימינג, סרטים וכו׳)', 'error');
+        return;
+    }
+    var origText = btnText.textContent;
+    btnText.textContent = 'מייצר...';
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    try {
+        var body = { type: type, category: wizardState.category || '', existing: ta.value || '' };
+        var r = await fetch('/api/generate-content', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var data = await r.json();
+        if (data.text) {
+            ta.value = data.text;
+            wizardState.text = data.text;
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+            showToast('לא הוחזר תוכן', 'error');
+        }
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    } finally {
+        btnText.textContent = origText;
+        btn.disabled = false;
+        btn.style.opacity = '';
     }
 }
 
@@ -799,6 +1005,7 @@ function resetWizard() {
     wizardState.type = null;
     wizardState.text = '';
     wizardState.channelTopicId = null;
+    wizardState.category = null;
     wizardState.date = '{{ now_date }}';
     wizardState.time = '18:00';
     wizardState.recurrence = null;
@@ -947,6 +1154,7 @@ async function sendNowFromDrawer(target) {
 }
 
 // ─── Calendar Init ───
+var schedulePattern = {{ schedule_pattern | default('{}') | safe }};
 document.addEventListener('DOMContentLoaded', function() {
     var calendarEl = document.getElementById('calendar');
 
@@ -956,7 +1164,8 @@ document.addEventListener('DOMContentLoaded', function() {
         firstDay: 0,
         initialView: 'dayGridMonth',
         initialDate: '{{ now_date }}',
-        contentHeight: 600,
+        contentHeight: 'auto',
+        dayMaxEvents: false,
 
         headerToolbar: {
             start: 'title',
@@ -982,19 +1191,104 @@ document.addEventListener('DOMContentLoaded', function() {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
             var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡'}[props.messageType] || '📌';
+            var leadingMark = props.isPreview
+                ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="טיוטה">✎</span>'
+                : '<span class="event-status ' + statusClass + '"></span>';
 
+            var startDate = arg.event.start;
+            var timeStr = startDate ? startDate.toTimeString().substring(0,5) : '';
             return {
                 html: '<div class="event-chip">' +
-                    '<span class="event-status ' + statusClass + '"></span>' +
+                    leadingMark +
                     '<span class="event-chip-type">' + typeEmoji + '</span>' +
+                    (timeStr ? '<span class="event-chip-time">' + timeStr + '</span>' : '') +
                     '<span class="event-chip-text">' + arg.event.title + '</span>' +
                 '</div>'
             };
         },
 
+        eventDidMount: function(info) {
+            var props = info.event.extendedProps;
+            var fullText = props.fullText || info.event.title || '';
+            var startDate = info.event.start;
+            var time = startDate ? startDate.toTimeString().substring(0,5) : '';
+            var prefix = time ? '[' + time + '] ' : '';
+            info.el.setAttribute('title', prefix + fullText);
+
+            // Double-click → open the shared rich prompt modal (same as weekplan)
+            info.el.addEventListener('dblclick', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof openPromptModal !== 'function') return;
+
+                var msgType = props.messageType || '';
+                // Modal only supports morning/evening/discussion
+                if (['morning', 'evening', 'discussion'].indexOf(msgType) === -1) return;
+
+                var dateStr = startDate ? (
+                    startDate.getFullYear() + '-' +
+                    String(startDate.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(startDate.getDate()).padStart(2, '0')
+                ) : '';
+                var timeStr = time;
+
+                // Synthesize an element with the dataset attributes openPromptModal expects
+                var fakeEl = document.createElement('div');
+                fakeEl.dataset.pool = (msgType === 'discussion' && props.category)
+                    ? 'discussion:' + props.category
+                    : msgType;
+                fakeEl.dataset.idx = '-1';
+                fakeEl.dataset.type = msgType;
+                fakeEl.dataset.channel = '';
+                fakeEl.dataset.topicId = props.channelTopicId ? String(props.channelTopicId) : '';
+                fakeEl.dataset.category = props.category || '';
+                fakeEl.dataset.fullText = fullText;
+                fakeEl.dataset.date = dateStr;
+                fakeEl.dataset.scheduledId = props.isPreview ? '' : info.event.id;
+                fakeEl.dataset.committed = props.isPreview ? '0' : '1';
+
+                // openPromptModal reads the time from a child span with dir="ltr"
+                var timeSpan = document.createElement('span');
+                timeSpan.setAttribute('dir', 'ltr');
+                timeSpan.textContent = timeStr;
+                fakeEl.appendChild(timeSpan);
+
+                openPromptModal(fakeEl);
+            });
+        },
+
         eventClick: function(info) {
             var props = info.event.extendedProps;
-            openEditDrawer(info.event.id, props, info.event.start);
+            var msgType = props.messageType || '';
+            var startDate = info.event.start;
+            var dateStr = startDate ? startDate.toISOString().split('T')[0] : '';
+            var timeStr = startDate ? startDate.toTimeString().substring(0,5) : '';
+
+            // For morning/evening/discussion → open the rich shared modal
+            if (['morning', 'evening', 'discussion'].indexOf(msgType) !== -1 && typeof openPromptModal === 'function') {
+                var fakeEl = document.createElement('div');
+                fakeEl.dataset.pool = msgType === 'discussion' && props.category
+                    ? 'discussion:' + props.category
+                    : msgType;
+                fakeEl.dataset.idx = '-1';
+                fakeEl.dataset.type = msgType;
+                fakeEl.dataset.channel = '';
+                fakeEl.dataset.topicId = props.channelTopicId || '';
+                fakeEl.dataset.category = props.category || '';
+                fakeEl.dataset.fullText = props.fullText || info.event.title || '';
+                fakeEl.dataset.date = dateStr;
+                fakeEl.dataset.scheduledId = props.isPreview ? '' : info.event.id;
+                fakeEl.dataset.committed = props.isPreview ? '0' : '1';
+                var timeSpan = document.createElement('span');
+                timeSpan.setAttribute('dir', 'ltr');
+                timeSpan.textContent = timeStr;
+                fakeEl.appendChild(timeSpan);
+                openPromptModal(fakeEl);
+                return;
+            }
+
+            // Fallback for other types (event/poll/digest/custom) → use drawer edit
+            openEditDrawer(info.event.id, props, startDate);
         },
 
         eventDrop: async function(info) {
@@ -1017,6 +1311,66 @@ document.addEventListener('DOMContentLoaded', function() {
 
         dateClick: function(info) {
             openDrawer(info.dateStr);
+        },
+
+        dayCellDidMount: function(arg) {
+            if (arg.view.type.indexOf('dayGrid') === -1) return;
+            var dow = arg.date.getDay(); // 0=Sunday
+            var dots = [];
+            var types = [
+                {key: 'morning_prompt', color: '#f59e0b'},
+                {key: 'discussion_prompt', color: '#3b82f6'},
+                {key: 'evening_prompt', color: '#8b5cf6'},
+                {key: 'weekly_leaderboard', color: '#22c55e'},
+                {key: 'weekly_roundup', color: '#22c55e'},
+            ];
+            var colorLabels = {
+                '#f59e0b': 'Morning prompt',
+                '#3b82f6': 'Discussion',
+                '#8b5cf6': 'Evening prompt',
+                '#22c55e': 'Weekly'
+            };
+            types.forEach(function(t) {
+                var cfg = schedulePattern[t.key];
+                if (cfg && cfg.days && cfg.days.indexOf(dow) !== -1) {
+                    if (dots.indexOf(t.color) === -1) {
+                        dots.push(t.color);
+                    }
+                }
+            });
+            if (dots.length > 0) {
+                var container = document.createElement('div');
+                container.className = 'schedule-dots';
+                dots.forEach(function(color) {
+                    var dot = document.createElement('span');
+                    dot.className = 'schedule-dot';
+                    dot.style.backgroundColor = color;
+                    dot.title = colorLabels[color] || '';
+                    container.appendChild(dot);
+                });
+                var frame = arg.el.querySelector('.fc-daygrid-day-frame');
+                if (frame) frame.appendChild(container);
+            }
+
+            // Add "+" button at top of each day cell to create a new event
+            var topEl = arg.el.querySelector('.fc-daygrid-day-top');
+            if (topEl && !topEl.querySelector('.day-add-btn')) {
+                var addBtn = document.createElement('button');
+                addBtn.className = 'day-add-btn';
+                addBtn.type = 'button';
+                addBtn.title = 'הוסף הודעה ליום זה';
+                addBtn.textContent = '+';
+                var yyyy = arg.date.getFullYear();
+                var mm = String(arg.date.getMonth() + 1).padStart(2, '0');
+                var dd = String(arg.date.getDate()).padStart(2, '0');
+                var dateStr = yyyy + '-' + mm + '-' + dd;
+                addBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openDrawer(dateStr);
+                });
+                topEl.appendChild(addBtn);
+            }
         },
     });
 
@@ -1070,6 +1424,70 @@ async function dismissDraft(draftId) {
         showToast('נמחק');
         location.reload();
     } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+async function aiFillAllVisible() {
+    var btn = document.getElementById('ai-fill-all-btn');
+    if (!btn) return;
+    if (!confirm('זה ייצור תוכן AI לכל הטיוטות הגלויות בלוח שנה. להמשיך?')) return;
+
+    var origText = btn.innerHTML;
+    btn.innerHTML = '⏳ מייצר...';
+    btn.disabled = true;
+
+    try {
+        // Determine visible week offsets from calendar's current view
+        var view = calendar.view;
+        var startDate = view.activeStart; // Date object
+        var endDate = view.activeEnd;
+
+        // Convert to week offsets relative to this week's Sunday
+        var today = new Date();
+        var todaySunday = new Date(today);
+        todaySunday.setDate(today.getDate() - ((today.getDay()) % 7));
+        todaySunday.setHours(0,0,0,0);
+
+        var firstWeekStart = new Date(startDate);
+        firstWeekStart.setDate(startDate.getDate() - startDate.getDay()); // back to Sunday
+        firstWeekStart.setHours(0,0,0,0);
+
+        var weekOffsets = [];
+        var cur = new Date(firstWeekStart);
+        while (cur < endDate) {
+            var diffDays = Math.round((cur - todaySunday) / (1000*60*60*24));
+            var offset = Math.round(diffDays / 7);
+            weekOffsets.push(offset);
+            cur.setDate(cur.getDate() + 7);
+        }
+
+        var types = ['morning', 'discussion', 'evening'];
+        var totalCreated = 0;
+        var totalErrors = 0;
+
+        for (var i = 0; i < weekOffsets.length; i++) {
+            for (var j = 0; j < types.length; j++) {
+                btn.innerHTML = '⏳ שבוע ' + (i+1) + '/' + weekOffsets.length + ' — ' + types[j];
+                try {
+                    var resp = await fetch('/api/weekplan/ai-fill', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({week_offset: weekOffsets[i], type: types[j]})
+                    });
+                    var data = await resp.json();
+                    totalCreated += (data.created || 0);
+                    totalErrors += ((data.errors && data.errors.length) || 0);
+                } catch (e) {
+                    totalErrors += 1;
+                }
+            }
+        }
+
+        showToast('נוצרו ' + totalCreated + ' הודעות' + (totalErrors > 0 ? ' (' + totalErrors + ' שגיאות)' : ''), totalErrors > 0 ? 'error' : 'success');
+        calendar.refetchEvents();
+    } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    }
 }
 </script>
 {% endblock %}
