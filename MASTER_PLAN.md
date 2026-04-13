@@ -101,6 +101,12 @@
 | ~~T-093~~ | — | ✅ Anti-spam live mode + dashboard ban/unban | ✅ DONE (2026-04-11) | P1 | — |
 | T-094 | — | Onboarding video: side panel topic switching | TODO | P3 | — |
 | T-095 | — | Planner calendar: show recurring schedule as dots | TODO | P2 | T-080 |
+| T-096 | — | Materializer migration: scheduled_messages as single source | IN PROGRESS | P0 | T-005, T-044 |
+| T-097 | 16 | Free Games: daily GG.deals feed with LLM reranker | IN PROGRESS | P2 | T-005 |
+| T-098 | 16 | Free Games: add Epic Games API as second source | TODO | P2 | T-097 |
+| T-099 | 16 | Free Games: activate in main group (topic 1517) | TODO | P2 | T-097 |
+| T-100 | — | Configure git remote and push WIP commits | TODO | P1 | — |
+| T-101 | — | Handle media assets (gitignore / LFS / commit) | TODO | P3 | — |
 
 ## Detailed Tasks
 
@@ -664,6 +670,24 @@ Replace hardcoded point values with a validation-based scoring model loaded from
 Replace the full-screen TopicsScene with animated side panel topic switching. Instead of a dedicated topic list scene, show topic navigation happening in the side panel during chat scenes — highlight different topics, animate switching between them. The side panel IS the topic navigation, not a separate screen.
 - Files: `media/showcase/src/scenes/TopicsScene.tsx`, `media/showcase/src/scenes/BotFeaturesScene.tsx`, `media/showcase/src/components/telegram/TopicSidePanel.tsx`
 - Consider merging TopicsScene into BotFeaturesScene with the side panel animating topic switches
+
+#### T-096: Materializer migration — scheduled_messages as single source of truth
+**Priority:** P0 | **Status:** IN PROGRESS
+Make `scheduled_messages` the one source for every text-content send (morning, evening, discussion). The bot runtime no longer has parallel APScheduler cron jobs for those types; a shared `compute_week_previews()` in `bot/scheduler/materializer.py` is called by both dashboard preview rendering and a bootstrap/reload/daily materializer that writes rows the `calendar_checker` sends from. Kills a whole class of dashboard↔bot drift bugs.
+
+**Progress (2026-04-13):**
+- New `bot/scheduler/materializer.py` with `compute_week_previews`, `materialize_forward`, `purge_future_auto_rows`. Date-seeded content selection — same date always yields same content, consecutive days can't collide.
+- Removed `send_morning_prompt` / `send_evening_prompt` / `send_discussion_prompt` APScheduler cron jobs (`bot/scheduler/jobs.py`), removed dead handler code from `goals.py` / `discussions.py`, deleted `bot/utils/commitment.py`.
+- Fixed Hebrew→Python day-of-week bug (`_hebrew_to_python_days` was shifting Sun/Tue/Thu → Sat/Mon/Wed).
+- Wired materializer into `post_init`, `_reload_config`, and a daily 00:05 refill job.
+- Dashboard imports `compute_week_previews` from the shared module — one function object shared between dashboard and bot. `_is_feature_enabled` also unified.
+- `_signal_bot_reload()` now fires from every config-write endpoint (topics, antispam, prompts, spam patterns, gamification, features) so dashboard edits propagate without manual reload.
+- Fixed ghost-row duplication on weekplan/calendar rendering (cancelled rows were leaking into the calendar-events render path).
+- `scripts/test_sync.py` — 27-test end-to-end verification suite. All pass.
+
+**Remaining:** `/prompts` page still shows a single-question preview per panel instead of the real per-day lineup — planned in `~/.claude/plans/splendid-puzzling-stallman.md`, not yet implemented.
+
+Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, `bot/main.py`, `bot/handlers/goals.py`, `bot/handlers/discussions.py`, `bot/database/db.py`, `dashboard/app.py`, `scripts/test_sync.py`
 
 ---
 
