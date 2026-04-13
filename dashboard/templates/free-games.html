@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% set active_page = "free_games" %}
+
+{% block title %}Botson — משחקים חינם{% endblock %}
+
+{% block content %}
+{% set feat = settings.features or {} %}
+{% set fg_feat = feat.free_games if feat.free_games is mapping else {'enabled': feat.free_games, 'groups': []} %}
+{% set fg_enabled = fg_feat.enabled %}
+{% set fg_groups = fg_feat.groups or [] %}
+{% set schedule = settings.schedule or {} %}
+{% set fg_sched = schedule.free_games if schedule.free_games is mapping else {} %}
+{% set fg_time = fg_sched.time or '10:00' %}
+{% set fg_days = fg_sched.days or [0,1,2,3,4,5,6] %}
+{% set fg_feed = fg_sched.feed_url or 'https://gg.deals/eu/news/feed/' %}
+{% set topics = settings.topics or {} %}
+{% set gaming_topic = topics.gaming %}
+{% set day_labels = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'] %}
+
+<!-- Page Header -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">משחקים חינם 🎮</h1>
+        <p class="text-sm text-[#71717a] mt-1">פיד RSS שמפרסם משחקים חינמיים חדשים לערוץ הגיימינג</p>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-sm text-[#a1a1aa]">פעיל</span>
+        <label class="switch">
+            <input type="checkbox" id="fg-enabled" {% if fg_enabled %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+    </div>
+</div>
+
+<!-- Feature Target & Source Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h3 class="text-sm font-semibold text-[#fafafa]">יעד ומקור</h3>
+    </div>
+    <div class="px-6 py-4 space-y-4">
+        <div>
+            <label class="text-sm text-[#a1a1aa] font-medium mb-2 block">קבוצות יעד</label>
+            <div class="flex gap-4 text-sm text-[#d4d4d8]">
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" class="fg-group" value="main" {% if 'main' in fg_groups %}checked{% endif %}>
+                    <span>קבוצה ראשית</span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" class="fg-group" value="test" {% if 'test' in fg_groups %}checked{% endif %}>
+                    <span>קבוצת בדיקה</span>
+                </label>
+            </div>
+            <p class="text-xs text-[#71717a] mt-1">בקבוצה הראשית הבוט ישלח לערוץ גיימינג (topic {{ gaming_topic or 'לא מוגדר' }}). בקבוצת בדיקה — לפיד הראשי.</p>
+        </div>
+        <div>
+            <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="fg-feed-url">כתובת פיד RSS</label>
+            <input type="text" id="fg-feed-url" value="{{ fg_feed }}"
+                class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full font-mono text-xs" dir="ltr">
+            <p class="text-xs text-[#71717a] mt-1">הבוט שומר רק פריטים שה-link שלהם מכיל <code>/freebie/</code>.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Schedule Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-[#fafafa]">לוח זמנים</h3>
+        <button id="fg-save" class="px-3 py-1.5 text-xs font-medium bg-[#fafafa] text-[#0a0a0a] rounded-md hover:bg-[#d4d4d8] transition-colors">שמור</button>
+    </div>
+    <div class="px-6 py-4 space-y-4">
+        <div>
+            <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block" for="fg-time">שעה</label>
+            <input type="time" id="fg-time" value="{{ fg_time }}"
+                class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+        </div>
+        <div>
+            <label class="text-sm text-[#a1a1aa] font-medium mb-2 block">ימים</label>
+            <div class="flex gap-2">
+                {% for i in range(7) %}
+                <label class="flex flex-col items-center gap-1 text-xs text-[#a1a1aa] cursor-pointer">
+                    <input type="checkbox" class="fg-day" value="{{ i }}" {% if i in fg_days %}checked{% endif %}>
+                    <span>{{ day_labels[i] }}</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Manual Post Now Card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h3 class="text-sm font-semibold text-[#fafafa]">פרסם עכשיו</h3>
+    </div>
+    <div class="px-6 py-4 space-y-3">
+        <p class="text-xs text-[#71717a]">מושך את הפיד ושולח משחקים חדשים מייד. לא מושפע מהגדרת "פעיל" — ידני בלבד.</p>
+        <div class="flex gap-2">
+            <button class="fg-post-now px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] text-[#fafafa] rounded-md hover:bg-[#272727] transition-colors" data-target="test">שלח לקבוצת בדיקה</button>
+            <button class="fg-post-now px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] text-[#fafafa] rounded-md hover:bg-[#272727] transition-colors" data-target="main">שלח לקבוצה ראשית</button>
+        </div>
+        <div id="fg-post-result" class="text-xs text-[#a1a1aa]"></div>
+    </div>
+</div>
+
+<!-- Recent Posts Table -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h3 class="text-sm font-semibold text-[#fafafa]">משחקים שפורסמו ({{ recent|length }})</h3>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-right text-xs text-[#71717a] border-b border-[#1f1f1f]">
+                    <th class="px-6 py-3 font-medium">כותרת</th>
+                    <th class="px-6 py-3 font-medium">מקור</th>
+                    <th class="px-6 py-3 font-medium">תאריך</th>
+                    <th class="px-6 py-3 font-medium">פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in recent %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#171717]/40">
+                    <td class="px-6 py-3 text-[#fafafa]">
+                        {% if g.link %}
+                        <a href="{{ g.link }}" target="_blank" rel="noopener" class="hover:underline">{{ g.title[:100] }}</a>
+                        {% else %}
+                        {{ g.title[:100] }}
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-3 text-[#a1a1aa]">{{ g.store or '—' }}</td>
+                    <td class="px-6 py-3 text-[#71717a] text-xs" dir="ltr">{{ g.posted_at }}</td>
+                    <td class="px-6 py-3">
+                        <button class="fg-unpost text-xs text-[#ef4444] hover:underline" data-guid="{{ g.guid }}">מחק (אפשר לפרסם שוב)</button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="px-6 py-8 text-center text-[#71717a] text-sm">אין פרסומים עדיין</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function getGroups() {
+    return Array.from(document.querySelectorAll('.fg-group:checked')).map(c => c.value);
+}
+function getDays() {
+    return Array.from(document.querySelectorAll('.fg-day:checked')).map(c => parseInt(c.value, 10));
+}
+
+document.getElementById('fg-enabled').addEventListener('change', async (e) => {
+    try {
+        await apiCall('/api/free-games/toggle', {
+            enabled: e.target.checked,
+            groups: getGroups(),
+        });
+    } catch (err) {
+        alert('שגיאה בשמירת מצב: ' + err.message);
+    }
+});
+
+document.querySelectorAll('.fg-group').forEach(cb => {
+    cb.addEventListener('change', async () => {
+        try {
+            await apiCall('/api/free-games/toggle', {
+                enabled: document.getElementById('fg-enabled').checked,
+                groups: getGroups(),
+            });
+        } catch (err) {
+            alert('שגיאה בשמירת קבוצות: ' + err.message);
+        }
+    });
+});
+
+document.getElementById('fg-save').addEventListener('click', async () => {
+    try {
+        const res = await apiCall('/api/free-games/schedule', {
+            time: document.getElementById('fg-time').value,
+            days: getDays(),
+            feed_url: document.getElementById('fg-feed-url').value.trim(),
+        });
+        const btn = document.getElementById('fg-save');
+        btn.textContent = 'נשמר ✓';
+        setTimeout(() => { btn.textContent = 'שמור'; }, 1500);
+    } catch (err) {
+        alert('שגיאה בשמירת לו"ז: ' + err.message);
+    }
+});
+
+document.querySelectorAll('.fg-post-now').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const target = btn.dataset.target;
+        const result = document.getElementById('fg-post-result');
+        result.textContent = 'מושך פיד...';
+        btn.disabled = true;
+        try {
+            const res = await apiCall('/api/free-games/post-now', {
+                target: target,
+                feed_url: document.getElementById('fg-feed-url').value.trim(),
+            });
+            const err = res.error ? ` — שגיאה: ${res.error}` : '';
+            result.textContent = `נקלטו ${res.fetched}, פורסמו ${res.posted}, דולגו ${res.skipped}${err}`;
+            if (res.posted > 0) setTimeout(() => location.reload(), 1200);
+        } catch (err) {
+            result.textContent = 'שגיאה: ' + err.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+
+document.querySelectorAll('.fg-unpost').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        if (!confirm('למחוק את הרשומה? הפריט יפורסם שוב בהרצה הבאה אם הוא עדיין בפיד.')) return;
+        const guid = btn.dataset.guid;
+        try {
+            await apiCall('/api/free-games/unpost/' + encodeURIComponent(guid));
+            btn.closest('tr').remove();
+        } catch (err) {
+            alert('שגיאה: ' + err.message);
+        }
+    });
+});
+</script>
+{% endblock %}

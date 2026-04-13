@@ -157,7 +157,8 @@ async def update_topics(request: Request):
     with open(settings_path, "w", encoding="utf-8") as f:
         yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
 
 
 @app.post("/api/settings/antispam")
@@ -177,7 +178,8 @@ async def update_antispam(request: Request):
     with open(settings_path, "w", encoding="utf-8") as f:
         yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
 
 
 @app.post("/api/settings/schedule")
@@ -257,7 +259,10 @@ async def save_prompts(request: Request):
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    # Prompt pools drive the materializer — reload so future auto rows pick
+    # up the fresh content.
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
 
 
 # ── Forum Topics API ─────────────────────────────────────
@@ -485,7 +490,8 @@ async def update_spam_patterns(request: Request):
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
 
 
 # ── Levels API ───────────────────────────────────────────
@@ -901,7 +907,8 @@ async def update_gamification(request: Request):
     with open(settings_path, "w", encoding="utf-8") as f:
         yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
 
 
 @app.post("/api/settings/features")
@@ -919,19 +926,26 @@ async def update_features(request: Request):
     with open(settings_path, "w", encoding="utf-8") as f:
         yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
 
-    return {"status": "ok"}
+    # Feature flags gate materialization — reload purges future auto rows for
+    # disabled features and refills for newly-enabled ones.
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
 
 
 # ── Weekly Plan Page ────────────────────────────────────
 
+# Feature-enabled check uses the shared bot helper so dashboard and bot can't
+# disagree about whether a feature is on.
+from bot.utils.config import is_feature_enabled as _is_feature_enabled
+
+
 def _is_feature_enabled_simple(features: dict, key: str) -> bool:
-    """Check if a feature is enabled (simple check for template use)."""
-    feat = features.get(key, {})
-    if isinstance(feat, bool):
-        return feat
-    if isinstance(feat, dict):
-        return feat.get("enabled", False)
-    return False
+    """Compat shim that delegates to bot.utils.config.is_feature_enabled.
+
+    `features` is ignored — the shared helper re-reads settings.yaml itself
+    so nothing can drift from the file.
+    """
+    return _is_feature_enabled(key)
 
 
 @app.get("/api/weekplan/discussion-sample")
@@ -1058,7 +1072,7 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
     )
     committed_keys = set()
     for row in raw_committed:
-        if row.get("status") != "scheduled":
+        if row.get("status") == "cancelled":
             continue
         committed_keys.add((
             row.get("scheduled_date", ""),
@@ -1147,6 +1161,42 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
                 errors.append(f"day {i}: db insert failed: {e}")
 
     return {"created": created, "skipped": skipped, "errors": errors}
+
+
+@app.post("/api/generate-content")
+async def generate_content(request: Request):
+    """Generate a single message via Claude for the create-drawer textarea.
+
+    Body: {type: morning|evening|discussion, category?: str, existing?: str}
+    Returns: {text: str}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    mtype = (data.get("type") or "").strip()
+    category = (data.get("category") or "").strip()
+    existing = (data.get("existing") or "").strip()
+
+    if mtype not in ("morning", "evening", "discussion"):
+        raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
+    if mtype == "discussion" and not category:
+        raise HTTPException(status_code=400, detail="Discussion requires category")
+
+    mode = "rewrite" if existing else "single"
+    prompt = build_generation_prompt(mtype, mode, existing, category)
+
+    try:
+        content = await _generate_via_cli(prompt)
+    except Exception:
+        content = await _generate_via_api(prompt)
+
+    content = content.strip().replace('"', '').replace("'", "")
+    lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
+    text = lines[0] if lines else content
+
+    logger.info("[generate-content] type=%s cat=%s mode=%s -> %r", mtype, category, mode, text[:60])
+    return {"text": text}
 
 
 @app.post("/api/weekplan/update-prompt")
@@ -1270,7 +1320,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             sunday.isoformat(), (sunday + timedelta(days=6)).isoformat()
         )
         for row in _raw_committed:
-            if row.get("status") != "scheduled":
+            if row.get("status") == "cancelled":
                 continue
             mtype = row.get("message_type", "")
             if mtype not in ("morning", "evening", "discussion"):
@@ -1479,12 +1529,16 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     except Exception:
         calendar_events = []
 
-    # Add calendar events to the right days (skip rows already in committed_index)
-    committed_ids = {row.get("id") for row in committed_index.values()}
+    # Add NON-schedule calendar rows (custom one-offs) to the right days.
+    # Skip cancelled rows entirely, and skip morning/evening/discussion rows
+    # because those are already rendered as committed activities in the main
+    # schedule loop — rendering them again here would produce ghost copies.
+    scheduled_slot_types = {"morning", "evening", "discussion"}
     for evt in calendar_events:
         try:
-            # Skip rows already rendered as committed activities
-            if evt.get("id") in committed_ids:
+            if evt.get("status") == "cancelled":
+                continue
+            if evt.get("message_type") in scheduled_slot_types:
                 continue
             evt_date_str = evt.get("scheduled_date", "")
             evt_time_str = evt.get("scheduled_time", "00:00")
@@ -1637,6 +1691,11 @@ async def review_page(request: Request):
 
 # ── Content Calendar API ─────────────────────────────────
 
+# Preview computation lives in bot/scheduler/materializer.py so the dashboard
+# and the bot materializer share a single source of truth.
+from bot.scheduler.materializer import compute_week_previews
+
+
 @app.get("/api/calendar")
 async def get_calendar(request: Request, db: Database = Depends(get_db)):
     """Get scheduled messages in FullCalendar event format."""
@@ -1694,6 +1753,58 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
             },
         }
         events.append(event)
+
+    # Build committed_index from real events to skip duplicates in previews.
+    # Anything not cancelled is "committed" — including sent/failed — otherwise
+    # already-sent slots would get a ghost preview on top.
+    committed_index = {}
+    for m in messages:
+        if m.get("status") == "cancelled":
+            continue
+        mtype = m.get("message_type", "")
+        if mtype not in ("morning", "evening", "discussion"):
+            continue
+        dkey = m.get("scheduled_date", "")
+        tkey = (m.get("scheduled_time") or "")[:5]
+        committed_index[(dkey, tkey, mtype)] = m
+
+    # Compute preview events for each week in range
+    from datetime import date, timedelta
+    start_date = date.fromisoformat(date_from[:10])
+    end_date = date.fromisoformat(date_to[:10])
+
+    # Find first Sunday on or before start_date
+    days_since_sunday = (start_date.weekday() + 1) % 7
+    first_sunday = start_date - timedelta(days=days_since_sunday)
+
+    current_sunday = first_sunday
+    while current_sunday <= end_date:
+        week_previews = compute_week_previews(current_sunday.isoformat(), committed_index)
+        for p in week_previews:
+            p_date = date.fromisoformat(p["date"])
+            if p_date < start_date or p_date > end_date:
+                continue
+            color = channel_colors.get(p["topic_id"], "#71717a")
+            events.append({
+                "id": f"preview-{p['date']}-{p['time']}-{p['type']}",
+                "title": (p["text"] or "")[:60],
+                "start": f"{p['date']}T{p['time']}:00",
+                "allDay": False,
+                "backgroundColor": color + "26",
+                "borderColor": color,
+                "textColor": "#fafafa",
+                "editable": False,
+                "classNames": ["preview-event"],
+                "extendedProps": {
+                    "fullText": p["text"],
+                    "status": "preview",
+                    "messageType": p["type"],
+                    "channelTopicId": p["topic_id"],
+                    "category": p.get("category"),
+                    "isPreview": True,
+                },
+            })
+        current_sunday += timedelta(days=7)
 
     return events
 
@@ -1809,11 +1920,46 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
 
     topic_names = {t["topic_id"]: t["name"] for t in forum_topics}
 
+    schedule_pattern = _json.dumps(get_settings().get("schedule", {}))
+
+    # Build discussion channel list for the shared prompt modal dropdown
+    from bot.handlers.discussions import CATEGORY_NAMES
+    settings_obj = get_settings()
+    topics_cfg = settings_obj.get("topics", {})
+    topic_ids_dict = topics_cfg.get("discussions", {})
+    discussion_channels = []
+    for cat, tid in topic_ids_dict.items():
+        if tid:
+            discussion_channels.append({
+                "key": cat,
+                "name": CATEGORY_NAMES.get(cat, cat),
+                "topic_id": tid,
+            })
+
+    # Group channels by purpose for the create drawer picker
+    by_id = {t["topic_id"]: t for t in forum_topics}
+    goals_id = topics_cfg.get("goals")
+    welcome_id = topics_cfg.get("welcome")
+    mapped_ids = set(topic_ids_dict.values()) | {goals_id, welcome_id}
+    mapped_ids.discard(None)
+    grouped_channels = {
+        "discussions": [
+            {"topic_id": tid, "name": by_id[tid]["name"], "category": cat}
+            for cat, tid in topic_ids_dict.items()
+            if tid and tid in by_id
+        ],
+        "daily": [by_id[goals_id]] if goals_id and goals_id in by_id else [],
+        "other": [t for t in forum_topics if t["topic_id"] not in mapped_ids],
+    }
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "now_date": now.strftime("%Y-%m-%d"),
         "forum_topics": forum_topics,
         "topic_names": topic_names,
         "drafts": drafts,
+        "schedule_pattern": schedule_pattern,
+        "discussion_channels": discussion_channels,
+        "grouped_channels": grouped_channels,
     })
 
 
@@ -1844,3 +1990,125 @@ async def members_page(request: Request, db: Database = Depends(get_db)):
         "members": members,
         "settings": settings,
     })
+
+
+# ── Free Games (RSS) ─────────────────────────────────────
+
+@app.get("/free-games", response_class=HTMLResponse)
+async def free_games_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    settings = get_settings()
+    recent = await db.recent_free_games(50)
+    return templates.TemplateResponse(request, name="free-games.html", context={
+        "settings": settings,
+        "recent": recent,
+    })
+
+
+@app.post("/api/free-games/toggle")
+async def toggle_free_games(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        settings = yaml.safe_load(f) or {}
+
+    if "features" not in settings:
+        settings["features"] = {}
+    existing = settings["features"].get("free_games") or {}
+    if not isinstance(existing, dict):
+        existing = {}
+    if "enabled" in data:
+        existing["enabled"] = bool(data["enabled"])
+    if "groups" in data and isinstance(data["groups"], list):
+        existing["groups"] = [str(g) for g in data["groups"]]
+    else:
+        existing.setdefault("groups", ["test"])
+    existing.setdefault("enabled", False)
+    settings["features"]["free_games"] = existing
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded, "feature": existing}
+
+
+@app.post("/api/free-games/schedule")
+async def update_free_games_schedule(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        settings = yaml.safe_load(f) or {}
+
+    if "schedule" not in settings:
+        settings["schedule"] = {}
+    sched = settings["schedule"].get("free_games") or {}
+    if not isinstance(sched, dict):
+        sched = {}
+    if "time" in data:
+        sched["time"] = str(data["time"]).strip() or "10:00"
+    if "days" in data and isinstance(data["days"], list):
+        sched["days"] = [int(d) for d in data["days"]]
+    if "feed_url" in data:
+        sched["feed_url"] = str(data["feed_url"]).strip() or "https://gg.deals/eu/news/feed/"
+    sched.setdefault("time", "10:00")
+    sched.setdefault("days", [0, 1, 2, 3, 4, 5, 6])
+    sched.setdefault("feed_url", "https://gg.deals/eu/news/feed/")
+    settings["schedule"]["free_games"] = sched
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded, "schedule": sched}
+
+
+@app.post("/api/free-games/post-now")
+async def post_free_games_now(request: Request, db: Database = Depends(get_db)):
+    """Manually fetch the feed and post new freebies right now.
+
+    The dashboard creates its own telegram.Bot from BOT_TOKEN (same pattern as
+    /api/bot/send-message etc.) — bot-process JobQueue is NOT invoked here.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    target = (data.get("target") or "test").lower()  # default to test for safety
+
+    settings = get_settings()
+    fg_schedule = settings.get("schedule", {}).get("free_games", {}) or {}
+    feed_url = data.get("feed_url") or fg_schedule.get("feed_url") or "https://gg.deals/eu/news/feed/"
+
+    if target == "main":
+        group_id = int(os.getenv("GROUP_ID", "0"))
+        topic_id = settings.get("topics", {}).get("gaming")
+    else:
+        group_id = int(os.getenv("TEST_GROUP_ID", "0"))
+        topic_id = None  # test group may not have a forum structure
+
+    if not group_id:
+        raise HTTPException(status_code=400, detail=f"No {target} group ID configured")
+
+    from telegram import Bot
+    from bot.handlers.free_games import fetch_and_post_once
+    bot = Bot(os.getenv("BOT_TOKEN", ""))
+    summary = await fetch_and_post_once(bot, db, group_id, topic_id, feed_url)
+    return {"status": "ok", "target": target, **summary}
+
+
+@app.post("/api/free-games/unpost/{guid:path}")
+async def unpost_free_game(guid: str, request: Request, db: Database = Depends(get_db)):
+    """Remove a posted-game record so it can be re-posted by the feed."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    deleted = await db.unpost_free_game(guid)
+    return {"status": "ok", "deleted": deleted}

@@ -24,12 +24,12 @@ def _parse_time(value: str) -> time:
 
 
 def _hebrew_to_python_days(days: list) -> tuple:
-    """Convert Hebrew week days (0=Sunday) to Python weekday (0=Monday).
+    """Pass Hebrew week days through unchanged.
 
-    Hebrew: 0=א׳(Sun), 1=ב׳(Mon), 2=ג׳(Tue), 3=ד׳(Wed), 4=ה׳(Thu), 5=ו׳(Fri), 6=ש׳(Sat)
-    Python:  0=Mon,     1=Tue,     2=Wed,     3=Thu,     4=Fri,     5=Sat,     6=Sun
+    PTB's JobQueue.run_daily uses the same 0=Sunday convention as our config
+    (_CRON_MAPPING = sun,mon,tue,wed,thu,fri,sat), so no conversion is needed.
     """
-    return tuple((d - 1) % 7 for d in days)
+    return tuple(days)
 
 
 def _parse_schedule(raw) -> dict:
@@ -43,13 +43,23 @@ def _parse_schedule(raw) -> dict:
 
 
 def setup_jobs(app: Application) -> None:
-    """Register all scheduled jobs with the application's job queue."""
-    from ..handlers.goals import send_morning_prompt, send_evening_prompt
+    """Register scheduled jobs with the application's job queue.
+
+    Text-content jobs (morning_prompt, evening_prompt, discussion_prompt) are
+    NOT registered here anymore — they live in `scheduled_messages` via the
+    materializer (bot/scheduler/materializer.py) and are sent by the
+    `calendar_checker` job in bot/handlers/calendar.py. This gives dashboard
+    and bot a single source of truth: every text slot is a DB row, period.
+
+    Dynamic-content jobs (leaderboard, roundup, trivia, event_reminder) stay
+    here as APScheduler cron jobs because their content is computed at send
+    time from live DB state.
+    """
     from ..handlers.levels import send_weekly_leaderboard
     from ..handlers.roundup import send_weekly_roundup
-    from ..handlers.discussions import send_discussion_prompt
     from ..handlers.events import send_event_reminder
     from ..handlers.trivia import send_scheduled_trivia
+    from ..handlers.free_games import send_free_games
 
     jq = app.job_queue
     if not jq:
@@ -58,30 +68,6 @@ def setup_jobs(app: Application) -> None:
 
     settings = get_settings()
     schedule = settings.get("schedule", {})
-
-    # ── Morning prompt ──
-    morning = _parse_schedule(schedule.get("morning_prompt", "08:00"))
-    morning_time = _parse_time(morning.get("time", "08:00"))
-    morning_days = _hebrew_to_python_days(morning.get("days", [0, 1, 2, 3, 4, 5, 6]))
-    if morning_days:
-        jq.run_daily(
-            send_morning_prompt,
-            time=morning_time,
-            days=morning_days,
-            name="morning_prompt",
-        )
-
-    # ── Evening prompt ──
-    evening = _parse_schedule(schedule.get("evening_prompt", "21:00"))
-    evening_time = _parse_time(evening.get("time", "21:00"))
-    evening_days = _hebrew_to_python_days(evening.get("days", [0, 1, 2, 3, 4, 5, 6]))
-    if evening_days:
-        jq.run_daily(
-            send_evening_prompt,
-            time=evening_time,
-            days=evening_days,
-            name="evening_prompt",
-        )
 
     # ── Weekly leaderboard ──
     leaderboard = _parse_schedule(schedule.get("weekly_leaderboard", {"time": "18:00", "days": [4]}))
@@ -107,22 +93,17 @@ def setup_jobs(app: Application) -> None:
             name="weekly_roundup",
         )
 
-    # ── Discussion prompts ──
-    disc = _parse_schedule(schedule.get("discussion_prompt", {"times": ["10:00", "14:00", "18:00"], "days": [0, 1, 2, 3, 4]}))
-    disc_days = _hebrew_to_python_days(disc.get("days", [0, 1, 2, 3, 4]))
-    disc_times = disc.get("times", [])
-    # Handle old format: single string "10:00,14:00,18:00"
-    if isinstance(disc_times, str):
-        disc_times = [t.strip() for t in disc_times.split(",")]
-    if disc_days:
-        for t_str in disc_times:
-            t = _parse_time(t_str)
-            jq.run_daily(
-                send_discussion_prompt,
-                time=t,
-                days=disc_days,
-                name=f"discussion_prompt_{t.hour}",
-            )
+    # ── Free games RSS — daily check ──
+    fg = _parse_schedule(schedule.get("free_games", {"time": "10:00", "days": [0, 1, 2, 3, 4, 5, 6]}))
+    fg_time = _parse_time(fg.get("time", "10:00"))
+    fg_days = _hebrew_to_python_days(fg.get("days", [0, 1, 2, 3, 4, 5, 6]))
+    if fg_days:
+        jq.run_daily(
+            send_free_games,
+            time=fg_time,
+            days=fg_days,
+            name="free_games",
+        )
 
     # ── Event reminders — daily at 09:00 ──
     jq.run_daily(
@@ -147,7 +128,25 @@ def setup_jobs(app: Application) -> None:
             name=f"trivia_day_{day}",
         )
 
-    logger.info("Scheduled %d jobs via JobQueue", len(jq.jobs()))
+    # ── Daily materializer refill — 00:05 IDT ──
+    # Belt-and-suspenders: keeps `scheduled_messages` populated with the next
+    # 14 days of morning/evening/discussion slots even for long-running bots
+    # that never restart or reload.
+    jq.run_daily(
+        _materialize_job,
+        time=time(hour=0, minute=5, tzinfo=_tz),
+        name="materializer_daily",
+    )
+
+    logger.info("Scheduled %d cron jobs via JobQueue (text content → materializer)", len(jq.jobs()))
+
+
+async def _materialize_job(context):
+    """APScheduler wrapper around materializer.materialize_forward."""
+    from .materializer import materialize_forward
+    db = context.bot_data.get("db")
+    if db:
+        await materialize_forward(db)
 
 
 def reload_jobs(app: Application) -> None:

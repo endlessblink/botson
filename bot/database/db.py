@@ -555,3 +555,61 @@ class Database:
             "UPDATE scheduled_messages SET status = 'cancelled' WHERE id = ?", (msg_id,)
         )
         await self._db.commit()
+
+    async def cancel_future_auto_scheduled_messages(self, from_date: str) -> int:
+        """Cancel all future auto-materialized rows from a given date onward.
+
+        Used by the materializer on config reload. Leaves user-committed rows
+        (created_by != 'auto') untouched. Returns number of rows cancelled.
+        """
+        async with self._db.execute(
+            """UPDATE scheduled_messages
+               SET status = 'cancelled'
+               WHERE created_by = 'auto'
+                 AND status = 'scheduled'
+                 AND scheduled_date >= ?""",
+            (from_date,),
+        ) as cursor:
+            count = cursor.rowcount
+        await self._db.commit()
+        return count
+
+    # ── Free Games (RSS freebie feed) ────────────────────────
+
+    async def is_game_posted(self, guid: str) -> bool:
+        """Return True if a free-game GUID has already been posted."""
+        async with self._db.execute(
+            "SELECT 1 FROM free_games_posted WHERE guid = ?", (guid,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def mark_game_posted(self, guid: str, title: str, store: str | None,
+                                link: str | None, message_id: int | None = None):
+        """Record that a free game was posted (for dedup)."""
+        await self._db.execute(
+            """INSERT OR IGNORE INTO free_games_posted
+               (guid, title, store, link, message_id, posted_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (guid, title, store, link, message_id, _now_il()),
+        )
+        await self._db.commit()
+
+    async def recent_free_games(self, limit: int = 20) -> list[dict]:
+        """Recent free-game posts for the dashboard."""
+        async with self._db.execute(
+            """SELECT id, guid, title, store, link, posted_at, message_id
+               FROM free_games_posted
+               ORDER BY posted_at DESC LIMIT ?""",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def unpost_free_game(self, guid: str) -> int:
+        """Delete a free-game posted record so it can be re-posted."""
+        async with self._db.execute(
+            "DELETE FROM free_games_posted WHERE guid = ?", (guid,)
+        ) as cursor:
+            count = cursor.rowcount
+        await self._db.commit()
+        return count

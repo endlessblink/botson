@@ -109,4 +109,15 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
     auto_pin BOOLEAN DEFAULT FALSE,
     draft_options TEXT
 );
+
+CREATE TABLE IF NOT EXISTS free_games_posted (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    store TEXT,
+    link TEXT,
+    posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    message_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fg_posted_at ON free_games_posted(posted_at);
 """

@@ -23,6 +23,10 @@ features:
     enabled: false
     groups:
     - test
+  free_games:
+    enabled: false
+    groups:
+    - test
   goals:
     enabled: true
     groups:
@@ -65,19 +69,27 @@ levels:
 schedule:
   discussion_prompt:
     days:
-    - 0
     - 1
-    - 2
-    - 3
-    - 4
     times:
     - '18:00'
+    - '21:00'
   evening_prompt:
     days:
     - 0
     - 2
     - 4
     time: '21:00'
+  free_games:
+    days:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    feed_url: https://gg.deals/eu/news/feed/
+    time: '10:00'
   morning_prompt:
     days:
     - 0
