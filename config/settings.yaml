@@ -104,6 +104,10 @@ schedule:
     days:
     - 6
     time: '18:00'
+topic_routing:
+  enabled: false
+  mode: observe
+  observation_days: 14
 topics:
   discussions:
     art: 347
