@@ -654,6 +654,108 @@ Replace hardcoded point values with a validation-based scoring model loaded from
 
 ---
 
+#### T-097: Free Games — daily GG.deals feed with LLM reranker
+**Priority:** P2 | **Status:** IN PROGRESS (2026-04-13) — shipped disabled, awaits activation
+**Commit:** `37f12e9 wip: free games daily feed with LLM reranker`
+
+Daily scheduler fetches GG.deals RSS, filters `/freebie/` entries (skipping aggregator/roundup posts), dedups via `free_games_posted` SQLite table, then asks Claude Haiku (via `claude -p` CLI) to pick the most interesting candidate for a gaming community. Posts one curated drop per day to topic 1517 (gaming) or to the test group without a topic.
+
+**Current config** (`config/settings.yaml`): `features.free_games.enabled=false, groups=[test]` — safe default. Dashboard at `/free-games` has toggle, schedule, test/main send-now buttons, unpost button.
+
+**Files:** `bot/handlers/free_games.py` (new), `bot/database/{models,db}.py`, `bot/scheduler/jobs.py`, `dashboard/app.py` (5 new routes), `dashboard/templates/{base,free-games}.html`, `requirements.txt` (+feedparser, +httpx), `config/settings.yaml`.
+
+**Key decisions made:**
+- Source is GG.deals RSS (`https://gg.deals/eu/news/feed/`), filtered by `"/freebie/" in entry.link`. Reddit r/FreeGameFindings is config-swappable fallback.
+- Aggregator tokens skipped: `roundup, weekend, weekly, this week, best deals, best free, best freebies, top deals, deals of`. Catches trial/free-play-days entries too (lower quality than permanent "keep" drops).
+- Reranker uses `claude -p "..." --model haiku` subprocess — ~37s runtime but once/day so fine. No ANTHROPIC_API_KEY needed (uses user's CLI login session). Falls back to "newest" if CLI missing/errors.
+- Dedup GUID = `entry.id` (gg.deals URL). When adding Epic, prefix with `epic:<slug>` to avoid collision.
+
+**Verified:** 24 feed entries → 3 freebie candidates → LLM correctly picks "Graveyard Keeper" (known indie, permanent keep, 3 platforms) over "LivingForest" (obscure) and "Burning Skies DLC" (DLC-only for F2P).
+
+See T-099 for activation.
+
+#### T-098: Free Games — add Epic Games API as second source
+**Priority:** P2 | **Status:** TODO
+Add Epic's weekly free-games drops (every Thursday, the most popular freebies) alongside GG.deals, since GG.deals rarely surfaces Epic's weekly drops as `/freebie/` entries.
+
+**Endpoint (public, no auth):** `https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions`
+
+**Not yet verified** — user interrupted before I fetched the endpoint. First step: `curl` + `jq` to confirm JSON shape. Expected path approximately: `data.Catalog.searchStore.elements[]` with `title`, `productSlug`, `promotions.promotionalOffers[]` (current free) vs `promotions.upcomingPromotionalOffers[]` (future).
+
+**Implementation:**
+1. New helper `_fetch_epic_candidates()` in `bot/handlers/free_games.py`, returning `[{"guid": "epic:<slug>", "title": ..., "link": "https://store.epicgames.com/en-US/p/<slug>"}]`. Filter to entries with ACTIVE promotional offer (startDate ≤ now < endDate) AND `discountPercentage == 100`.
+2. In `fetch_and_post_once()`: extend GG.deals candidate list with Epic ones, cap at `_MAX_CANDIDATES=5`.
+3. Handle Epic fetch failures gracefully — log warning, continue with GG.deals-only. Don't let Epic outage break the flow.
+
+**Files:** `bot/handlers/free_games.py` only. No schema changes (store column already supports "epic" value). No dashboard changes.
+
+#### T-099: Free Games — activate in main group (topic 1517)
+**Priority:** P2 | **Status:** TODO | **Depends on:** T-097
+
+Flip free-games from test-only → main group production.
+
+**Steps:**
+1. Open `http://localhost:8000/free-games`
+2. Toggle "פעיל" (enabled) on
+3. Add `main` to groups (remove `test` or keep both)
+4. Confirm `topics.gaming: 1517` is set in `config/settings.yaml` (already is — handler auto-uses it when posting to main)
+5. Click "שלח לקבוצה ראשית" once manually to verify format in topic 1517
+6. Save triggers `_signal_bot_reload()` → SIGHUP → `reload_jobs()` picks up new schedule
+7. First scheduled run fires at next 10:00 IDT
+
+**Optional:** Reset dedup for a fresh LLM-ranked demo post: `sqlite3 data/bot.db "DELETE FROM free_games_posted;"`
+
+**Note:** Sherlocks Den (test group) forum-topic status is UNVERIFIED. Handler already skips `message_thread_id` for test group. Main group IS forum-enabled (topic 1517 used regularly).
+
+#### T-100: Configure git remote and push WIP commits
+**Priority:** P1 | **Status:** TODO
+
+Repo has no remote. Two WIP commits are local only:
+- `d071db8` wip: session-5 materializer refactor (+1534/-642, 9 files)
+- `37f12e9` wip: free games daily feed with LLM reranker (+888/-71, 9 files)
+
+**Steps:** `git remote add origin <url> && git push -u origin master`. Global rule prevents auto-configuring git — user needs to provide the URL.
+
+#### T-101: Handle media assets (gitignore / LFS / commit)
+**Priority:** P3 | **Status:** TODO
+
+Three untracked files in `media/` were excluded from WIP commits:
+- `media/botson-showcase_Resolve.mov` (likely large DaVinci Resolve export)
+- `media/telegram-onboarding.gif`
+- `media/telegram-onboarding.mp4`
+
+**Check sizes first:** `ls -lh media/`. Then pick:
+1. **Gitignore** if personal reference: `echo "media/" >> .gitignore && git commit .gitignore`
+2. **Commit explicitly** if docs: `git add media/ && git commit -m "docs: onboarding media + showcase"`
+3. **Git LFS** if needed in-repo but large: `git lfs track "*.mov" "*.mp4" "*.gif"` + commit
+
+#### T-102: Cover-image support in planner wizard (✅ DONE 2026-04-17)
+**Priority:** P2 | **Status:** ✅ DONE
+
+Added optional cover images to scheduled messages and polls. Three sources from the planner wizard Step 2:
+- **📁 Upload** — POST `/api/covers/upload` (multipart, validates mime, 8MB cap)
+- **✨ AI** — POST `/api/covers/generate` via kie.ai Flux 2 Pro text-to-image (16:9)
+- **🔗 Scrape URL** — POST `/api/covers/scrape` (og:image / twitter:image / JSON-LD / img srcset; handles direct-image URLs)
+
+**Schema (non-destructive ADD COLUMN):**
+- `scheduled_messages.cover_path TEXT` — relative to MEDIA_DIR, e.g. `covers/1776369279_scrape_4e4c4b6c.jpg`
+- `scheduled_messages.poll_options TEXT` (JSON array), `poll_duration INTEGER` — promoted from wizard-only to persisted
+
+**Sending:** `bot/handlers/calendar.py::send_message_with_optional_cover()` sends `send_photo` + caption when cover set; `send_poll_message()` uses inline-button polls (`🗓️ {label}` with `callback_data=poll_{idx}`) compatible with the existing `bot/handlers/polls.py` vote tracker. Native Telegram `send_poll` was swapped out because it can't carry images and hid voter names.
+
+**Infrastructure:**
+- Doppler project `botson` created (description: "Telegram bot for the children group with a web dashboard"). All secrets migrated from `/opt/robotnik/.env` with no prefix (per-app convention).
+- `/opt/robotnik/scripts/sync-env.sh` regenerates `.env` from Doppler on every systemd restart (ExecStartPre on both `botson.service` and `botson-dashboard.service`).
+- `KIE_API_KEY` stored in Doppler `botson/prd` (imported from `~/.watchpost/.env`).
+- UFW port 8080 open to user IP only.
+- New dashboard password rotated and stored in Doppler; fetch with `doppler secrets get DASHBOARD_PASSWORD --project botson --config prd --plain`.
+
+**Files:** `bot/database/{models,db}.py`, `bot/handlers/calendar.py`, `bot/utils/kie_client.py` (new), `dashboard/app.py` (3 new routes, `/media` mount), `dashboard/templates/planner.html` (cover section in wizard, FullCalendar `defaultTimedEventDuration: '00:01'` to fix late-evening events spanning next day).
+
+**Backup before deploy:** `/opt/robotnik/backups/bot.db.backup-20260416-210946` (pre-migration).
+
+---
+
 ## Environment Variables
 
 | Variable | Description | Example |
