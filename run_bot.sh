@@ -117,9 +117,9 @@ while true; do
     echo "[supervisor] Starting bot... ($(date '+%Y-%m-%d %H:%M:%S'))"
     $VENV -m bot.main &
     BOT_PID=$!
-    echo $BOT_PID > "$PID_FILE"
 
-    # Wait for bot to exit (disable -e so non-zero exit doesn't kill supervisor)
+    # bot/main.py writes its own PID file; supervisor must NOT pre-write it
+    # or the bot's _acquire_pid_lock() sees its own PID and exits as a duplicate.
     set +e
     wait "$BOT_PID" 2>/dev/null
     EXIT_CODE=$?
