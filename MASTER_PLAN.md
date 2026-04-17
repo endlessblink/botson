@@ -707,27 +707,15 @@ Flip free-games from test-only → main group production.
 
 **Note:** Sherlocks Den (test group) forum-topic status is UNVERIFIED. Handler already skips `message_thread_id` for test group. Main group IS forum-enabled (topic 1517 used regularly).
 
-#### T-100: Configure git remote and push WIP commits
-**Priority:** P1 | **Status:** TODO
+#### T-100: Configure git remote and push WIP commits (✅ DONE 2026-04-17)
+**Priority:** P1 | **Status:** ✅ DONE
 
-Repo has no remote. Two WIP commits are local only:
-- `d071db8` wip: session-5 materializer refactor (+1534/-642, 9 files)
-- `37f12e9` wip: free games daily feed with LLM reranker (+888/-71, 9 files)
+Remote added: `https://github.com/endlessblink/botson.git`. Default branch renamed `master` → `main`. First push required `git filter-branch` to purge accidentally-committed `media/showcase/node_modules/` (159 MB chrome-headless-shell + webpack caches) from history — repo size dropped from 136M to 35M. All commits rewritten; hashes changed.
 
-**Steps:** `git remote add origin <url> && git push -u origin master`. Global rule prevents auto-configuring git — user needs to provide the URL.
+#### T-101: Handle media assets (✅ DONE 2026-04-17)
+**Priority:** P3 | **Status:** ✅ DONE — committed directly
 
-#### T-101: Handle media assets (gitignore / LFS / commit)
-**Priority:** P3 | **Status:** TODO
-
-Three untracked files in `media/` were excluded from WIP commits:
-- `media/botson-showcase_Resolve.mov` (likely large DaVinci Resolve export)
-- `media/telegram-onboarding.gif`
-- `media/telegram-onboarding.mp4`
-
-**Check sizes first:** `ls -lh media/`. Then pick:
-1. **Gitignore** if personal reference: `echo "media/" >> .gitignore && git commit .gitignore`
-2. **Commit explicitly** if docs: `git add media/ && git commit -m "docs: onboarding media + showcase"`
-3. **Git LFS** if needed in-repo but large: `git lfs track "*.mov" "*.mp4" "*.gif"` + commit
+All files small enough (1-4 MB each): `botson-showcase_Resolve.mov` 2.9M, `telegram-onboarding.gif` 2.8M, `telegram-onboarding.mp4` 1.3M. No LFS needed. Existing siblings (`botson-showcase.gif/mp4`) were already tracked — consistency wins. Committed directly.
 
 #### T-102: Cover-image support in planner wizard (✅ DONE 2026-04-17)
 **Priority:** P2 | **Status:** ✅ DONE

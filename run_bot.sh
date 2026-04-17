@@ -119,9 +119,11 @@ while true; do
     BOT_PID=$!
     echo $BOT_PID > "$PID_FILE"
 
-    # Wait for bot to exit
+    # Wait for bot to exit (disable -e so non-zero exit doesn't kill supervisor)
+    set +e
     wait "$BOT_PID" 2>/dev/null
     EXIT_CODE=$?
+    set -e
     rm -f "$PID_FILE"
 
     if [ $EXIT_CODE -eq 0 ]; then
