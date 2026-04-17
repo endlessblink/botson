@@ -1,0 +1,108 @@
+# Per-topic routing rules for off-topic detection.
+# Seeded from the live `forum_topics` table (11 rows) on 2026-04-17.
+#
+# Phase 0 (current): observation-only. Rules feed /moderation dashboard.
+# No user-visible action taken. After 2 weeks of data, the admin tunes rules
+# and may flip `topic_routing.mode` to `soft` for nudges.
+#
+# Schema per topic:
+#   topic_id:         (int)  Telegram forum_topic message_thread_id
+#   category_key:     (str)  short slug, matches config/settings.yaml topics.*
+#   name_he:          (str)  display name for dashboard + nudge text
+#   description_he:   (str)  one-line description for LLM classifier (Phase 2)
+#   keywords_on:      (list) weak positive signal — message probably belongs here
+#   keywords_off:     (list) strong negative signal — message belongs elsewhere
+#   siblings:         (list) topic_ids to suggest when message is off-topic
+#
+# Keyword matching is case-insensitive, substring-based (not regex).
+# Start conservative — an unmatched message is labeled `no_rule`, not `off`.
+
+topics:
+
+  - topic_id: 54
+    category_key: movies
+    name_he: "סרטים סדרות וכו"
+    description_he: "סרטים, סדרות, ביקורות, המלצות צפייה"
+    keywords_on: ["סרט", "סדרה", "עונה", "פרק", "נטפליקס", "דיסני", "HBO", "אמזון", "פריים", "סינמה", "במאי", "שחקן", "שחקנית", "בכורה", "טריילר", "מבקר"]
+    keywords_off: ["קריפטו", "ביטקוין", "השקעה", "פוליטיקה", "בחירות"]
+    siblings: [442, 1517, 1431]
+
+  - topic_id: 59
+    category_key: singles
+    name_he: "אל הוריים/יות מכירים"
+    description_he: "חיבורים רומנטיים וחברתיים בין חברי הקבוצה"
+    keywords_on: ["דייט", "פגישה", "רומנטי", "להכיר", "חבר", "חברה", "רווק", "רווקה", "יחיד", "יחידה", "זוג", "קשר"]
+    keywords_off: ["סרט", "משחק", "קריפטו"]
+    siblings: [2184, 335]
+
+  - topic_id: 153
+    category_key: ai
+    name_he: "Ai וטכנולוגיה"
+    description_he: "בינה מלאכותית, טכנולוגיה, כלים, פיתוח"
+    keywords_on: ["AI", "בינה מלאכותית", "ChatGPT", "Claude", "Gemini", "LLM", "מודל", "פיתוח", "קוד", "טכנולוגיה", "תכנות", "אפליקציה", "כלי", "אוטומציה"]
+    keywords_off: ["דייט", "פוליטיקה", "הימורים"]
+    siblings: [3113, 1517]
+
+  - topic_id: 335
+    category_key: cute
+    name_he: "כל מה שחמוד"
+    description_he: "חיות חמודות, דברים ויזואלים חמודים, בעלי חיים"
+    keywords_on: ["חמוד", "כלב", "כלבה", "חתול", "חתולה", "גור", "חיה", "חיות", "מקסים", "ינשוף", "גורים", "חיה חמודה"]
+    keywords_off: ["פוליטיקה", "קריפטו", "דייט", "השקעה"]
+    siblings: [347, 2184]
+
+  - topic_id: 341
+    category_key: welcome
+    name_he: "ברוכים הבאים"
+    description_he: "הצגה עצמית למצטרפים חדשים, עדכונים מהבוט"
+    keywords_on: ["שלום", "היי", "מצטרף", "מצטרפת", "חדש", "חדשה", "נעים", "להכיר", "ברוך", "ברוכה"]
+    keywords_off: []
+    siblings: [59, 2184]
+
+  - topic_id: 347
+    category_key: art
+    name_he: "ערוץ אומנות ויצירה"
+    description_he: "ציור, צילום, יצירה, מוזיקה, אומנות"
+    keywords_on: ["ציור", "ציירתי", "צילום", "צילמתי", "יצירה", "יצרתי", "אומנות", "רישום", "עיצוב", "מוזיקה", "גיטרה", "פסנתר", "שיר", "מלחין", "אמן"]
+    keywords_off: ["פוליטיקה", "הימורים", "קריפטו"]
+    siblings: [335, 442]
+
+  - topic_id: 442
+    category_key: geek
+    name_he: "אנימה / קומיקס וכל הדברים הגיקיים"
+    description_he: "אנימה, מנגה, קומיקס, פנטזיה, גיקיות"
+    keywords_on: ["אנימה", "מנגה", "קומיקס", "מארוול", "DC", "סטאר", "טוויד", "פנטזיה", "שר הטבעות", "הארי פוטר", "גיק", "קוספליי", "אוטאקו"]
+    keywords_off: ["פוליטיקה", "קריפטו", "השקעה", "דייט"]
+    siblings: [54, 1517]
+
+  - topic_id: 1431
+    category_key: politics
+    name_he: "פוליטיקה / גיאו-פוליטיקה"
+    description_he: "דיון פוליטי, חדשות, גיאו-פוליטיקה"
+    keywords_on: ["פוליטיקה", "בחירות", "ממשלה", "כנסת", "שר", "ראש ממשלה", "נתניהו", "קואליציה", "אופוזיציה", "מלחמה", "שלום", "ביטחון", "גאופוליטיקה", "טראמפ", "ביידן", "פוטין"]
+    keywords_off: ["סרט", "אנימה", "משחק מחשב", "דייט"]
+    siblings: [2184]
+
+  - topic_id: 1517
+    category_key: gaming
+    name_he: "גיימינג + משחקי לוח"
+    description_he: "משחקי מחשב, קונסולות, משחקי לוח, RPG"
+    keywords_on: ["משחק", "משחקים", "גיימינג", "PS5", "Xbox", "Nintendo", "סטים", "Steam", "קונסולה", "RPG", "FPS", "זלדה", "מריו", "משחק לוח", "קלפים", "D&D", "פרטי", "קואופ"]
+    keywords_off: ["פוליטיקה", "קריפטו", "דייט"]
+    siblings: [442, 54, 153]
+
+  - topic_id: 2184
+    category_key: goals
+    name_he: "יום יום"
+    description_he: "מטרות יומיות, הישגים, שגרת יום, חיים יומיומיים"
+    keywords_on: ["היום", "מטרה", "מטרות", "הישג", "הישגים", "לעשות", "סיימתי", "עשיתי", "אתגר", "רשימת מטלות", "פרודקטיביות"]
+    keywords_off: []
+    siblings: [347, 59]
+
+  - topic_id: 3113
+    category_key: ai_en
+    name_he: "AI & Tech"
+    description_he: "English-language AI and technology discussion (mirror of Ai וטכנולוגיה)"
+    keywords_on: ["AI", "LLM", "GPT", "Claude", "Gemini", "model", "coding", "developer", "API", "tech", "automation", "framework"]
+    keywords_off: ["politics", "crypto", "dating"]
+    siblings: [153, 1517]

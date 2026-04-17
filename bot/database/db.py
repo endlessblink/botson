@@ -634,3 +634,49 @@ class Database:
             count = cursor.rowcount
         await self._db.commit()
         return count
+
+    # ── Topic Observations (off-topic routing, Phase 0: observe only) ────
+
+    async def log_topic_observation(
+        self,
+        user_id: int,
+        from_topic_id: int | None,
+        message_id: int | None,
+        keyword_hits: str,
+        fit_label: str,
+        suggested_topic_id: int | None,
+    ):
+        """Record an observation of a message's topic fit. Phase 0: no user action."""
+        await self._db.execute(
+            """INSERT INTO topic_observations
+               (user_id, from_topic_id, message_id, keyword_hits, fit_label, suggested_topic_id, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, from_topic_id, message_id, keyword_hits, fit_label, suggested_topic_id, _now_il()),
+        )
+        await self._db.commit()
+
+    async def get_topic_observations(self, days: int = 14, limit: int = 500) -> list[dict]:
+        """Get recent topic observations for the moderation dashboard."""
+        since = (datetime.now(_IL_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT * FROM topic_observations
+               WHERE timestamp >= ?
+               ORDER BY timestamp DESC LIMIT ?""",
+            (since, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_topic_observation_counts(self, days: int = 14) -> list[dict]:
+        """Per-topic counts of on/off/unknown/no_rule observations in the window."""
+        since = (datetime.now(_IL_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT from_topic_id, fit_label, COUNT(*) AS n
+               FROM topic_observations
+               WHERE timestamp >= ?
+               GROUP BY from_topic_id, fit_label
+               ORDER BY from_topic_id""",
+            (since,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]

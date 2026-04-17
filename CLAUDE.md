@@ -42,8 +42,9 @@ The dashboard is the primary control interface. Users should never need to use T
 
 ## Schedule & Content Rules
 
-- When updating the bot's schedule or weekly plan, **always update `docs/week-plan.html`** to reflect the changes.
-- **NEVER present Hebrew text options in the terminal** — always render in `docs/review.html` (RTL page) for approval. This includes message drafts, discussion questions, poll text, event announcements — anything Hebrew.
+- When updating the bot's schedule or weekly plan, **always update `pages/week-plan.html`** to reflect the changes.
+- **NEVER present Hebrew text options in the terminal** — always render on the dashboard `/review` page (route: `dashboard/app.py:review_page`, template: `dashboard/templates/review.html`) for approval. Add drafts by appending dicts to the `pending` list in `dashboard/app.py` with fields: `title`, `channel`, `when`, `preview` (or `options` for a choice), `note`. This includes message drafts, discussion questions, poll text, event announcements — anything Hebrew.
+- **Project layout:** `docs/` contains markdown documentation only. Hand-built HTML snapshots/visualizations (week plan, activity reports, message previews) live in `pages/`.
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
 
 ## Tech Stack

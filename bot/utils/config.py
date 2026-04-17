@@ -34,6 +34,19 @@ def get_spam_patterns() -> list[str]:
     return data.get("patterns", [])
 
 
+def get_topic_rules() -> list[dict]:
+    """Load per-topic routing rules (Phase 0: observation only).
+
+    Returns list of dicts: {topic_id, category_key, name_he, description_he,
+    keywords_on, keywords_off, siblings}.
+    """
+    try:
+        data = load_yaml("topic_rules.yaml")
+    except FileNotFoundError:
+        return []
+    return data.get("topics", []) or []
+
+
 # Environment helpers
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 GROUP_ID = int(os.getenv("GROUP_ID", "0"))

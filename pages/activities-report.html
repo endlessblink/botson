@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botson — דו"ח פעילויות מוצעות</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --panel: #111318;
+            --panel-2: #16213e;
+            --border: #1f1f1f;
+            --border-2: #272727;
+            --text: #fafafa;
+            --muted: #a1a1aa;
+            --dim: #71717a;
+            --faint: #52525b;
+            --accent: #82b1ff;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg);
+            color: #e0e0e0;
+            max-width: 1100px;
+            margin: 40px auto;
+            padding: 20px 28px 80px;
+            line-height: 1.75;
+        }
+        h1 { color: var(--text); border-bottom: 2px solid #2a2a4a; padding-bottom: 12px; margin-bottom: 4px; }
+        h2 { color: var(--accent); margin-top: 36px; border-bottom: 1px solid #1f1f3a; padding-bottom: 6px; }
+        h3 { color: #cbd5e1; margin-top: 24px; }
+        .subtitle { color: var(--dim); font-size: 14px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+        .card .num { font-size: 28px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+        .card .label { color: var(--dim); font-size: 13px; margin-top: 4px; }
+        .card .sub { color: var(--faint); font-size: 12px; margin-top: 6px; }
+        table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid var(--border-2); text-align: right; vertical-align: top; }
+        thead th { background: var(--panel); color: var(--accent); font-weight: 600; border-bottom: 1px solid #2a2a4a; position: sticky; top: 0; }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+        .rank { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 13px; }
+        .name { color: var(--text); font-weight: 600; }
+        .topic { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 5px; background: #0c4a6e33; color: #38bdf8; margin-left: 4px; }
+        .topic.gaming { background: #14532d33; color: #4ade80; }
+        .topic.goals { background: #78350f33; color: #fbbf24; }
+        .topic.movies { background: #701a7533; color: #e879f9; }
+        .topic.cute { background: #4a1b5933; color: #f9a8d4; }
+        .topic.general { background: #27272a80; color: #d4d4d8; }
+        .topic.singles { background: #1e3a5f33; color: #60a5fa; }
+        .topic.funny { background: #3f1b1b33; color: #fb923c; }
+        .topic.art { background: #4a1b5933; color: #c084fc; }
+        .topic.geek { background: #312e8133; color: #818cf8; }
+        .topic.politics { background: #3a1b1b33; color: #f87171; }
+        .score { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+        .s-hi { color: #4ade80; }
+        .s-mid { color: #fbbf24; }
+        .s-lo { color: #71717a; }
+        .bar {
+            display: inline-block;
+            height: 6px;
+            background: linear-gradient(90deg, #3b82f6, #82b1ff);
+            border-radius: 3px;
+            vertical-align: middle;
+            margin-left: 6px;
+        }
+        .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 5px; background: #27272a; color: var(--muted); margin-left: 4px; }
+        .pill.now { background: #14532d33; color: #4ade80; }
+        .pill.next { background: #78350f33; color: #fbbf24; }
+        .pill.defer { background: #27272a; color: var(--dim); }
+        .why { color: var(--muted); font-size: 13px; }
+        .callout { background: var(--panel); border-right: 3px solid var(--accent); padding: 12px 16px; margin: 14px 0; border-radius: 6px; }
+        .callout.warn { border-right-color: #fbbf24; }
+        .callout.success { border-right-color: #4ade80; }
+        ol { padding-right: 24px; }
+        ol li { margin-bottom: 8px; }
+        code { background: #0a0a0a; border: 1px solid var(--border-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #cbd5e1; }
+        .footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); }
+        details { margin: 12px 0; }
+        summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 8px 0; }
+        .mono { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<h1>Botson — דו"ח פעילויות מוצעות</h1>
+<p class="subtitle">ניתוח נתוני קבוצה אמיתיים + רשימה מדורגת של פיצ'רים חדשים · 17 באפריל 2026</p>
+
+<!-- Real group signals -->
+<h2>📊 מה באמת קורה בקבוצה</h2>
+<p class="subtitle">מקור: <code>/opt/robotnik/data/bot.db</code> (VPS) · טווח: 15–17 באפריל 2026</p>
+
+<div class="grid">
+    <div class="card">
+        <div class="num">12 / 81</div>
+        <div class="label">חברים שאי פעם קיימו אינטראקציה עם הבוט</div>
+        <div class="sub">15% — 85% דוממים לגמרי</div>
+    </div>
+    <div class="card">
+        <div class="num">2</div>
+        <div class="label">חברים עם נקודות &gt; 0</div>
+        <div class="sub">Noam (6), Lotem (6) — כל השאר 0</div>
+    </div>
+    <div class="card">
+        <div class="num">3 / 4</div>
+        <div class="label">פולים שנשלחו היו בגיימינג</div>
+        <div class="sub">Rocket League, Splendor — עבד בפועל</div>
+    </div>
+    <div class="card">
+        <div class="num">21:00–23:00</div>
+        <div class="label">שעת השיא לפעילות</div>
+        <div class="sub">7 מתוך 11 פעולות התרחשו בחלון הזה</div>
+    </div>
+    <div class="card">
+        <div class="num">0 / 0 / 0</div>
+        <div class="label">אירועים · סשני טריוויה · קארמה</div>
+        <div class="sub">פיצ'רים עתירי-מחויבות לא בשימוש</div>
+    </div>
+    <div class="card">
+        <div class="num">2</div>
+        <div class="label">חברים עם רצף (streak)</div>
+        <div class="sub">שניהם ב-current=1, longest=1</div>
+    </div>
+</div>
+
+<h3>מסקנות מפתח</h3>
+<div class="callout success">
+    <strong>גיימינג הוא האלוף.</strong> הפולים היחידים שהניעו קואורדינציה אמיתית בקבוצה היו בערוץ גיימינג. כל פיצ'ר חדש שמתבסס על הדפוס הזה יתחיל עם רוח-גב.
+</div>
+<div class="callout">
+    <strong>goals + בוקר/ערב זה הריטואל היציב.</strong> 4 תגובות בערוץ <span class="topic goals">יום יום</span> — צנוע אבל עקבי. כל דבר חדש צריך להתווסף לריתמוס הזה, לא להחליף אותו.
+</div>
+<div class="callout warn">
+    <strong>בעיית ההפעלה.</strong> עם 85% דוממים ו-2 שחקנים דומיננטיים, לוחות תוצאות כל-הזמנים רק מקבעים את הפער. צריך אפיקי התחלה קלים.
+</div>
+
+<!-- Scoring model -->
+<h2>⚖️ מודל הניקוד</h2>
+<table>
+    <thead>
+        <tr><th style="width: 120px">קריטריון</th><th>מה נמדד</th><th style="width: 80px">טווח</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><strong>Fit</strong></td><td>עד כמה הפעילות תואמת את מה שכבר עובד בקבוצה בפועל</td><td>0–10</td></tr>
+        <tr><td><strong>Ease</strong></td><td>עלות המימוש בהתחשב בתשתית הקיימת (<code>polls.py</code>, <code>levels.py</code>, <code>scoring</code>)</td><td>0–10</td></tr>
+        <tr><td><strong>Lift</strong></td><td>הפוטנציאל להחזיר לפעילות חלק מה-85% הדוממים</td><td>0–10</td></tr>
+        <tr><td><strong>Score</strong></td><td>סכום השלושה</td><td>0–30</td></tr>
+    </tbody>
+</table>
+
+<!-- Main scored table -->
+<h2>🎯 רשימה מדורגת — רק פיצ'רים שעדיין לא קיימים בבוט</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 36px">#</th>
+            <th>פעילות</th>
+            <th style="width: 140px">ערוצים</th>
+            <th style="width: 50px">Fit</th>
+            <th style="width: 50px">Ease</th>
+            <th style="width: 50px">Lift</th>
+            <th style="width: 70px">Score</th>
+            <th style="width: 80px">עדיפות</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="rank">1</td>
+            <td>
+                <div class="name">מתכנן סשן גיימינג שבועי</div>
+                <div class="why">פול כל יום א' 21:00: "מי משחק השבוע?" עם אפשרויות משחקים + חלונות זמן. ממסד את מה שכבר עובד.</div>
+            </td>
+            <td><span class="topic gaming">gaming</span></td>
+            <td class="score s-hi">10</td>
+            <td class="score s-hi">8</td>
+            <td class="score s-hi">8</td>
+            <td class="score">26 <span class="bar" style="width: 78px"></span></td>
+            <td><span class="pill now">עכשיו</span></td>
+        </tr>
+        <tr>
+            <td class="rank">2</td>
+            <td>
+                <div class="name">"זה או זה" ריטואל ערב</div>
+                <div class="why">פול של 2 כפתורים כל לילה ב-22:00 (חתול/כלב, ים/הרים, ספר/סדרה). הכי נמוך-חיכוך, בחלון שיא הפעילות.</div>
+            </td>
+            <td><span class="topic general">general</span> <span class="topic cute">cute</span> <span class="topic movies">movies</span></td>
+            <td class="score s-hi">9</td>
+            <td class="score s-hi">10</td>
+            <td class="score s-hi">8</td>
+            <td class="score">27 <span class="bar" style="width: 82px"></span></td>
+            <td><span class="pill now">עכשיו</span></td>
+        </tr>
+        <tr>
+            <td class="rank">3</td>
+            <td>
+                <div class="name">Would You Rather שבועי</div>
+                <div class="why">פול דילמה-אבסורדית ו'-ש' 21:30. ממלא את חור הסופ"ש — היום יש רק roundup ב-18:00.</div>
+            </td>
+            <td><span class="topic general">general</span></td>
+            <td class="score s-mid">8</td>
+            <td class="score s-hi">10</td>
+            <td class="score s-mid">7</td>
+            <td class="score">25 <span class="bar" style="width: 75px"></span></td>
+            <td><span class="pill now">עכשיו</span></td>
+        </tr>
+        <tr>
+            <td class="rank">4</td>
+            <td>
+                <div class="name">Emoji → סרט/סדרה</div>
+                <div class="why">חידה שבועית ג' 21:00 בערוץ סרטים. ראשון שפותר זוכה ב-5 נקודות. מנסה להחיות ערוץ מת.</div>
+            </td>
+            <td><span class="topic movies">movies</span></td>
+            <td class="score s-mid">7</td>
+            <td class="score s-mid">7</td>
+            <td class="score s-mid">7</td>
+            <td class="score">21 <span class="bar" style="width: 63px"></span></td>
+            <td><span class="pill next">הבא</span></td>
+        </tr>
+        <tr>
+            <td class="rank">5</td>
+            <td>
+                <div class="name">לוח חודשי + באדג'ים עונתיים</div>
+                <div class="why">לוח מקביל שמתאפס כל חודש + 3 באדג'ים ("פעיל/ה החודש", "רצף 7", "שחקן/ית עם החבורה"). משטח את הפער בין Noam/Lotem לכל השאר.</div>
+            </td>
+            <td>כל-ערוצי</td>
+            <td class="score s-mid">8</td>
+            <td class="score s-mid">7</td>
+            <td class="score s-mid">6</td>
+            <td class="score">21 <span class="bar" style="width: 63px"></span></td>
+            <td><span class="pill next">הבא</span></td>
+        </tr>
+        <tr>
+            <td class="rank">6</td>
+            <td>
+                <div class="name">משימות יומיות</div>
+                <div class="why">משימה רוטטת ("הגב/י בשני ערוצים היום", "ברכ/י חבר חדש") + בונוס נקודות. פתרון ישיר ל-10 מתוך 12 חברים שיש להם 0 נקודות.</div>
+            </td>
+            <td>כל-ערוצי</td>
+            <td class="score s-mid">7</td>
+            <td class="score s-mid">6</td>
+            <td class="score s-hi">8</td>
+            <td class="score">21 <span class="bar" style="width: 63px"></span></td>
+            <td><span class="pill next">הבא</span></td>
+        </tr>
+        <tr>
+            <td class="rank">7</td>
+            <td>
+                <div class="name">תחרות כיתוב לתמונה</div>
+                <div class="why">תמונה שבועית ה' 21:00 מערוץ <span class="topic cute">cute</span>/<span class="topic funny">funny</span>, הכי הרבה ריאקציות זוכה. יצירתי-קליל.</div>
+            </td>
+            <td><span class="topic cute">cute</span> <span class="topic funny">funny</span></td>
+            <td class="score s-mid">7</td>
+            <td class="score s-mid">6</td>
+            <td class="score s-mid">6</td>
+            <td class="score">19 <span class="bar" style="width: 57px"></span></td>
+            <td><span class="pill next">הבא</span></td>
+        </tr>
+        <tr>
+            <td class="rank">8</td>
+            <td>
+                <div class="name">שתי אמיתות ושקר</div>
+                <div class="why">משחק שבועי ב-<span class="topic singles">singles</span> או <span class="topic general">general</span>, חבר/ה מתחלף/ת כל שבוע. מתאים לאופי היכרות שהערוץ נועד לו.</div>
+            </td>
+            <td><span class="topic singles">singles</span> <span class="topic general">general</span></td>
+            <td class="score s-mid">7</td>
+            <td class="score s-lo">5</td>
+            <td class="score s-mid">6</td>
+            <td class="score">18 <span class="bar" style="width: 54px"></span></td>
+            <td><span class="pill next">הבא</span></td>
+        </tr>
+        <tr>
+            <td class="rank">9</td>
+            <td>
+                <div class="name">חבר/ה של השבוע + AMA</div>
+                <div class="why">תגית מסומנת עם שאלות-ותשובות, רוטציה שבועית. פוטנציאל גבוה אבל דורש opt-in ותשתית רוטציה.</div>
+            </td>
+            <td><span class="topic general">general</span></td>
+            <td class="score s-lo">6</td>
+            <td class="score s-lo">4</td>
+            <td class="score s-mid">7</td>
+            <td class="score">17 <span class="bar" style="width: 51px"></span></td>
+            <td><span class="pill defer">דחייה</span></td>
+        </tr>
+        <tr>
+            <td class="rank">10</td>
+            <td>
+                <div class="name">שרשרת סיפור / סיפור ב-6 מילים</div>
+                <div class="why">כתיבה שיתופית שבועית. רף הכתיבה בעברית גבוה יותר משאר הפעילויות.</div>
+            </td>
+            <td><span class="topic art">art</span></td>
+            <td class="score s-lo">5</td>
+            <td class="score s-mid">6</td>
+            <td class="score s-lo">4</td>
+            <td class="score">15 <span class="bar" style="width: 45px"></span></td>
+            <td><span class="pill defer">דחייה</span></td>
+        </tr>
+        <tr>
+            <td class="rank">11</td>
+            <td>
+                <div class="name">"היום בהיסטוריה"</div>
+                <div class="why">עובדה יומית בערוץ geek/politics. קל לבנות אבל אותו דפוס שידור כמו הודעות הערב — מוסיף נפח, לא מעורבות.</div>
+            </td>
+            <td><span class="topic geek">geek</span> <span class="topic politics">politics</span></td>
+            <td class="score s-lo">5</td>
+            <td class="score s-mid">7</td>
+            <td class="score s-lo">3</td>
+            <td class="score">15 <span class="bar" style="width: 45px"></span></td>
+            <td><span class="pill defer">דחייה</span></td>
+        </tr>
+        <tr>
+            <td class="rank">12</td>
+            <td>
+                <div class="name">נקודות אקראיות ("הודעת מזל")</div>
+                <div class="why">דופמין אקראי, אבל בלתי-נראה ל-85% שלא כותבים בכלל. לא פותר את בעיית ההפעלה.</div>
+            </td>
+            <td>כל-ערוצי</td>
+            <td class="score s-lo">6</td>
+            <td class="score s-mid">7</td>
+            <td class="score s-lo">2</td>
+            <td class="score">15 <span class="bar" style="width: 45px"></span></td>
+            <td><span class="pill defer">דחייה</span></td>
+        </tr>
+        <tr>
+            <td class="rank">13</td>
+            <td>
+                <div class="name">קרב חרוזים/פאנצ'ים בעברית</div>
+                <div class="why">רף יצירתי גבוה. כנראה רק 2 הפעילים הנוכחיים ישחקו.</div>
+            </td>
+            <td><span class="topic funny">funny</span> <span class="topic art">art</span></td>
+            <td class="score s-lo">5</td>
+            <td class="score s-lo">4</td>
+            <td class="score s-lo">4</td>
+            <td class="score">13 <span class="bar" style="width: 39px"></span></td>
+            <td><span class="pill defer">דחייה</span></td>
+        </tr>
+        <tr>
+            <td class="rank">14</td>
+            <td>
+                <div class="name">מועדון מדיה (בחירה שבועית + 3 שאלות)</div>
+                <div class="why">דורש מחויבות מתמשכת מחברים שעוד לא באים אפילו לפול בודד. מוקדם מדי.</div>
+            </td>
+            <td><span class="topic movies">movies</span></td>
+            <td class="score s-lo">6</td>
+            <td class="score s-lo">4</td>
+            <td class="score s-lo">3</td>
+            <td class="score">13 <span class="bar" style="width: 39px"></span></td>
+            <td><span class="pill defer">דחייה</span></td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- Ship order -->
+<h2>🚀 סדר יישום מומלץ</h2>
+
+<h3><span class="pill now">עכשיו</span> השבוע</h3>
+<ol>
+    <li><strong>#2 "זה או זה"</strong> — ערב עבודה אחד, מתחבר לחלון 21:00–23:00, משתמש ב-<code>polls.py</code> הקיים. הכי פחות סיכון.</li>
+    <li><strong>#1 מתכנן גיימינג</strong> — הפיצ'ר היחיד עם ביקוש מוכח בקבוצה (הפולים כבר עבדו). רק לתמסד.</li>
+</ol>
+
+<h3><span class="pill next">הבא</span> אחרי ש-#1–2 יוכיחו את עצמם</h3>
+<ol start="3">
+    <li><strong>#5 לוח חודשי + באדג'ים</strong> — פותר את בעיית הדומיננטיות הגלויה בנתונים.</li>
+    <li><strong>#6 משימות יומיות</strong> — נותן ל-0-point majority רמפת התחלה.</li>
+</ol>
+
+<h3><span class="pill defer">דחייה</span> עד שיש תנועה בערוצים מעבר ל-gaming/goals</h3>
+<p class="why">#9 AMA · #10 שרשרת סיפור · #11 היום בהיסטוריה · #13 קרב חרוזים · #14 מועדון מדיה</p>
+
+<!-- Appendix -->
+<details>
+    <summary>📎 נספח — פיצ'רים שכבר קיימים ולא הוצעו מחדש</summary>
+    <p class="subtitle">הרשימה המקורית הכילה כפילויות. מה שכבר מיושם ב-<code>bot/handlers/</code>:</p>
+    <table>
+        <thead><tr><th>Handler</th><th>מה עושה</th></tr></thead>
+        <tbody>
+            <tr><td><code>welcome.py</code></td><td>הודעות ברוכים הבאים</td></tr>
+            <tr><td><code>antispam.py</code></td><td>זיהוי ספאם (dry-run כברירת מחדל)</td></tr>
+            <tr><td><code>levels.py</code></td><td>6 רמות, לידרבורד, רצפים, לוח שבועי</td></tr>
+            <tr><td><code>goals.py</code></td><td>check-ins יומיים, streaks, auto-pin</td></tr>
+            <tr><td><code>trivia.py</code></td><td>סשני טריוויה מתוזמנים</td></tr>
+            <tr><td><code>polls.py</code></td><td>פולים עם כפתורים inline + tracking</td></tr>
+            <tr><td><code>events.py</code></td><td>אירועים + RSVP + לוח שנה</td></tr>
+            <tr><td><code>discussions.py</code></td><td>שאלות דיון לפי ערוץ</td></tr>
+            <tr><td><code>roundup.py</code></td><td>סיכום שבועי</td></tr>
+            <tr><td><code>free_games.py</code></td><td>RSS של משחקים חינם מ-GG.deals</td></tr>
+            <tr><td><code>calendar.py</code></td><td>materialized schedule checker</td></tr>
+            <tr><td><code>topic_tracker.py</code></td><td>מעקב אחר ערוצי forum</td></tr>
+        </tbody>
+    </table>
+</details>
+
+<details>
+    <summary>🔢 נספח — הנתונים הגולמיים מה-VPS</summary>
+    <div class="mono" style="background: #0a0a0a; border: 1px solid var(--border-2); padding: 12px; border-radius: 6px; white-space: pre; overflow-x: auto; color: #d4d4d8;">
+activity by channel (30d)
+  goals      4
+  gaming  (1517) 3
+  2184       2
+  general    1
+  gaming     1
+
+action types (30d)
+  poll        4
+  points      4
+  morning     1
+  free_games  1
+  evening     1
+
+top karma
+  The True Noam   6
+  Lotem           6
+  (all others)    0
+
+streaks
+  current=1 longest=1 · last=2026-04-16
+  current=1 longest=1 · last=2026-04-16
+
+hour distribution
+  09h  2
+  12h  1
+  13h  1
+  21h  3
+  22h  3
+  23h  1</div>
+</details>
+
+<div class="footer">
+    Botson — דו"ח פנימי · מקור נתונים: <code>/opt/robotnik/data/bot.db</code> · עודכן 17.4.2026
+</div>
+
+</body>
+</html>

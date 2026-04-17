@@ -123,4 +123,17 @@ CREATE TABLE IF NOT EXISTS free_games_posted (
     message_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_fg_posted_at ON free_games_posted(posted_at);
+
+CREATE TABLE IF NOT EXISTS topic_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    from_topic_id INTEGER,
+    message_id INTEGER,
+    keyword_hits TEXT,
+    fit_label TEXT NOT NULL,
+    suggested_topic_id INTEGER,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_topic_obs_ts ON topic_observations(timestamp);
+CREATE INDEX IF NOT EXISTS idx_topic_obs_from ON topic_observations(from_topic_id);
 """
