@@ -14,3 +14,6 @@ build/
 .idea/
 .vscode/
 *.log
+media/showcase/node_modules/
+media/showcase/.cache/
+**/node_modules/
