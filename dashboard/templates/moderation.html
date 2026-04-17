@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% set active_page = "moderation" %}
+
+{% block title %}Botson — ניתוב נושאים{% endblock %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">ניתוב נושאים</h1>
+        <p class="text-sm text-[#71717a] mt-1">זיהוי הודעות שהוצבו בנושא הלא נכון — Phase 0: תצפית בלבד</p>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-sm text-[#a1a1aa]">פעיל</span>
+        <label class="switch">
+            <input type="checkbox" id="feat-routing" onchange="toggleRouting(this.checked)" {% if tr_config.enabled %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+    </div>
+</div>
+
+<!-- Mode banner -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 mb-4 flex items-center justify-between">
+    <div>
+        <p class="text-xs text-[#71717a] mb-1">מצב פעולה נוכחי</p>
+        <p class="text-sm text-[#fafafa]">
+            {% if tr_config.mode == 'observe' %}
+                🔍 תצפית — אוסף נתונים, לא נשלחת שום תגובה למשתמש
+            {% elif tr_config.mode == 'soft' %}
+                💬 Nudge רך — הבוט מציע נושא מתאים בהודעה
+            {% elif tr_config.mode == 'strict' %}
+                🛡️ Strict — מחיקה אחרי השהייה
+            {% else %}
+                {{ tr_config.mode or 'לא מוגדר' }}
+            {% endif %}
+        </p>
+    </div>
+    <div class="text-xs text-[#71717a]">
+        חלון תצפית: <span class="text-[#fafafa] font-medium">{{ observation_days }} ימים</span>
+        &nbsp;·&nbsp;
+        כללים טעונים: <span class="text-[#fafafa] font-medium">{{ rules_count }}</span>
+    </div>
+</div>
+
+<!-- Totals row -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <p class="text-xs text-[#71717a]">סה"כ</p>
+        <p class="text-xl font-semibold text-[#fafafa] stat-number mt-1">{{ totals.total }}</p>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <p class="text-xs text-emerald-400">בנושא</p>
+        <p class="text-xl font-semibold text-[#fafafa] stat-number mt-1">{{ totals.on }}</p>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <p class="text-xs text-amber-400">מחוץ לנושא</p>
+        <p class="text-xl font-semibold text-[#fafafa] stat-number mt-1">{{ totals.off }}</p>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <p class="text-xs text-[#a1a1aa]">לא ברור</p>
+        <p class="text-xl font-semibold text-[#fafafa] stat-number mt-1">{{ totals.unknown }}</p>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <p class="text-xs text-[#71717a]">ללא כלל</p>
+        <p class="text-xl font-semibold text-[#fafafa] stat-number mt-1">{{ totals.no_rule }}</p>
+    </div>
+</div>
+
+<!-- Per-topic breakdown -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+        <div>
+            <h3 class="text-sm font-semibold text-[#fafafa]">פירוט לפי נושא</h3>
+            <p class="text-xs text-[#71717a] mt-0.5">הודעות מהנושא, מסווגות לפי הכללים</p>
+        </div>
+        <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2 py-0.5 rounded-md">
+            {{ topic_rows | length }}
+        </span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-[#1f1f1f]">
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">נושא</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">מזהה</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">סה"כ</th>
+                    <th class="text-xs text-emerald-400 font-medium px-4 py-3 text-right">בנושא</th>
+                    <th class="text-xs text-amber-400 font-medium px-4 py-3 text-right">מחוץ</th>
+                    <th class="text-xs text-[#a1a1aa] font-medium px-4 py-3 text-right">לא ברור</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">% מחוץ</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in topic_rows %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                    <td class="px-4 py-3 text-sm text-[#fafafa]">{{ r.name }}</td>
+                    <td class="px-4 py-3 text-xs text-[#71717a] font-mono" dir="ltr">{{ r.topic_id }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa] stat-number">{{ r.total }}</td>
+                    <td class="px-4 py-3 text-sm text-emerald-400 stat-number">{{ r.on }}</td>
+                    <td class="px-4 py-3 text-sm stat-number">
+                        {% if r.off > 0 %}
+                        <span class="bg-amber-500/10 text-amber-400 text-xs font-medium px-2 py-0.5 rounded-md">{{ r.off }}</span>
+                        {% else %}
+                        <span class="text-[#71717a]">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa] stat-number">{{ r.unknown }}</td>
+                    <td class="px-4 py-3 text-sm text-[#71717a] stat-number">{{ r.off_pct }}%</td>
+                </tr>
+                {% endfor %}
+                {% if not topic_rows %}
+                <tr>
+                    <td colspan="7" class="px-4 py-10 text-center text-sm text-[#71717a]">
+                        אין תצפיות עדיין — הפעל את המתג למעלה כדי להתחיל לאסוף נתונים
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Recent off-topic list -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center gap-3">
+        <h3 class="text-sm font-semibold text-[#fafafa]">תצפיות מחוץ-לנושא אחרונות</h3>
+        <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2 py-0.5 rounded-md">
+            {{ recent_off | length }}
+        </span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-[#1f1f1f]">
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">זמן</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">משתמש</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">נושא מקור</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">מילות מפתח</th>
+                    <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right">מוצע</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for o in recent_off %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                    <td class="px-4 py-3 text-xs text-[#71717a] whitespace-nowrap">{{ o.timestamp[:16] }}</td>
+                    <td class="px-4 py-3 text-xs text-[#a1a1aa] font-mono" dir="ltr">{{ o.user_id }}</td>
+                    <td class="px-4 py-3 text-sm text-[#a1a1aa]">{{ o.from_topic_name }}</td>
+                    <td class="px-4 py-3 text-xs text-amber-400" dir="rtl">
+                        {% for kw in o.off_matches %}{{ kw }}{% if not loop.last %}, {% endif %}{% endfor %}
+                    </td>
+                    <td class="px-4 py-3 text-sm text-emerald-400">{{ o.suggested_topic_name }}</td>
+                </tr>
+                {% endfor %}
+                {% if not recent_off %}
+                <tr>
+                    <td colspan="5" class="px-4 py-10 text-center text-sm text-[#71717a]">
+                        אין תצפיות מחוץ-לנושא
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Info card -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4 p-6">
+    <h3 class="text-sm font-semibold text-[#fafafa] mb-3">איך זה עובד</h3>
+    <ul class="text-xs text-[#a1a1aa] space-y-2 list-disc pr-5">
+        <li><strong class="text-[#fafafa]">Phase 0 — תצפית בלבד:</strong> הבוט מסווג כל הודעה בקבוצה לפי מילות מפתח מ־<code dir="ltr" class="text-[#71717a]">config/topic_rules.yaml</code> ורושם את הסיווג. שום תגובה לא נשלחת.</li>
+        <li><strong class="text-emerald-400">בנושא:</strong> יש התאמה ל־<code dir="ltr">keywords_on</code> של הנושא הנוכחי.</li>
+        <li><strong class="text-amber-400">מחוץ לנושא:</strong> יש התאמה ל־<code dir="ltr">keywords_off</code>. "מוצע" = הנושא הקרוב ביותר לפי מילות ה־<code dir="ltr">keywords_on</code> שלו.</li>
+        <li><strong class="text-[#a1a1aa]">לא ברור:</strong> יש כלל אבל לא התקבלה התאמה.</li>
+        <li><strong class="text-[#71717a]">ללא כלל:</strong> לנושא אין רשומה ב־YAML.</li>
+        <li>אחרי 2 שבועות של נתונים ניתן לעבור ל־<code dir="ltr">mode: soft</code> כדי להתחיל להציע הפניות למשתמשים.</li>
+    </ul>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function toggleRouting(enabled) {
+    try {
+        await apiCall('/api/moderation/settings', { enabled: enabled });
+        showToast(enabled ? 'ניתוב נושאים הופעל' : 'ניתוב נושאים כובה');
+        setTimeout(function() { window.location.reload(); }, 600);
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+</script>
+{% endblock %}

@@ -29,6 +29,7 @@ The dashboard is the primary control interface. Users should never need to use T
 | Morning prompt | Prompts page — send now | TODO (T-065) |
 | Discussion prompt | Prompts page — send now | TODO (T-066) |
 | Weekly roundup | Prompts page — send now | TODO (T-073) |
+| Topic routing | Moderation page — observation stats + rules | Phase 0 (observe-only) |
 
 ### Dashboard-Only Features (no Telegram equivalent needed)
 
@@ -46,6 +47,7 @@ The dashboard is the primary control interface. Users should never need to use T
 - **NEVER present Hebrew text options in the terminal** — always render on the dashboard `/review` page (route: `dashboard/app.py:review_page`, template: `dashboard/templates/review.html`) for approval. Add drafts by appending dicts to the `pending` list in `dashboard/app.py` with fields: `title`, `channel`, `when`, `preview` (or `options` for a choice), `note`. This includes message drafts, discussion questions, poll text, event announcements — anything Hebrew.
 - **Project layout:** `docs/` contains markdown documentation only. Hand-built HTML snapshots/visualizations (week plan, activity reports, message previews) live in `pages/`.
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
+- **Topic routing** (off-topic detection) runs in Phase 0 `observe` mode — classifies messages against `config/topic_rules.yaml` and logs to `topic_observations` table, no user-visible action. Controlled via `topic_routing: {enabled, mode}` in `settings.yaml` and the `/moderation` dashboard page.
 
 ## Tech Stack
 
@@ -78,6 +80,8 @@ The dashboard is the primary control interface. Users should never need to use T
 
 ### Forum Topic IDs (main group)
 
+Source of truth is the live `forum_topics` table in `data/bot.db`. Topics not listed here haven't been seen by the bot yet.
+
 | Topic ID | Channel Name | Category Key |
 |----------|-------------|-------------|
 | 2184 | יום יום | goals |
@@ -88,10 +92,12 @@ The dashboard is the primary control interface. Users should never need to use T
 | 335 | כל מה שחמוד 🐕🦝🐨 | cute |
 | 347 | ערוץ אומנות ויצירה 🎨📷 | art |
 | 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics |
+| 153 | Ai וטכנולוגיה | ai |
+| 3113 | AI & Tech | ai_en |
+| 341 | מצטרפים חדשים + עדכונים | welcome |
 | 7 | כללי (General) — unconfirmed | general |
 | ? | טבעונים וצמחוניים | vegan |
 | ? | מצחיק / מגניב | funny |
-| 341 | מצטרפים חדשים + עדכונים | welcome |
 
 ### Level System
 
