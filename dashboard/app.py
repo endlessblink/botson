@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
-from bot.utils.config import DB_PATH, get_settings, get_prompts, get_spam_patterns, load_yaml
+from bot.utils.config import DB_PATH, get_settings, get_prompts, get_spam_patterns, get_topic_rules, load_yaml
 from bot.utils.levels import get_level, get_progress
 
 RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
@@ -516,6 +516,136 @@ async def update_spam_patterns(request: Request):
 
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
+
+
+# ── Moderation / Topic Routing (Phase 0 observation) ─────
+
+@app.get("/moderation", response_class=HTMLResponse)
+async def moderation_page(request: Request, db: Database = Depends(get_db)):
+    """Off-topic observation dashboard. Phase 0: read-only data view."""
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    settings = get_settings()
+    tr_config = settings.get("topic_routing") or {}
+    days = int(tr_config.get("observation_days", 14))
+
+    rules = get_topic_rules()
+    rules_by_id = {int(r["topic_id"]): r for r in rules if r.get("topic_id")}
+
+    topics = await db.get_forum_topics()
+    topic_name_by_id = {int(t["topic_id"]): t["name"] for t in topics}
+
+    counts = await db.get_topic_observation_counts(days=days)
+    # pivot into {topic_id: {on, off, unknown, no_rule, total}}
+    pivot: dict[int, dict] = {}
+    for row in counts:
+        tid = int(row["from_topic_id"]) if row["from_topic_id"] is not None else 0
+        label = row["fit_label"]
+        n = row["n"]
+        bucket = pivot.setdefault(tid, {"on": 0, "off": 0, "unknown": 0, "no_rule": 0, "total": 0})
+        bucket[label] = bucket.get(label, 0) + n
+        bucket["total"] += n
+
+    # Build per-topic summary rows
+    topic_rows = []
+    seen_ids = set()
+    for tid, rule in rules_by_id.items():
+        b = pivot.get(tid, {"on": 0, "off": 0, "unknown": 0, "no_rule": 0, "total": 0})
+        topic_rows.append({
+            "topic_id": tid,
+            "name": rule.get("name_he") or topic_name_by_id.get(tid, f"Topic {tid}"),
+            "category_key": rule.get("category_key", ""),
+            "on": b["on"],
+            "off": b["off"],
+            "unknown": b["unknown"],
+            "no_rule": b["no_rule"],
+            "total": b["total"],
+            "off_pct": round(100 * b["off"] / b["total"], 1) if b["total"] else 0,
+        })
+        seen_ids.add(tid)
+    # Also include topics that have observations but no rule yet
+    for tid, b in pivot.items():
+        if tid in seen_ids or tid == 0:
+            continue
+        topic_rows.append({
+            "topic_id": tid,
+            "name": topic_name_by_id.get(tid, f"Topic {tid}"),
+            "category_key": "(no rule)",
+            "on": b["on"],
+            "off": b["off"],
+            "unknown": b["unknown"],
+            "no_rule": b["no_rule"],
+            "total": b["total"],
+            "off_pct": round(100 * b["off"] / b["total"], 1) if b["total"] else 0,
+        })
+    topic_rows.sort(key=lambda r: (-r["off"], -r["total"]))
+
+    # Recent off-topic observations — top 30 most recent 'off' labels
+    all_obs = await db.get_topic_observations(days=days, limit=500)
+    recent_off = []
+    for o in all_obs:
+        if o["fit_label"] != "off":
+            continue
+        try:
+            hits = json.loads(o["keyword_hits"] or "{}")
+        except Exception:
+            hits = {}
+        recent_off.append({
+            "timestamp": o["timestamp"],
+            "user_id": o["user_id"],
+            "from_topic_id": o["from_topic_id"],
+            "from_topic_name": topic_name_by_id.get(int(o["from_topic_id"] or 0), f"Topic {o['from_topic_id']}"),
+            "suggested_topic_id": o["suggested_topic_id"],
+            "suggested_topic_name": topic_name_by_id.get(int(o["suggested_topic_id"] or 0), "—") if o["suggested_topic_id"] else "—",
+            "off_matches": hits.get("off", []),
+        })
+        if len(recent_off) >= 30:
+            break
+
+    # Totals
+    totals = {"on": 0, "off": 0, "unknown": 0, "no_rule": 0, "total": 0}
+    for b in pivot.values():
+        for k in totals:
+            totals[k] += b.get(k, 0)
+
+    return templates.TemplateResponse(request, name="moderation.html", context={
+        "settings": settings,
+        "tr_config": tr_config,
+        "observation_days": days,
+        "topic_rows": topic_rows,
+        "recent_off": recent_off,
+        "totals": totals,
+        "rules_count": len(rules_by_id),
+    })
+
+
+@app.post("/api/moderation/settings")
+async def update_moderation_settings(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        current = yaml.safe_load(f) or {}
+
+    tr = current.setdefault("topic_routing", {})
+    if "enabled" in data:
+        tr["enabled"] = bool(data["enabled"])
+    if "mode" in data and data["mode"] in ("observe", "soft", "strict"):
+        tr["mode"] = data["mode"]
+    if "observation_days" in data:
+        try:
+            tr["observation_days"] = max(1, min(90, int(data["observation_days"])))
+        except (TypeError, ValueError):
+            pass
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(current, f, allow_unicode=True, default_flow_style=False, sort_keys=True)
 
     reloaded = _signal_bot_reload()
     return {"status": "ok", "bot_reloaded": reloaded}

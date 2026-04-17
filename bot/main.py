@@ -12,7 +12,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, topic_tracker, polls
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, topic_tracker, topic_router, polls
 from .handlers.calendar import check_and_send_due_messages
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_prompts
@@ -261,6 +261,7 @@ def main():
 
     # Register feature handlers
     antispam.register(app)   # Group 0 — highest priority
+    topic_router.register(app)   # Group 5 — observe-only off-topic classifier
     welcome.register(app)    # Default group
     goals.register(app)      # Group 2
     levels.register(app)     # Group 3
