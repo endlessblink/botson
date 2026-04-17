@@ -17,7 +17,7 @@ if not logger.handlers:
     logger.propagate = False
 
 import yaml
-from fastapi import FastAPI, Request, Depends, HTTPException, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -45,9 +45,13 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("DASHBOARD_SECRET", s
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 CONFIG_DIR = Path(__file__).parent.parent / "config"
+MEDIA_DIR = Path(os.getenv("MEDIA_DIR", str(Path(__file__).parent.parent / "media"))).resolve()
+COVERS_DIR = MEDIA_DIR / "covers"
+COVERS_DIR.mkdir(parents=True, exist_ok=True)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 # Dashboard password from env
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "botson-admin")
@@ -391,11 +395,20 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
     text = data.get("text", "").strip()
     topic_id = data.get("topic_id")
     target = data.get("target", "main")  # "main" or "test"
+    cover_path = data.get("cover_path")
+    message_type = data.get("message_type")
+    poll_options = data.get("poll_options")
+    poll_duration = data.get("poll_duration")
 
     if not text:
         raise HTTPException(status_code=400, detail="Message text required")
 
     from telegram import Bot
+    from bot.handlers.calendar import (
+        send_message_with_optional_cover,
+        send_poll_message,
+        _parse_poll_options,
+    )
     bot = Bot(os.getenv("BOT_TOKEN", ""))
 
     if target == "test":
@@ -406,12 +419,26 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
     if not group_id:
         raise HTTPException(status_code=400, detail=f"No {target} group ID configured")
 
-    kwargs = {"chat_id": group_id, "text": text}
-    if topic_id:
-        kwargs["message_thread_id"] = int(topic_id)
-
     try:
-        msg = await bot.send_message(**kwargs)
+        opts = _parse_poll_options(poll_options)
+        if message_type == "poll" and len(opts) >= 2:
+            msg = await send_poll_message(
+                bot,
+                chat_id=group_id,
+                question=text,
+                options=opts,
+                message_thread_id=int(topic_id) if topic_id else None,
+                duration_hours=poll_duration,
+                cover_path=cover_path,
+            )
+        else:
+            msg = await send_message_with_optional_cover(
+                bot,
+                chat_id=group_id,
+                text=text,
+                message_thread_id=int(topic_id) if topic_id else None,
+                cover_path=cover_path,
+            )
         await db.log_activity("manual_send", f"שלח הודעה ידנית ({'טסט' if target == 'test' else 'ראשית'})", target_channel=str(topic_id or "general"))
         return {"status": "ok", "message_id": msg.message_id}
     except Exception as e:
@@ -1734,6 +1761,16 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
         color = channel_colors.get(m.get("channel_topic_id"), "#71717a")
         status = m.get("status", "scheduled")
 
+        poll_options_raw = m.get("poll_options")
+        poll_options: list | None = None
+        if poll_options_raw:
+            try:
+                decoded = json.loads(poll_options_raw) if isinstance(poll_options_raw, str) else poll_options_raw
+                if isinstance(decoded, list):
+                    poll_options = [str(o) for o in decoded]
+            except (TypeError, ValueError):
+                poll_options = None
+
         event = {
             "id": str(m["id"]),
             "title": m.get("text", "")[:60],
@@ -1750,6 +1787,9 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
                 "recurrence": m.get("recurrence"),
                 "sentAt": m.get("sent_at"),
                 "createdBy": m.get("created_by"),
+                "coverPath": m.get("cover_path"),
+                "pollOptions": poll_options,
+                "pollDuration": m.get("poll_duration"),
             },
         }
         events.append(event)
@@ -1816,6 +1856,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         raise HTTPException(status_code=401)
 
     data = await request.json()
+    poll_options = data.get("poll_options")
     msg_id = await db.create_scheduled_message(
         text=data["text"],
         message_type=data.get("message_type", "custom"),
@@ -1826,6 +1867,9 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         recurrence=data.get("recurrence"),
         recurrence_days=json.dumps(data["recurrence_days"]) if data.get("recurrence_days") else None,
         auto_pin=data.get("auto_pin", False),
+        cover_path=data.get("cover_path"),
+        poll_options=json.dumps(poll_options) if isinstance(poll_options, list) else poll_options,
+        poll_duration=data.get("poll_duration"),
     )
     return {"status": "ok", "id": msg_id}
 
@@ -1838,10 +1882,13 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
 
     data = await request.json()
     allowed = {"text", "channel_topic_id", "target_group", "scheduled_date", "scheduled_time",
-               "recurrence", "recurrence_days", "status", "auto_pin", "message_type"}
+               "recurrence", "recurrence_days", "status", "auto_pin", "message_type", "cover_path",
+               "poll_options", "poll_duration"}
     fields = {k: v for k, v in data.items() if k in allowed}
     if "recurrence_days" in fields and isinstance(fields["recurrence_days"], list):
         fields["recurrence_days"] = json.dumps(fields["recurrence_days"])
+    if "poll_options" in fields and isinstance(fields["poll_options"], list):
+        fields["poll_options"] = json.dumps(fields["poll_options"])
 
     await db.update_scheduled_message(msg_id, **fields)
     return {"status": "ok"}
@@ -1880,17 +1927,189 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
     else:
         group_id = int(os.getenv("GROUP_ID", "0"))
 
-    kwargs = {"chat_id": group_id, "text": msg["text"]}
-    if msg.get("channel_topic_id"):
-        kwargs["message_thread_id"] = msg["channel_topic_id"]
+    from bot.handlers.calendar import (
+        send_message_with_optional_cover,
+        send_poll_message,
+        _parse_poll_options,
+    )
 
     try:
-        sent = await bot.send_message(**kwargs)
+        opts = _parse_poll_options(msg.get("poll_options"))
+        if msg.get("message_type") == "poll" and len(opts) >= 2:
+            sent = await send_poll_message(
+                bot,
+                chat_id=group_id,
+                question=msg["text"],
+                options=opts,
+                message_thread_id=msg.get("channel_topic_id"),
+                duration_hours=msg.get("poll_duration"),
+                cover_path=msg.get("cover_path"),
+            )
+        else:
+            sent = await send_message_with_optional_cover(
+                bot,
+                chat_id=group_id,
+                text=msg["text"],
+                message_thread_id=msg.get("channel_topic_id"),
+                cover_path=msg.get("cover_path"),
+            )
         if target != "test":
             await db.mark_message_sent(msg_id, sent.message_id)
         return {"status": "ok", "message_id": sent.message_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Cover image endpoints ────────────────────────────────
+
+_COVER_MIMES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
+_MAX_COVER_BYTES = 8 * 1024 * 1024  # 8 MB cap
+
+
+def _cover_filename(source_tag: str, ext: str) -> str:
+    import time
+    return f"{int(time.time())}_{source_tag}_{secrets.token_hex(4)}.{ext}"
+
+
+def _cover_response(path: Path) -> dict:
+    rel = path.relative_to(MEDIA_DIR).as_posix()
+    return {"status": "ok", "path": rel, "url": f"/media/{rel}"}
+
+
+@app.post("/api/covers/upload")
+async def upload_cover(request: Request, file: UploadFile = File(...)):
+    """Accept an uploaded image and save to MEDIA_DIR/covers/."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    ext = _COVER_MIMES.get((file.content_type or "").lower())
+    if not ext:
+        raise HTTPException(status_code=400, detail=f"Unsupported content-type {file.content_type}")
+    data = await file.read(_MAX_COVER_BYTES + 1)
+    if len(data) > _MAX_COVER_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 8MB)")
+    dest = COVERS_DIR / _cover_filename("up", ext)
+    dest.write_bytes(data)
+    logger.info("Cover uploaded: %s (%d bytes)", dest.name, len(data))
+    return _cover_response(dest)
+
+
+@app.post("/api/covers/scrape")
+async def scrape_cover(request: Request):
+    """Fetch an image cover from a web page (og:image or first large img)."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    url = (body.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Valid http(s) URL required")
+
+    import httpx, re
+    from urllib.parse import urljoin
+
+    def _find_image_url(html: str) -> str | None:
+        """Try many strategies to find a usable image URL on the page."""
+        patterns = [
+            r'<meta[^>]+property=["\']og:image(?::(?:secure_)?url)?["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::(?:secure_)?url)?["\']',
+            r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image(?::src)?["\']',
+            r'<meta[^>]+itemprop=["\']image["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
+        ]
+        for pat in patterns:
+            m = re.search(pat, html, re.I)
+            if m and m.group(1).strip():
+                return m.group(1).strip()
+
+        m = re.search(r'"image"\s*:\s*"([^"]+)"', html)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r'"image"\s*:\s*\[\s*"([^"]+)"', html)
+        if m:
+            return m.group(1).strip()
+
+        for m in re.finditer(r'<img\b[^>]+>', html, re.I):
+            tag = m.group(0)
+            for attr in ("src", "data-src", "data-original", "data-lazy-src"):
+                a = re.search(rf'\b{attr}=["\']([^"\']+)["\']', tag, re.I)
+                if a and a.group(1).strip():
+                    return a.group(1).strip()
+            a = re.search(r'\bsrcset=["\']([^"\']+)["\']', tag, re.I)
+            if a:
+                first = a.group(1).split(",")[0].strip().split(" ")[0]
+                if first:
+                    return first
+        return None
+
+    ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0, headers={"User-Agent": ua}) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            ctype = (r.headers.get("content-type", "").split(";")[0]).lower()
+
+            # Direct image URL — use response as-is
+            if ctype.startswith("image/"):
+                data = r.content
+                if len(data) > _MAX_COVER_BYTES:
+                    raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
+                ext = _COVER_MIMES.get(ctype, "jpg")
+            else:
+                # HTML page — find an image
+                html = r.text
+                found = _find_image_url(html)
+                if not found:
+                    raise HTTPException(status_code=404, detail="No image found on page")
+                base = str(r.url)
+                img_url = urljoin(base, found)
+                ir = await client.get(img_url, headers={"Referer": base})
+                ir.raise_for_status()
+                data = ir.content
+                if len(data) > _MAX_COVER_BYTES:
+                    raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
+                mime = (ir.headers.get("content-type", "").split(";")[0]).lower()
+                ext = _COVER_MIMES.get(mime, "jpg")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Fetch failed: {e}")
+
+    dest = COVERS_DIR / _cover_filename("scrape", ext)
+    dest.write_bytes(data)
+    logger.info("Cover scraped from %s: %s (%d bytes)", url, dest.name, len(data))
+    return _cover_response(dest)
+
+
+@app.post("/api/covers/generate")
+async def generate_cover(request: Request):
+    """Generate a cover image via kie.ai Ideogram V3."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt required")
+
+    api_key = os.getenv("KIE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="KIE_API_KEY not set in environment")
+
+    from bot.utils.kie_client import generate_image_sync
+    try:
+        data, ext = await generate_image_sync(api_key=api_key, prompt=prompt)
+    except Exception as e:
+        logger.error("kie.ai generation failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
+
+    dest = COVERS_DIR / _cover_filename("ai", ext)
+    dest.write_bytes(data)
+    logger.info("Cover generated via kie.ai: %s (%d bytes)", dest.name, len(data))
+    return _cover_response(dest)
 
 
 # ── Planner Page ─────────────────────────────────────────

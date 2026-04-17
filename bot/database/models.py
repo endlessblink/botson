@@ -107,7 +107,10 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by TEXT DEFAULT 'dashboard',
     auto_pin BOOLEAN DEFAULT FALSE,
-    draft_options TEXT
+    draft_options TEXT,
+    cover_path TEXT,
+    poll_options TEXT,
+    poll_duration INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS free_games_posted (

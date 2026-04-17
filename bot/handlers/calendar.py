@@ -2,7 +2,9 @@
 
 import json
 import logging
+import os
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from telegram.ext import ContextTypes
@@ -13,6 +15,91 @@ from ..utils.config import get_settings
 logger = logging.getLogger(__name__)
 
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
+
+
+def _media_dir() -> Path:
+    return Path(os.getenv("MEDIA_DIR", "./media")).resolve()
+
+
+async def send_message_with_optional_cover(bot, *, chat_id: int, text: str,
+                                            message_thread_id: int | None = None,
+                                            cover_path: str | None = None):
+    """Send a message, as a photo with caption if cover_path is set.
+
+    cover_path is stored relative to MEDIA_DIR (e.g. "covers/foo.png").
+    Returns the sent Message object.
+    """
+    if cover_path:
+        full = _media_dir() / cover_path
+        if full.exists():
+            with full.open("rb") as f:
+                kwargs = {"chat_id": chat_id, "photo": f, "caption": text}
+                if message_thread_id is not None:
+                    kwargs["message_thread_id"] = message_thread_id
+                return await bot.send_photo(**kwargs)
+        logger.warning("cover_path %s not found at %s — falling back to text", cover_path, full)
+    kwargs = {"chat_id": chat_id, "text": text}
+    if message_thread_id is not None:
+        kwargs["message_thread_id"] = message_thread_id
+    return await bot.send_message(**kwargs)
+
+
+def _parse_poll_options(raw) -> list[str]:
+    """Decode poll_options from DB (JSON string or list) into a clean list."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        items = raw
+    else:
+        try:
+            items = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+    return [str(o).strip() for o in items if str(o).strip()]
+
+
+def _build_poll_markup(options: list[str]):
+    """Build an InlineKeyboardMarkup with one button per option.
+
+    Buttons are labelled "🗓️ {option}" with callback_data "poll_{index}" so the
+    existing `polls.handle_poll_vote` handler auto-discovers labels and tracks
+    voter names in the button text.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    rows = [
+        [InlineKeyboardButton(f"🗓️ {opt}", callback_data=f"poll_{i}")]
+        for i, opt in enumerate(options)
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+async def send_poll_message(bot, *, chat_id: int, question: str,
+                             options: list[str],
+                             message_thread_id: int | None = None,
+                             duration_hours: int | None = None,
+                             cover_path: str | None = None):
+    """Send an inline-button poll. Returns the sent Message.
+
+    Layout matches the group convention: text (with any URL auto-previewed by
+    Telegram) or photo+caption, and inline buttons below for each option.
+    Votes are tracked in-memory by bot/handlers/polls.py. `duration_hours` is
+    accepted for API compatibility but unused — inline polls don't auto-close.
+    """
+    markup = _build_poll_markup(options)
+    if cover_path:
+        full = _media_dir() / cover_path
+        if full.exists():
+            with full.open("rb") as f:
+                kwargs = {"chat_id": chat_id, "photo": f, "caption": question,
+                          "reply_markup": markup}
+                if message_thread_id is not None:
+                    kwargs["message_thread_id"] = message_thread_id
+                return await bot.send_photo(**kwargs)
+        logger.warning("poll cover_path %s not found — sending without photo", cover_path)
+    kwargs = {"chat_id": chat_id, "text": question, "reply_markup": markup}
+    if message_thread_id is not None:
+        kwargs["message_thread_id"] = message_thread_id
+    return await bot.send_message(**kwargs)
 
 
 def _next_matching_day(current_date: date, days: list[int]) -> date:
@@ -58,13 +145,32 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             await db.mark_message_failed(msg["id"], f"No group ID for target '{target}'")
             continue
 
-        kwargs = {"chat_id": group_id, "text": msg["text"]}
-        if msg.get("channel_topic_id"):
-            kwargs["message_thread_id"] = msg["channel_topic_id"]
-
         try:
             bot = Bot(bot_token)
-            sent = await bot.send_message(**kwargs)
+            poll_options = _parse_poll_options(msg.get("poll_options"))
+            if msg.get("message_type") == "poll" and len(poll_options) >= 2:
+                sent = await send_poll_message(
+                    bot,
+                    chat_id=group_id,
+                    question=msg["text"],
+                    options=poll_options,
+                    message_thread_id=msg.get("channel_topic_id"),
+                    duration_hours=msg.get("poll_duration"),
+                    cover_path=msg.get("cover_path"),
+                )
+            else:
+                if msg.get("message_type") == "poll":
+                    logger.warning(
+                        "Scheduled poll %d has no valid options — sending as text",
+                        msg["id"],
+                    )
+                sent = await send_message_with_optional_cover(
+                    bot,
+                    chat_id=group_id,
+                    text=msg["text"],
+                    message_thread_id=msg.get("channel_topic_id"),
+                    cover_path=msg.get("cover_path"),
+                )
 
             # Auto-pin if requested
             if msg.get("auto_pin"):
@@ -114,6 +220,9 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                         recurrence_days=msg.get("recurrence_days"),
                         auto_pin=bool(msg.get("auto_pin")),
                         created_by="recurrence",
+                        cover_path=msg.get("cover_path"),
+                        poll_options=msg.get("poll_options"),
+                        poll_duration=msg.get("poll_duration"),
                     )
                     logger.info("Created next occurrence for %d on %s", msg["id"], next_date)
 

@@ -36,8 +36,26 @@ class Database:
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.executescript(SCHEMA)
+        await self._migrate()
         await self._db.commit()
         logger.info("Database initialized at %s", self.db_path)
+
+    async def _migrate(self):
+        """Apply idempotent schema migrations for pre-existing DBs.
+
+        Each migration catches OperationalError so re-runs are no-ops.
+        """
+        migrations = [
+            "ALTER TABLE scheduled_messages ADD COLUMN cover_path TEXT",
+            "ALTER TABLE scheduled_messages ADD COLUMN poll_options TEXT",
+            "ALTER TABLE scheduled_messages ADD COLUMN poll_duration INTEGER",
+        ]
+        for sql in migrations:
+            try:
+                await self._db.execute(sql)
+            except Exception as e:  # noqa: BLE001
+                if "duplicate column" not in str(e).lower():
+                    logger.warning("Migration skipped/failed: %s (%s)", sql, e)
 
     async def close(self):
         """Close database connection."""
@@ -498,17 +516,20 @@ class Database:
                                         recurrence: str | None = None,
                                         recurrence_days: str | None = None,
                                         auto_pin: bool = False,
-                                        created_by: str = "dashboard") -> int:
+                                        created_by: str = "dashboard",
+                                        cover_path: str | None = None,
+                                        poll_options: str | None = None,
+                                        poll_duration: int | None = None) -> int:
         """Create a new scheduled message. Returns ID."""
         async with self._db.execute(
             """INSERT INTO scheduled_messages
                (text, message_type, channel_topic_id, target_group,
                 scheduled_date, scheduled_time, recurrence, recurrence_days,
-                auto_pin, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                auto_pin, created_by, cover_path, poll_options, poll_duration)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (text, message_type, channel_topic_id, target_group,
              scheduled_date, scheduled_time, recurrence, recurrence_days,
-             auto_pin, created_by),
+             auto_pin, created_by, cover_path, poll_options, poll_duration),
         ) as cursor:
             msg_id = cursor.lastrowid
         await self._db.commit()

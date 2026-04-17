@@ -391,6 +391,20 @@
                         class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 text-[15px] text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-none transition-colors"></textarea>
                 </div>
 
+                <!-- Cover image (optional) -->
+                <div>
+                    <label class="text-xs text-[#71717a] mb-1.5 block">תמונה (אופציונלי)</label>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <input type="file" id="cover-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" onchange="uploadCover(event)">
+                        <button type="button" onclick="document.getElementById('cover-upload-input').click()" class="text-xs text-[#a1a1aa] hover:text-[#fafafa] border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">📁 העלה</button>
+                        <button type="button" onclick="generateCover()" class="text-xs text-amber-400/90 hover:text-amber-300 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">✨ צור עם AI</button>
+                        <button type="button" onclick="scrapeCoverPrompt()" class="text-xs text-sky-400/90 hover:text-sky-300 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">🔗 מקישור</button>
+                        <button type="button" id="cover-clear-btn" onclick="clearCover()" class="hidden text-xs text-red-400/90 hover:text-red-300 border border-red-500/30 px-2 h-9 rounded-md cursor-pointer transition-colors">✖</button>
+                        <span id="cover-status" class="text-[11px] text-[#71717a]"></span>
+                    </div>
+                    <img id="cover-preview" class="hidden mt-2 rounded-md border border-[#272727]" style="max-width:240px;max-height:140px;object-fit:cover;">
+                </div>
+
                 <!-- Channel chips -->
                 <div>
                     <label class="text-xs text-[#71717a] mb-1.5 block">ערוץ</label>
@@ -542,6 +556,7 @@
     <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex-shrink-0">
         <div id="wizard-footer-nav" class="flex items-center justify-between">
             <button id="btn-back" onclick="wizardGo(wizardState.step - 1)" class="hidden text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">חזרה</button>
+            <button id="nav-delete-btn" onclick="deleteEvent()" class="hidden text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 px-3 h-9 rounded-md cursor-pointer transition-colors ml-2">מחק</button>
             <div class="flex-1"></div>
             <button id="btn-next" onclick="wizardGo(wizardState.step + 1)" class="hidden text-sm bg-[#fafafa] text-[#0a0a0a] px-4 h-9 rounded-md font-medium cursor-pointer hover:bg-[#e4e4e7] transition-colors">הבא</button>
         </div>
@@ -574,6 +589,7 @@ var wizardState = {
     pollOptions: ['', ''], pollDuration: 24,
     eventLocation: '', eventMaxAttendees: null,
     editingId: null,
+    coverPath: null, coverUrl: null,
 };
 
 var CHANNEL_COLORS = {
@@ -797,6 +813,93 @@ function toggleDay(day) {
     });
 }
 
+// ─── Cover Image ───
+function setCover(result) {
+    wizardState.coverPath = result.path;
+    wizardState.coverUrl = result.url;
+    var img = document.getElementById('cover-preview');
+    img.src = result.url + '?t=' + Date.now();
+    img.classList.remove('hidden');
+    document.getElementById('cover-clear-btn').classList.remove('hidden');
+    document.getElementById('cover-status').textContent = '';
+}
+
+function clearCover() {
+    wizardState.coverPath = null;
+    wizardState.coverUrl = null;
+    var img = document.getElementById('cover-preview');
+    img.classList.add('hidden');
+    img.src = '';
+    document.getElementById('cover-clear-btn').classList.add('hidden');
+    document.getElementById('cover-upload-input').value = '';
+    document.getElementById('cover-status').textContent = '';
+}
+
+async function uploadCover(event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    document.getElementById('cover-status').textContent = 'מעלה...';
+    var fd = new FormData();
+    fd.append('file', file);
+    try {
+        var r = await fetch('/api/covers/upload', {method: 'POST', body: fd});
+        if (!r.ok) throw new Error(await r.text());
+        var data = await r.json();
+        setCover(data);
+        showToast('תמונה הועלתה');
+    } catch (e) {
+        console.error(e);
+        document.getElementById('cover-status').textContent = 'שגיאה';
+        showToast('העלאה נכשלה', 'error');
+    }
+}
+
+async function generateCover() {
+    var suggested = wizardState.text ? wizardState.text.slice(0, 200) : '';
+    var prompt = window.prompt('תאר את התמונה שברצונך ליצור (16:9):', suggested);
+    if (!prompt) return;
+    document.getElementById('cover-status').textContent = '✨ יוצר...';
+    try {
+        var r = await fetch('/api/covers/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({prompt: prompt})
+        });
+        if (!r.ok) {
+            var err = await r.text();
+            throw new Error(err);
+        }
+        var data = await r.json();
+        setCover(data);
+        showToast('תמונה נוצרה');
+    } catch (e) {
+        console.error(e);
+        document.getElementById('cover-status').textContent = 'שגיאה';
+        showToast('יצירה נכשלה: ' + (e.message || e), 'error');
+    }
+}
+
+async function scrapeCoverPrompt() {
+    var url = window.prompt('הדבק כתובת URL לאתר (נחלץ תמונה ראשית):');
+    if (!url) return;
+    document.getElementById('cover-status').textContent = 'מחפש תמונה...';
+    try {
+        var r = await fetch('/api/covers/scrape', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url: url})
+        });
+        if (!r.ok) throw new Error(await r.text());
+        var data = await r.json();
+        setCover(data);
+        showToast('תמונה נחלצה');
+    } catch (e) {
+        console.error(e);
+        document.getElementById('cover-status').textContent = 'שגיאה';
+        showToast('שגיאה בחילוץ', 'error');
+    }
+}
+
 // ─── Poll Options ───
 function updatePollOption(idx, val) {
     wizardState.pollOptions[idx] = val;
@@ -988,8 +1091,41 @@ function openEditDrawer(id, props, start) {
         if (recSelect) recSelect.value = wizardState.recurrence;
     }
 
-    // Show delete button
+    // Restore cover if present on existing event
+    if (props.coverPath) {
+        setCover({path: props.coverPath, url: '/media/' + props.coverPath});
+    }
+
+    // Show delete buttons first so a later throw in hydration can't hide them
     document.getElementById('edit-delete-btn').classList.remove('hidden');
+    document.getElementById('nav-delete-btn').classList.remove('hidden');
+
+    // Restore poll options + duration if this is a poll
+    if (wizardState.type === 'poll') {
+        var savedOpts = Array.isArray(props.pollOptions) ? props.pollOptions.slice() : [];
+        while (savedOpts.length < 2) savedOpts.push('');
+        wizardState.pollOptions = savedOpts;
+        wizardState.pollDuration = props.pollDuration || 24;
+
+        var pollList = document.getElementById('poll-options-list');
+        if (pollList) {
+            pollList.innerHTML = '';
+            savedOpts.forEach(function(val, idx) {
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.dir = 'rtl';
+                input.placeholder = 'אפשרות ' + (idx + 1);
+                input.value = val || '';
+                input.className = 'poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors';
+                input.oninput = (function(i) {
+                    return function() { updatePollOption(i, this.value); };
+                })(idx);
+                pollList.appendChild(input);
+            });
+        }
+        var durEl = document.getElementById('poll-duration');
+        if (durEl) durEl.value = String(wizardState.pollDuration);
+    }
 
     // Close mobile sidebar if open
     var mobileOverlay = document.getElementById('mobile-overlay');
@@ -1016,6 +1152,16 @@ function resetWizard() {
     wizardState.eventLocation = '';
     wizardState.eventMaxAttendees = null;
     wizardState.editingId = null;
+    wizardState.coverPath = null;
+    wizardState.coverUrl = null;
+    var coverImg = document.getElementById('cover-preview');
+    if (coverImg) { coverImg.classList.add('hidden'); coverImg.src = ''; }
+    var coverClear = document.getElementById('cover-clear-btn');
+    if (coverClear) coverClear.classList.add('hidden');
+    var coverStatus = document.getElementById('cover-status');
+    if (coverStatus) coverStatus.textContent = '';
+    var coverInput = document.getElementById('cover-upload-input');
+    if (coverInput) coverInput.value = '';
 
     // Reset title
     document.querySelector('#create-drawer .text-base').textContent = 'הודעה חדשה';
@@ -1097,6 +1243,9 @@ async function scheduleMsg() {
                     channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
                     recurrence: wizardState.recurrence || null,
                     auto_pin: wizardState.autoPin,
+                    cover_path: wizardState.coverPath,
+                    poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
+                    poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
                 })
             });
             showToast('עודכן');
@@ -1111,6 +1260,7 @@ async function scheduleMsg() {
                 recurrence: wizardState.recurrence || null,
                 auto_pin: wizardState.autoPin,
                 target_group: 'main',
+                cover_path: wizardState.coverPath,
                 poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
                 poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
             });
@@ -1147,6 +1297,10 @@ async function sendNowFromDrawer(target) {
             text: finalText,
             topic_id: wizardState.channelTopicId || null,
             target: target,
+            cover_path: wizardState.coverPath,
+            message_type: wizardState.type || 'custom',
+            poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
+            poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
         });
         showToast(target === 'test' ? 'נשלח ל-Den' : 'נשלח');
         closeDrawer();
@@ -1166,6 +1320,8 @@ document.addEventListener('DOMContentLoaded', function() {
         initialDate: '{{ now_date }}',
         contentHeight: 'auto',
         dayMaxEvents: false,
+        defaultTimedEventDuration: '00:01',
+        nextDayThreshold: '23:59:59',
 
         headerToolbar: {
             start: 'title',
