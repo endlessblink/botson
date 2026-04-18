@@ -17,3 +17,11 @@ build/
 media/showcase/node_modules/
 media/showcase/.cache/
 **/node_modules/
+
+# VPS-local state — never commit (secrets, per-host tooling, backups)
+.doppler/
+.claude/
+.claude.json
+.codex
+.playwright-mcp/
+backups/
