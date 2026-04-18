@@ -1,0 +1,330 @@
+puzzles:
+  - emoji_prompt: "🦁👑"
+    answer_he: "מלך האריות"
+    answer_en: "The Lion King"
+    aliases:
+      - "Lion King"
+      - "lion king"
+      - "המלך האריה"
+      - "ממלכת האריות"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🧙‍♂️💍🌋"
+    answer_he: "שר הטבעות"
+    answer_en: "The Lord of the Rings"
+    aliases:
+      - "Lord of the Rings"
+      - "LOTR"
+      - "שר הטבעות: אחוות הטבעת"
+      - "הלורד אוף דה רינגס"
+    difficulty: 2
+    media_type: movie
+
+  - emoji_prompt: "⚗️💊🏜️"
+    answer_he: "שובר שורות"
+    answer_en: "Breaking Bad"
+    aliases:
+      - "breaking bad"
+      - "ברייקינג באד"
+      - "וולטר ווייט"
+      - "הייזנברג"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "🕷️👦🗽"
+    answer_he: "ספיידרמן"
+    answer_en: "Spider-Man"
+    aliases:
+      - "Spider Man"
+      - "spiderman"
+      - "איש העכביש"
+      - "ספיידר-מן"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "👨‍🍳🐀🇫🇷"
+    answer_he: "רטטוי"
+    answer_en: "Ratatouille"
+    aliases:
+      - "ratatouille"
+      - "רטאטוי"
+      - "רמי"
+      - "העכבר השף"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🐠🔍🌊"
+    answer_he: "מוצאים את נמו"
+    answer_en: "Finding Nemo"
+    aliases:
+      - "finding nemo"
+      - "נמו"
+      - "מחפשים את נמו"
+      - "דורי ונמו"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "👽📞🏠"
+    answer_he: "אי.טי. חבר מכוכב אחר"
+    answer_en: "E.T. the Extra-Terrestrial"
+    aliases:
+      - "E.T."
+      - "ET"
+      - "אי טי"
+      - "אי.טי"
+    difficulty: 2
+    media_type: movie
+
+  - emoji_prompt: "❄️👭⛄"
+    answer_he: "לשבור את הקרח"
+    answer_en: "Frozen"
+    aliases:
+      - "frozen"
+      - "פרוזן"
+      - "אנה ואלזה"
+      - "לשבור ת'קרח"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🦖🏝️🚙"
+    answer_he: "פארק היורה"
+    answer_en: "Jurassic Park"
+    aliases:
+      - "jurassic park"
+      - "ג'וראסיק פארק"
+      - "פארק ג'ורסיק"
+      - "עולם היורה"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🚢🧊💔"
+    answer_he: "טיטאניק"
+    answer_en: "Titanic"
+    aliases:
+      - "titanic"
+      - "טיטניק"
+      - "ג'ק ורוז"
+      - "הספינה שטבעה"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🤖🟥💊🟦"
+    answer_he: "מטריקס"
+    answer_en: "The Matrix"
+    aliases:
+      - "matrix"
+      - "the matrix"
+      - "המטריקס"
+      - "ניו"
+    difficulty: 2
+    media_type: movie
+
+  - emoji_prompt: "🎓🧙‍♂️⚡"
+    answer_he: "הארי פוטר"
+    answer_en: "Harry Potter"
+    aliases:
+      - "harry potter"
+      - "Harry Potter and the Philosopher's Stone"
+      - "הארי פוטר ואבן החכמים"
+      - "הוגוורטס"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🤠🧸🚀"
+    answer_he: "צעצוע של סיפור"
+    answer_en: "Toy Story"
+    aliases:
+      - "toy story"
+      - "טוי סטורי"
+      - "וודי ובאז"
+      - "צעצועים חיים"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🏠👦🎄"
+    answer_he: "שכחו אותי בבית"
+    answer_en: "Home Alone"
+    aliases:
+      - "home alone"
+      - "הום אלון"
+      - "קווין מקליסטר"
+      - "ילד לבד בבית"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "🚗⏰⚡"
+    answer_he: "בחזרה לעתיד"
+    answer_en: "Back to the Future"
+    aliases:
+      - "back to the future"
+      - "בחזרה אל העתיד"
+      - "מרטי מקפליי"
+      - "דלוריאן"
+    difficulty: 2
+    media_type: movie
+
+  - emoji_prompt: "🦈🌊🚤"
+    answer_he: "מלתעות"
+    answer_en: "Jaws"
+    aliases:
+      - "jaws"
+      - "ג'וז"
+      - "הכריש"
+      - "כריש בחוף"
+    difficulty: 2
+    media_type: movie
+
+  - emoji_prompt: "👻🚫🚗"
+    answer_he: "מכסחי השדים"
+    answer_en: "Ghostbusters"
+    aliases:
+      - "ghostbusters"
+      - "גוסטבאסטרס"
+      - "גוסט באסטרס"
+      - "ציידי רוחות"
+    difficulty: 2
+    media_type: movie
+
+  - emoji_prompt: "🧌🫏👸"
+    answer_he: "שרק"
+    answer_en: "Shrek"
+    aliases:
+      - "shrek"
+      - "שרק 1"
+      - "החמור ופיונה"
+      - "אוגר ירוק"
+    difficulty: 1
+    media_type: movie
+
+  - emoji_prompt: "👨‍👩‍👧‍👦🟨📺"
+    answer_he: "משפחת סימפסון"
+    answer_en: "The Simpsons"
+    aliases:
+      - "the simpsons"
+      - "simpsons"
+      - "הסימפסונים"
+      - "הומר סימפסון"
+    difficulty: 1
+    media_type: series
+
+  - emoji_prompt: "👑⚔️🐉"
+    answer_he: "משחקי הכס"
+    answer_en: "Game of Thrones"
+    aliases:
+      - "game of thrones"
+      - "GoT"
+      - "גיים אוף ת'רונס"
+      - "ווסטרוז"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "☕🛋️👫"
+    answer_he: "חברים"
+    answer_en: "Friends"
+    aliases:
+      - "friends"
+      - "פרנדס"
+      - "רייצ'ל ורוס"
+      - "סנטרל פרק"
+    difficulty: 1
+    media_type: series
+
+  - emoji_prompt: "🚲🔦🧇"
+    answer_he: "דברים מוזרים"
+    answer_en: "Stranger Things"
+    aliases:
+      - "stranger things"
+      - "סטריינג'ר ת'ינגס"
+      - "עולם הפוך"
+      - "אילבן"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "📺🪞⚫"
+    answer_he: "מראה שחורה"
+    answer_en: "Black Mirror"
+    aliases:
+      - "black mirror"
+      - "בלאק מירור"
+      - "מראה שחורה סדרה"
+      - "טכנולוגיה דיסטופית"
+    difficulty: 3
+    media_type: series
+
+  - emoji_prompt: "🧑‍💼📄😂"
+    answer_he: "המשרד"
+    answer_en: "The Office"
+    aliases:
+      - "the office"
+      - "אופיס"
+      - "המשרד האמריקאי"
+      - "מייקל סקוט"
+    difficulty: 1
+    media_type: series
+
+  - emoji_prompt: "👨‍🍳🐻🍽️"
+    answer_he: "הדוב"
+    answer_en: "The Bear"
+    aliases:
+      - "the bear"
+      - "הבר"
+      - "כרמי"
+      - "מסעדה בשיקגו"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "🪖👶⭐"
+    answer_he: "המנדלוריאן"
+    answer_en: "The Mandalorian"
+    aliases:
+      - "the mandalorian"
+      - "mandalorian"
+      - "גרוגו"
+      - "בייבי יודה"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "🖤🧠👧"
+    answer_he: "וונסדיי"
+    answer_en: "Wednesday"
+    aliases:
+      - "wednesday"
+      - "Wednesday Addams"
+      - "וונסדי"
+      - "משפחת אדמס"
+    difficulty: 1
+    media_type: series
+
+  - emoji_prompt: "🍄🧟‍♂️🚶"
+    answer_he: "האחרונים מבינינו"
+    answer_en: "The Last of Us"
+    aliases:
+      - "the last of us"
+      - "last of us"
+      - "אלי וג'ואל"
+      - "הפטריה"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "🦑🎮💀"
+    answer_he: "משחק הדיונון"
+    answer_en: "Squid Game"
+    aliases:
+      - "squid game"
+      - "סקוויד גיים"
+      - "דיונון"
+      - "אור אדום אור ירוק"
+    difficulty: 2
+    media_type: series
+
+  - emoji_prompt: "🕵️‍♂️🔍🎻"
+    answer_he: "שרלוק"
+    answer_en: "Sherlock"
+    aliases:
+      - "sherlock"
+      - "שרלוק הולמס"
+      - "בנדיקט קמברבאץ'"
+      - "ווטסון"
+    difficulty: 2
+    media_type: series

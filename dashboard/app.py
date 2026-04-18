@@ -1066,6 +1066,43 @@ async def reset_trivia(request: Request, db: Database = Depends(get_db)):
     return {"status": "ok"}
 
 
+TRIVIA_ROUND_TRIGGER = Path(__file__).parent.parent / "data" / "trivia_round_trigger.json"
+TRIVIA_ROUND_STOP = Path(__file__).parent.parent / "data" / "trivia_round_stop"
+
+
+@app.post("/api/trivia/round/start")
+async def start_trivia_round(request: Request):
+    """Write a trigger file that the bot's trigger_watcher picks up within ~10s."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    target = (data.get("target") or "test").lower()
+    pre_roll_s = int(data.get("pre_roll_s", 30))
+    pre_roll_s = max(5, min(3600, pre_roll_s))
+
+    main_group = int(os.getenv("GROUP_ID", "0"))
+    test_group = int(os.getenv("TEST_GROUP_ID", "0"))
+    chat_id = test_group if target == "test" else main_group
+    if not chat_id:
+        raise HTTPException(status_code=400, detail=f"No chat id for target '{target}'")
+
+    payload = {"chat_id": chat_id, "pre_roll_s": pre_roll_s, "thread_id": None}
+    TRIVIA_ROUND_TRIGGER.parent.mkdir(parents=True, exist_ok=True)
+    TRIVIA_ROUND_TRIGGER.write_text(json.dumps(payload), encoding="utf-8")
+    logger.info("trivia_round: trigger written target=%s pre_roll=%ss chat=%s", target, pre_roll_s, chat_id)
+    return {"status": "ok", "chat_id": chat_id, "pre_roll_s": pre_roll_s}
+
+
+@app.post("/api/trivia/round/stop")
+async def stop_trivia_round(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    TRIVIA_ROUND_STOP.parent.mkdir(parents=True, exist_ok=True)
+    TRIVIA_ROUND_STOP.write_text("stop")
+    return {"status": "ok"}
+
+
 # ── Generate API ─────────────────────────────────────────
 
 COMMUNITY_CONTEXT = """קהילת "אלהוריים וזה" — קהילת צ'ילדפרי (ללא ילדים מבחירה) בטלגרם.
@@ -2060,6 +2097,49 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
 # ── Review Page ──────────────────────────────────────────
 
 PENDING_REVIEWS_PATH = Path(__file__).parent.parent / "data" / "pending_reviews.json"
+EMOJI_PUZZLE_REVIEW_FLAG = Path(__file__).parent.parent / "data" / ".emoji_puzzle_reviews_seeded"
+
+
+def _emoji_puzzle_review_items():
+    try:
+        data = load_yaml("emoji_puzzles.yaml") or {}
+    except FileNotFoundError:
+        return []
+
+    puzzles = data.get("puzzles", []) or []
+    total = len(puzzles)
+    items = []
+    for idx, puzzle in enumerate(puzzles, start=1):
+        aliases = puzzle.get("aliases", []) or []
+        aliases_text = " | ".join(aliases[:4]) if aliases else "—"
+        items.append({
+            "id": f"emoji-puzzle-seed-{idx:02d}",
+            "title": f"🎬 Emoji Night — seed {idx:02d}/{total}",
+            "channel": "סרטים סדרות וכו (54)",
+            "when": "",
+            "preview": (
+                f"אימוג'ים: {puzzle.get('emoji_prompt', '')}\n"
+                f"עברית: {puzzle.get('answer_he', '')}\n"
+                f"English: {puzzle.get('answer_en', '')}\n"
+                f"כינויים לבדיקה: {aliases_text}"
+            ),
+            "note": (
+                f"Emoji Night seed review · {puzzle.get('media_type', 'movie')} · "
+                f"difficulty {puzzle.get('difficulty', 2)}"
+            ),
+        })
+    return items
+
+
+def _ensure_emoji_puzzle_reviews(items):
+    if EMOJI_PUZZLE_REVIEW_FLAG.exists():
+        return items
+
+    seeded = items + _emoji_puzzle_review_items()
+    EMOJI_PUZZLE_REVIEW_FLAG.parent.mkdir(parents=True, exist_ok=True)
+    EMOJI_PUZZLE_REVIEW_FLAG.write_text("seeded\n", encoding="utf-8")
+    _save_pending_reviews(seeded)
+    return seeded
 
 
 def _default_pending_reviews():
@@ -2118,12 +2198,13 @@ def _default_pending_reviews():
 def _load_pending_reviews():
     if PENDING_REVIEWS_PATH.exists():
         try:
-            return json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
+            items = json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
+            return _ensure_emoji_puzzle_reviews(items)
         except Exception:
             logger.exception("[review] failed to read %s — reseeding", PENDING_REVIEWS_PATH)
     items = _default_pending_reviews()
     _save_pending_reviews(items)
-    return items
+    return _ensure_emoji_puzzle_reviews(items)
 
 
 def _save_pending_reviews(items):

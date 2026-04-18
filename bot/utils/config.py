@@ -28,6 +28,15 @@ def get_settings() -> dict:
     return load_yaml("settings.yaml")
 
 
+def get_emoji_puzzles() -> list[dict]:
+    """Load the seed emoji-puzzle pool."""
+    try:
+        data = load_yaml("emoji_puzzles.yaml")
+    except FileNotFoundError:
+        return []
+    return data.get("puzzles", []) or []
+
+
 def get_spam_patterns() -> list[str]:
     """Load spam regex patterns."""
     data = load_yaml("spam_patterns.yaml")

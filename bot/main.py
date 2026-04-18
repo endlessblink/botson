@@ -12,10 +12,10 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, topic_tracker, topic_router, polls, calendar_pop
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, topic_tracker, topic_router, polls, calendar_pop
 from .handlers.calendar import check_and_send_due_messages
 from .scheduler.jobs import setup_jobs
-from .utils.config import BOT_TOKEN, get_prompts
+from .utils.config import BOT_TOKEN, get_emoji_puzzles, get_prompts
 
 # Configure logging — file + stdout
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -101,6 +101,10 @@ async def post_init(app: Application):
     # Seed prompts from YAML
     prompts = get_prompts()
     await db.seed_prompts(prompts)
+
+    # Seed emoji-puzzle pool from YAML
+    emoji_puzzles = get_emoji_puzzles()
+    await db.seed_emoji_puzzles(emoji_puzzles)
 
     # Setup reload watcher (checks for data/reload flag file every 5s)
     _setup_reload_watcher(app)
@@ -273,7 +277,8 @@ def main():
     levels.register(app)     # Group 3
     discussions.register(app)
     events.register(app)     # Event management
-    trivia.register(app)     # Trivia questions
+    trivia.register(app)     # Trivia questions (single-question)
+    trivia_round.register(app)   # Trivia round — 5 questions, +20 first-place bonus
     polls.register(app)          # Inline button polls with vote tracking
     calendar_pop.register(app)   # Calendar popup demo (option-3 prototype)
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)

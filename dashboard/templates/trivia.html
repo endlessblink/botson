@@ -22,6 +22,34 @@
     <button onclick="resetTrivia()" class="bg-transparent text-[#fca5a5] hover:bg-[#7f1d1d]/20 h-9 px-4 rounded-md text-sm cursor-pointer transition-colors">איפוס ניקוד</button>
 </div>
 
+<!-- Live Round Launcher -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
+    <div class="flex items-center justify-between mb-3">
+        <div>
+            <h3 class="text-sm font-medium text-[#fafafa]">סיבוב טריוויה חי</h3>
+            <p class="text-xs text-[#71717a] mt-1">5 שאלות · 30 שניות לכל אחת · 12 נק׳ לתשובה נכונה · +20 בונוס מקום ראשון</p>
+        </div>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+            <label class="block text-xs text-[#71717a] mb-1">קבוצה</label>
+            <select id="round-target" class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+                <option value="test">Sherlocks Den (בדיקה)</option>
+                <option value="main">הקבוצה הראשית</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-[#71717a] mb-1">השהייה עד שאלה 1 (שניות)</label>
+            <input id="round-preroll" type="number" min="5" max="3600" value="30"
+                   class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+        </div>
+        <div class="flex items-end gap-2">
+            <button onclick="startTriviaRound()" class="bg-emerald-500 text-[#0a0a0a] hover:bg-emerald-400 h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">התחל סיבוב</button>
+            <button onclick="stopTriviaRound()" class="bg-transparent border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors">עצור</button>
+        </div>
+    </div>
+</div>
+
 <!-- Telegram Preview Card -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
     <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — שאלת טריוויה</p>
@@ -184,6 +212,26 @@ async function saveTrivia() {
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
         showToast('שגיאה בשמירה', 'error');
+    }
+}
+
+async function startTriviaRound() {
+    var target = document.getElementById('round-target').value;
+    var preroll = parseInt(document.getElementById('round-preroll').value) || 30;
+    try {
+        await apiCall('/api/trivia/round/start', { target: target, pre_roll_s: preroll });
+        showToast('סיבוב טריוויה יורד! הטריגר נשלח לבוט');
+    } catch (e) {
+        showToast('שגיאה בהתחלת הסיבוב', 'error');
+    }
+}
+
+async function stopTriviaRound() {
+    try {
+        await apiCall('/api/trivia/round/stop', {});
+        showToast('נשלחה בקשה לעצור');
+    } catch (e) {
+        showToast('שגיאה בעצירה', 'error');
     }
 }
 

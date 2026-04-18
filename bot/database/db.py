@@ -1,5 +1,6 @@
 """Async database connection and query helpers."""
 
+import json
 import os
 import logging
 from datetime import datetime, date, timedelta
@@ -155,6 +156,34 @@ class Database:
                 )
         await self._db.commit()
         logger.info("Seeded %d prompts", sum(len(v) for v in prompts.values()))
+
+    async def seed_emoji_puzzles(self, puzzles: list[dict]):
+        """Seed emoji puzzles from YAML if the pool is still empty."""
+        async with self._db.execute("SELECT COUNT(*) FROM emoji_puzzles") as cursor:
+            count = (await cursor.fetchone())[0]
+
+        if count > 0 or not puzzles:
+            return
+
+        for puzzle in puzzles:
+            aliases = puzzle.get("aliases", []) or []
+            await self._db.execute(
+                """INSERT INTO emoji_puzzles
+                   (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    puzzle["emoji_prompt"],
+                    puzzle["answer_he"],
+                    puzzle["answer_en"],
+                    json.dumps(aliases, ensure_ascii=False),
+                    int(puzzle.get("difficulty", 2)),
+                    puzzle.get("media_type", "movie"),
+                    1 if puzzle.get("enabled", True) else 0,
+                    _now_il(),
+                ),
+            )
+        await self._db.commit()
+        logger.info("Seeded %d emoji puzzles", len(puzzles))
 
     async def get_random_prompt(self, prompt_type: str) -> str:
         """Get a random unused prompt. Reset if all used."""
