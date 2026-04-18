@@ -167,4 +167,14 @@ CREATE TABLE IF NOT EXISTS emoji_puzzle_rounds (
 );
 CREATE INDEX IF NOT EXISTS idx_emoji_rounds_active ON emoji_puzzle_rounds(status, message_id);
 CREATE INDEX IF NOT EXISTS idx_emoji_rounds_sent ON emoji_puzzle_rounds(sent_at);
+
+CREATE TABLE IF NOT EXISTS poll_votes (
+    message_id INTEGER NOT NULL,
+    option_key TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    display_name TEXT NOT NULL,
+    voted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, option_key, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_poll_votes_msg ON poll_votes(message_id);
 """

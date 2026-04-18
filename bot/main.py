@@ -114,6 +114,12 @@ async def post_init(app: Application):
     except Exception as e:
         logger.error("Bootstrap materialize failed: %s", e)
 
+    # Rehydrate poll vote cache from DB so a restart doesn't show empty buttons.
+    try:
+        await polls.hydrate_from_db(db)
+    except Exception as e:
+        logger.error("polls hydrate failed: %s", e)
+
     logger.info("Bot initialized successfully")
 
 

@@ -891,3 +891,87 @@ class Database:
                 "rounds_total": 0, "rounds_solved": 0,
                 "rounds_revealed": 0, "rounds_active": 0,
             }
+
+    # ── Poll Votes (inline-button polls) ─────────────────────
+
+    async def set_poll_vote(self, message_id: int, option_key: str,
+                            user_id: int, display_name: str):
+        """Record (or update) a vote. Idempotent on the (msg, opt, user) PK."""
+        await self._db.execute(
+            """INSERT INTO poll_votes (message_id, option_key, user_id, display_name, voted_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(message_id, option_key, user_id) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   voted_at = excluded.voted_at""",
+            (message_id, option_key, user_id, display_name, _now_il()),
+        )
+        await self._db.commit()
+
+    async def delete_poll_vote(self, message_id: int, option_key: str, user_id: int):
+        """Remove a vote (user un-clicked the option)."""
+        await self._db.execute(
+            "DELETE FROM poll_votes WHERE message_id = ? AND option_key = ? AND user_id = ?",
+            (message_id, option_key, user_id),
+        )
+        await self._db.commit()
+
+    async def get_poll_votes(self, message_id: int) -> list[dict]:
+        """All votes for one poll message — used to hydrate in-memory cache on bot startup."""
+        async with self._db.execute(
+            """SELECT message_id, option_key, user_id, display_name, voted_at
+               FROM poll_votes WHERE message_id = ? ORDER BY voted_at""",
+            (message_id,),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def load_all_poll_votes(self) -> list[dict]:
+        """All votes across all polls — used at bot startup to rebuild _votes cache."""
+        async with self._db.execute(
+            """SELECT message_id, option_key, user_id, display_name, voted_at
+               FROM poll_votes ORDER BY message_id, voted_at"""
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_poll_results(self, message_id: int) -> list[dict]:
+        """Aggregate vote counts per option for one poll. Returns [{option_key, count, voters[]}]."""
+        async with self._db.execute(
+            """SELECT option_key,
+                      COUNT(*) AS count,
+                      GROUP_CONCAT(display_name, ', ') AS voters
+               FROM poll_votes
+               WHERE message_id = ?
+               GROUP BY option_key
+               ORDER BY count DESC, option_key""",
+            (message_id,),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def list_recent_polls(self, limit: int = 20) -> list[dict]:
+        """Recent scheduled polls with vote totals. Joins scheduled_messages → poll_votes.
+
+        Returns the source poll record (text, options, sent_at) plus an
+        `options_with_counts` dict mapping option_key → count, for the dashboard
+        'Create event from poll' picker.
+        """
+        async with self._db.execute(
+            """SELECT sm.id AS schedule_id, sm.text, sm.poll_options,
+                      sm.sent_message_id AS message_id, sm.sent_at,
+                      sm.channel_topic_id, sm.target_group,
+                      COALESCE(SUM(pv_count.n), 0) AS total_votes
+               FROM scheduled_messages sm
+               LEFT JOIN (
+                   SELECT message_id, COUNT(*) AS n
+                   FROM poll_votes GROUP BY message_id
+               ) pv_count ON pv_count.message_id = sm.sent_message_id
+               WHERE sm.message_type = 'poll' AND sm.sent_message_id IS NOT NULL
+               GROUP BY sm.id
+               ORDER BY sm.sent_at DESC
+               LIMIT ?""",
+            (limit,),
+        ) as cursor:
+            polls = [dict(r) for r in await cursor.fetchall()]
+
+        for poll in polls:
+            results = await self.get_poll_results(poll["message_id"])
+            poll["options_with_counts"] = {r["option_key"]: r for r in results}
+        return polls

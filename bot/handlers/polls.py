@@ -1,7 +1,9 @@
 """Inline button polls with vote tracking.
 
-Handles callback_data starting with 'poll_'. Tracks votes in-memory
-and updates button text with voter names and counts.
+Handles callback_data starting with 'poll_'. Tracks votes in-memory AND
+persists every toggle to the `poll_votes` table so:
+  - Bot restarts don't wipe vote counts (cache is rehydrated on startup)
+  - The dashboard can read poll results to power "Create event from poll"
 
 Options are auto-discovered from the existing buttons on first click,
 so no separate registration step is needed.
@@ -13,15 +15,30 @@ from collections import defaultdict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
 
+from ..database.db import Database
 from ..utils.helpers import get_display_name
 
 logger = logging.getLogger(__name__)
 
-# In-memory vote storage: {message_id: {option_key: {user_id: display_name}}}
+# In-memory cache. Always treated as a write-through cache backed by poll_votes.
+# {message_id: {option_key: {user_id: display_name}}}
 _votes: dict[int, dict[str, dict[int, str]]] = defaultdict(lambda: defaultdict(dict))
 
-# Store original option labels: {message_id: {option_key: label}}
+# Option labels per message: {message_id: {option_key: label}}
 _labels: dict[int, dict[str, str]] = {}
+
+
+async def hydrate_from_db(db: Database):
+    """Rebuild the in-memory _votes cache from poll_votes on bot startup.
+
+    Without this, a bot restart would show zero votes on the buttons until
+    every voter clicked again. Labels are still discovered lazily on first
+    click — they're not persisted because they live in scheduled_messages.poll_options.
+    """
+    rows = await db.load_all_poll_votes()
+    for r in rows:
+        _votes[r["message_id"]][r["option_key"]][r["user_id"]] = r["display_name"]
+    logger.info("polls: hydrated %d votes across %d messages", len(rows), len(_votes))
 
 
 def _discover_labels(message) -> dict[str, str]:
@@ -69,13 +86,25 @@ async def handle_poll_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("שגיאה — לא נמצאו אפשרויות")
         return
 
+    db: Database | None = context.bot_data.get("db")
+
     # Toggle vote
     if user.id in _votes[msg_id][option_key]:
         del _votes[msg_id][option_key][user.id]
+        if db:
+            try:
+                await db.delete_poll_vote(msg_id, option_key, user.id)
+            except Exception as e:  # noqa: BLE001
+                logger.error("polls: failed to persist vote removal: %s", e)
         logger.info("User %s removed vote for %s on msg %d", user_name, option_key, msg_id)
         await query.answer("הסרת את הבחירה ✖️")
     else:
         _votes[msg_id][option_key][user.id] = user_name
+        if db:
+            try:
+                await db.set_poll_vote(msg_id, option_key, user.id, user_name)
+            except Exception as e:  # noqa: BLE001
+                logger.error("polls: failed to persist vote: %s", e)
         logger.info("User %s voted for %s on msg %d", user_name, option_key, msg_id)
         await query.answer("נרשמת! ✅")
 

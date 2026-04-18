@@ -680,6 +680,143 @@ async def reset_levels(request: Request, db: Database = Depends(get_db)):
     return {"status": "ok"}
 
 
+# ── Public Calendar Mini App ─────────────────────────────
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_mini_app(request: Request, db: Database = Depends(get_db)):
+    """Public calendar page rendered as a Telegram Mini App.
+
+    No auth — designed to be opened by group members from the bot's
+    web_app inline button.
+    """
+    import calendar as _cal
+    from datetime import date as _date
+    from collections import defaultdict
+
+    HEB_DOW = ["א", "ב", "ג", "ד", "ה", "ו", "ש"]
+    HEB_MONTHS = {1: "ינואר", 2: "פברואר", 3: "מרץ", 4: "אפריל",
+                  5: "מאי", 6: "יוני", 7: "יולי", 8: "אוגוסט",
+                  9: "ספטמבר", 10: "אוקטובר", 11: "נובמבר", 12: "דצמבר"}
+    TYPE_STYLE = {
+        "morning":    {"emoji": "🌞", "label": "בוקר",  "css": "bg-amber-500/20 text-amber-200 border-amber-500/40"},
+        "evening":    {"emoji": "🌙", "label": "ערב",   "css": "bg-indigo-500/20 text-indigo-200 border-indigo-500/40"},
+        "discussion": {"emoji": "💬", "label": "שיחה",  "css": "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"},
+        "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
+        "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
+    }
+
+    today = _date.today()
+    year, month = today.year, today.month
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = _date(year, month, 1).isoformat()
+    month_end = _date(year, month, last_day).isoformat()
+
+    sched_rows = []
+    async with db._db.execute(
+        """SELECT scheduled_date, scheduled_time, message_type FROM scheduled_messages
+           WHERE status='scheduled' AND scheduled_date BETWEEN ? AND ?
+           ORDER BY scheduled_date, scheduled_time""",
+        (month_start, month_end),
+    ) as cur:
+        sched_rows = await cur.fetchall()
+
+    event_rows = []
+    async with db._db.execute(
+        """SELECT event_date, event_time FROM events
+           WHERE active=1 AND event_date BETWEEN ? AND ?
+           ORDER BY event_date, event_time""",
+        (month_start, month_end),
+    ) as cur:
+        event_rows = await cur.fetchall()
+
+    by_day = defaultdict(list)
+    for r in sched_rows:
+        meta = TYPE_STYLE.get(r["message_type"], TYPE_STYLE["event"])
+        by_day[r["scheduled_date"]].append({
+            "emoji": meta["emoji"], "css": meta["css"],
+            "time": (r["scheduled_time"] or "")[:5],
+        })
+    for r in event_rows:
+        meta = TYPE_STYLE["event"]
+        by_day[r["event_date"]].append({
+            "emoji": meta["emoji"], "css": meta["css"],
+            "time": (r["event_time"] or "")[:5] or "—",
+        })
+
+    _cal.setfirstweekday(_cal.SUNDAY)
+    raw_weeks = _cal.monthcalendar(year, month)
+    weeks = []
+    for week in raw_weeks:
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(None)
+            else:
+                iso = _date(year, month, day).isoformat()
+                row.append({
+                    "day": day,
+                    "is_today": day == today.day,
+                    "is_past": day < today.day,
+                    "chips": by_day.get(iso, []),
+                })
+        weeks.append(row)
+
+    # Drop "event" key from legend if no manual events exist this month
+    legend = {k: v for k, v in TYPE_STYLE.items() if k != "event"}
+
+    return templates.TemplateResponse(request, name="calendar.html", context={
+        "year": year,
+        "month_name": HEB_MONTHS[month],
+        "heb_dow": HEB_DOW,
+        "weeks": weeks,
+        "legend": legend,
+    })
+
+
+# ── Polls API (read-only — feeds the Events "from poll" picker) ──
+
+@app.get("/api/polls")
+async def list_polls_api(request: Request, db: Database = Depends(get_db)):
+    """Recent inline-button polls + per-option vote counts.
+
+    Used by the Events page "Create from poll" tab to let the admin pick a
+    closed poll's winning option as the basis for a new event. Each entry
+    decodes the original `poll_options` JSON (option labels) and merges it
+    with the live vote counts from `poll_votes`.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    polls = await db.list_recent_polls(limit=30)
+    out = []
+    for p in polls:
+        try:
+            labels = json.loads(p.get("poll_options") or "[]")
+        except (TypeError, ValueError):
+            labels = []
+        options = []
+        for idx, label in enumerate(labels):
+            key = str(idx)
+            row = p["options_with_counts"].get(key) or {"count": 0, "voters": ""}
+            options.append({
+                "key": key,
+                "label": label,
+                "count": row["count"],
+                "voters": row.get("voters") or "",
+            })
+        out.append({
+            "schedule_id": p["schedule_id"],
+            "message_id": p["message_id"],
+            "text": p["text"],
+            "sent_at": p["sent_at"],
+            "topic_id": p.get("channel_topic_id"),
+            "target_group": p.get("target_group"),
+            "total_votes": p["total_votes"],
+            "options": options,
+        })
+    return {"polls": out}
+
+
 # ── Events API ───────────────────────────────────────────
 
 @app.get("/events", response_class=HTMLResponse)
