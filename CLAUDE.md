@@ -49,6 +49,24 @@ The dashboard is the primary control interface. Users should never need to use T
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
 - **Topic routing** (off-topic detection) runs in Phase 0 `observe` mode — classifies messages against `config/topic_rules.yaml` and logs to `topic_observations` table, no user-visible action. Controlled via `topic_routing: {enabled, mode}` in `settings.yaml` and the `/moderation` dashboard page.
 
+## Deploy
+
+VPS at `/opt/robotnik` is a git checkout tracking `origin/main`. To deploy:
+
+```bash
+git push origin main
+ssh -i ~/.ssh/id_ed25519 root@84.46.253.137 'cd /opt/robotnik && git fetch && git reset --hard origin/main && chown -R botson:botson /opt/robotnik && systemctl restart botson botson-dashboard'
+```
+
+**Never use rsync from local working tree** — it captures unstaged changes and overwrites VPS file ownership (`botson` → `endlessblink`), breaking the systemd services. Always deploy from a committed git state via `git pull` on the VPS.
+
+VPS service users:
+- `botson.service` runs as `botson` (calls `run_bot.sh` → `python -m bot.main`)
+- `botson-dashboard.service` runs as `botson` (calls `python -m dashboard.server` on port 8080)
+- `WorkingDirectory=/opt/robotnik` for both — must be readable by `botson`
+
+After any file change on VPS (manual edit, deploy, etc.), always: `chown -R botson:botson /opt/robotnik`.
+
 ## Tech Stack
 
 - **Bot**: Python 3.12 + python-telegram-bot v20+
