@@ -1824,15 +1824,13 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
 
 # ── Review Page ──────────────────────────────────────────
 
-@app.get("/review", response_class=HTMLResponse)
-async def review_page(request: Request):
-    if not request.session.get("authenticated"):
-        return RedirectResponse(url="/login", status_code=303)
+PENDING_REVIEWS_PATH = Path(__file__).parent.parent / "data" / "pending_reviews.json"
 
-    # Pending messages loaded from a simple list
-    # Claude updates this when drafting messages for approval
-    pending = [
+
+def _default_pending_reviews():
+    return [
         {
+            "id": "community-post",
             "title": "📝 פוסט קהילתי — למה בוטסון קיים",
             "channel": "כללי (General)",
             "when": "",
@@ -1840,6 +1838,7 @@ async def review_page(request: Request):
             "note": "פוסט אישי לקבוצה — לעיון לפני פרסום",
         },
         {
+            "id": "weekend-rec",
             "title": "🎬 המלצת סופ״ש — סלוט 1/5",
             "channel": "סרטים סדרות וכו (54)",
             "when": "שישי 15:00 — רוטציה שבועית",
@@ -1847,6 +1846,7 @@ async def review_page(request: Request):
             "note": "רוטציה: סרטים → סדרות → משחקים → ספרים → פודקאסטים. סלוט ראשון בסופ״ש.",
         },
         {
+            "id": "weekend-plans",
             "title": "🌙 סוף שבוע שקט — סלוט 2/5",
             "channel": "כללי (General)",
             "when": "שישי 20:00",
@@ -1854,6 +1854,7 @@ async def review_page(request: Request):
             "note": "Poll עם 5 אופציות + טקסט פתוח. מודד את ההזדהות עם הזווית האל-הורית.",
         },
         {
+            "id": "saturday-noon",
             "title": "☀️ שבת בבוקר — סלוט 3/5",
             "channel": "כל מה שחמוד (335)",
             "when": "שבת 12:00",
@@ -1861,6 +1862,7 @@ async def review_page(request: Request):
             "note": "Thread קצר ומיידי. אם לא נתפס אחרי 2 שבועות — מחליפים לטריוויה כפולה.",
         },
         {
+            "id": "trivia-launch",
             "title": "🧠 טריוויה! — סלוט 4/5 (השקה)",
             "channel": "כללי (General)",
             "when": "שבת 17:00 — שבועי",
@@ -1868,6 +1870,7 @@ async def review_page(request: Request):
             "note": "30 שאלות בבריכה, 5/שבוע = 6 שבועות תוכן. אחר־כך ליצור /triviapool חדשה עם GPT.",
         },
         {
+            "id": "weekly-roundup",
             "title": "📊 סיכום שבועי + לידרבורד — סלוט 5/5",
             "channel": "כללי (General)",
             "when": "שבת 22:00",
@@ -1876,9 +1879,52 @@ async def review_page(request: Request):
         },
     ]
 
+
+def _load_pending_reviews():
+    if PENDING_REVIEWS_PATH.exists():
+        try:
+            return json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            logger.exception("[review] failed to read %s — reseeding", PENDING_REVIEWS_PATH)
+    items = _default_pending_reviews()
+    _save_pending_reviews(items)
+    return items
+
+
+def _save_pending_reviews(items):
+    PENDING_REVIEWS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PENDING_REVIEWS_PATH.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+@app.get("/review", response_class=HTMLResponse)
+async def review_page(request: Request):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request, name="review.html", context={
-        "pending": pending,
+        "pending": _load_pending_reviews(),
     })
+
+
+@app.post("/api/review/{item_id}/dismiss")
+async def review_dismiss(request: Request, item_id: str):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    action = (body.get("action") or "dismiss") if isinstance(body, dict) else "dismiss"
+
+    items = _load_pending_reviews()
+    remaining = [m for m in items if m.get("id") != item_id]
+    if len(remaining) == len(items):
+        raise HTTPException(status_code=404, detail="pending item not found")
+    _save_pending_reviews(remaining)
+    logger.info("[review] %s → %s (remaining=%d)", item_id, action, len(remaining))
+    return {"ok": True, "remaining": len(remaining)}
 
 
 # ── Content Calendar API ─────────────────────────────────

@@ -16,7 +16,7 @@
 {% endif %}
 
 {% for msg in pending %}
-<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+<div class="review-card bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6" data-id="{{ msg.id }}">
     <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
         <span class="text-base font-medium text-[#fafafa]">{{ msg.title }}</span>
         <div class="flex gap-2">
@@ -36,7 +36,7 @@
         {% endif %}
 
         {% if msg.preview %}
-        <div class="bg-[#111318] border border-[#272727] rounded-lg px-5 py-4 text-[15px] text-[#d4d4d8] whitespace-pre-line leading-relaxed">{{ msg.preview }}</div>
+        <div data-preview class="bg-[#111318] border border-[#272727] rounded-lg px-5 py-4 text-[15px] text-[#d4d4d8] whitespace-pre-line leading-relaxed">{{ msg.preview }}</div>
         {% endif %}
 
         {% if msg.buttons %}
@@ -51,7 +51,88 @@
         <p class="text-xs text-[#52525b] mt-4 italic">{{ msg.note }}</p>
         {% endif %}
     </div>
+    <div class="px-5 py-3 border-t border-[#1f1f1f] flex items-center gap-2 justify-end">
+        <button data-action="copy" class="px-3 py-1.5 text-xs rounded-md border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] hover:text-[#fafafa] transition-colors cursor-pointer inline-flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            העתק
+        </button>
+        <button data-action="approve" class="px-3 py-1.5 text-xs rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer inline-flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            אישור
+        </button>
+        <button data-action="reject" class="px-3 py-1.5 text-xs rounded-md bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer inline-flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            מחיקה
+        </button>
+    </div>
 </div>
 {% endfor %}
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    document.querySelectorAll('.review-card').forEach(function (card) {
+        var id = card.dataset.id;
+        var previewEl = card.querySelector('[data-preview]');
+
+        var copyBtn = card.querySelector('[data-action="copy"]');
+        if (copyBtn) copyBtn.addEventListener('click', function () {
+            var text = previewEl ? previewEl.innerText : '';
+            if (!text) { showToast('אין טקסט להעתקה', 'error'); return; }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(
+                    function () { showToast('הועתק ללוח'); },
+                    function () { fallbackCopy(text); }
+                );
+            } else {
+                fallbackCopy(text);
+            }
+        });
+
+        function fallbackCopy(text) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); showToast('הועתק ללוח'); }
+            catch (e) { showToast('לא הצליח להעתיק', 'error'); }
+            document.body.removeChild(ta);
+        }
+
+        function dismiss(action, confirmMsg, successMsg) {
+            showConfirm(confirmMsg, async function () {
+                try {
+                    await apiCall('/api/review/' + encodeURIComponent(id) + '/dismiss', { action: action });
+                    card.style.transition = 'opacity 0.25s, transform 0.25s';
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(-4px)';
+                    setTimeout(function () {
+                        card.remove();
+                        if (document.querySelectorAll('.review-card').length === 0) {
+                            location.reload();
+                        }
+                    }, 250);
+                    showToast(successMsg);
+                } catch (e) {
+                    showToast('שגיאה: ' + e.message, 'error');
+                }
+            });
+        }
+
+        var approveBtn = card.querySelector('[data-action="approve"]');
+        if (approveBtn) approveBtn.addEventListener('click', function () {
+            dismiss('approve', 'לסמן כאושר ולהסיר מהרשימה?', 'סומן כאושר');
+        });
+
+        var rejectBtn = card.querySelector('[data-action="reject"]');
+        if (rejectBtn) rejectBtn.addEventListener('click', function () {
+            dismiss('reject', 'למחוק את הטיוטה?', 'נמחק');
+        });
+    });
+})();
+</script>
 {% endblock %}
