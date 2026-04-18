@@ -1907,6 +1907,67 @@ async def review_page(request: Request):
     })
 
 
+_HEBREW_DAY_TO_IDX = {
+    "ראשון": 0, "שני": 1, "שלישי": 2, "רביעי": 3,
+    "חמישי": 4, "שישי": 5, "שבת": 6,
+}
+
+
+def _parse_when_field(when: str):
+    """Parse drafts' `when` like 'שישי 15:00 — רוטציה שבועית'.
+
+    Returns (hebrew_day_idx, 'HH:MM') or None if unparseable.
+    """
+    import re as _re
+    if not when:
+        return None
+    m_time = _re.search(r"(\d{1,2}):(\d{2})", when)
+    if not m_time:
+        return None
+    hh, mm = int(m_time.group(1)), int(m_time.group(2))
+    if not (0 <= hh < 24 and 0 <= mm < 60):
+        return None
+    day_idx = None
+    for name, idx in _HEBREW_DAY_TO_IDX.items():
+        if name in when:
+            day_idx = idx
+            break
+    if day_idx is None:
+        return None
+    return (day_idx, f"{hh:02d}:{mm:02d}")
+
+
+def _parse_channel_topic_id(channel: str):
+    """Extract topic_id from 'label (NN)'. Returns int or None."""
+    import re as _re
+    if not channel:
+        return None
+    m = _re.search(r"\((\d+)\)", channel)
+    return int(m.group(1)) if m else None
+
+
+def _next_date_for_hebrew_day(target_hebrew_day: int, time_str: str):
+    """Next date (>= today) matching the Hebrew weekday.
+
+    If today matches and the time is still in the future, use today;
+    otherwise find the next occurrence in the coming week.
+    """
+    from datetime import date as _date, datetime as _dt, timedelta as _td
+    today = _date.today()
+    today_hebrew = (today.weekday() + 1) % 7  # Python Mon=0..Sun=6 → Heb Sun=0..Sat=6
+    if today_hebrew == target_hebrew_day:
+        hh, mm = map(int, time_str.split(":"))
+        now = _dt.now()
+        if (now.hour, now.minute) < (hh, mm):
+            return today
+        return today + _td(days=7)
+    for i in range(1, 8):
+        cand = today + _td(days=i)
+        if (cand.weekday() + 1) % 7 == target_hebrew_day:
+            return cand
+    return today + _td(days=7)  # unreachable
+
+
 @app.post("/api/review/{item_id}/dismiss")
 async def review_dismiss(request: Request, item_id: str):
     if not request.session.get("authenticated"):
@@ -1925,6 +1986,59 @@ async def review_dismiss(request: Request, item_id: str):
     _save_pending_reviews(remaining)
     logger.info("[review] %s → %s (remaining=%d)", item_id, action, len(remaining))
     return {"ok": True, "remaining": len(remaining)}
+
+
+@app.post("/api/review/{item_id}/approve")
+async def review_approve(request: Request, item_id: str, db: Database = Depends(get_db)):
+    """Create a DRAFT scheduled_messages row so the admin can review/edit it in /planner."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    items = _load_pending_reviews()
+    item = next((m for m in items if m.get("id") == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="pending item not found")
+
+    from datetime import date as _date
+    parsed = _parse_when_field(item.get("when", ""))
+    if parsed is not None:
+        hebrew_day, time_str = parsed
+        scheduled_date = _next_date_for_hebrew_day(hebrew_day, time_str).isoformat()
+    else:
+        # No parseable when — use today + 21:00 as a placeholder; admin edits in planner
+        scheduled_date = _date.today().isoformat()
+        time_str = "21:00"
+
+    topic_id = _parse_channel_topic_id(item.get("channel", ""))
+
+    msg_id = await db.create_scheduled_message(
+        text=item.get("preview", ""),
+        message_type="custom",
+        channel_topic_id=topic_id,
+        target_group="main",
+        scheduled_date=scheduled_date,
+        scheduled_time=time_str,
+        recurrence=None,
+        recurrence_days=None,
+        auto_pin=False,
+    )
+    # Downgrade to 'draft' so it appears in the planner's drafts panel, not live schedule
+    await db.update_scheduled_message(msg_id, status="draft")
+
+    remaining = [m for m in items if m.get("id") != item_id]
+    _save_pending_reviews(remaining)
+    logger.info(
+        "[review] approved id=%s → draft msg_id=%s date=%s time=%s topic=%s",
+        item_id, msg_id, scheduled_date, time_str, topic_id,
+    )
+    return {
+        "ok": True,
+        "draft_id": msg_id,
+        "scheduled_date": scheduled_date,
+        "scheduled_time": time_str,
+        "topic_id": topic_id,
+        "redirect": f"/planner#draft-{msg_id}",
+    }
 
 
 # ── Content Calendar API ─────────────────────────────────

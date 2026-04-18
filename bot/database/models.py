@@ -136,4 +136,35 @@ CREATE TABLE IF NOT EXISTS topic_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_topic_obs_ts ON topic_observations(timestamp);
 CREATE INDEX IF NOT EXISTS idx_topic_obs_from ON topic_observations(from_topic_id);
+
+CREATE TABLE IF NOT EXISTS emoji_puzzles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emoji_prompt TEXT NOT NULL,
+    answer_he TEXT NOT NULL,
+    answer_en TEXT NOT NULL,
+    aliases TEXT DEFAULT '[]',
+    difficulty INTEGER DEFAULT 2,
+    media_type TEXT DEFAULT 'movie',
+    enabled INTEGER DEFAULT 1,
+    times_used INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS emoji_puzzle_rounds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    puzzle_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    message_thread_id INTEGER,
+    message_id INTEGER NOT NULL,
+    sent_at TIMESTAMP NOT NULL,
+    winner_user_id INTEGER,
+    winner_message_id INTEGER,
+    solved_at TIMESTAMP,
+    revealed_at TIMESTAMP,
+    status TEXT DEFAULT 'active',
+    award_points INTEGER DEFAULT 0,
+    FOREIGN KEY (puzzle_id) REFERENCES emoji_puzzles(id)
+);
+CREATE INDEX IF NOT EXISTS idx_emoji_rounds_active ON emoji_puzzle_rounds(status, message_id);
+CREATE INDEX IF NOT EXISTS idx_emoji_rounds_sent ON emoji_puzzle_rounds(sent_at);
 """

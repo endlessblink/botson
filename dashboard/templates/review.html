@@ -103,34 +103,61 @@
             document.body.removeChild(ta);
         }
 
-        function dismiss(action, confirmMsg, successMsg) {
-            showConfirm(confirmMsg, async function () {
-                try {
-                    await apiCall('/api/review/' + encodeURIComponent(id) + '/dismiss', { action: action });
-                    card.style.transition = 'opacity 0.25s, transform 0.25s';
-                    card.style.opacity = '0';
-                    card.style.transform = 'translateY(-4px)';
-                    setTimeout(function () {
-                        card.remove();
-                        if (document.querySelectorAll('.review-card').length === 0) {
-                            location.reload();
-                        }
-                    }, 250);
-                    showToast(successMsg);
-                } catch (e) {
-                    showToast('שגיאה: ' + e.message, 'error');
+        function fadeOutAndRemove() {
+            card.style.transition = 'opacity 0.25s, transform 0.25s';
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(-4px)';
+            setTimeout(function () {
+                card.remove();
+                if (document.querySelectorAll('.review-card').length === 0) {
+                    location.reload();
                 }
+            }, 250);
+        }
+
+        async function postJson(url, body) {
+            var res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body || {}),
             });
+            var payload = null;
+            try { payload = await res.json(); } catch (e) { payload = null; }
+            if (!res.ok) {
+                var detail = (payload && (payload.detail || payload.message)) || ('HTTP ' + res.status);
+                var err = new Error(detail);
+                err.status = res.status;
+                throw err;
+            }
+            return payload;
         }
 
         var approveBtn = card.querySelector('[data-action="approve"]');
         if (approveBtn) approveBtn.addEventListener('click', function () {
-            dismiss('approve', 'לסמן כאושר ולהסיר מהרשימה?', 'סומן כאושר');
+            showConfirm('להעביר לתכנון ושליחה לעריכה סופית?', async function () {
+                try {
+                    var res = await postJson('/api/review/' + encodeURIComponent(id) + '/approve', {});
+                    showToast('נוצרה טיוטה — פותח את מסך התכנון…');
+                    setTimeout(function () {
+                        window.location.href = res.redirect || '/planner';
+                    }, 600);
+                } catch (e) {
+                    showToast('שגיאה: ' + e.message, 'error');
+                }
+            });
         });
 
         var rejectBtn = card.querySelector('[data-action="reject"]');
         if (rejectBtn) rejectBtn.addEventListener('click', function () {
-            dismiss('reject', 'למחוק את הטיוטה?', 'נמחק');
+            showConfirm('למחוק את הטיוטה?', async function () {
+                try {
+                    await postJson('/api/review/' + encodeURIComponent(id) + '/dismiss', { action: 'reject' });
+                    fadeOutAndRemove();
+                    showToast('נמחק');
+                } catch (e) {
+                    showToast('שגיאה: ' + e.message, 'error');
+                }
+            });
         });
     });
 })();

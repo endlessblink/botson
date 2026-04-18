@@ -680,3 +680,214 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    # ── Emoji Puzzles (weekly movie/show emoji riddle) ───────
+
+    async def create_emoji_puzzle(
+        self,
+        emoji_prompt: str,
+        answer_he: str,
+        answer_en: str,
+        aliases: str = "[]",
+        difficulty: int = 2,
+        media_type: str = "movie",
+    ) -> int:
+        """Insert a new puzzle into the pool. `aliases` is a JSON-encoded list of strings."""
+        async with self._db.execute(
+            """INSERT INTO emoji_puzzles
+               (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, _now_il()),
+        ) as cursor:
+            puzzle_id = cursor.lastrowid
+        await self._db.commit()
+        return puzzle_id
+
+    async def list_emoji_puzzles(self, enabled_only: bool = False) -> list[dict]:
+        """Return all puzzles in the pool, ordered by least-used first."""
+        sql = "SELECT * FROM emoji_puzzles"
+        if enabled_only:
+            sql += " WHERE enabled = 1"
+        sql += " ORDER BY times_used ASC, id ASC"
+        async with self._db.execute(sql) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_emoji_puzzle(self, puzzle_id: int) -> dict | None:
+        """Return a single puzzle by id."""
+        async with self._db.execute(
+            "SELECT * FROM emoji_puzzles WHERE id = ?", (puzzle_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def update_emoji_puzzle(self, puzzle_id: int, **fields) -> bool:
+        """Update puzzle fields. Only known columns are applied."""
+        allowed = {
+            "emoji_prompt", "answer_he", "answer_en", "aliases",
+            "difficulty", "media_type", "enabled",
+        }
+        sets = {k: v for k, v in fields.items() if k in allowed}
+        if not sets:
+            return False
+        cols = ", ".join(f"{k} = ?" for k in sets)
+        params = list(sets.values()) + [puzzle_id]
+        async with self._db.execute(
+            f"UPDATE emoji_puzzles SET {cols} WHERE id = ?", params,
+        ) as cursor:
+            changed = cursor.rowcount > 0
+        await self._db.commit()
+        return changed
+
+    async def delete_emoji_puzzle(self, puzzle_id: int) -> bool:
+        """Remove a puzzle from the pool. Historical rounds remain."""
+        async with self._db.execute(
+            "DELETE FROM emoji_puzzles WHERE id = ?", (puzzle_id,)
+        ) as cursor:
+            changed = cursor.rowcount > 0
+        await self._db.commit()
+        return changed
+
+    async def pick_next_emoji_puzzle(self) -> dict | None:
+        """Pick the next puzzle for a round: least-used enabled puzzle.
+
+        Ties broken by lowest id (deterministic, stable over restarts).
+        """
+        async with self._db.execute(
+            """SELECT * FROM emoji_puzzles
+               WHERE enabled = 1
+               ORDER BY times_used ASC, id ASC
+               LIMIT 1"""
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def start_emoji_round(
+        self,
+        puzzle_id: int,
+        chat_id: int,
+        message_id: int,
+        message_thread_id: int | None,
+        award_points: int,
+    ) -> int:
+        """Record a new active round. Also increments times_used on the puzzle."""
+        sent_at = _now_il()
+        async with self._db.execute(
+            """INSERT INTO emoji_puzzle_rounds
+               (puzzle_id, chat_id, message_thread_id, message_id, sent_at,
+                status, award_points)
+               VALUES (?, ?, ?, ?, ?, 'active', ?)""",
+            (puzzle_id, chat_id, message_thread_id, message_id, sent_at, award_points),
+        ) as cursor:
+            round_id = cursor.lastrowid
+        await self._db.execute(
+            "UPDATE emoji_puzzles SET times_used = times_used + 1 WHERE id = ?",
+            (puzzle_id,),
+        )
+        await self._db.commit()
+        return round_id
+
+    async def get_active_emoji_round_for_message(
+        self, chat_id: int, message_id: int,
+    ) -> dict | None:
+        """Find the active round whose puzzle message matches (chat_id, message_id).
+
+        Used by the reply watcher to match an incoming reply to its puzzle round.
+        """
+        async with self._db.execute(
+            """SELECT r.*, p.answer_he, p.answer_en, p.aliases, p.emoji_prompt
+               FROM emoji_puzzle_rounds r
+               JOIN emoji_puzzles p ON p.id = r.puzzle_id
+               WHERE r.chat_id = ? AND r.message_id = ? AND r.status = 'active'
+               LIMIT 1""",
+            (chat_id, message_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def get_all_active_emoji_rounds(self) -> list[dict]:
+        """All rounds still awaiting a solve (for bot restart recovery)."""
+        async with self._db.execute(
+            """SELECT r.*, p.answer_he, p.answer_en, p.aliases, p.emoji_prompt
+               FROM emoji_puzzle_rounds r
+               JOIN emoji_puzzles p ON p.id = r.puzzle_id
+               WHERE r.status = 'active'
+               ORDER BY r.sent_at ASC"""
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def mark_emoji_round_solved(
+        self, round_id: int, winner_user_id: int, winner_message_id: int,
+    ) -> bool:
+        """Flag a round as solved by the given user.
+
+        Uses a conditional UPDATE so two concurrent correct replies can't both
+        win — only the first caller to actually change a row returns True.
+        """
+        async with self._db.execute(
+            """UPDATE emoji_puzzle_rounds
+               SET winner_user_id = ?, winner_message_id = ?,
+                   solved_at = ?, status = 'solved'
+               WHERE id = ? AND status = 'active'""",
+            (winner_user_id, winner_message_id, _now_il(), round_id),
+        ) as cursor:
+            won = cursor.rowcount > 0
+        await self._db.commit()
+        return won
+
+    async def mark_emoji_round_revealed(self, round_id: int) -> bool:
+        """Flag an unsolved round as revealed (answer posted after 24h)."""
+        async with self._db.execute(
+            """UPDATE emoji_puzzle_rounds
+               SET revealed_at = ?, status = 'revealed'
+               WHERE id = ? AND status = 'active'""",
+            (_now_il(), round_id),
+        ) as cursor:
+            changed = cursor.rowcount > 0
+        await self._db.commit()
+        return changed
+
+    async def get_emoji_rounds_to_reveal(self, age_hours: int = 24) -> list[dict]:
+        """Active rounds older than `age_hours` — candidates for auto-reveal."""
+        cutoff = (datetime.now(_IL_TZ) - timedelta(hours=age_hours)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT r.*, p.answer_he, p.answer_en, p.aliases, p.emoji_prompt
+               FROM emoji_puzzle_rounds r
+               JOIN emoji_puzzles p ON p.id = r.puzzle_id
+               WHERE r.status = 'active' AND r.sent_at <= ?
+               ORDER BY r.sent_at ASC""",
+            (cutoff,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def user_has_emoji_win_since(self, user_id: int, days: int = 7) -> bool:
+        """True if the user has won an emoji round within the last N days.
+
+        Used to cap a single player from farming weekly wins (anti-dominance).
+        """
+        cutoff = (datetime.now(_IL_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT 1 FROM emoji_puzzle_rounds
+               WHERE winner_user_id = ? AND solved_at >= ?
+               LIMIT 1""",
+            (user_id, cutoff),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def get_emoji_round_stats(self) -> dict:
+        """Summary stats for the dashboard puzzles page."""
+        async with self._db.execute(
+            """SELECT
+                 COUNT(*)                                    AS rounds_total,
+                 SUM(CASE WHEN status = 'solved'   THEN 1 ELSE 0 END) AS rounds_solved,
+                 SUM(CASE WHEN status = 'revealed' THEN 1 ELSE 0 END) AS rounds_revealed,
+                 SUM(CASE WHEN status = 'active'   THEN 1 ELSE 0 END) AS rounds_active
+               FROM emoji_puzzle_rounds"""
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else {
+                "rounds_total": 0, "rounds_solved": 0,
+                "rounds_revealed": 0, "rounds_active": 0,
+            }
