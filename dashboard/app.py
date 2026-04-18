@@ -829,28 +829,126 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         e["rsvp_yes_count"] = len(json.loads(e.get("rsvp_yes", "[]")))
         e["rsvp_maybe_count"] = len(json.loads(e.get("rsvp_maybe", "[]")))
     settings = get_settings()
+    forum_topics = await db.get_forum_topics()
 
     return templates.TemplateResponse(request, name="events.html", context={
         "events": events,
         "settings": settings,
+        "forum_topics": forum_topics,
     })
+
+
+def _format_event_message(title: str, description: str | None,
+                          event_date: str, event_time: str | None,
+                          location: str | None) -> str:
+    """Hebrew event card text. Same shape as Telegram's pinned event preview."""
+    lines = [f"📅 *{title}*"]
+    when_parts = []
+    if event_date:
+        when_parts.append(event_date)
+    if event_time:
+        when_parts.append(event_time)
+    if when_parts:
+        lines.append("🕒 " + " · ".join(when_parts))
+    if location:
+        lines.append(f"📍 {location}")
+    if description:
+        lines.append("")
+        lines.append(description)
+    return "\n".join(lines)
+
+
+def _event_rsvp_markup():
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ מגיע/ה", callback_data="rsvp_yes"),
+        InlineKeyboardButton("🤔 אולי", callback_data="rsvp_maybe"),
+    ]])
 
 
 @app.post("/api/events/create")
 async def create_event(request: Request, db: Database = Depends(get_db)):
+    """Create event, post to Telegram (with optional cover + topic + pin), persist message_id.
+
+    Body fields:
+      title, description, event_date, event_time, location  — required basics
+      cover_path                                            — optional media path
+      auto_pin (bool)                                       — pin in Telegram
+      topic_id (int)                                        — forum topic to post into
+      target_group ('main' | 'test')                        — chat to post to
+      source_poll_message_id, source_poll_option_key        — provenance for from-poll events
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
     data = await request.json()
+    title = data["title"]
+    description = data.get("description", "")
+    event_date = data["event_date"]
+    event_time = data.get("event_time")
+    location = data.get("location")
+    cover_path = data.get("cover_path")
+    auto_pin = bool(data.get("auto_pin"))
+    topic_id = data.get("topic_id")
+    target_group = data.get("target_group", "main")
+    source_poll_message_id = data.get("source_poll_message_id")
+    source_poll_option_key = data.get("source_poll_option_key")
+
     event_id = await db.create_event(
-        title=data["title"],
-        description=data.get("description", ""),
-        event_date=data["event_date"],
-        event_time=data.get("event_time"),
-        location=data.get("location"),
-        created_by=0,  # Dashboard-created
+        title=title, description=description, event_date=event_date,
+        event_time=event_time, location=location, created_by=0,
+        cover_path=cover_path, auto_pin=auto_pin, topic_id=topic_id,
+        source_poll_message_id=source_poll_message_id,
+        source_poll_option_key=source_poll_option_key,
     )
-    return {"status": "ok", "event_id": event_id}
+
+    # Post to Telegram. Reuse calendar.send_message_with_optional_cover so the
+    # photo+caption layout matches scheduled-message sends.
+    from telegram import Bot
+    from bot.handlers.calendar import send_message_with_optional_cover
+
+    bot_token = os.getenv("BOT_TOKEN", "")
+    if not bot_token:
+        return {"status": "ok", "event_id": event_id, "warning": "BOT_TOKEN missing — event not posted"}
+
+    chat_id = int(os.getenv("TEST_GROUP_ID", "0") if target_group == "test" else os.getenv("GROUP_ID", "0"))
+    if not chat_id:
+        return {"status": "ok", "event_id": event_id, "warning": f"no chat_id for target_group={target_group}"}
+
+    bot = Bot(bot_token)
+    text = _format_event_message(title, description, event_date, event_time, location)
+
+    try:
+        sent = await send_message_with_optional_cover(
+            bot, chat_id=chat_id, text=text,
+            message_thread_id=int(topic_id) if topic_id else None,
+            cover_path=cover_path,
+        )
+        # Attach RSVP buttons (separate edit_reply_markup avoids needing to thread
+        # markup through the photo/text helper).
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id, message_id=sent.message_id,
+                reply_markup=_event_rsvp_markup(),
+            )
+        except Exception as e:
+            logger.warning("[events] failed to attach RSVP buttons: %s", e)
+
+        if auto_pin:
+            try:
+                await bot.pin_chat_message(
+                    chat_id=chat_id, message_id=sent.message_id,
+                    disable_notification=True,
+                )
+            except Exception as e:
+                logger.warning("[events] failed to pin event %d: %s", event_id, e)
+
+        await db.update_event(event_id, message_id=sent.message_id)
+        await db.log_activity("event", f"יצר אירוע: {title[:60]}", target_channel=str(topic_id or "main"))
+        return {"status": "ok", "event_id": event_id, "message_id": sent.message_id}
+    except Exception as e:
+        logger.exception("[events] failed to post event %d to telegram", event_id)
+        return {"status": "partial", "event_id": event_id, "error": str(e)}
 
 
 @app.post("/api/events/{event_id}/delete")

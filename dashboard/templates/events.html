@@ -45,56 +45,93 @@
 
 <!-- Create Event Card -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
-    <div class="px-5 py-4 border-b border-[#1f1f1f]">
-        <h2 class="text-sm font-medium text-[#fafafa]">אירוע חדש</h2>
+    <!-- Tabs -->
+    <div class="px-5 pt-4 border-b border-[#1f1f1f] flex items-center gap-2">
+        <button id="tab-blank" onclick="switchTab('blank')"
+            class="text-sm px-3 py-2 border-b-2 border-[#fafafa] text-[#fafafa] -mb-px">
+            אירוע חדש
+        </button>
+        <button id="tab-poll" onclick="switchTab('poll')"
+            class="text-sm px-3 py-2 border-b-2 border-transparent text-[#71717a] hover:text-[#a1a1aa] -mb-px">
+            מתוך סקר
+        </button>
     </div>
-    <div class="px-5 py-4">
+
+    <!-- Tab: From Poll -->
+    <div id="panel-poll" class="px-5 py-4 hidden">
+        <div class="mb-3">
+            <label class="text-xs text-[#71717a] block mb-1.5">בחר סקר</label>
+            <select id="poll-picker" onchange="onPollPicked(this.value)"
+                class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                <option value="">— טוען סקרים אחרונים… —</option>
+            </select>
+        </div>
+        <div id="poll-options-list" class="space-y-1.5 mb-3"></div>
+        <p class="text-xs text-[#71717a]">לחיצה על אופציה תמלא את הכותרת מטה. כל שדה ניתן לעריכה לפני יצירה.</p>
+    </div>
+
+    <!-- Tab: Blank -->
+    <div id="panel-blank" class="px-5 py-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="md:col-span-2">
-                <input
-                    type="text"
-                    id="event-title"
-                    placeholder="כותרת"
-                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
-                >
+                <input type="text" id="event-title" placeholder="כותרת"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
             <div class="md:col-span-2">
-                <input
-                    type="text"
-                    id="event-desc"
-                    placeholder="תיאור (אופציונלי)"
-                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
-                >
+                <input type="text" id="event-desc" placeholder="תיאור (אופציונלי)"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
             <div>
-                <input
-                    type="date"
-                    id="event-date"
-                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
-                >
+                <label class="text-xs text-[#71717a] block mb-1.5">תאריך</label>
+                <input type="date" id="event-date"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
             <div>
-                <input
-                    type="time"
-                    id="event-time"
-                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
-                >
+                <label class="text-xs text-[#71717a] block mb-1.5">שעה</label>
+                <input type="time" id="event-time"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
             <div class="md:col-span-2">
-                <input
-                    type="text"
-                    id="event-location"
-                    placeholder="מיקום (אופציונלי)"
-                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full"
-                >
+                <input type="text" id="event-location" placeholder="מיקום (אופציונלי)"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            </div>
+            <div>
+                <label class="text-xs text-[#71717a] block mb-1.5">ערוץ (פורום)</label>
+                <select id="event-topic"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                    <option value="">— ללא (כללי) —</option>
+                    {% for t in forum_topics %}
+                    <option value="{{ t.topic_id }}">{{ t.name }} ({{ t.topic_id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="text-xs text-[#71717a] block mb-1.5">קבוצה</label>
+                <select id="event-target-group"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                    <option value="main">קבוצה ראשית</option>
+                    <option value="test">קבוצת בדיקות</option>
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-xs text-[#71717a] block mb-1.5">תמונת כותרת (אופציונלי)</label>
+                <div class="flex items-center gap-2">
+                    <input type="file" id="event-cover-input" accept="image/png,image/jpeg,image/webp,image/gif"
+                        class="text-xs text-[#a1a1aa] file:bg-[#1f1f1f] file:text-[#fafafa] file:border-0 file:rounded file:px-3 file:py-1.5 file:cursor-pointer file:hover:bg-[#272727]"
+                        onchange="uploadEventCover(event)">
+                    <span id="event-cover-status" class="text-xs text-[#71717a]"></span>
+                </div>
+            </div>
+            <div class="md:col-span-2 flex items-center gap-2">
+                <input type="checkbox" id="event-auto-pin" class="accent-[#fafafa]">
+                <label for="event-auto-pin" class="text-sm text-[#a1a1aa] cursor-pointer">הצמד את ההודעה בערוץ</label>
             </div>
         </div>
     </div>
+
     <div class="px-5 py-4 border-t border-[#1f1f1f]">
-        <button
-            onclick="createEvent()"
-            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors"
-        >
+        <button onclick="createEvent()"
+            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
             צור אירוע
         </button>
     </div>
@@ -159,6 +196,105 @@
 
 {% block scripts %}
 <script>
+// ── Cover upload (matches planner.html /api/covers/upload contract) ──
+var eventCoverPath = null;
+
+async function uploadEventCover(ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    var status = document.getElementById('event-cover-status');
+    status.textContent = 'מעלה…';
+    try {
+        var fd = new FormData();
+        fd.append('file', file);
+        var r = await fetch('/api/covers/upload', {method: 'POST', body: fd});
+        if (!r.ok) throw new Error(await r.text());
+        var j = await r.json();
+        eventCoverPath = j.path || j.cover_path || j.relative_path || null;
+        status.textContent = '✓ ' + (eventCoverPath || file.name);
+    } catch (e) {
+        status.textContent = 'שגיאה: ' + e.message;
+    }
+}
+
+// ── Tabs ──
+function switchTab(which) {
+    var blank = which === 'blank';
+    document.getElementById('panel-blank').classList.toggle('hidden', !blank);
+    document.getElementById('panel-poll').classList.toggle('hidden', blank);
+    document.getElementById('tab-blank').className = 'text-sm px-3 py-2 border-b-2 -mb-px ' +
+        (blank ? 'border-[#fafafa] text-[#fafafa]' : 'border-transparent text-[#71717a] hover:text-[#a1a1aa]');
+    document.getElementById('tab-poll').className = 'text-sm px-3 py-2 border-b-2 -mb-px ' +
+        (!blank ? 'border-[#fafafa] text-[#fafafa]' : 'border-transparent text-[#71717a] hover:text-[#a1a1aa]');
+    if (!blank && !pollsLoaded) loadPolls();
+}
+
+// ── From-Poll picker ──
+var pollsLoaded = false;
+var pollsCache = {};
+var pollSourceMessageId = null;
+var pollSourceOptionKey = null;
+
+async function loadPolls() {
+    var sel = document.getElementById('poll-picker');
+    try {
+        var r = await fetch('/api/polls');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var j = await r.json();
+        sel.innerHTML = '<option value="">— בחר סקר —</option>';
+        if (!j.polls.length) {
+            sel.innerHTML = '<option value="">— אין סקרים אחרונים —</option>';
+            return;
+        }
+        j.polls.forEach(function(p) {
+            pollsCache[p.message_id] = p;
+            var label = (p.text || '').slice(0, 60) + ' (' + p.total_votes + ' קולות)';
+            var opt = document.createElement('option');
+            opt.value = p.message_id;
+            opt.textContent = label;
+            sel.appendChild(opt);
+        });
+        pollsLoaded = true;
+    } catch (e) {
+        sel.innerHTML = '<option value="">שגיאה בטעינה: ' + e.message + '</option>';
+    }
+}
+
+function onPollPicked(messageId) {
+    var box = document.getElementById('poll-options-list');
+    box.innerHTML = '';
+    if (!messageId) {
+        pollSourceMessageId = null;
+        pollSourceOptionKey = null;
+        return;
+    }
+    var poll = pollsCache[messageId];
+    if (!poll) return;
+    pollSourceMessageId = parseInt(messageId, 10);
+    poll.options.forEach(function(o) {
+        var btn = document.createElement('button');
+        btn.className = 'w-full text-right bg-[#0e0e0e] border border-[#272727] hover:border-[#3f3f3f] rounded-md px-3 py-2 text-sm text-[#fafafa] cursor-pointer transition-colors';
+        btn.innerHTML = '<span class="text-[#a1a1aa] text-xs ml-2">(' + o.count + ' קולות)</span>' + escapeHtml(o.label);
+        btn.onclick = function() { applyPollOption(poll, o); };
+        box.appendChild(btn);
+    });
+}
+
+function applyPollOption(poll, opt) {
+    pollSourceOptionKey = opt.key;
+    document.getElementById('event-title').value = opt.label;
+    if (poll.topic_id) document.getElementById('event-topic').value = String(poll.topic_id);
+    if (poll.target_group) document.getElementById('event-target-group').value = poll.target_group;
+    switchTab('blank');
+    showToast('פרטי האופציה הועתקו — ערוך וצור');
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+}
+
 async function createEvent() {
     var title = document.getElementById('event-title').value.trim();
     var date = document.getElementById('event-date').value;
@@ -166,6 +302,7 @@ async function createEvent() {
         showToast('נא למלא כותרת ותאריך', 'error');
         return;
     }
+    var topicVal = document.getElementById('event-topic').value;
     try {
         await apiCall('/api/events/create', {
             title: title,
@@ -173,8 +310,14 @@ async function createEvent() {
             event_date: date,
             event_time: document.getElementById('event-time').value,
             location: document.getElementById('event-location').value.trim(),
+            cover_path: eventCoverPath,
+            auto_pin: document.getElementById('event-auto-pin').checked,
+            topic_id: topicVal ? parseInt(topicVal, 10) : null,
+            target_group: document.getElementById('event-target-group').value,
+            source_poll_message_id: pollSourceMessageId,
+            source_poll_option_key: pollSourceOptionKey,
         });
-        showToast('אירוע נוצר');
+        showToast('אירוע נוצר ופורסם');
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
         showToast('שגיאה ביצירת אירוע', 'error');

@@ -49,6 +49,11 @@ class Database:
             "ALTER TABLE scheduled_messages ADD COLUMN cover_path TEXT",
             "ALTER TABLE scheduled_messages ADD COLUMN poll_options TEXT",
             "ALTER TABLE scheduled_messages ADD COLUMN poll_duration INTEGER",
+            "ALTER TABLE events ADD COLUMN cover_path TEXT",
+            "ALTER TABLE events ADD COLUMN auto_pin INTEGER DEFAULT 0",
+            "ALTER TABLE events ADD COLUMN topic_id INTEGER",
+            "ALTER TABLE events ADD COLUMN source_poll_message_id INTEGER",
+            "ALTER TABLE events ADD COLUMN source_poll_option_key TEXT",
         ]
         for sql in migrations:
             try:
@@ -275,12 +280,28 @@ class Database:
 
     async def create_event(self, title: str, description: str, event_date: str,
                            event_time: str | None, location: str | None,
-                           created_by: int) -> int:
-        """Create a new event. Returns event ID."""
+                           created_by: int,
+                           cover_path: str | None = None,
+                           auto_pin: bool = False,
+                           topic_id: int | None = None,
+                           source_poll_message_id: int | None = None,
+                           source_poll_option_key: str | None = None) -> int:
+        """Create a new event. Returns event ID.
+
+        New optional fields support dashboard-driven Telegram posting:
+          cover_path:           media path (relative to MEDIA_DIR) for photo+caption layout
+          auto_pin:             pin the posted Telegram message
+          topic_id:             forum topic to post into (message_thread_id)
+          source_poll_*:        provenance for events created from a poll's winning option
+        """
         async with self._db.execute(
-            """INSERT INTO events (title, description, event_date, event_time, location, created_by)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (title, description, event_date, event_time, location, created_by),
+            """INSERT INTO events (title, description, event_date, event_time, location,
+                                   created_by, cover_path, auto_pin, topic_id,
+                                   source_poll_message_id, source_poll_option_key)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (title, description, event_date, event_time, location, created_by,
+             cover_path, 1 if auto_pin else 0, topic_id,
+             source_poll_message_id, source_poll_option_key),
         ) as cursor:
             event_id = cursor.lastrowid
         await self._db.commit()

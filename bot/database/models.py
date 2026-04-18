@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS events (
     rsvp_yes TEXT DEFAULT '[]',
     rsvp_maybe TEXT DEFAULT '[]',
     active INTEGER DEFAULT 1,
+    cover_path TEXT,
+    auto_pin INTEGER DEFAULT 0,
+    topic_id INTEGER,
+    source_poll_message_id INTEGER,
+    source_poll_option_key TEXT,
     FOREIGN KEY (created_by) REFERENCES members(user_id)
 );
 

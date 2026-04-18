@@ -107,6 +107,14 @@
 | T-099 | 16 | Free Games: activate in main group (topic 1517) | TODO | P2 | T-097 |
 | T-100 | — | Configure git remote and push WIP commits | TODO | P1 | — |
 | T-101 | — | Handle media assets (gitignore / LFS / commit) | TODO | P3 | — |
+| T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
+| T-104 | 17 | Emoji Night: YAML pool seed + init loader | TODO | P1 | T-103 |
+| T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | TODO | P1 | T-103 |
+| T-106 | 17 | Emoji Night: session layer + rounds.session_id migration | TODO | P1 | T-103 |
+| T-107 | 17 | Emoji Night: handler (send/watch/judge/reveal) | TODO | P1 | T-103, T-104, T-106 |
+| T-108 | 17 | Emoji Night: dashboard-driven scheduler (cron from settings) | TODO | P1 | T-105, T-107 |
+| T-109 | 17 | Emoji Night: dashboard /puzzles page + sidebar both blocks | TODO | P1 | T-107 |
+| T-110 | 17 | Emoji Night: cleanup + dry-run in Den | TODO | P2 | T-108, T-109 |
 
 ## Detailed Tasks
 
@@ -741,6 +749,190 @@ Added optional cover images to scheduled messages and polls. Three sources from 
 **Files:** `bot/database/{models,db}.py`, `bot/handlers/calendar.py`, `bot/utils/kie_client.py` (new), `dashboard/app.py` (3 new routes, `/media` mount), `dashboard/templates/planner.html` (cover section in wizard, FullCalendar `defaultTimedEventDuration: '00:01'` to fix late-evening events spanning next day).
 
 **Backup before deploy:** `/opt/robotnik/backups/bot.db.backup-20260416-210946` (pre-migration).
+
+---
+
+## Sprint: Emoji Night 🎬 (Phase 17)
+
+> Packaged 2026-04-18 · Tasks T-103 → T-110 · Status: 1/8 done (T-103)
+
+### Goal
+
+Ship a weekly emoji-puzzle **quiz-show event**: dashboard-configurable, per-group toggleable, auto-judging, auto-scoring. Activates the dormant `movies` topic (~0 activity in 30d) and builds a ritual members plan around.
+
+### Scope (in)
+
+- Weekly event: intro → 5 puzzles paced ~6 min apart → wrap-up (~35 min total)
+- First-correct-reply wins = **+5 pts**, anti-dominance cap 1 win/user/week
+- Curated pool of ~30 seed puzzles (Hebrew + English + aliases), expandable from dashboard
+- Dashboard page `/puzzles` — schedule knobs, pool CRUD, history, admin "Run now"
+- Works in any enabled group (main / test), no hardcoded chat_id or time
+
+### Scope (out)
+
+- Main-group launch — gated on successful dry-run in Sherlocks Den (sprint ends at dry-run; promote in a follow-up)
+- Themes / difficulty curves / streak bonuses — defer to v2 if sprint v1 lands
+- AI-generated puzzles from the dashboard — defer to v2
+
+### Definition of Done
+
+- [ ] All schedule + pool + feature-flag values editable from `/puzzles` dashboard
+- [ ] "Run now" admin button fires a full event flow in Sherlocks Den
+- [ ] Replies auto-judged, winner auto-announced, points awarded in real DB
+- [ ] 24h reveal job posts answer for any unsolved puzzle
+- [ ] `scripts/emoji_puzzle_test.py` deleted
+- [ ] `/puzzles` appears in BOTH sidebar blocks of `base.html`
+- [ ] One successful end-to-end dry-run observed in Sherlocks Den
+
+### Timeline
+
+**Estimated:** ~10h focused work. **Deadline:** none — "launch when ready" (confirmed 2026-04-18).
+
+### Tasks
+
+| Phase | Task | Est | Status | Deps |
+|---|---|---|---|---|
+| A | T-103: DB schema + helpers | 2h | ✅ DONE | — |
+| B | T-104: YAML pool seed + loader | 1h | TODO | T-103 |
+| C | T-105: Settings + feature flag | 30m | TODO | T-103 |
+| D | T-106: Session layer + migration | 1h | TODO | T-103 |
+| E | T-107: Handler (send/watch/judge/reveal) | 3h | TODO | T-103, T-104, T-106 |
+| F | T-108: Scheduler (cron from settings) | 1h | TODO | T-105, T-107 |
+| G | T-109: Dashboard `/puzzles` + sidebar | 3h | TODO | T-107 |
+| H | T-110: Cleanup + dry-run | 1h | TODO | T-108, T-109 |
+
+### Design decisions locked in 2026-04-18
+
+- Format: quiz-show (A) — 5 puzzles paced ~6 min over 35 min, intro + wrap-up
+- Scoring: flat 5 pts per first-correct (matches `event_rsvp`)
+- Frequency: weekly, day configurable from dashboard
+- Anti-dominance: 1 win per user per 7-day window; if same user solves again, round stays active silently until someone else solves or 24h reveal
+- Runs in any group where feature enabled (main / test toggleable per group)
+- Built on existing `scheduled_messages` + `calendar_checker` pipeline for message pacing (no parallel scheduler)
+- Matching: permissive — Hebrew + English + curated aliases per puzzle. Strips "ה" prefix, punctuation, whitespace, lowercase. Transliteration NOT accepted (must be added as alias).
+
+### Risks & mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Noam/Lotem sweep all 5 puzzles, entrench dominance | 1-win-per-7-days cap; round stays open silently if same user wins again |
+| Pool thins out after N weeks | 30 seeds × 5/week = 6 weeks base; dashboard pool CRUD + add-new workflow (T-109) |
+| Hebrew matching false-negatives ("מלך האריות" vs "ממלכת האריות") | Curated aliases per puzzle; disputed titles add an alias rather than weakening normalization |
+| Polling conflict with live bot | Handler runs inside live bot process, reuses single getUpdates loop — no conflict |
+| Event fires during a quiet hour, nobody participates | Dry-run in Den first; dashboard "Run now" button for testing; hot-reload so schedule can be tuned mid-week |
+| Reply watcher misses replies (e.g. after bot restart mid-event) | Round state in DB, not memory; handler is stateless and looks up active rounds per reply |
+
+### Dependencies outside sprint
+
+- T-002 (DB layer) — ✅ done
+- Existing `scheduled_messages` + `calendar_checker` pipeline — ✅ done
+- `bot/utils/scoring.py` `get_points()` pattern — ✅ done
+
+### Detailed task specs follow
+
+#### T-103: Emoji Night — DB schema + helpers (✅ DONE 2026-04-18)
+**Priority:** P1 | **Status:** ✅ DONE
+
+Added two tables to `bot/database/models.py` SCHEMA:
+- `emoji_puzzles` — pool: id, emoji_prompt, answer_he, answer_en, aliases (JSON), difficulty (1/2/3), media_type (movie/series), enabled, times_used, created_at
+- `emoji_puzzle_rounds` — round state: id, puzzle_id, chat_id, message_thread_id, message_id, sent_at, winner_user_id, winner_message_id, solved_at, revealed_at, status (active/solved/revealed), award_points
+- Indexes: `idx_emoji_rounds_active` (status, message_id) for reply-watcher lookup; `idx_emoji_rounds_sent` (sent_at) for 24h reveal job
+
+Added 13 helper methods to `bot/database/db.py`:
+- CRUD: `create_emoji_puzzle`, `list_emoji_puzzles`, `get_emoji_puzzle`, `update_emoji_puzzle`, `delete_emoji_puzzle`
+- Selection: `pick_next_emoji_puzzle` (least-used, deterministic)
+- Round lifecycle: `start_emoji_round`, `get_active_emoji_round_for_message`, `get_all_active_emoji_rounds`
+- Atomic mark: `mark_emoji_round_solved` (conditional UPDATE — second concurrent correct returns False), `mark_emoji_round_revealed`
+- Background: `get_emoji_rounds_to_reveal` (24h+ active), `user_has_emoji_win_since` (anti-dominance)
+- Stats: `get_emoji_round_stats`
+
+**Verified end-to-end:** created puzzle → picked → started round → solved (True) → second solve attempt (False, race-safe) → win-since-7d check (True) → stats aggregation.
+
+#### T-104: Emoji Night — YAML pool seed + init loader
+**Priority:** P1 | **Status:** TODO | **Deps:** T-103
+
+Create `config/emoji_puzzles.yaml` with ~30 curated seed puzzles (Hebrew + English + 3–4 aliases each, mixed difficulty 1/2/3, mix of movies + series). Initial picks discussed in session: 🦁👑 (Lion King), 🧙‍♂️💍🌋 (LOTR), ⚗️💊🏜️ (Breaking Bad), 🕷️👦 (Spider-Man), 👨‍🍳🐀🇫🇷 (Ratatouille), 🐠🔍🌊 (Finding Nemo), 👽📞🏠 (E.T.), ❄️👭⛄ (Frozen), 🦖🏝️ (Jurassic Park), 🚢🧊💔 (Titanic), 🤖🟥💊🟦 (Matrix), 🎓🧙‍♂️⚡ (Harry Potter).
+
+On bot init: loader reads YAML, checks if `emoji_puzzles` table is empty, bulk-inserts if so. Idempotent — re-runs don't duplicate. User can add/edit/remove from dashboard (T-109) afterward, YAML is just the seed.
+
+**Approval flow:** before YAML ships, put the 30 puzzles on dashboard `/review` as individual items so user can approve Hebrew copy + alias lists per puzzle (per feedback_hebrew_review_location memory). Batch as a pool-review item once curated.
+
+#### T-105: Emoji Night — settings + feature flag + per-group toggle
+**Priority:** P1 | **Status:** TODO | **Deps:** T-103
+
+Add to `config/settings.yaml`:
+
+```yaml
+features:
+  emoji_puzzle:
+    enabled: false
+    groups: []             # "main" / "test"
+schedule:
+  emoji_puzzle:
+    days: []               # Hebrew 0=Sun..6=Sat
+    time: "22:00"
+    puzzle_count: 5        # 3 / 5 / 7
+    interval_minutes: 6    # pacing between puzzles
+    intro_offset_seconds: 60
+    wrap_offset_seconds: 420  # 7 min after last puzzle
+gamification:
+  emoji_puzzle_winner: 5
+```
+
+Hot-reload compatible (picked up on `data/reload` touch). All values editable from dashboard (T-109) — this task just defines the schema and defaults.
+
+#### T-106: Emoji Night — session layer + rounds.session_id migration
+**Priority:** P1 | **Status:** TODO | **Deps:** T-103
+
+Add a session concept to group N rounds within a single Emoji Night event:
+- New table `emoji_puzzle_sessions`: id, chat_id, message_thread_id, started_at, ended_at, puzzle_count, winner_summary (JSON), status (active/completed)
+- Migration: `ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER` (idempotent via try/except, matches existing migration pattern in `_migrate()`)
+- Helpers: `create_emoji_session`, `get_active_session`, `complete_emoji_session`, `get_session_leaderboard` (aggregates winners within a session for the wrap-up message)
+
+Enables: wrap-up message can show "winners of the night"; dashboard can show event history per-session instead of per-round.
+
+#### T-107: Emoji Night — handler (send/watch/judge/reveal)
+**Priority:** P1 | **Status:** TODO | **Deps:** T-103, T-104, T-106
+
+Create `bot/handlers/emoji_puzzle.py`:
+
+- `start_emoji_night(context, chat_id, thread_id)` — picks N puzzles (random-by-difficulty: 2 easy + 2 med + 1 hard from enabled pool), creates session, schedules the N+2 messages (intro + puzzles + wrap-up) via `db.create_scheduled_message()` rows timed by `interval_minutes` config. Each puzzle send creates a round row via `db.start_emoji_round()` so the watcher has the answer.
+- `MessageHandler` — watches replies where `update.message.reply_to_message.message_id` matches an active round. Normalizes user text (strip ה prefix, unicode NFC, lowercase, strip punct/whitespace), compares to answer_he + answer_en + aliases. On match + no prior 7-day win: atomic `mark_emoji_round_solved` → `db.add_points(5)` → `log_activity` → `check_level_up` → bot reply "🎉 {name} פתר/ה!"
+- `reveal_unsolved_rounds_job` — APScheduler every hour, calls `get_emoji_rounds_to_reveal(24)`, posts answer, marks revealed
+- Startup recovery: on bot start, `get_all_active_emoji_rounds()` warms the reply-watcher (handler is stateless, lookup is DB-driven, so nothing special needed — just confirm lookup index is fast)
+
+`register()` function at bottom for `bot/main.py` to call.
+
+#### T-108: Emoji Night — dashboard-driven scheduler (cron from settings)
+**Priority:** P1 | **Status:** TODO | **Deps:** T-105, T-107
+
+Register APScheduler cron job in `bot/scheduler/jobs.py` (or equivalent) that reads `schedule.emoji_puzzle` from settings on each tick and fires `start_emoji_night` for each enabled group. Pattern to mirror: `send_scheduled_trivia` in `bot/handlers/trivia.py:79`.
+
+Hot-reload: on `data/reload`, re-register cron with new days/time. No parallel scheduler — must go through the existing reload pipeline (per project_botson memory: "Don't add parallel schedulers").
+
+#### T-109: Emoji Night — dashboard /puzzles page + sidebar both blocks
+**Priority:** P1 | **Status:** TODO | **Deps:** T-107
+
+New dashboard page `/puzzles` (per Dashboard Parity Rule). Cards:
+1. **Schedule** — day chips (per feedback_dashboard_ux), time picker, puzzle_count (3/5/7), interval_minutes, group toggle (main/test)
+2. **Pool** — table of puzzles (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled toggle, times_used). Add / edit / delete. Per dashboard_ux memory: NO long list — show next 10 with a pool count + "show all" expand.
+3. **History** — recent sessions (session_id, date, group, puzzle_count, winners)
+4. **Admin** — "Run now" button for testing in Sherlocks Den
+
+Routes in `dashboard/app.py`: GET `/puzzles`, POST `/api/puzzles/create`, PATCH `/api/puzzles/{id}`, DELETE `/api/puzzles/{id}`, POST `/api/puzzles/schedule`, POST `/api/puzzles/run-now`.
+
+Template `dashboard/templates/puzzles.html`. Style-mirror `trivia.html`.
+
+**CRITICAL:** Add `/puzzles` to BOTH sidebar blocks in `dashboard/templates/base.html` (mobile overlay + desktop sidebar) per feedback_sidebar_accessibility memory. Currently the two blocks start at lines 80 and 162.
+
+#### T-110: Emoji Night — cleanup + dry-run in Den
+**Priority:** P2 | **Status:** TODO | **Deps:** T-108, T-109
+
+- Delete `scripts/emoji_puzzle_test.py` (obsolete once handler exists)
+- Delete the 3 `emoji-puzzle-r1-*` items from VPS `data/pending_reviews.json` (single-puzzle templates superseded by pool)
+- Dry-run: enable feature for `test` group only from dashboard, click "Run now" → watch Sherlocks Den for full 35-min event flow, verify pacing + judging + winner announcement + wrap-up + 24h reveal (or confirm winners-before-24h ends cleanly)
+- Iterate on copy/pacing based on how it lands
+- Only after a successful dry-run: enable for `main` group, schedule first real event
 
 ---
 
