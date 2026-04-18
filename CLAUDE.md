@@ -51,14 +51,26 @@ The dashboard is the primary control interface. Users should never need to use T
 
 ## Deploy
 
-VPS at `/opt/robotnik` is a git checkout tracking `origin/main`. To deploy:
+**VPS is a deploy target, not a workspace.** Never edit `/opt/robotnik/*` files directly on the VPS. Every change goes through: commit on local → push → run `scripts/deploy.sh` on VPS.
+
+VPS at `/opt/robotnik` is a git checkout tracking `origin/main`, owned by `botson:botson`. Standard workflow:
 
 ```bash
 git push origin main
-ssh -i ~/.ssh/id_ed25519 root@84.46.253.137 'cd /opt/robotnik && git fetch && git reset --hard origin/main && chown -R botson:botson /opt/robotnik && systemctl restart botson botson-dashboard'
+ssh -i ~/.ssh/id_ed25519 root@84.46.253.137 '/opt/robotnik/scripts/deploy.sh'
 ```
 
-**Never use rsync from local working tree** — it captures unstaged changes and overwrites VPS file ownership (`botson` → `endlessblink`), breaking the systemd services. Always deploy from a committed git state via `git pull` on the VPS.
+`deploy.sh` runs `git fetch + reset --hard origin/main` as `botson`, reinstalls pinned deps, and restarts both services. Migrations self-run on bot startup via `Database._migrate()` (idempotent `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE`).
+
+Before starting a session or merging a risky PR, verify the VPS matches origin:
+
+```bash
+scripts/verify-sync.sh       # exits 0 if clean and in sync, 1 on drift
+```
+
+`media/covers/`, `data/`, `.env`, `.doppler/`, `backups/` are in `.gitignore` and never touched by deploys.
+
+**Never use rsync from local working tree** — it captures unstaged changes and overwrites VPS file ownership (`botson` → `endlessblink`), breaking the systemd services. Always deploy from a committed git state via `deploy.sh`.
 
 VPS service users:
 - `botson.service` runs as `botson` (calls `run_bot.sh` → `python -m bot.main`)
