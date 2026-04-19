@@ -21,15 +21,26 @@ from ..utils.config import load_yaml, get_settings, is_feature_enabled
 logger = logging.getLogger(__name__)
 
 
-def compute_week_previews(sunday_iso: str, committed_index: dict) -> list[dict]:
+def compute_week_previews(
+    sunday_iso: str,
+    committed_index: dict,
+    used_discussion_texts: set[str] | None = None,
+) -> list[dict]:
     """Compute preview rows for a single week starting at sunday_iso (YYYY-MM-DD).
 
     committed_index: dict keyed by (date_iso, "HH:MM", type) -> committed row,
     used to skip slots already present in scheduled_messages.
 
+    used_discussion_texts: optional set of discussion question strings that have
+    already been sent or are still queued. Those are excluded from the
+    discussion pool before picking, so a question never repeats across weeks.
+    Morning/evening pools rotate deterministically and are unaffected — the
+    user wants those recurring.
+
     Returns list of dicts: {date, time, type, text, topic_id, category}.
     """
     sunday = date.fromisoformat(sunday_iso)
+    used_discussion_texts = used_discussion_texts or set()
 
     settings = get_settings()
     schedule = settings.get("schedule", {})
@@ -83,7 +94,17 @@ def compute_week_previews(sunday_iso: str, committed_index: dict) -> list[dict]:
                 slot_seq = day_ord * 10 + time_idx
                 cat = active_categories[slot_seq % len(active_categories)]
                 cat_questions = discussions_pool.get(cat, [])
+                # Filter out already-used questions so discussions never repeat.
+                # Uses stable-ordered list (YAML order) so the modulo pick is
+                # reproducible run-to-run.
+                if used_discussion_texts:
+                    cat_questions = [q for q in cat_questions if q not in used_discussion_texts]
                 if not cat_questions:
+                    logger.warning(
+                        "[materializer] discussion pool exhausted for category=%s on %s %s — "
+                        "add more questions to config/discussions.yaml",
+                        cat, day_iso, t,
+                    )
                     continue
                 q_idx = (slot_seq // len(active_categories)) % len(cat_questions)
                 text = cat_questions[q_idx]
@@ -170,10 +191,18 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
         db, first_sunday.isoformat(), index_end.isoformat()
     )
 
+    # Load the set of discussion texts already sent or queued so we don't
+    # re-pick them when materializing new weeks.
+    used_discussion_texts = await db.get_used_discussion_texts()
+
     inserted = 0
     current_sunday = first_sunday
     while current_sunday <= end_date:
-        previews = compute_week_previews(current_sunday.isoformat(), committed_index)
+        previews = compute_week_previews(
+            current_sunday.isoformat(),
+            committed_index,
+            used_discussion_texts,
+        )
         for p in previews:
             slot_date = _date.fromisoformat(p["date"])
             # Skip past dates entirely.
@@ -204,6 +233,10 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
             )
             # Track in index so subsequent weeks' previews respect it.
             committed_index[(p["date"], p["time"], msg_type)] = {"id": msg_id}
+            # Track discussion texts so the next week doesn't re-pick the
+            # same question we just inserted for this week.
+            if msg_type == "discussion":
+                used_discussion_texts.add(text)
             inserted += 1
 
         current_sunday += timedelta(days=7)
