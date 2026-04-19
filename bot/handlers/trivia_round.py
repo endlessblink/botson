@@ -24,12 +24,11 @@ logger = logging.getLogger(__name__)
 POINTS_CORRECT = 12
 POINTS_FIRST_PLACE_BONUS = 20
 QUESTION_COUNT = 5
-QUESTION_TIMEOUT_S = 30
+QUESTION_TIMEOUT_S = 15
 
-# Preferred categories for a round (from the announcement spec)
-PREFERRED_CATEGORIES = {
-    "גיאוגרפיה", "מדע", "סרטים", "היסטוריה", "ספורט", "גיימינג",
-}
+# Round theme — filter the question pool.
+PREFERRED_CATEGORIES = {"סרטים", "טלוויזיה"}
+THEME_LABEL = "סרטים וטלוויזיה"
 
 # Trigger file polled every 10s so dashboard can kick off a round without HTTP.
 TRIGGER_FILE = Path(__file__).resolve().parents[2] / "data" / "trivia_round_trigger.json"
@@ -84,29 +83,62 @@ def _format_announcement(pre_roll_s: int) -> str:
     else:
         when = f"עוד {pre_roll_s} שניות"
     return (
-        "🧠 טריוויה מתחילה!\n\n"
-        f"{QUESTION_COUNT} שאלות. {QUESTION_TIMEOUT_S} שניות לכל אחת. "
-        f"תשובה נכונה = {POINTS_CORRECT} נק׳. המקום הראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס.\n\n"
-        "קטגוריות: גיאוגרפיה, מדע, סרטים, היסטוריה, ספורט, גיימינג.\n\n"
-        f"השאלה הראשונה יורדת {when} — תישארו בצ׳אט."
+        f"🎬 טריוויה: {THEME_LABEL}!\n\n"
+        f"{QUESTION_COUNT} שאלות מהירות · {QUESTION_TIMEOUT_S} שניות לכל אחת.\n"
+        f"תשובה נכונה = {POINTS_CORRECT} נק׳ · מקום ראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס 🏆\n\n"
+        f"השאלה הראשונה יורדת {when} — תתחממו 🍿"
+    )
+
+
+_TIMER_BAR_BLOCKS = 10
+
+
+def _timer_bar(remaining_s: int) -> str:
+    """Return a 10-block progress bar for remaining time (0..QUESTION_TIMEOUT_S)."""
+    filled = max(0, min(_TIMER_BAR_BLOCKS, round(remaining_s / QUESTION_TIMEOUT_S * _TIMER_BAR_BLOCKS)))
+    return "▓" * filled + "░" * (_TIMER_BAR_BLOCKS - filled)
+
+
+def _question_text(q: dict, q_index: int, remaining_s: int) -> str:
+    category = q.get("category", "כללי")
+    bar = _timer_bar(remaining_s)
+    if remaining_s >= QUESTION_TIMEOUT_S:
+        timer = f"⏱ {QUESTION_TIMEOUT_S} שניות {bar}"
+    elif remaining_s <= 5:
+        timer = f"⏱ נשארו {remaining_s} שניות ⚠️ {bar}"
+    else:
+        timer = f"⏱ נשארו {remaining_s} שניות {bar}"
+    return (
+        f"🧠 שאלה {q_index + 1}/{QUESTION_COUNT} · {category}\n\n"
+        f"{q['text']}\n\n"
+        f"{timer}"
     )
 
 
 async def _post_question(bot, db: Database, chat_id: int, thread_id: int | None,
                           q_index: int, q: dict) -> int:
     """Post question q_index and return message_id."""
-    category = q.get("category", "כללי")
-    text = (
-        f"🧠 שאלה {q_index + 1}/{QUESTION_COUNT} · {category}\n\n"
-        f"{q['text']}\n\n"
-        f"⏱ {QUESTION_TIMEOUT_S} שניות"
-    )
+    text = _question_text(q, q_index, QUESTION_TIMEOUT_S)
     markup = _build_answer_markup(q_index, q["options"])
     kwargs = {"chat_id": chat_id, "text": text, "reply_markup": markup}
     if thread_id is not None:
         kwargs["message_thread_id"] = thread_id
     msg = await bot.send_message(**kwargs)
     return msg.message_id
+
+
+async def _update_question_timer(bot, chat_id: int, message_id: int, q: dict,
+                                   q_index: int, remaining_s: int) -> None:
+    """Edit the question message to refresh the timer bar. Keep buttons attached."""
+    text = _question_text(q, q_index, remaining_s)
+    markup = _build_answer_markup(q_index, q["options"])
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id, text=text, reply_markup=markup,
+        )
+    except Exception as e:
+        # Swallow "message is not modified" / flood-control — non-fatal.
+        logger.debug("trivia_round: timer edit skipped: %s", e)
 
 
 async def _reveal_question(bot, chat_id: int, message_id: int, q: dict,
@@ -183,13 +215,42 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             logger.error("trivia_round: announcement failed: %s", e)
             return
 
-        # Pre-roll sleep (check abort)
+        # Pre-roll sleep until the last 5 seconds, then send a kickoff message.
+        kickoff_gap = 5
+        bulk_sleep = max(0, pre_roll_s - kickoff_gap)
         slept = 0
-        while slept < pre_roll_s:
+        while slept < bulk_sleep:
             if _should_abort(chat_id):
                 return
-            await asyncio.sleep(min(2, pre_roll_s - slept))
-            slept += 2
+            step = min(2, bulk_sleep - slept)
+            if step <= 0:
+                break
+            await asyncio.sleep(step)
+            slept += step
+
+        # Kickoff message — makes it unambiguous that the round is starting now.
+        kickoff_kwargs = {
+            "chat_id": chat_id,
+            "text": f"🚀 מתחילים! השאלה הראשונה יורדת עוד {kickoff_gap} שניות — תתרכזו בכפתורים 👇",
+        }
+        if thread_id is not None:
+            kickoff_kwargs["message_thread_id"] = thread_id
+        try:
+            await bot.send_message(**kickoff_kwargs)
+        except Exception as e:
+            logger.warning("trivia_round: kickoff send failed: %s", e)
+
+        # Final countdown before Q1 (abortable).
+        slept = 0
+        while slept < kickoff_gap:
+            if _should_abort(chat_id):
+                return
+            await asyncio.sleep(1)
+            slept += 1
+
+        # Timer-bar tick marks for each question — (elapsed_s, remaining_s).
+        # For a 15s window: 5s → 10 left, 10s → 5 left, 13s → 2 left.
+        tick_marks = [(5, 10), (10, 5), (13, 2)]
 
         # Questions loop
         for q_index, q in enumerate(questions):
@@ -200,13 +261,22 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             msg_id = await _post_question(bot, db, chat_id, thread_id, q_index, q)
             round_state["msg_id"] = msg_id
 
-            # Wait for timeout (abortable)
-            slept = 0
-            while slept < QUESTION_TIMEOUT_S:
+            # Wait for timeout with progress-bar edits at the configured ticks.
+            elapsed = 0
+            for target_elapsed, remaining_s in tick_marks:
+                while elapsed < target_elapsed:
+                    if _should_abort(chat_id):
+                        return
+                    await asyncio.sleep(1)
+                    elapsed += 1
+                await _update_question_timer(
+                    bot, chat_id, msg_id, q, q_index, remaining_s,
+                )
+            while elapsed < QUESTION_TIMEOUT_S:
                 if _should_abort(chat_id):
                     return
                 await asyncio.sleep(1)
-                slept += 1
+                elapsed += 1
 
             await _reveal_question(bot, chat_id, msg_id, q, q_index, round_state)
             # Short pause between questions

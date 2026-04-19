@@ -151,3 +151,64 @@ questions:
     options: ["אלברט איינשטיין", "ניקולס קופרניקוס", "גלילאו גליליי", "אייזק ניוטון"]
     correct: 3
     category: "מדע"
+
+  # Film & TV pool — used by /triviaround
+  - text: "איך קוראים לאח של מייקל סקוט ב'המשרד' (The Office)?"
+    options: ["דרייט", "ג'ים", "אנדי", "קווין"]
+    correct: 0
+    category: "סרטים"
+
+  - text: "מי ביים את הסדרה 'Breaking Bad'?"
+    options: ["וינס גיליגן", "דיוויד פינצ'ר", "ג'יי.ג'יי. אברמס", "דיוויד לינץ'"]
+    correct: 0
+    category: "טלוויזיה"
+
+  - text: "מה שם הקוסם הזקן ב'שר הטבעות'?"
+    options: ["סארומן", "גנדלף", "רדגסט", "אלרונד"]
+    correct: 1
+    category: "סרטים"
+
+  - text: "באיזה סרט אומרים \"May the Force be with you\"?"
+    options: ["סטאר טרק", "סטאר וורס", "הנוסע השמיני", "המטריקס"]
+    correct: 1
+    category: "סרטים"
+
+  - text: "איזו סדרת אנימציה עוקבת אחרי משפחת סימפסון?"
+    options: ["South Park", "Family Guy", "The Simpsons", "Bob's Burgers"]
+    correct: 2
+    category: "טלוויזיה"
+
+  - text: "מי שיחק את ג'וקר ב'The Dark Knight'?"
+    options: ["הית' לדג'ר", "חואקין פיניקס", "ג'ק ניקולסון", "ג'ארד לטו"]
+    correct: 0
+    category: "סרטים"
+
+  - text: "איך קוראים לדרקון הגדול של דנריס ב'משחקי הכס'?"
+    options: ["ויסריון", "רייגל", "דרוגון", "בלריון"]
+    correct: 2
+    category: "טלוויזיה"
+
+  - text: "באיזה סרט של פיקסאר הגיבור הוא רובוט בעתיד שומם?"
+    options: ["Up", "WALL·E", "Ratatouille", "Inside Out"]
+    correct: 1
+    category: "סרטים"
+
+  - text: "מה שם הדמות הראשית ב'Stranger Things' שיש לה כוחות על?"
+    options: ["מקס", "אלוון", "ננסי", "רובין"]
+    correct: 1
+    category: "טלוויזיה"
+
+  - text: "מי ביים את 'שובו של הג'דיי' ואת סדרת 'אינדיאנה ג'ונס'?"
+    options: ["ג'ורג' לוקאס", "סטיבן שפילברג", "ריצ'רד מרקווד", "ג'יימס קמרון"]
+    correct: 1
+    category: "סרטים"
+
+  - text: "איזו סדרה עוקבת אחרי משפחת רוי והקרב על החברה שלהם?"
+    options: ["Succession", "Billions", "The Crown", "Yellowstone"]
+    correct: 0
+    category: "טלוויזיה"
+
+  - text: "מה שם הסרט שבו ליאונרדו דיקפריו נכנס לחלומות של אנשים?"
+    options: ["Shutter Island", "Inception", "Tenet", "Interstellar"]
+    correct: 1
+    category: "סרטים"
