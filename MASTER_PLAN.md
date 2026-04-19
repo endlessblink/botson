@@ -77,7 +77,7 @@
 | T-069 | 13 | Dashboard: view/manage streaks | TODO | P1 | T-011 |
 | T-070 | 13 | Dashboard: whitelist management (add/remove patterns) | TODO | P1 | T-008 |
 | T-071 | 13 | Dashboard: view group stats (same as /stats) | TODO | P1 | T-004 |
-| T-072 | 13 | Dashboard: create event from dashboard | TODO | P1 | T-020 |
+| ~~T-072~~ | 13 | ✅ Dashboard: create event from dashboard (cover + pin + topic + from-poll picker) | ✅ DONE (2026-04-19) | P1 | T-020 |
 | T-073 | 13 | Dashboard: send weekly roundup manually | TODO | P2 | T-015 |
 | T-074 | 13 | Dashboard: activity analytics (charts/graphs) | DONE | P2 | T-034 |
 | T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
@@ -576,9 +576,21 @@ Equivalent to `/stats` command. Show on overview or health page: top karma earne
 ---
 
 #### T-072: Dashboard: create event from dashboard
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
+**Phase:** 13 | **Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
 
-Already exists on events page. Enhance: the created event should be announced in the group (send message via bot). Currently only saves to DB.
+Dashboard `/events` page rebuilt as a two-tab form:
+- **Blank tab**: title, description, date, time, location, topic dropdown, target group, cover image (upload / AI-generate via kie.ai / URL-scrape), auto-pin checkbox.
+- **From-Poll tab**: dropdown of recent polls (via `GET /api/polls`); picking a poll auto-fills title (cleaned), cover, topic, target group; clicking an option button adds date/time parsed from the option label.
+
+`POST /api/events/create` now actually posts to Telegram via `bot.handlers.calendar.send_message_with_optional_cover`, attaches RSVP inline buttons (`rsvp_yes_{event_id}` / `rsvp_maybe_{event_id}`), pins if requested, persists `message_id` + provenance (`source_poll_message_id`, `source_poll_option_key`).
+
+New "שמור בלי לפרסם" button creates the DB row without sending to Telegram (draft mode).
+
+Cache-Control: no-store middleware on HTML responses prevents stale-JS issues.
+
+Bugs fixed along the way: title was option-label not poll-text; date rolled to next year for slightly-past polls; cover preview rendered above viewport (added scrollIntoView); RSVP `callback_data` lacked event_id; literal `*` markdown asterisks rendered in caption; `edit_message_text` failed on photo+caption messages (switched to `edit_message_reply_markup`).
+
+**Files:** `bot/database/{db,models}.py` (events columns: cover_path, auto_pin, topic_id, source_poll_*), `bot/handlers/{events,polls}.py`, `dashboard/app.py` (events routes, /api/polls, no-cache middleware), `dashboard/templates/events.html` (full rewrite of form + JS), `scripts/{demo_event_to_den,repair_event_rsvp_buttons}.py`.
 
 ---
 
