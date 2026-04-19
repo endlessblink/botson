@@ -155,8 +155,22 @@ CREATE TABLE IF NOT EXISTS emoji_puzzles (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS emoji_puzzle_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    message_thread_id INTEGER,
+    started_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP,
+    puzzle_count INTEGER NOT NULL,
+    winner_summary TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'active'
+);
+CREATE INDEX IF NOT EXISTS idx_emoji_sessions_active
+    ON emoji_puzzle_sessions(status, chat_id, message_thread_id);
+
 CREATE TABLE IF NOT EXISTS emoji_puzzle_rounds (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER,
     puzzle_id INTEGER NOT NULL,
     chat_id INTEGER NOT NULL,
     message_thread_id INTEGER,
@@ -168,10 +182,12 @@ CREATE TABLE IF NOT EXISTS emoji_puzzle_rounds (
     revealed_at TIMESTAMP,
     status TEXT DEFAULT 'active',
     award_points INTEGER DEFAULT 0,
+    FOREIGN KEY (session_id) REFERENCES emoji_puzzle_sessions(id),
     FOREIGN KEY (puzzle_id) REFERENCES emoji_puzzles(id)
 );
 CREATE INDEX IF NOT EXISTS idx_emoji_rounds_active ON emoji_puzzle_rounds(status, message_id);
 CREATE INDEX IF NOT EXISTS idx_emoji_rounds_sent ON emoji_puzzle_rounds(sent_at);
+CREATE INDEX IF NOT EXISTS idx_emoji_rounds_session ON emoji_puzzle_rounds(session_id, sent_at);
 
 CREATE TABLE IF NOT EXISTS poll_votes (
     message_id INTEGER NOT NULL,

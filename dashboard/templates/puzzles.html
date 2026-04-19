@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+{% set active_page = "puzzles" %}
+
+{% block title %}Botson — Emoji Night{% endblock %}
+
+{% block content %}
+{% set feat = settings.features or {} %}
+{% set puzzle_feat = feat.emoji_puzzle if feat.emoji_puzzle is mapping else {'enabled': feat.emoji_puzzle, 'groups': []} %}
+{% set schedule = settings.schedule or {} %}
+{% set puzzle_sched = schedule.emoji_puzzle if schedule.emoji_puzzle is mapping else {} %}
+{% set puzzle_days = puzzle_sched.days or [] %}
+{% set day_labels = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'] %}
+
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">Emoji Night 🎬</h1>
+        <p class="text-sm text-[#71717a] mt-1">הפעלה שבועית, בריכת חידות, היסטוריה והרצה ידנית</p>
+    </div>
+    <div class="flex items-center gap-3 text-sm text-[#a1a1aa]">
+        <span>פעיל</span>
+        <label class="switch">
+            <input type="checkbox" id="ep-enabled" {% if puzzle_feat.enabled %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6">
+        <p class="text-xs text-[#71717a] mb-2">סך סיבובים</p>
+        <p class="text-2xl text-[#fafafa] stat-number">{{ stats.rounds_total or 0 }}</p>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6">
+        <p class="text-xs text-[#71717a] mb-2">נפתרו</p>
+        <p class="text-2xl text-emerald-400 stat-number">{{ stats.rounds_solved or 0 }}</p>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6">
+        <p class="text-xs text-[#71717a] mb-2">ממתינים / נחשפו</p>
+        <p class="text-2xl text-[#fafafa] stat-number">{{ stats.rounds_active or 0 }} / {{ stats.rounds_revealed or 0 }}</p>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg lg:col-span-2">
+        <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-[#fafafa]">לוח זמנים</h3>
+            <button id="ep-save" class="px-3 py-1.5 text-xs font-medium bg-[#fafafa] text-[#0a0a0a] rounded-md hover:bg-[#d4d4d8] transition-colors">שמור</button>
+        </div>
+        <div class="px-6 py-4 space-y-4">
+            <div>
+                <label class="text-sm text-[#a1a1aa] font-medium mb-2 block">קבוצות יעד</label>
+                <div class="flex gap-4 text-sm text-[#d4d4d8]">
+                    <label class="flex items-center gap-2"><input type="checkbox" class="ep-group" value="main" {% if 'main' in (puzzle_feat.groups or []) %}checked{% endif %}> <span>קבוצה ראשית</span></label>
+                    <label class="flex items-center gap-2"><input type="checkbox" class="ep-group" value="test" {% if 'test' in (puzzle_feat.groups or []) %}checked{% endif %}> <span>Sherlocks Den</span></label>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">שעה</label>
+                    <input id="ep-time" type="time" value="{{ puzzle_sched.time or '22:00' }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">חידות</label>
+                    <select id="ep-count" class="w-full bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none">
+                        {% for option in [3,5,7] %}
+                        <option value="{{ option }}" {% if (puzzle_sched.puzzle_count or 5) == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">מרווח (דק')</label>
+                    <input id="ep-interval" type="number" min="1" max="60" value="{{ puzzle_sched.interval_minutes or 6 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">פתיחה (שנ')</label>
+                    <input id="ep-intro" type="number" min="0" max="3600" value="{{ puzzle_sched.intro_offset_seconds or 60 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">סיכום (שנ')</label>
+                    <input id="ep-wrap" type="number" min="0" max="7200" value="{{ puzzle_sched.wrap_offset_seconds or 420 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-2 block">ימים</label>
+                    <div class="flex gap-2 flex-wrap">
+                        {% for i in range(7) %}
+                        <label class="flex flex-col items-center gap-1 text-xs text-[#a1a1aa] cursor-pointer px-2 py-1 rounded-md border border-[#272727]">
+                            <input type="checkbox" class="ep-day" value="{{ i }}" {% if i in puzzle_days %}checked{% endif %}>
+                            <span>{{ day_labels[i] }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">נקודות לזכייה</label>
+                    <input id="ep-points" type="number" min="1" max="100" value="{{ settings.gamification.emoji_puzzle_winner or 5 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h3 class="text-sm font-semibold text-[#fafafa]">הרץ עכשיו</h3>
+        </div>
+        <div class="px-6 py-4 space-y-3">
+            <p class="text-xs text-[#71717a]">יוצר סשן חדש מייד ומכניס את הודעות הערב לטבלת השליחה.</p>
+            <div class="flex gap-2">
+                <button class="ep-run-now px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] text-[#fafafa] rounded-md hover:bg-[#272727] transition-colors" data-target="test">הרץ ב-Den</button>
+                <button class="ep-run-now px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] text-[#fafafa] rounded-md hover:bg-[#272727] transition-colors" data-target="main">הרץ בראשית</button>
+            </div>
+            <div id="ep-run-result" class="text-xs text-[#a1a1aa]"></div>
+        </div>
+    </div>
+</div>
+
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h3 class="text-sm font-semibold text-[#fafafa]">הוספת חידה</h3>
+    </div>
+    <div class="px-6 py-4 grid grid-cols-1 lg:grid-cols-6 gap-3">
+        <input id="new-emoji" type="text" placeholder="🦁👑" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
+        <input id="new-he" type="text" placeholder="עברית" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]">
+        <input id="new-en" type="text" placeholder="English" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]" dir="ltr">
+        <input id="new-aliases" type="text" placeholder="aliases, separated, by commas" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]" dir="ltr">
+        <div class="flex gap-2">
+            <select id="new-difficulty" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="1">קל</option><option value="2" selected>בינוני</option><option value="3">קשה</option></select>
+            <select id="new-media" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="movie">סרט</option><option value="series">סדרה</option></select>
+        </div>
+        <button id="new-create" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#d4d4d8] h-9 px-4 rounded-md text-sm font-medium transition-colors">הוסף</button>
+    </div>
+</div>
+
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-4">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-[#fafafa]">בריכת חידות</h3>
+        <div class="flex items-center gap-3">
+            <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md">{{ puzzles|length }}</span>
+            {% if puzzles|length > 10 %}
+            <button id="toggle-all-puzzles" class="text-xs text-[#a1a1aa] hover:text-[#fafafa]">הצג הכל</button>
+            {% endif %}
+        </div>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-right text-xs text-[#71717a] border-b border-[#1f1f1f]">
+                    <th class="px-4 py-3 font-medium">אימוג'ים</th>
+                    <th class="px-4 py-3 font-medium">עברית</th>
+                    <th class="px-4 py-3 font-medium">English</th>
+                    <th class="px-4 py-3 font-medium">Aliases</th>
+                    <th class="px-4 py-3 font-medium">קושי</th>
+                    <th class="px-4 py-3 font-medium">סוג</th>
+                    <th class="px-4 py-3 font-medium">שימושים</th>
+                    <th class="px-4 py-3 font-medium">פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for puzzle in puzzles %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#171717]/40 puzzle-row {% if loop.index > 10 %}hidden extra-puzzle{% endif %}" data-id="{{ puzzle.id }}">
+                    <td class="px-4 py-3"><input class="puzzle-emoji w-24 bg-transparent border border-[#272727] rounded-md h-8 px-2 text-[#fafafa]" value="{{ puzzle.emoji_prompt }}"></td>
+                    <td class="px-4 py-3"><input class="puzzle-he w-full bg-transparent border border-[#272727] rounded-md h-8 px-2 text-[#fafafa]" value="{{ puzzle.answer_he }}"></td>
+                    <td class="px-4 py-3"><input dir="ltr" class="puzzle-en w-full bg-transparent border border-[#272727] rounded-md h-8 px-2 text-[#fafafa]" value="{{ puzzle.answer_en }}"></td>
+                    <td class="px-4 py-3"><input dir="ltr" class="puzzle-aliases w-full min-w-[220px] bg-transparent border border-[#272727] rounded-md h-8 px-2 text-[#fafafa] text-xs" value="{{ puzzle.aliases_text }}"></td>
+                    <td class="px-4 py-3">
+                        <select class="puzzle-difficulty bg-[#111111] border border-[#272727] rounded-md h-8 px-2 text-[#fafafa]">
+                            <option value="1" {% if puzzle.difficulty == 1 %}selected{% endif %}>1</option>
+                            <option value="2" {% if puzzle.difficulty == 2 %}selected{% endif %}>2</option>
+                            <option value="3" {% if puzzle.difficulty == 3 %}selected{% endif %}>3</option>
+                        </select>
+                    </td>
+                    <td class="px-4 py-3">
+                        <select class="puzzle-media bg-[#111111] border border-[#272727] rounded-md h-8 px-2 text-[#fafafa]">
+                            <option value="movie" {% if puzzle.media_type == 'movie' %}selected{% endif %}>סרט</option>
+                            <option value="series" {% if puzzle.media_type == 'series' %}selected{% endif %}>סדרה</option>
+                        </select>
+                    </td>
+                    <td class="px-4 py-3 text-[#a1a1aa] stat-number">{{ puzzle.times_used }}</td>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-2">
+                            <label class="switch"><input type="checkbox" class="puzzle-enabled" {% if puzzle.enabled %}checked{% endif %}><span class="slider"></span></label>
+                            <button class="save-puzzle text-xs text-emerald-400 hover:underline">שמור</button>
+                            <button class="delete-puzzle text-xs text-red-400 hover:underline">מחק</button>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="px-6 py-8 text-center text-[#71717a] text-sm">אין חידות עדיין</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-[#fafafa]">היסטוריה</h3>
+        <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md">{{ sessions|length }}</span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-right text-xs text-[#71717a] border-b border-[#1f1f1f]">
+                    <th class="px-6 py-3 font-medium">Session</th>
+                    <th class="px-6 py-3 font-medium">התחלה</th>
+                    <th class="px-6 py-3 font-medium">קבוצה</th>
+                    <th class="px-6 py-3 font-medium">חידות</th>
+                    <th class="px-6 py-3 font-medium">סטטוס</th>
+                    <th class="px-6 py-3 font-medium">זוכים</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for session in sessions %}
+                <tr class="border-b border-[#1f1f1f] hover:bg-[#171717]/40">
+                    <td class="px-6 py-3 text-[#fafafa] stat-number">{{ session.id }}</td>
+                    <td class="px-6 py-3 text-[#a1a1aa]" dir="ltr">{{ session.started_at }}</td>
+                    <td class="px-6 py-3 text-[#a1a1aa]">{{ session.group_label }}</td>
+                    <td class="px-6 py-3 text-[#a1a1aa] stat-number">{{ session.puzzle_count }}</td>
+                    <td class="px-6 py-3 text-[#a1a1aa]">{{ session.status }}</td>
+                    <td class="px-6 py-3 text-[#a1a1aa]">{{ session.winner_summary_text }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="px-6 py-8 text-center text-[#71717a] text-sm">אין סשנים עדיין</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function getPuzzleGroups() {
+    return Array.from(document.querySelectorAll('.ep-group:checked')).map(c => c.value);
+}
+
+function getPuzzleDays() {
+    return Array.from(document.querySelectorAll('.ep-day:checked')).map(c => parseInt(c.value, 10));
+}
+
+async function savePuzzleSchedule() {
+    await apiCall('/api/puzzles/schedule', {
+        enabled: document.getElementById('ep-enabled').checked,
+        groups: getPuzzleGroups(),
+        days: getPuzzleDays(),
+        time: document.getElementById('ep-time').value,
+        puzzle_count: parseInt(document.getElementById('ep-count').value, 10),
+        interval_minutes: parseInt(document.getElementById('ep-interval').value, 10),
+        intro_offset_seconds: parseInt(document.getElementById('ep-intro').value, 10),
+        wrap_offset_seconds: parseInt(document.getElementById('ep-wrap').value, 10),
+        emoji_puzzle_winner: parseInt(document.getElementById('ep-points').value, 10)
+    });
+}
+
+document.getElementById('ep-save').addEventListener('click', async () => {
+    try {
+        await savePuzzleSchedule();
+        showToast('לו"ז נשמר');
+    } catch (err) {
+        showToast('שגיאה בשמירת לו"ז', 'error');
+    }
+});
+
+document.getElementById('new-create').addEventListener('click', async () => {
+    try {
+        await apiCall('/api/puzzles/create', {
+            emoji_prompt: document.getElementById('new-emoji').value,
+            answer_he: document.getElementById('new-he').value,
+            answer_en: document.getElementById('new-en').value,
+            aliases: document.getElementById('new-aliases').value,
+            difficulty: parseInt(document.getElementById('new-difficulty').value, 10),
+            media_type: document.getElementById('new-media').value,
+            enabled: true,
+        });
+        showToast('החידה נוספה');
+        setTimeout(() => location.reload(), 800);
+    } catch (err) {
+        showToast('שגיאה בהוספת חידה', 'error');
+    }
+});
+
+document.querySelectorAll('.save-puzzle').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const row = btn.closest('.puzzle-row');
+        const id = row.dataset.id;
+        try {
+            const res = await fetch('/api/puzzles/' + id, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                emoji_prompt: row.querySelector('.puzzle-emoji').value,
+                answer_he: row.querySelector('.puzzle-he').value,
+                answer_en: row.querySelector('.puzzle-en').value,
+                aliases: row.querySelector('.puzzle-aliases').value,
+                difficulty: parseInt(row.querySelector('.puzzle-difficulty').value, 10),
+                media_type: row.querySelector('.puzzle-media').value,
+                enabled: row.querySelector('.puzzle-enabled').checked,
+                })
+            });
+            if (!res.ok) throw new Error('patch failed');
+            showToast('החידה נשמרה');
+        } catch (err) {
+            showToast('שגיאה בשמירת חידה', 'error');
+        }
+    });
+});
+
+document.querySelectorAll('.delete-puzzle').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const row = btn.closest('.puzzle-row');
+        const id = row.dataset.id;
+        if (!confirm('למחוק את החידה?')) return;
+        try {
+            const res = await fetch('/api/puzzles/' + id, { method: 'DELETE' });
+            if (!res.ok) throw new Error('delete failed');
+            row.remove();
+            showToast('החידה נמחקה');
+        } catch (err) {
+            showToast('שגיאה במחיקה', 'error');
+        }
+    });
+});
+
+document.querySelectorAll('.ep-run-now').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const result = document.getElementById('ep-run-result');
+        result.textContent = 'יוצר סשן...';
+        try {
+            const res = await apiCall('/api/puzzles/run-now', { target: btn.dataset.target });
+            result.textContent = 'נוצר session #' + res.session_id;
+            showToast('Emoji Night הוזמן');
+        } catch (err) {
+            result.textContent = 'שגיאה: ' + err.message;
+            showToast('שגיאה בהרצה', 'error');
+        }
+    });
+});
+
+var toggleBtn = document.getElementById('toggle-all-puzzles');
+if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+        var extras = document.querySelectorAll('.extra-puzzle');
+        var hidden = Array.from(extras).some(row => row.classList.contains('hidden'));
+        extras.forEach(row => row.classList.toggle('hidden', !hidden));
+        toggleBtn.textContent = hidden ? 'הסתר' : 'הצג הכל';
+    });
+}
+</script>
+{% endblock %}

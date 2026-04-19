@@ -803,16 +803,22 @@ async def calendar_mini_app(request: Request, month: str | None = None,
     ) as cur:
         event_rows = await cur.fetchall()
 
+    def _short(s: str, n: int = 60) -> str:
+        s = (s or "").strip().replace("\n", " ")
+        return s if len(s) <= n else s[:n - 1] + "…"
+
     by_day = defaultdict(list)
     for r in sched_rows:
         meta = _CAL_TYPE_STYLE.get(r["message_type"], _CAL_TYPE_STYLE["event"])
+        full = (r["text"] or "").strip()
         by_day[r["scheduled_date"]].append({
             "emoji": meta["emoji"],
             "css": meta["css"],
             "label": meta["label"],
             "time": (r["scheduled_time"] or "")[:5],
             "type": r["message_type"],
-            "text": (r["text"] or "").strip(),
+            "text": full,
+            "short": _short(full),
         })
     for r in event_rows:
         meta = _CAL_TYPE_STYLE["event"]
@@ -836,6 +842,7 @@ async def calendar_mini_app(request: Request, month: str | None = None,
             "time": (r["event_time"] or "")[:5] or "—",
             "type": "event",
             "text": text,
+            "short": _short(r["title"] or ""),
         })
 
     _cal.setfirstweekday(_cal.SUNDAY)

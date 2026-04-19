@@ -7,7 +7,7 @@ def get_points(action: str) -> int:
     """Get point value for an action from config.
 
     Actions: prompt_reply, discussion_reply, goals_post, trivia_correct,
-             trivia_winner, event_rsvp, streak_daily, streak_7_bonus,
+             trivia_winner, emoji_puzzle_winner, event_rsvp, streak_daily, streak_7_bonus,
              streak_14_bonus, streak_30_bonus
     """
     settings = get_settings()
@@ -19,6 +19,7 @@ def get_points(action: str) -> int:
         "goals_post": 2,
         "trivia_correct": 12,
         "trivia_winner": 20,
+        "emoji_puzzle_winner": 5,
         "event_rsvp": 5,
         "streak_daily": 3,
         "streak_7_bonus": 10,

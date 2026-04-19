@@ -15,6 +15,9 @@ features:
     - main
     - test
   discussions: true
+  emoji_puzzle:
+    enabled: false
+    groups: []
   evening_prompt:
     enabled: true
     groups:
@@ -55,6 +58,7 @@ features:
     - test
 gamification:
   discussion_reply: 3
+  emoji_puzzle_winner: 5
   event_rsvp: 5
   goals_post: 2
   prompt_reply: 3
@@ -73,6 +77,13 @@ schedule:
     times:
     - '18:00'
     - '21:00'
+  emoji_puzzle:
+    days: []
+    time: '22:00'
+    puzzle_count: 5
+    interval_minutes: 2
+    intro_offset_seconds: 60
+    wrap_offset_seconds: 420
   evening_prompt:
     days:
     - 0

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes
 
 from ..database.db import Database
+from .emoji_puzzle import send_scheduled_emoji_message
 from ..utils.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -147,30 +148,34 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
 
         try:
             bot = Bot(bot_token)
-            poll_options = _parse_poll_options(msg.get("poll_options"))
-            if msg.get("message_type") == "poll" and len(poll_options) >= 2:
-                sent = await send_poll_message(
-                    bot,
-                    chat_id=group_id,
-                    question=msg["text"],
-                    options=poll_options,
-                    message_thread_id=msg.get("channel_topic_id"),
-                    duration_hours=msg.get("poll_duration"),
-                    cover_path=msg.get("cover_path"),
-                )
+            msg["_resolved_chat_id"] = group_id
+            if msg.get("message_type", "").startswith("emoji_puzzle_"):
+                sent = await send_scheduled_emoji_message(bot, db, msg)
             else:
-                if msg.get("message_type") == "poll":
-                    logger.warning(
-                        "Scheduled poll %d has no valid options — sending as text",
-                        msg["id"],
+                poll_options = _parse_poll_options(msg.get("poll_options"))
+                if msg.get("message_type") == "poll" and len(poll_options) >= 2:
+                    sent = await send_poll_message(
+                        bot,
+                        chat_id=group_id,
+                        question=msg["text"],
+                        options=poll_options,
+                        message_thread_id=msg.get("channel_topic_id"),
+                        duration_hours=msg.get("poll_duration"),
+                        cover_path=msg.get("cover_path"),
                     )
-                sent = await send_message_with_optional_cover(
-                    bot,
-                    chat_id=group_id,
-                    text=msg["text"],
-                    message_thread_id=msg.get("channel_topic_id"),
-                    cover_path=msg.get("cover_path"),
-                )
+                else:
+                    if msg.get("message_type") == "poll":
+                        logger.warning(
+                            "Scheduled poll %d has no valid options — sending as text",
+                            msg["id"],
+                        )
+                    sent = await send_message_with_optional_cover(
+                        bot,
+                        chat_id=group_id,
+                        text=msg["text"],
+                        message_thread_id=msg.get("channel_topic_id"),
+                        cover_path=msg.get("cover_path"),
+                    )
 
             # Auto-pin if requested
             if msg.get("auto_pin"):

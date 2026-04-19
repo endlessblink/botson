@@ -3,44 +3,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>לוח אירועים — אפריל</title>
+  <title>{{ month_name }} {{ year }} — לוח אירועים</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
       font-family: 'Heebo', 'Segoe UI', system-ui, -apple-system, sans-serif;
       padding-bottom: env(safe-area-inset-bottom);
+      -webkit-tap-highlight-color: transparent;
     }
-    /* Use Telegram theme colors when available */
     :root {
       --tg-bg: var(--tg-theme-bg-color, #09090b);
       --tg-text: var(--tg-theme-text-color, #f4f4f5);
       --tg-hint: var(--tg-theme-hint-color, #71717a);
       --tg-section: var(--tg-theme-secondary-bg-color, #18181b);
+      --tg-button: var(--tg-theme-button-color, #3b82f6);
     }
     body { background: var(--tg-bg); color: var(--tg-text); }
     .cell { background: var(--tg-section); }
+    .cell:active { transform: scale(0.97); transition: transform 0.1s; }
+    .sheet-backdrop { backdrop-filter: blur(4px); }
+    .sheet {
+      transform: translateY(100%);
+      transition: transform 0.25s ease-out;
+    }
+    .sheet.open { transform: translateY(0); }
   </style>
 </head>
-<body class="text-zinc-100 px-3 py-3">
-  <div class="max-w-3xl mx-auto">
-    <div class="flex items-center justify-between mb-3">
-      <div class="flex flex-wrap gap-1.5">
-        {% for key, meta in legend.items() %}
-        <span class="{{ meta.css }} border text-[11px] rounded px-1.5 py-0.5">
-          {{ meta.emoji }} {{ meta.label }}
-        </span>
-        {% endfor %}
+<body class="text-zinc-100 px-2 py-2">
+  <div class="w-full max-w-7xl mx-auto">
+    <!-- Header: month nav + title -->
+    <div class="flex items-center justify-between mb-3 gap-2">
+      <a href="{{ prev_url }}" class="bg-zinc-800 hover:bg-zinc-700 active:scale-95 transition rounded-lg px-3 py-1.5 text-sm font-medium select-none">▶</a>
+      <div class="flex-1 text-center">
+        <h1 class="text-lg font-bold leading-tight">{{ month_name }} {{ year }}</h1>
+        <a href="{{ today_url }}" class="text-xs text-blue-400 hover:text-blue-300">היום</a>
       </div>
-      <h1 class="text-lg font-bold">📅 {{ month_name }} {{ year }}</h1>
+      <a href="{{ next_url }}" class="bg-zinc-800 hover:bg-zinc-700 active:scale-95 transition rounded-lg px-3 py-1.5 text-sm font-medium select-none">◀</a>
     </div>
 
+    <!-- Legend -->
+    <div class="flex flex-wrap gap-1.5 justify-center mb-3">
+      {% for key, meta in legend.items() %}
+      <span class="{{ meta.css }} border text-[11px] rounded px-2 py-0.5">
+        {{ meta.emoji }} {{ meta.label }}
+      </span>
+      {% endfor %}
+    </div>
+
+    <!-- Day-of-week header -->
     <div class="grid grid-cols-7 gap-1 mb-1 text-zinc-400 text-xs font-semibold">
       {% for d in heb_dow %}
       <div class="text-center py-1">{{ d }}</div>
       {% endfor %}
     </div>
 
+    <!-- Calendar grid -->
     <div class="flex flex-col gap-1">
       {% for week in weeks %}
       <div class="grid grid-cols-7 gap-1">
@@ -48,9 +66,13 @@
           {% if cell is none %}
             <div class="cell rounded min-h-[88px] opacity-30"></div>
           {% else %}
-            <div class="cell rounded min-h-[88px] p-1 flex flex-col gap-0.5
-                        {% if cell.is_today %}ring-2 ring-blue-500/70{% else %}border border-zinc-800{% endif %}
-                        {% if cell.is_past %}opacity-50{% endif %}">
+            <button
+              type="button"
+              data-day-iso="{{ cell.iso }}"
+              class="cell rounded min-h-[120px] p-1.5 flex flex-col gap-1 text-right select-none cursor-pointer
+                     {% if cell.is_today %}ring-2 ring-blue-500/70{% else %}border border-zinc-800{% endif %}
+                     {% if cell.is_past %}opacity-50{% endif %}
+                     {% if cell.chips %}hover:bg-zinc-800/80{% endif %}">
               <div class="flex justify-end mb-0.5">
                 {% if cell.is_today %}
                 <span class="bg-blue-500 text-white font-bold rounded-full w-6 h-6 flex items-center justify-center text-xs">{{ cell.day }}</span>
@@ -59,14 +81,18 @@
                 {% endif %}
               </div>
               {% for chip in cell.chips[:4] %}
-              <div class="{{ chip.css }} border text-[10px] rounded px-1 py-0.5 leading-tight truncate">
-                {{ chip.emoji }} {{ chip.time }}
+              <div class="{{ chip.css }} border text-[11px] rounded px-1.5 py-1 leading-tight overflow-hidden">
+                <div class="flex items-center gap-1 mb-0.5 font-mono">
+                  <span>{{ chip.emoji }}</span>
+                  <span class="text-[10px] opacity-90">{{ chip.time }}</span>
+                </div>
+                <div class="line-clamp-2 text-[10px] opacity-95">{{ chip.short }}</div>
               </div>
               {% endfor %}
               {% if cell.chips|length > 4 %}
-              <div class="text-zinc-500 text-[9px] px-0.5">+{{ cell.chips|length - 4 }}</div>
+              <div class="text-zinc-500 text-[9px] px-0.5">+{{ cell.chips|length - 4 }} עוד</div>
               {% endif %}
-            </div>
+            </button>
           {% endif %}
         {% endfor %}
       </div>
@@ -74,16 +100,98 @@
     </div>
 
     <p class="mt-3 text-center text-zinc-500 text-xs">
-      תצוגת לוח חיה — מתעדכנת אוטומטית מהבוט
+      לחיצה על תאריך פותחת את פרטי הפעילות
     </p>
   </div>
 
+  <!-- Day-detail bottom sheet -->
+  <div id="sheet-backdrop" class="hidden fixed inset-0 z-40 bg-black/60 sheet-backdrop"></div>
+  <div id="sheet" class="sheet fixed inset-x-0 bottom-0 z-50 bg-zinc-900 rounded-t-2xl border-t border-zinc-700 max-h-[80vh] overflow-y-auto">
+    <div class="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+      <button type="button" id="sheet-close" class="text-zinc-400 hover:text-zinc-100 text-2xl leading-none">×</button>
+      <h2 id="sheet-title" class="font-bold"></h2>
+    </div>
+    <div id="sheet-body" class="px-4 py-3 space-y-3"></div>
+  </div>
+
   <script>
-    // Apply Telegram theme & expand to full height when inside Telegram
+    const DAYS_DATA = {{ days_json|safe }};
+    const HEB_DOW = {{ heb_dow|tojson }};
+    const TODAY_ISO = "{{ today_iso }}";
+
+    const sheet = document.getElementById("sheet");
+    const backdrop = document.getElementById("sheet-backdrop");
+    const sheetTitle = document.getElementById("sheet-title");
+    const sheetBody = document.getElementById("sheet-body");
+    const sheetClose = document.getElementById("sheet-close");
+
+    function isoToHebrewDate(iso) {
+      const [y, m, d] = iso.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      const dow = HEB_DOW[(dt.getDay()) % 7]; // JS: Sun=0
+      const isToday = iso === TODAY_ISO;
+      return `יום ${dow}' · ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}` +
+             (isToday ? " · היום" : "");
+    }
+
+    function openDay(iso) {
+      const items = DAYS_DATA[iso] || [];
+      sheetTitle.textContent = isoToHebrewDate(iso);
+      if (items.length === 0) {
+        sheetBody.innerHTML = '<p class="text-zinc-500 text-center py-6">אין פעילות מתוכננת ביום זה</p>';
+      } else {
+        sheetBody.innerHTML = items.map(it => `
+          <div class="border border-zinc-800 rounded-lg p-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="${it.css} border text-xs rounded px-2 py-0.5">${it.emoji} ${it.label}</span>
+              <span class="text-zinc-400 text-sm font-mono">${it.time}</span>
+            </div>
+            <p class="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">${escapeHtml(it.text)}</p>
+          </div>
+        `).join("");
+      }
+      sheet.classList.add("open");
+      backdrop.classList.remove("hidden");
+      // Telegram haptic
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.impactOccurred("light");
+      }
+    }
+
+    function closeSheet() {
+      sheet.classList.remove("open");
+      backdrop.classList.add("hidden");
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[c]);
+    }
+
+    // Wire up day buttons
+    document.querySelectorAll("[data-day-iso]").forEach(btn => {
+      btn.addEventListener("click", () => openDay(btn.dataset.dayIso));
+    });
+    sheetClose.addEventListener("click", closeSheet);
+    backdrop.addEventListener("click", closeSheet);
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
+
+    // Telegram WebApp setup
     if (window.Telegram && window.Telegram.WebApp) {
       const tg = window.Telegram.WebApp;
       tg.expand();
       tg.ready();
+      tg.BackButton.onClick(() => {
+        if (sheet.classList.contains("open")) closeSheet();
+        else tg.close();
+      });
+      // Show back button only when sheet is open
+      const observer = new MutationObserver(() => {
+        if (sheet.classList.contains("open")) tg.BackButton.show();
+        else tg.BackButton.hide();
+      });
+      observer.observe(sheet, { attributes: true, attributeFilter: ["class"] });
     }
   </script>
 </body>

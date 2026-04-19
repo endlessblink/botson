@@ -59,6 +59,7 @@ def setup_jobs(app: Application) -> None:
     from ..handlers.roundup import send_weekly_roundup
     from ..handlers.events import send_event_reminder
     from ..handlers.trivia import send_scheduled_trivia
+    from ..handlers.emoji_puzzle import reveal_unsolved_rounds_job, send_scheduled_emoji_night
     from ..handlers.free_games import send_free_games
 
     jq = app.job_queue
@@ -128,6 +129,22 @@ def setup_jobs(app: Application) -> None:
             name=f"trivia_day_{day}",
         )
 
+    # ── Emoji Night — dashboard-configured weekly session ──
+    emoji_sched = schedule.get("emoji_puzzle", {"time": "22:00", "days": []})
+    if isinstance(emoji_sched, dict):
+        emoji_time = _parse_time(emoji_sched.get("time", "22:00"))
+        emoji_days = emoji_sched.get("days", []) or []
+    else:
+        emoji_time = time(hour=22, minute=0, tzinfo=_tz)
+        emoji_days = []
+    for day in _hebrew_to_python_days(emoji_days):
+        jq.run_daily(
+            send_scheduled_emoji_night,
+            time=emoji_time,
+            days=(day,),
+            name=f"emoji_puzzle_day_{day}",
+        )
+
     # ── Daily materializer refill — 00:05 IDT ──
     # Belt-and-suspenders: keeps `scheduled_messages` populated with the next
     # 14 days of morning/evening/discussion slots even for long-running bots
@@ -136,6 +153,13 @@ def setup_jobs(app: Application) -> None:
         _materialize_job,
         time=time(hour=0, minute=5, tzinfo=_tz),
         name="materializer_daily",
+    )
+
+    jq.run_repeating(
+        reveal_unsolved_rounds_job,
+        interval=3600,
+        first=600,
+        name="emoji_puzzle_reveal",
     )
 
     logger.info("Scheduled %d cron jobs via JobQueue (text content → materializer)", len(jq.jobs()))
