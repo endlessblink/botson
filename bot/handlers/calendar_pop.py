@@ -19,10 +19,12 @@ import json
 import logging
 from datetime import date
 
-from telegram import Update
-from telegram.ext import CallbackQueryHandler, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
+
+CALENDAR_URL = "https://telegram-mini-app.in-theflow.com/calendar"
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +127,36 @@ async def handle_pop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer(text=text, show_alert=True)
 
 
+async def calendar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/calendar` — reply with a button that opens the interactive calendar Mini App."""
+    if not update.message:
+        return
+    text = (
+        "📅 לוח אירועים אינטראקטיבי\n\n"
+        "לחיצה על הכפתור פותחת את הלוח עם כל הפעילות בקבוצה. "
+        "ניווט בין חודשים, ולחיצה על תאריך מציגה את כל הפרטים."
+    )
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📅 פתח את הלוח", url=CALENDAR_URL),
+    ]])
+    kwargs = {"text": text, "reply_markup": kb}
+    if update.message.message_thread_id is not None:
+        kwargs["message_thread_id"] = update.message.message_thread_id
+    await context.bot.send_message(chat_id=update.effective_chat.id, **kwargs)
+
+
 def register(app):
-    """Register the popup callback handler."""
+    """Register the popup callback handler + /calendar command.
+
+    `/calendar` is registered both as a CommandHandler (normal path) AND as a
+    regex MessageHandler. The regex variant catches the case where an admin
+    sends the command "as the group" (anonymous), which strips the
+    BOT_COMMAND entity and makes CommandHandler ignore it.
+    """
     app.add_handler(CallbackQueryHandler(handle_pop_callback, pattern=r"^cal_pop_"))
-    logger.info("calendar_pop handler registered")
+    app.add_handler(CommandHandler("calendar", calendar_command))
+    app.add_handler(MessageHandler(
+        filters.Regex(r"^/calendar(@\w+)?(\s|$)"),
+        calendar_command,
+    ))
+    logger.info("calendar_pop handler registered (incl. /calendar command + regex fallback)")
