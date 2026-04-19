@@ -142,7 +142,7 @@
     </div>
 
     <div class="px-5 py-4 border-t border-[#1f1f1f]">
-        <button onclick="createEvent()"
+        <button onclick="submitEvent()"
             class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
             צור אירוע
         </button>
@@ -363,7 +363,7 @@ function escapeHtml(s) {
     });
 }
 
-async function createEvent() {
+async function submitEvent() {
     var title = document.getElementById('event-title').value.trim();
     var date = document.getElementById('event-date').value;
     if (!title || !date) {
