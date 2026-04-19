@@ -128,9 +128,16 @@ async def handle_pop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def calendar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """`/calendar` — reply with a button that opens the interactive calendar Mini App."""
+    """`/calendar` — reply with a button that opens the calendar Mini App.
+
+    In groups: silent no-op. The calendar button is pinned in the welcome
+    topic, so we don't need to clutter group chats with repeat replies.
+    In DMs: replies with the button so users get a private one-tap link.
+    """
     if not update.message:
         return
+    if update.effective_chat and update.effective_chat.type != "private":
+        return  # group chats use the pinned button instead
     text = (
         "📅 לוח אירועים אינטראקטיבי\n\n"
         "לחיצה על הכפתור פותחת את הלוח עם כל הפעילות בקבוצה. "
@@ -139,10 +146,9 @@ async def calendar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("📅 פתח את הלוח", url=CALENDAR_URL),
     ]])
-    kwargs = {"text": text, "reply_markup": kb}
-    if update.message.message_thread_id is not None:
-        kwargs["message_thread_id"] = update.message.message_thread_id
-    await context.bot.send_message(chat_id=update.effective_chat.id, **kwargs)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, text=text, reply_markup=kb,
+    )
 
 
 def register(app):
