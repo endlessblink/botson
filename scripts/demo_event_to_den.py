@@ -78,10 +78,10 @@ def _format_event_text(*, title: str, description: str, when: str, location: str
     )
 
 
-def _rsvp_markup() -> InlineKeyboardMarkup:
+def _rsvp_markup(event_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ מגיע/ה", callback_data="rsvp_yes"),
-        InlineKeyboardButton("🤔 אולי", callback_data="rsvp_maybe"),
+        InlineKeyboardButton("✅ מגיע/ה", callback_data=f"rsvp_yes_{event_id}"),
+        InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id}"),
     ]])
 
 
@@ -127,7 +127,7 @@ async def main():
         await bot.edit_message_reply_markup(
             chat_id=DEN_CHAT_ID,
             message_id=sent.message_id,
-            reply_markup=_rsvp_markup(),
+            reply_markup=_rsvp_markup(0),  # demo: no DB event row, RSVP won't work
         )
         print("[demo] RSVP buttons attached")
     except Exception as e:

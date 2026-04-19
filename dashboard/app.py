@@ -958,8 +958,10 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
 def _format_event_message(title: str, description: str | None,
                           event_date: str, event_time: str | None,
                           location: str | None) -> str:
-    """Hebrew event card text. Same shape as Telegram's pinned event preview."""
-    lines = [f"📅 *{title}*"]
+    """Hebrew event card text. Plain text — no markdown, since the bot send
+    doesn't pass parse_mode='Markdown' (and we don't want to risk injection
+    from user-typed titles)."""
+    lines = [f"📅 {title}"]
     when_parts = []
     if event_date:
         when_parts.append(event_date)
@@ -975,11 +977,17 @@ def _format_event_message(title: str, description: str | None,
     return "\n".join(lines)
 
 
-def _event_rsvp_markup():
+def _event_rsvp_markup(event_id: int):
+    """Build RSVP buttons whose callback_data matches the bot's handler.
+
+    bot/handlers/events.py:181 parses event_id from `rsvp_yes_{id}` and
+    `rsvp_maybe_{id}`. Without the id suffix the click fires but never
+    reaches the update logic — buttons appear inert.
+    """
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ מגיע/ה", callback_data="rsvp_yes"),
-        InlineKeyboardButton("🤔 אולי", callback_data="rsvp_maybe"),
+        InlineKeyboardButton("✅ מגיע/ה", callback_data=f"rsvp_yes_{event_id}"),
+        InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id}"),
     ]])
 
 
@@ -1046,7 +1054,7 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
         try:
             await bot.edit_message_reply_markup(
                 chat_id=chat_id, message_id=sent.message_id,
-                reply_markup=_event_rsvp_markup(),
+                reply_markup=_event_rsvp_markup(event_id),
             )
         except Exception as e:
             logger.warning("[events] failed to attach RSVP buttons: %s", e)
@@ -2718,9 +2726,16 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     days_since_sunday = (start_date.weekday() + 1) % 7
     first_sunday = start_date - timedelta(days=days_since_sunday)
 
+    # Match materializer behavior — exclude discussion questions that have
+    # already been sent or are queued, so the calendar preview reflects what
+    # the bot will actually schedule (no repeats).
+    used_discussion_texts = await db.get_used_discussion_texts()
+
     current_sunday = first_sunday
     while current_sunday <= end_date:
-        week_previews = compute_week_previews(current_sunday.isoformat(), committed_index)
+        week_previews = compute_week_previews(
+            current_sunday.isoformat(), committed_index, used_discussion_texts
+        )
         for p in week_previews:
             p_date = date.fromisoformat(p["date"])
             if p_date < start_date or p_date > end_date:
