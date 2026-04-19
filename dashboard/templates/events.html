@@ -25,7 +25,7 @@
     <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — איך זה ייראה בטלגרם</p>
     <div class="max-w-sm">
         <div class="bg-[#1a2634] rounded-lg rounded-tr-none overflow-hidden text-sm" dir="rtl">
-            <img id="preview-cover" src="" alt="" class="w-full hidden object-cover" style="max-height:200px">
+            <img id="preview-cover" alt="" class="w-full object-cover" style="display:none; max-height:200px">
             <div class="p-3">
                 <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
                 <div class="text-[#e4e6eb] whitespace-pre-line" id="preview-body">📅 <strong>כותרת האירוע</strong>
@@ -348,17 +348,82 @@ function onPollPicked(messageId) {
     });
 }
 
+// Strip common Hebrew "let's set a time" tails from a poll question so it
+// becomes a clean event title.  Examples:
+//   "משחק רוקטליג אונליין! בואו נקבע זמן"  →  "משחק רוקטליג אונליין"
+//   "Splendor או משהו אחר שיבוא לנו דרך BoardGameArena."  →  unchanged
+function _cleanPollTextForTitle(text) {
+    if (!text) return '';
+    var t = String(text).trim();
+    // Remove leading emoji + space if it's a cover-image marker (📅, 🎲 etc.)
+    // Drop a trailing "בואו נקבע זמן" / "מתי נפגש" / "מתי" phrase + the punctuation that precedes it.
+    t = t.replace(/[\s!?:—\-]*\s*(בואו\s+נקבע\s+זמן|מתי\s+נפגש|מתי\s+נקבע|נקבע\s+זמן|בואו\s+נקבע)\s*[?.!]*\s*$/u, '');
+    // Trim trailing punctuation but keep meaningful ones
+    t = t.replace(/[\s:—\-]+$/u, '').trim();
+    return t || String(text).trim();
+}
+
+// Parse "DD.M" (or "DD/M") + "HH:MM" out of an option label.
+// Returns {date: 'YYYY-MM-DD' | '', time: 'HH:MM' | ''} — both may be empty if
+// the label doesn't carry a date/time.
+function _parseOptionDateTime(label) {
+    if (!label) return {date: '', time: ''};
+    var s = String(label);
+    var time = '';
+    var date = '';
+    var mt = s.match(/(\d{1,2}):(\d{2})/);
+    if (mt) {
+        var hh = parseInt(mt[1], 10);
+        var mm = parseInt(mt[2], 10);
+        if (hh >= 0 && hh < 24 && mm >= 0 && mm < 60) {
+            time = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+        }
+    }
+    var md = s.match(/(\d{1,2})[\.\/](\d{1,2})(?![:\d])/);
+    if (md) {
+        var day = parseInt(md[1], 10);
+        var month = parseInt(md[2], 10);
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            // Pick the year that puts the date today-or-later (these are upcoming events).
+            var now = new Date();
+            var year = now.getFullYear();
+            var candidate = new Date(year, month - 1, day);
+            // Allow up to 2 days back for "today/tomorrow" polls; otherwise roll forward.
+            if ((now - candidate) > 2 * 24 * 60 * 60 * 1000) year += 1;
+            date = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+        }
+    }
+    return {date: date, time: time};
+}
+
 function applyPollOption(poll, opt) {
+    pollSourceMessageId = poll.message_id;
     pollSourceOptionKey = opt.key;
-    document.getElementById('event-title').value = opt.label;
-    if (poll.topic_id) document.getElementById('event-topic').value = String(poll.topic_id);
-    if (poll.target_group) document.getElementById('event-target-group').value = poll.target_group;
+
+    // Title = poll's question (the activity), NOT the option label (the time slot).
+    var titleEl = document.getElementById('event-title');
+    if (titleEl) {
+        titleEl.value = _cleanPollTextForTitle(poll.text);
+        _autoTitlePrev = null;  // mark as user-set so seedDefaults won't overwrite
+    }
+
+    // Date/time from the option the user clicked
+    var dt = _parseOptionDateTime(opt.label);
+    if (dt.date) _setVal('event-date', dt.date);
+    if (dt.time) _setVal('event-time', dt.time);
+
+    // Carry over cover + topic + target group from the poll
+    if (poll.topic_id) _setVal('event-topic', String(poll.topic_id));
+    if (poll.target_group) _setVal('event-target-group', poll.target_group);
     if (poll.cover_path) {
         eventCoverPath = poll.cover_path;
         setEventCoverStatus('✓ ' + poll.cover_path + ' (מהסקר)', false);
     }
+
+    saveDraft();
+    updatePreview();
     switchTab('blank');
-    showToast('פרטי האופציה הועתקו — ערוך וצור');
+    showToast('הכותרת מהסקר; תאריך ושעה מהאופציה — ערוך לפני יצירה');
 }
 
 function escapeHtml(s) {
@@ -484,15 +549,17 @@ function updatePreview() {
                             String(d.getMinutes()).padStart(2, '0');
     }
 
-    // Cover image
+    // Cover image — use explicit style.display so we don't depend on a CSS class
     var img = document.getElementById('preview-cover');
     if (img) {
         if (eventCoverPath) {
-            img.src = '/media/' + eventCoverPath;
-            img.classList.remove('hidden');
+            var url = '/media/' + eventCoverPath.replace(/^\/?(media\/)?/, '');
+            if (img.getAttribute('src') !== url) img.src = url;
+            img.style.display = 'block';
+            img.onerror = function() { img.style.display = 'none'; console.warn('preview cover failed to load:', url); };
         } else {
             img.removeAttribute('src');
-            img.classList.add('hidden');
+            img.style.display = 'none';
         }
     }
 
