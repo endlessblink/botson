@@ -81,9 +81,10 @@ schedule:
     days: []
     time: '22:00'
     puzzle_count: 5
-    interval_minutes: 2
-    intro_offset_seconds: 60
-    wrap_offset_seconds: 420
+    interval_seconds: 20
+    interval_minutes: 1
+    intro_offset_seconds: 10
+    wrap_offset_seconds: 20
   evening_prompt:
     days:
     - 0

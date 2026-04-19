@@ -68,8 +68,8 @@
                     </select>
                 </div>
                 <div>
-                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">מרווח (דק')</label>
-                    <input id="ep-interval" type="number" min="1" max="60" value="{{ puzzle_sched.interval_minutes or 6 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">מרווח (שנ')</label>
+                    <input id="ep-interval-seconds" type="number" min="5" max="300" value="{{ puzzle_sched.interval_seconds or ((puzzle_sched.interval_minutes or 1) * 60) }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
                 </div>
                 <div>
                     <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">פתיחה (שנ')</label>
@@ -246,7 +246,8 @@ async function savePuzzleSchedule() {
         days: getPuzzleDays(),
         time: document.getElementById('ep-time').value,
         puzzle_count: parseInt(document.getElementById('ep-count').value, 10),
-        interval_minutes: parseInt(document.getElementById('ep-interval').value, 10),
+        interval_seconds: parseInt(document.getElementById('ep-interval-seconds').value, 10),
+        interval_minutes: Math.max(1, Math.ceil(parseInt(document.getElementById('ep-interval-seconds').value, 10) / 60)),
         intro_offset_seconds: parseInt(document.getElementById('ep-intro').value, 10),
         wrap_offset_seconds: parseInt(document.getElementById('ep-wrap').value, 10),
         emoji_puzzle_winner: parseInt(document.getElementById('ep-points').value, 10)

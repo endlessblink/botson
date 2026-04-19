@@ -189,6 +189,20 @@ CREATE INDEX IF NOT EXISTS idx_emoji_rounds_active ON emoji_puzzle_rounds(status
 CREATE INDEX IF NOT EXISTS idx_emoji_rounds_sent ON emoji_puzzle_rounds(sent_at);
 CREATE INDEX IF NOT EXISTS idx_emoji_rounds_session ON emoji_puzzle_rounds(session_id, sent_at);
 
+CREATE TABLE IF NOT EXISTS emoji_puzzle_answers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    round_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    answered_at TIMESTAMP NOT NULL,
+    answer_rank INTEGER NOT NULL,
+    points_awarded INTEGER NOT NULL,
+    FOREIGN KEY (round_id) REFERENCES emoji_puzzle_rounds(id),
+    UNIQUE(round_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_emoji_answers_round ON emoji_puzzle_answers(round_id, answer_rank);
+CREATE INDEX IF NOT EXISTS idx_emoji_answers_user ON emoji_puzzle_answers(user_id, answered_at);
+
 CREATE TABLE IF NOT EXISTS poll_votes (
     message_id INTEGER NOT NULL,
     option_key TEXT NOT NULL,

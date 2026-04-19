@@ -621,6 +621,19 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+    async def get_used_discussion_texts(self) -> set[str]:
+        """Return the set of discussion texts that have been sent or are still
+        in the queue (scheduled). Used by the materializer to avoid re-picking
+        the same question. Cancelled/failed rows are ignored so a pool
+        question that never actually went out can be picked again later.
+        """
+        async with self._db.execute(
+            "SELECT DISTINCT text FROM scheduled_messages "
+            "WHERE message_type = 'discussion' AND status IN ('sent', 'scheduled')"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return {r[0] for r in rows if r[0]}
+
     async def delete_scheduled_message(self, msg_id: int):
         """Cancel a scheduled message."""
         await self._db.execute(
@@ -864,22 +877,119 @@ class Database:
         return changed
 
     async def get_session_leaderboard(self, session_id: int) -> list[dict]:
-        """Aggregate winners within one session for the wrap-up message."""
+        """Aggregate total points within one session for the wrap-up message."""
         async with self._db.execute(
             """SELECT
-                 r.winner_user_id AS user_id,
-                 COALESCE(m.display_name, CAST(r.winner_user_id AS TEXT)) AS display_name,
-                 COUNT(*) AS wins
-               FROM emoji_puzzle_rounds r
-               LEFT JOIN members m ON m.user_id = r.winner_user_id
+                 a.user_id AS user_id,
+                 COALESCE(m.display_name, CAST(a.user_id AS TEXT)) AS display_name,
+                 SUM(a.points_awarded) AS total_points,
+                 COUNT(*) AS correct_answers,
+                 MIN(a.answered_at) AS first_answer_at
+               FROM emoji_puzzle_answers a
+               JOIN emoji_puzzle_rounds r ON r.id = a.round_id
+               LEFT JOIN members m ON m.user_id = a.user_id
                WHERE r.session_id = ?
-                 AND r.winner_user_id IS NOT NULL
-               GROUP BY r.winner_user_id, COALESCE(m.display_name, CAST(r.winner_user_id AS TEXT))
-               ORDER BY wins DESC, MIN(r.solved_at) ASC, r.winner_user_id ASC""",
+               GROUP BY a.user_id, COALESCE(m.display_name, CAST(a.user_id AS TEXT))
+               ORDER BY total_points DESC, correct_answers DESC, first_answer_at ASC, a.user_id ASC""",
             (session_id,),
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def get_session_unsolved_rounds(self, session_id: int) -> list[dict]:
+        """All still-active rounds in a session, with puzzle answers for wrap-up reveal."""
+        async with self._db.execute(
+            """SELECT r.*, p.emoji_prompt, p.answer_he, p.answer_en
+               FROM emoji_puzzle_rounds r
+               JOIN emoji_puzzles p ON p.id = r.puzzle_id
+               WHERE r.session_id = ?
+                 AND NOT EXISTS (
+                     SELECT 1 FROM emoji_puzzle_answers a WHERE a.round_id = r.id
+                 )
+               ORDER BY r.sent_at ASC""",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_round_answer_count(self, round_id: int) -> int:
+        """Number of accepted answers recorded for one round."""
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM emoji_puzzle_answers WHERE round_id = ?",
+            (round_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return int(row[0] or 0) if row else 0
+
+    async def record_emoji_correct_answer(
+        self,
+        round_id: int,
+        user_id: int,
+        message_id: int,
+        points_by_rank: list[int],
+    ) -> dict | None:
+        """Record one user's correct answer for a round with place-based scoring."""
+        async with self._db.execute(
+            "SELECT 1 FROM emoji_puzzle_answers WHERE round_id = ? AND user_id = ? LIMIT 1",
+            (round_id, user_id),
+        ) as cursor:
+            if await cursor.fetchone():
+                return None
+
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM emoji_puzzle_answers WHERE round_id = ?",
+            (round_id,),
+        ) as cursor:
+            count = int((await cursor.fetchone())[0] or 0)
+
+        rank = count + 1
+        points = points_by_rank[rank - 1] if rank <= len(points_by_rank) else 0
+        answered_at = _now_il()
+        try:
+            async with self._db.execute(
+                """INSERT INTO emoji_puzzle_answers
+                   (round_id, user_id, message_id, answered_at, answer_rank, points_awarded)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (round_id, user_id, message_id, answered_at, rank, points),
+            ):
+                pass
+        except Exception:
+            await self._db.rollback()
+            return None
+
+        if rank == 1:
+            await self._db.execute(
+                """UPDATE emoji_puzzle_rounds
+                   SET winner_user_id = ?, winner_message_id = ?, solved_at = ?
+                   WHERE id = ?""",
+                (user_id, message_id, answered_at, round_id),
+            )
+        await self._db.commit()
+        return {
+            "round_id": round_id,
+            "user_id": user_id,
+            "answer_rank": rank,
+            "points_awarded": points,
+            "answered_at": answered_at,
+        }
+
+    async def close_session_rounds(self, session_id: int) -> int:
+        """Close all rounds in a session when the game ends."""
+        async with self._db.execute(
+            """UPDATE emoji_puzzle_rounds
+               SET revealed_at = ?,
+                   status = CASE
+                       WHEN EXISTS (
+                           SELECT 1 FROM emoji_puzzle_answers a WHERE a.round_id = emoji_puzzle_rounds.id
+                       ) THEN 'solved'
+                       ELSE 'revealed'
+                   END
+               WHERE session_id = ? AND status = 'active'""",
+            (_now_il(), session_id),
+        ) as cursor:
+            changed = cursor.rowcount or 0
+        await self._db.commit()
+        return changed
 
     async def get_recent_emoji_sessions(self, limit: int = 20) -> list[dict]:
         """Recent Emoji Night sessions for dashboard history."""
@@ -976,6 +1086,18 @@ class Database:
             (_now_il(), round_id),
         ) as cursor:
             changed = cursor.rowcount > 0
+        await self._db.commit()
+        return changed
+
+    async def mark_session_rounds_revealed(self, session_id: int) -> int:
+        """Mark all still-active rounds in a session as revealed at wrap-up time."""
+        async with self._db.execute(
+            """UPDATE emoji_puzzle_rounds
+               SET revealed_at = ?, status = 'revealed'
+               WHERE session_id = ? AND status = 'active'""",
+            (_now_il(), session_id),
+        ) as cursor:
+            changed = cursor.rowcount or 0
         await self._db.commit()
         return changed
 

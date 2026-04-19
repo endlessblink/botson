@@ -1313,9 +1313,10 @@ async def save_puzzle_schedule(request: Request):
         "days": [int(d) for d in data.get("days", [])],
         "time": str(data.get("time") or "22:00").strip() or "22:00",
         "puzzle_count": int(data.get("puzzle_count") or 5),
-        "interval_minutes": int(data.get("interval_minutes") or 6),
-        "intro_offset_seconds": int(data.get("intro_offset_seconds") or 60),
-        "wrap_offset_seconds": int(data.get("wrap_offset_seconds") or 420),
+        "interval_seconds": int(data.get("interval_seconds") or 20),
+        "interval_minutes": int(data.get("interval_minutes") or 1),
+        "intro_offset_seconds": int(data.get("intro_offset_seconds") or 10),
+        "wrap_offset_seconds": int(data.get("wrap_offset_seconds") or 20),
     }
     settings["gamification"]["emoji_puzzle_winner"] = int(data.get("emoji_puzzle_winner") or 5)
 

@@ -1,5 +1,7 @@
 """Emoji Night runtime: schedule sessions, judge replies, and reveal unsolved rounds."""
 
+import asyncio
+from difflib import SequenceMatcher
 import json
 import logging
 import random
@@ -19,6 +21,8 @@ from ..utils.scoring import get_points
 logger = logging.getLogger(__name__)
 
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
+_POINTS_BY_RANK = [5]
+_session_tasks: dict[int, asyncio.Task] = {}
 
 
 def _emoji_settings() -> tuple[dict, dict]:
@@ -62,12 +66,12 @@ def resolve_emoji_target(target: str, settings: dict | None = None) -> tuple[int
     return None, None
 
 
-def _format_intro_text(puzzle_count: int, award_points: int) -> str:
+def _format_intro_text(puzzle_count: int) -> str:
     return (
         "🎬 Emoji Night מתחיל!\n\n"
         f"מחכות לכם {puzzle_count} חידות אימוג'י על סרטים וסדרות.\n"
-        f"הראשונ/ה שפותר/ת כל חידה זוכה ב-{award_points} נקודות.\n\n"
-        "עונים ב-reply להודעת החידה. עברית או אנגלית מתקבלות, ויש 24 שעות עד חשיפה."
+        "הראשונ/ה שעונ/ה נכון על כל חידה מקבל/ת 5 נקודות מיד.\n\n"
+        "עונים ב-reply להודעת החידה. אפשר לענות גם על חידות קודמות עד סוף המשחק, ובסוף נחשוף את מה שלא נפתר."
     )
 
 
@@ -76,23 +80,31 @@ def _format_puzzle_text(puzzle: dict, index: int, total: int) -> str:
         f"🎬 חידת אימוג'י {index}/{total}\n\n"
         f"{puzzle['emoji_prompt']}\n\n"
         "איזה סרט או סדרה זה?\n"
-        "השיבו ב-reply להודעה הזו."
+        "השיבו ב-reply להודעה הזו. גם אם פספסתם חידה קודמת, היא עדיין פתוחה עד סוף המשחק."
     )
 
 
-def _format_wrap_text(leaderboard: list[dict], total: int) -> str:
+def _format_wrap_text(leaderboard: list[dict], total: int, unsolved_rounds: list[dict] | None = None) -> str:
+    unsolved_rounds = unsolved_rounds or []
     if not leaderboard:
-        return (
+        lines = [
             "🎬 Emoji Night הסתיים!\n\n"
             f"{total} חידות יצאו, אבל אף אחת עוד לא נפתרה. אולי בפעם הבאה."
-        )
+        ]
+    else:
+        lines = ["🎬 Emoji Night הסתיים!", "", "טבלת הזוכים:"]
+        medals = ["🥇", "🥈", "🥉"]
+        for idx, row in enumerate(leaderboard, start=1):
+            badge = medals[idx - 1] if idx <= len(medals) else f"{idx}."
+            pts = int(row.get("total_points", 0))
+            correct = int(row.get("correct_answers", 0))
+            lines.append(f"{badge} {row.get('display_name', 'חבר/ה')} — {pts} נק׳ · {correct} תשובות נכונות")
 
-    lines = ["🎬 Emoji Night הסתיים!", "", "טבלת הזוכים:"]
-    medals = ["🥇", "🥈", "🥉"]
-    for idx, row in enumerate(leaderboard, start=1):
-        badge = medals[idx - 1] if idx <= len(medals) else f"{idx}."
-        wins = int(row.get("wins", 0))
-        lines.append(f"{badge} {row.get('display_name', 'חבר/ה')} — {wins} זכיות")
+    if unsolved_rounds:
+        lines.extend(["", "תשובות שלא נפתרו:"])
+        for round_row in unsolved_rounds:
+            answer = round_row.get("answer_he") or round_row.get("answer_en") or "לא ידוע"
+            lines.append(f"{round_row.get('emoji_prompt', '')}  →  {answer}")
     return "\n".join(lines)
 
 
@@ -109,6 +121,10 @@ def _parse_payload(raw: str | None) -> dict:
     except (TypeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _place_badge(rank: int) -> str:
+    return {1: "🥇", 2: "🥈", 3: "🥉", 4: "🏅"}.get(rank, "✅")
 
 
 def _ceil_to_minute(value: datetime) -> tuple[str, str]:
@@ -140,6 +156,20 @@ def _normalized_variants(text: str) -> set[str]:
     return variants
 
 
+def _normalize_token(token: str) -> str:
+    token = unicodedata.normalize("NFC", token or "").lower().strip()
+    token = "".join(ch for ch in token if ch.isalnum())
+    if len(token) > 3 and token[:1] in {"ה", "ו", "ל", "ב", "כ", "ש", "מ"}:
+        token = token[1:]
+    return token
+
+
+def _meaningful_tokens(text: str) -> set[str]:
+    stopwords = {"את", "the", "a", "an", "of", "and", "to"}
+    tokens = {_normalize_token(part) for part in (text or "").split()}
+    return {token for token in tokens if token and token not in stopwords}
+
+
 def _accepted_answers(round_row: dict) -> set[str]:
     accepted = set()
     for raw in [round_row.get("answer_he"), round_row.get("answer_en")]:
@@ -153,6 +183,70 @@ def _accepted_answers(round_row: dict) -> set[str]:
     for alias in alias_items:
         accepted.update(_normalized_variants(str(alias)))
     return accepted
+
+
+def _accepted_raw_answers(round_row: dict) -> list[str]:
+    raws: list[str] = []
+    for raw in [round_row.get("answer_he"), round_row.get("answer_en")]:
+        if isinstance(raw, str) and raw.strip():
+            raws.append(raw.strip())
+    aliases = round_row.get("aliases")
+    try:
+        alias_items = json.loads(aliases or "[]")
+    except (TypeError, ValueError):
+        alias_items = []
+    for alias in alias_items:
+        text = str(alias).strip()
+        if text:
+            raws.append(text)
+    return raws
+
+
+def _guess_matches(round_row: dict, guess_text: str) -> bool:
+    guess_variants = _normalized_variants(guess_text)
+    if not guess_variants:
+        return False
+
+    accepted = _accepted_answers(round_row)
+    if guess_variants & accepted:
+        return True
+
+    guess_tokens = _meaningful_tokens(guess_text)
+    guess_compact = _normalize_compact(guess_text)
+    if not guess_tokens or len(guess_compact) < 4:
+        return False
+
+    for raw in _accepted_raw_answers(round_row):
+        raw_tokens = _meaningful_tokens(raw)
+        raw_compact = _normalize_compact(raw)
+        if not raw_tokens or len(raw_compact) < 4:
+            continue
+        if not (guess_tokens & raw_tokens):
+            continue
+        if SequenceMatcher(None, guess_compact, raw_compact).ratio() >= 0.67:
+            return True
+    return False
+
+
+def _get_answer_actor(update: Update):
+    msg = update.message
+    if not msg:
+        return None
+    if msg.sender_chat and (not update.effective_user or is_bot_user(update.effective_user)):
+        return {
+            "id": int(msg.sender_chat.id),
+            "username": None,
+            "display_name": msg.sender_chat.title or "אנונימי/ת",
+            "is_anonymous": True,
+        }
+    if update.effective_user and not is_bot_user(update.effective_user):
+        return {
+            "id": int(update.effective_user.id),
+            "username": update.effective_user.username,
+            "display_name": get_display_name(update.effective_user),
+            "is_anonymous": False,
+        }
+    return None
 
 
 async def _pick_session_puzzles(db: Database, puzzle_count: int) -> list[dict]:
@@ -185,12 +279,15 @@ async def start_emoji_night(
     thread_id: int | None,
     force: bool = False,
 ) -> int | None:
-    """Create one Emoji Night session and schedule intro/puzzles/wrap rows."""
+    """Create one Emoji Night session and launch its timed send flow."""
     if not force and not is_feature_enabled("emoji_puzzle", chat_id):
         logger.info("emoji_puzzle: feature disabled for chat %s", chat_id)
         return None
 
     db: Database = context.bot_data["db"]
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        raise RuntimeError("emoji_puzzle requires a bot instance")
     active = await db.get_active_session(chat_id, thread_id)
     if active:
         logger.info("emoji_puzzle: session already active in chat %s thread %s", chat_id, thread_id)
@@ -198,10 +295,9 @@ async def start_emoji_night(
 
     _, schedule = _emoji_settings()
     puzzle_count = int(schedule.get("puzzle_count", 5) or 5)
-    interval_minutes = int(schedule.get("interval_minutes", 6) or 6)
-    intro_offset_seconds = int(schedule.get("intro_offset_seconds", 60) or 60)
-    wrap_offset_seconds = int(schedule.get("wrap_offset_seconds", 420) or 420)
-    award_points = get_points("emoji_puzzle_winner")
+    interval_seconds = int(schedule.get("interval_seconds") or (int(schedule.get("interval_minutes", 1) or 1) * 60))
+    intro_offset_seconds = int(schedule.get("intro_offset_seconds", 10) or 10)
+    wrap_offset_seconds = int(schedule.get("wrap_offset_seconds", 20) or 20)
 
     puzzles = await _pick_session_puzzles(db, puzzle_count)
     if len(puzzles) < puzzle_count:
@@ -209,58 +305,59 @@ async def start_emoji_night(
         return None
 
     session_id = await db.create_emoji_session(chat_id, thread_id, puzzle_count)
-    now = datetime.now(_IL_TZ)
-    intro_at = now + timedelta(seconds=intro_offset_seconds)
-    target_group = "test" if TEST_GROUP_ID and chat_id == TEST_GROUP_ID else "main"
 
-    intro_date, intro_time = _ceil_to_minute(intro_at)
-    await db.create_scheduled_message(
-        text=_format_intro_text(puzzle_count, award_points),
-        message_type="emoji_puzzle_intro",
-        channel_topic_id=thread_id,
-        target_group=target_group,
-        scheduled_date=intro_date,
-        scheduled_time=intro_time,
-        created_by="emoji_puzzle",
-        poll_options=_payload("emoji_puzzle_intro", session_id=session_id),
+    task = asyncio.create_task(
+        _run_emoji_session(
+            bot=bot,
+            db=db,
+            session_id=session_id,
+            chat_id=chat_id,
+            thread_id=thread_id,
+            puzzles=puzzles,
+            intro_offset_seconds=intro_offset_seconds,
+            interval_seconds=interval_seconds,
+            wrap_offset_seconds=wrap_offset_seconds,
+        )
     )
+    _session_tasks[session_id] = task
+    task.add_done_callback(lambda _: _session_tasks.pop(session_id, None))
+    logger.info("emoji_puzzle: started live session %s with %d puzzles", session_id, puzzle_count)
+    return session_id
+
+
+async def _run_emoji_session(
+    bot,
+    db: Database,
+    session_id: int,
+    chat_id: int,
+    thread_id: int | None,
+    puzzles: list[dict],
+    intro_offset_seconds: int,
+    interval_seconds: int,
+    wrap_offset_seconds: int,
+):
+    kwargs = {"chat_id": chat_id}
+    if thread_id is not None:
+        kwargs["message_thread_id"] = thread_id
+
+    if intro_offset_seconds > 0:
+        await asyncio.sleep(intro_offset_seconds)
+    await bot.send_message(text=_format_intro_text(len(puzzles)), **kwargs)
 
     for idx, puzzle in enumerate(puzzles, start=1):
-        send_at = intro_at + timedelta(minutes=1 + ((idx - 1) * interval_minutes))
-        send_date, send_time = _ceil_to_minute(send_at)
-        await db.create_scheduled_message(
-            text=_format_puzzle_text(puzzle, idx, puzzle_count),
-            message_type="emoji_puzzle_round",
-            channel_topic_id=thread_id,
-            target_group=target_group,
-            scheduled_date=send_date,
-            scheduled_time=send_time,
-            created_by="emoji_puzzle",
-            poll_options=_payload(
-                "emoji_puzzle_round",
-                session_id=session_id,
-                puzzle_id=puzzle["id"],
-                award_points=award_points,
-                round_index=idx,
-                total=puzzle_count,
-            ),
-        )
+        msg = await bot.send_message(text=_format_puzzle_text(puzzle, idx, len(puzzles)), **kwargs)
+        await db.start_emoji_round(session_id, puzzle["id"], chat_id, msg.message_id, thread_id, _POINTS_BY_RANK[0])
+        if idx < len(puzzles) and interval_seconds > 0:
+            await asyncio.sleep(interval_seconds)
 
-    wrap_at = intro_at + timedelta(minutes=1 + ((puzzle_count - 1) * interval_minutes), seconds=wrap_offset_seconds)
-    wrap_date, wrap_time = _ceil_to_minute(wrap_at)
-    await db.create_scheduled_message(
-        text="Emoji Night wrap-up",
-        message_type="emoji_puzzle_wrap",
-        channel_topic_id=thread_id,
-        target_group=target_group,
-        scheduled_date=wrap_date,
-        scheduled_time=wrap_time,
-        created_by="emoji_puzzle",
-        poll_options=_payload("emoji_puzzle_wrap", session_id=session_id, total=puzzle_count),
-    )
+    if wrap_offset_seconds > 0:
+        await asyncio.sleep(wrap_offset_seconds)
 
-    logger.info("emoji_puzzle: scheduled session %s with %d puzzles", session_id, puzzle_count)
-    return session_id
+    leaderboard = await db.get_session_leaderboard(session_id)
+    unsolved_rounds = await db.get_session_unsolved_rounds(session_id)
+    await bot.send_message(text=_format_wrap_text(leaderboard, len(puzzles), unsolved_rounds), **kwargs)
+    await db.close_session_rounds(session_id)
+    await db.complete_emoji_session(session_id, leaderboard)
 
 
 async def send_scheduled_emoji_night(context: ContextTypes.DEFAULT_TYPE):
@@ -288,8 +385,11 @@ async def send_scheduled_emoji_message(bot, db: Database, msg: dict):
         session_id = int(payload.get("session_id", 0) or 0)
         total = int(payload.get("total", 0) or 0)
         leaderboard = await db.get_session_leaderboard(session_id)
-        kwargs["text"] = _format_wrap_text(leaderboard, total)
+        unsolved_rounds = await db.get_session_unsolved_rounds(session_id)
+        kwargs["text"] = _format_wrap_text(leaderboard, total, unsolved_rounds)
         sent = await bot.send_message(**kwargs)
+        if unsolved_rounds:
+            await db.mark_session_rounds_revealed(session_id)
         await db.complete_emoji_session(session_id, leaderboard)
         return sent
 
@@ -310,11 +410,10 @@ async def send_scheduled_emoji_message(bot, db: Database, msg: dict):
 
 async def handle_emoji_puzzle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Judge reply guesses against active emoji rounds."""
-    if not update.message or not update.effective_user or not update.effective_chat:
+    if not update.message or not update.effective_chat:
         return
-    if is_bot_user(update.effective_user):
-        return
-    if not is_feature_enabled("emoji_puzzle", update.effective_chat.id):
+    actor = _get_answer_actor(update)
+    if not actor:
         return
 
     reply_to = update.message.reply_to_message
@@ -326,39 +425,64 @@ async def handle_emoji_puzzle_reply(update: Update, context: ContextTypes.DEFAUL
     if not round_row:
         return
 
-    guess_variants = _normalized_variants(update.message.text or "")
-    if not guess_variants:
-        return
-    if not (guess_variants & _accepted_answers(round_row)):
-        return
+    logger.info(
+        "emoji_puzzle: received reply chat=%s round=%s user=%s text=%r",
+        update.effective_chat.id,
+        round_row["id"],
+        actor["id"],
+        (update.message.text or "")[:120],
+    )
 
-    user = update.effective_user
-    await db.upsert_member(user.id, user.username, get_display_name(user))
-
-    if await db.user_has_emoji_win_since(user.id, 7):
-        logger.info("emoji_puzzle: suppressing repeat winner user=%s round=%s", user.id, round_row["id"])
+    if not _guess_matches(round_row, update.message.text or ""):
         return
 
-    won = await db.mark_emoji_round_solved(round_row["id"], user.id, update.message.message_id)
-    if not won:
+    await db.upsert_member(actor["id"], actor["username"], actor["display_name"])
+
+    answer = await db.record_emoji_correct_answer(
+        round_row["id"],
+        actor["id"],
+        update.message.message_id,
+        _POINTS_BY_RANK,
+    )
+    if not answer:
+        try:
+            await update.message.reply_text("👀 נקלט, אבל כבר רשמתי לך תשובה נכונה לחידה הזאת.")
+        except Exception:
+            pass
         return
 
-    award_points = int(round_row.get("award_points", 0) or get_points("emoji_puzzle_winner"))
-    old_points = await db.add_points(user.id, award_points)
-    await db.log_activity(
-        "emoji_puzzle",
-        f"+{award_points} נקודות ל-{get_display_name(user)} (Emoji Night)",
-        user.id,
+    award_points = int(answer["points_awarded"])
+    old_points = await db.add_points(actor["id"], award_points) if award_points > 0 else await db.get_points(actor["id"])
+    if award_points > 0:
+        await db.log_activity(
+            "emoji_puzzle",
+            f"+{award_points} נקודות ל-{actor['display_name']} (Emoji Night)",
+            actor["id"],
+        )
+    logger.info(
+        "emoji_puzzle: round=%s recognized user=%s rank=%s points=%s",
+        round_row["id"], actor["id"], answer["answer_rank"], award_points,
     )
 
     try:
-        await update.message.reply_text(f"🎉 {get_display_name(user)} פתר/ה! +{award_points} נקודות")
+        rank = int(answer["answer_rank"])
+        badge = _place_badge(rank)
+        if award_points > 0:
+            text = f"{badge} נקלט! מקום {rank} ל-{actor['display_name']} (+{award_points} נקודות)"
+        else:
+            text = f"✅ נקלט! {actor['display_name']} פתר/ה נכון, אבל רק הראשון/ה מקבל/ת נקודות על החידה הזאת."
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text,
+            reply_to_message_id=round_row["message_id"],
+            message_thread_id=getattr(update.message, "message_thread_id", None),
+        )
     except Exception as e:
         logger.warning("emoji_puzzle: failed to send win reply: %s", e)
 
-    new_level = check_level_up(old_points, old_points + award_points)
-    if new_level:
-        mention = f"[{get_display_name(user)}](tg://user?id={user.id})"
+    new_level = check_level_up(old_points, old_points + award_points) if award_points > 0 else None
+    if new_level and not actor["is_anonymous"]:
+        mention = f"[{actor['display_name']}](tg://user?id={actor['id']})"
         try:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
