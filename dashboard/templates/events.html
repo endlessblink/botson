@@ -143,11 +143,16 @@
         </div>
     </div>
 
-    <div class="px-5 py-4 border-t border-[#1f1f1f]">
-        <button onclick="submitEvent()"
+    <div class="px-5 py-4 border-t border-[#1f1f1f] flex items-center gap-3">
+        <button onclick="submitEvent({publish: true})"
             class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
-            צור אירוע
+            צור ופרסם בטלגרם
         </button>
+        <button onclick="submitEvent({publish: false})"
+            class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
+            שמור בלי לפרסם
+        </button>
+        <span class="text-xs text-[#71717a] mr-2">"שמור" יוצר את האירוע ב-DB ללא שליחה לטלגרם</span>
     </div>
 </div>
 
@@ -406,33 +411,40 @@ function _parseOptionDateTime(label) {
 }
 
 function applyPollOption(poll, opt) {
+    console.log('[events] applyPollOption START', {poll: poll, opt: opt});
     pollSourceMessageId = poll.message_id;
     pollSourceOptionKey = opt.key;
 
-    // Title = poll's question (the activity), NOT the option label (the time slot).
+    var rawText = poll.text || '';
+    var cleanTitle = _cleanPollTextForTitle(rawText);
+    console.log('[events] title transform:', JSON.stringify(rawText), '→', JSON.stringify(cleanTitle));
+
     var titleEl = document.getElementById('event-title');
     if (titleEl) {
-        titleEl.value = _cleanPollTextForTitle(poll.text);
-        _autoTitlePrev = null;  // mark as user-set so seedDefaults won't overwrite
+        titleEl.value = cleanTitle;
+        _autoTitlePrev = null;
     }
 
-    // Date/time from the option the user clicked
     var dt = _parseOptionDateTime(opt.label);
+    console.log('[events] parsed date/time from option', JSON.stringify(opt.label), '→', dt);
     if (dt.date) _setVal('event-date', dt.date);
     if (dt.time) _setVal('event-time', dt.time);
 
-    // Carry over cover + topic + target group from the poll
     if (poll.topic_id) _setVal('event-topic', String(poll.topic_id));
     if (poll.target_group) _setVal('event-target-group', poll.target_group);
     if (poll.cover_path) {
+        console.log('[events] applying cover from poll:', poll.cover_path);
         eventCoverPath = poll.cover_path;
         setEventCoverStatus('✓ ' + poll.cover_path + ' (מהסקר)', false);
+    } else {
+        console.warn('[events] poll has NO cover_path — preview will have no thumbnail');
     }
 
     saveDraft();
     updatePreview();
     switchTab('blank');
     showToast('הכותרת מהסקר; תאריך ושעה מהאופציה — ערוך לפני יצירה');
+    console.log('[events] applyPollOption END — title:', titleEl && titleEl.value, 'cover:', eventCoverPath);
 }
 
 function escapeHtml(s) {
@@ -441,16 +453,19 @@ function escapeHtml(s) {
     });
 }
 
-async function submitEvent() {
+async function submitEvent(opts) {
+    opts = opts || {publish: true};
     var title = document.getElementById('event-title').value.trim();
     var date = document.getElementById('event-date').value;
+    console.log('[events] submit start', {publish: opts.publish, title: title, date: date,
+        cover: eventCoverPath, pollMsgId: pollSourceMessageId, pollOptKey: pollSourceOptionKey});
     if (!title || !date) {
         showToast('נא למלא כותרת ותאריך', 'error');
         return;
     }
     var topicVal = document.getElementById('event-topic').value;
     try {
-        await apiCall('/api/events/create', {
+        var payload = {
             title: title,
             description: document.getElementById('event-desc').value.trim(),
             event_date: date,
@@ -462,14 +477,17 @@ async function submitEvent() {
             target_group: document.getElementById('event-target-group').value,
             source_poll_message_id: pollSourceMessageId,
             source_poll_option_key: pollSourceOptionKey,
-        });
-        // Soft reset: keep cover/topic/group/pin (likely reused for next event),
-        // wipe per-event fields. Draft is re-seeded with the smart defaults below.
+            publish: !!opts.publish,
+        };
+        console.log('[events] POST /api/events/create payload:', payload);
+        var resp = await apiCall('/api/events/create', payload);
+        console.log('[events] response:', resp);
         partialClearAfterSubmit();
-        showToast('אירוע נוצר ופורסם');
+        showToast(opts.publish ? 'אירוע נוצר ופורסם' : 'אירוע נשמר (ללא פרסום)');
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
-        showToast('שגיאה ביצירת אירוע', 'error');
+        console.error('[events] submit failed', e);
+        showToast('שגיאה ביצירת אירוע: ' + e.message, 'error');
     }
 }
 

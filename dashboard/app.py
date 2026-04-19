@@ -95,6 +95,28 @@ def _winner_summary_text(raw: str | None) -> str:
 app = FastAPI(title="Botson Dashboard", docs_url=None, redoc_url=None)
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("DASHBOARD_SECRET", secrets.token_hex(32)))
 
+
+@app.middleware("http")
+async def no_cache_html(request: Request, call_next):
+    """Force browsers to always re-fetch HTML pages so JS fixes deploy reliably.
+
+    Without this, FastAPI's TemplateResponse has no cache headers; browsers
+    apply heuristic caching (often ~10% of last-modified age), which means
+    users see stale inline JS for hours after a deploy. Hard refresh fixes
+    it for that one page load only — they hit it again on the next nav.
+
+    Static assets (/media, /static) keep their default headers — those are
+    immutable by name (timestamped filenames for covers, etc.).
+    """
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 CONFIG_DIR = Path(__file__).parent.parent / "config"
@@ -1018,6 +1040,13 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
     target_group = data.get("target_group", "main")
     source_poll_message_id = data.get("source_poll_message_id")
     source_poll_option_key = data.get("source_poll_option_key")
+    publish = data.get("publish", True)
+
+    logger.info("[events.create] publish=%s title=%r date=%s time=%s topic=%s "
+                "group=%s cover=%s auto_pin=%s source_poll=%s/%s",
+                publish, title[:60], event_date, event_time, topic_id,
+                target_group, cover_path, auto_pin,
+                source_poll_message_id, source_poll_option_key)
 
     event_id = await db.create_event(
         title=title, description=description, event_date=event_date,
@@ -1026,6 +1055,11 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
         source_poll_message_id=source_poll_message_id,
         source_poll_option_key=source_poll_option_key,
     )
+    logger.info("[events.create] inserted event_id=%d", event_id)
+
+    if not publish:
+        logger.info("[events.create] publish=false — skipping Telegram send")
+        return {"status": "ok", "event_id": event_id, "published": False}
 
     # Post to Telegram. Reuse calendar.send_message_with_optional_cover so the
     # photo+caption layout matches scheduled-message sends.
@@ -1297,6 +1331,7 @@ async def run_puzzles_now(request: Request, db: Database = Depends(get_db)):
 
     data = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     target = str(data.get("target") or "test").strip()
+    from telegram import Bot
     from bot.handlers.emoji_puzzle import resolve_emoji_target, start_emoji_night
 
     chat_id, thread_id = resolve_emoji_target(target)
@@ -1304,6 +1339,7 @@ async def run_puzzles_now(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Unknown target '{target}'")
 
     ctx = type("EmojiCtx", (), {})()
+    ctx.bot = Bot(os.getenv("BOT_TOKEN", ""))
     ctx.bot_data = {"db": db}
     session_id = await start_emoji_night(ctx, chat_id, thread_id, force=True)
     if not session_id:
