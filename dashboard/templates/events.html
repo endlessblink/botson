@@ -351,6 +351,12 @@ function onPollPicked(messageId) {
     var poll = pollsCache[messageId];
     if (!poll) return;
     pollSourceMessageId = parseInt(messageId, 10);
+
+    // Apply poll-level metadata immediately — these belong to the POLL,
+    // not to specific options. The user shouldn't have to click an option
+    // just to see the cover/title load.
+    _applyPollMeta(poll);
+
     poll.options.forEach(function(o) {
         var btn = document.createElement('button');
         btn.className = 'w-full text-right bg-[#0e0e0e] border border-[#272727] hover:border-[#3f3f3f] rounded-md px-3 py-2 text-sm text-[#fafafa] cursor-pointer transition-colors';
@@ -358,6 +364,27 @@ function onPollPicked(messageId) {
         btn.onclick = function() { applyPollOption(poll, o); };
         box.appendChild(btn);
     });
+}
+
+// Set the title, cover, topic, and target group from a poll. Doesn't touch
+// date/time (those come from the chosen option) and doesn't switch tabs
+// (user is still picking which option they want).
+function _applyPollMeta(poll) {
+    console.log('[events] _applyPollMeta', {pollId: poll.message_id,
+        text: poll.text, cover: poll.cover_path, topic: poll.topic_id});
+    var titleEl = document.getElementById('event-title');
+    if (titleEl) {
+        titleEl.value = _cleanPollTextForTitle(poll.text || '');
+        _autoTitlePrev = null;
+    }
+    if (poll.topic_id) _setVal('event-topic', String(poll.topic_id));
+    if (poll.target_group) _setVal('event-target-group', poll.target_group);
+    if (poll.cover_path) {
+        eventCoverPath = poll.cover_path;
+        setEventCoverStatus('✓ ' + poll.cover_path + ' (מהסקר)', false);
+    }
+    saveDraft();
+    updatePreview();
 }
 
 // Strip common Hebrew "let's set a time" tails from a poll question so it
@@ -411,40 +438,23 @@ function _parseOptionDateTime(label) {
 }
 
 function applyPollOption(poll, opt) {
-    console.log('[events] applyPollOption START', {poll: poll, opt: opt});
+    console.log('[events] applyPollOption', {pollId: poll.message_id, optKey: opt.key, label: opt.label});
     pollSourceMessageId = poll.message_id;
     pollSourceOptionKey = opt.key;
 
-    var rawText = poll.text || '';
-    var cleanTitle = _cleanPollTextForTitle(rawText);
-    console.log('[events] title transform:', JSON.stringify(rawText), '→', JSON.stringify(cleanTitle));
-
-    var titleEl = document.getElementById('event-title');
-    if (titleEl) {
-        titleEl.value = cleanTitle;
-        _autoTitlePrev = null;
-    }
+    // Poll-level meta (title/cover/topic/group) was already applied in
+    // onPollPicked. This handler only fills in the option-specific bits.
+    _applyPollMeta(poll);
 
     var dt = _parseOptionDateTime(opt.label);
-    console.log('[events] parsed date/time from option', JSON.stringify(opt.label), '→', dt);
+    console.log('[events] parsed date/time:', JSON.stringify(opt.label), '→', dt);
     if (dt.date) _setVal('event-date', dt.date);
     if (dt.time) _setVal('event-time', dt.time);
-
-    if (poll.topic_id) _setVal('event-topic', String(poll.topic_id));
-    if (poll.target_group) _setVal('event-target-group', poll.target_group);
-    if (poll.cover_path) {
-        console.log('[events] applying cover from poll:', poll.cover_path);
-        eventCoverPath = poll.cover_path;
-        setEventCoverStatus('✓ ' + poll.cover_path + ' (מהסקר)', false);
-    } else {
-        console.warn('[events] poll has NO cover_path — preview will have no thumbnail');
-    }
 
     saveDraft();
     updatePreview();
     switchTab('blank');
-    showToast('הכותרת מהסקר; תאריך ושעה מהאופציה — ערוך לפני יצירה');
-    console.log('[events] applyPollOption END — title:', titleEl && titleEl.value, 'cover:', eventCoverPath);
+    showToast('פרטים הועתקו — ערוך לפני יצירה');
 }
 
 function escapeHtml(s) {
