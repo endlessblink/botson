@@ -389,7 +389,9 @@ async function submitEvent() {
             source_poll_message_id: pollSourceMessageId,
             source_poll_option_key: pollSourceOptionKey,
         });
-        clearDraft();   // success — drop the autosaved form so it won't re-fill
+        // Soft reset: keep cover/topic/group/pin (likely reused for next event),
+        // wipe per-event fields. Draft is re-seeded with the smart defaults below.
+        partialClearAfterSubmit();
         showToast('אירוע נוצר ופורסם');
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
@@ -507,18 +509,73 @@ function updatePreview() {
 }
 
 function _onAnyFieldChange() {
+    _maybeRetitleFromDateTime();
     saveDraft();
     updatePreview();
 }
 
+// ── Smart title default: "יום [day] | [D.M] | [HH:MM]" ──
+var HE_DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+var _autoTitlePrev = null;  // track the last auto-generated title so we know when user customized it
+
+function _autoTitleFor(dateIso, time) {
+    if (!dateIso) return '';
+    var parts = dateIso.split('-');
+    if (parts.length !== 3) return '';
+    var d = new Date(parts[0], parseInt(parts[1], 10) - 1, parts[2]);
+    if (isNaN(d.getTime())) return '';
+    var dayName = HE_DAYS[d.getDay()];
+    var dm = parseInt(parts[2], 10) + '.' + parseInt(parts[1], 10);
+    var t = time || '';
+    return 'יום ' + dayName + ' | ' + dm + (t ? ' | ' + t : '');
+}
+
+function _maybeRetitleFromDateTime() {
+    var titleEl = document.getElementById('event-title');
+    if (!titleEl) return;
+    var current = titleEl.value.trim();
+    // Only auto-update if the title is empty OR still matches the last auto-generated value
+    // (so the user's manual edits are preserved).
+    if (current && current !== _autoTitlePrev) return;
+    var auto = _autoTitleFor(_val('event-date'), _val('event-time'));
+    if (auto) {
+        titleEl.value = auto;
+        _autoTitlePrev = auto;
+    }
+}
+
+function seedDefaultsIfEmpty() {
+    var dateEl = document.getElementById('event-date');
+    var timeEl = document.getElementById('event-time');
+    if (dateEl && !dateEl.value) {
+        var now = new Date();
+        dateEl.value = now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0');
+    }
+    if (timeEl && !timeEl.value) timeEl.value = '19:00';
+    _maybeRetitleFromDateTime();
+}
+
+function partialClearAfterSubmit() {
+    // Wipe per-event fields, keep "preferences" (cover, topic, target_group, auto_pin).
+    ['event-title', 'event-desc', 'event-location'].forEach(function(id) { _setVal(id, ''); });
+    pollSourceMessageId = null;
+    pollSourceOptionKey = null;
+    _autoTitlePrev = null;
+    saveDraft();   // persist the trimmed draft so reload sees it
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadDraft();
+    seedDefaultsIfEmpty();
     DRAFT_FIELDS.forEach(function(id) {
         var el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('input', _onAnyFieldChange);
         el.addEventListener('change', _onAnyFieldChange);
     });
+    saveDraft();        // persist the seeded defaults
     updatePreview();
 });
 
