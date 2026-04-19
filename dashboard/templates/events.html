@@ -355,11 +355,12 @@ function onPollPicked(messageId) {
 function _cleanPollTextForTitle(text) {
     if (!text) return '';
     var t = String(text).trim();
-    // Remove leading emoji + space if it's a cover-image marker (📅, 🎲 etc.)
-    // Drop a trailing "בואו נקבע זמן" / "מתי נפגש" / "מתי" phrase + the punctuation that precedes it.
-    t = t.replace(/[\s!?:—\-]*\s*(בואו\s+נקבע\s+זמן|מתי\s+נפגש|מתי\s+נקבע|נקבע\s+זמן|בואו\s+נקבע)\s*[?.!]*\s*$/u, '');
-    // Trim trailing punctuation but keep meaningful ones
-    t = t.replace(/[\s:—\-]+$/u, '').trim();
+    // 1. Strip trailing punctuation/whitespace first so the suffix regex anchors cleanly.
+    t = t.replace(/[\s:—\-?.!]+$/u, '');
+    // 2. Strip the trailing "let's set a time" phrase (with optional preceding punctuation).
+    t = t.replace(/[\s!?:—\-]*(בואו\s+נקבע\s+זמן|מתי\s+נפגש|מתי\s+נקבע|נקבע\s+זמן|בואו\s+נקבע)\s*$/u, '');
+    // 3. Strip any leftover trailing punctuation.
+    t = t.replace(/[\s:—\-?.!]+$/u, '').trim();
     return t || String(text).trim();
 }
 
@@ -384,12 +385,13 @@ function _parseOptionDateTime(label) {
         var day = parseInt(md[1], 10);
         var month = parseInt(md[2], 10);
         if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-            // Pick the year that puts the date today-or-later (these are upcoming events).
+            // Default to current year. Only roll to next year if the date is more
+            // than 6 months in the past (otherwise the user probably meant a recent
+            // poll's date and can edit if they want a future one).
             var now = new Date();
             var year = now.getFullYear();
             var candidate = new Date(year, month - 1, day);
-            // Allow up to 2 days back for "today/tomorrow" polls; otherwise roll forward.
-            if ((now - candidate) > 2 * 24 * 60 * 60 * 1000) year += 1;
+            if ((now - candidate) > 180 * 24 * 60 * 60 * 1000) year += 1;
             date = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
         }
     }
