@@ -20,26 +20,28 @@
     </div>
 </div>
 
-<!-- Telegram Preview Card -->
+<!-- Telegram Preview Card (live — updates as you type) -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 mb-4">
-    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — פרסום אירוע</p>
+    <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה — איך זה ייראה בטלגרם</p>
     <div class="max-w-sm">
-        <div class="bg-[#1a2634] rounded-lg rounded-tr-none p-3 text-sm" dir="rtl">
-            <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
-            <div class="text-[#e4e6eb]">
-                🎉 <strong>אירוע חדש!</strong><br><br>
-                <strong>סרטון ופופקורן</strong><br>
-                ערב סרטים קהילתי עם פופקורן!<br><br>
-                📅 15/04/2026 · 🕐 20:00<br>
-                📍 זום
+        <div class="bg-[#1a2634] rounded-lg rounded-tr-none overflow-hidden text-sm" dir="rtl">
+            <img id="preview-cover" src="" alt="" class="w-full hidden object-cover" style="max-height:200px">
+            <div class="p-3">
+                <div class="text-[#5b9bd5] text-xs font-medium mb-1">Botson</div>
+                <div class="text-[#e4e6eb] whitespace-pre-line" id="preview-body">📅 <strong>כותרת האירוע</strong>
+🕒 בחר תאריך ושעה
+📍 מיקום
+
+תיאור יופיע כאן</div>
+                <!-- Inline keyboard buttons -->
+                <div class="flex gap-2 mt-3">
+                    <div class="flex-1 bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">✅ מגיע/ה (0)</div>
+                    <div class="flex-1 bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">🤔 אולי (0)</div>
+                </div>
+                <div class="text-[#8b9db5] text-[10px] mt-2 text-left" dir="ltr" id="preview-time">--:--</div>
             </div>
-            <!-- Inline keyboard buttons -->
-            <div class="flex gap-2 mt-3">
-                <div class="flex-1 bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">✓ אגיע (3)</div>
-                <div class="flex-1 bg-[#2b5278] text-[#7cb8e4] text-center py-1.5 rounded text-xs font-medium">? אולי (1)</div>
-            </div>
-            <div class="text-[#8b9db5] text-[10px] mt-2 text-left" dir="ltr">09:00</div>
         </div>
+        <p id="preview-meta" class="text-[10px] text-[#52525b] mt-2"></p>
     </div>
 </div>
 
@@ -215,6 +217,8 @@ function setEventCoverStatus(msg, isError) {
     var el = document.getElementById('event-cover-status');
     el.textContent = msg;
     el.className = 'text-xs ' + (isError ? 'text-[#fca5a5]' : 'text-[#71717a]');
+    if (typeof updatePreview === 'function') updatePreview();
+    if (typeof saveDraft === 'function') saveDraft();
 }
 
 function clearEventCover() {
@@ -385,12 +389,138 @@ async function submitEvent() {
             source_poll_message_id: pollSourceMessageId,
             source_poll_option_key: pollSourceOptionKey,
         });
+        clearDraft();   // success — drop the autosaved form so it won't re-fill
         showToast('אירוע נוצר ופורסם');
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
         showToast('שגיאה ביצירת אירוע', 'error');
     }
 }
+
+// ── Live preview + draft autosave (survives hard refresh) ─────────────
+var DRAFT_KEY = 'eventsDraft.v1';
+var DRAFT_FIELDS = ['event-title', 'event-desc', 'event-date', 'event-time',
+                    'event-location', 'event-topic', 'event-target-group',
+                    'event-auto-pin'];
+
+function _val(id) {
+    var el = document.getElementById(id);
+    if (!el) return '';
+    return el.type === 'checkbox' ? el.checked : (el.value || '');
+}
+
+function _setVal(id, v) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!v;
+    else el.value = v == null ? '' : v;
+}
+
+function saveDraft() {
+    try {
+        var data = {};
+        DRAFT_FIELDS.forEach(function(id) { data[id] = _val(id); });
+        data.coverPath = eventCoverPath;
+        data.coverStatus = (document.getElementById('event-cover-status') || {}).textContent || '';
+        data.pollMsgId = pollSourceMessageId;
+        data.pollOptKey = pollSourceOptionKey;
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+    } catch (e) { /* localStorage full / private mode — ignore */ }
+}
+
+function loadDraft() {
+    try {
+        var raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        var data = JSON.parse(raw);
+        DRAFT_FIELDS.forEach(function(id) { if (id in data) _setVal(id, data[id]); });
+        if (data.coverPath) {
+            eventCoverPath = data.coverPath;
+            if (data.coverStatus) setEventCoverStatus(data.coverStatus, false);
+        }
+        if (data.pollMsgId) pollSourceMessageId = data.pollMsgId;
+        if (data.pollOptKey) pollSourceOptionKey = data.pollOptKey;
+    } catch (e) { /* corrupted — drop it */ try { localStorage.removeItem(DRAFT_KEY); } catch(_) {} }
+}
+
+function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+}
+
+function _heFormatDate(iso) {
+    if (!iso) return '';
+    var parts = iso.split('-');
+    if (parts.length !== 3) return iso;
+    return parts[2] + '/' + parts[1] + '/' + parts[0];
+}
+
+function updatePreview() {
+    var title = _val('event-title') || 'כותרת האירוע';
+    var desc = _val('event-desc');
+    var dateIso = _val('event-date');
+    var time = _val('event-time');
+    var location = _val('event-location');
+
+    var lines = ['📅 ' + title];
+    if (dateIso || time) {
+        var when = [];
+        if (dateIso) when.push(_heFormatDate(dateIso));
+        if (time) when.push(time);
+        lines.push('🕒 ' + when.join(' · '));
+    }
+    if (location) lines.push('📍 ' + location);
+    if (desc) { lines.push(''); lines.push(desc); }
+
+    var body = document.getElementById('preview-body');
+    if (body) body.innerText = lines.join('\n');
+
+    // Live time stamp = bottom-left corner of the bubble
+    var nowEl = document.getElementById('preview-time');
+    if (nowEl) {
+        var d = new Date();
+        nowEl.textContent = String(d.getHours()).padStart(2, '0') + ':' +
+                            String(d.getMinutes()).padStart(2, '0');
+    }
+
+    // Cover image
+    var img = document.getElementById('preview-cover');
+    if (img) {
+        if (eventCoverPath) {
+            img.src = '/media/' + eventCoverPath;
+            img.classList.remove('hidden');
+        } else {
+            img.removeAttribute('src');
+            img.classList.add('hidden');
+        }
+    }
+
+    // Meta line — destination + pin
+    var meta = document.getElementById('preview-meta');
+    if (meta) {
+        var topicSel = document.getElementById('event-topic');
+        var topicLabel = topicSel && topicSel.selectedIndex >= 0 ?
+                         topicSel.options[topicSel.selectedIndex].text : '';
+        var group = _val('event-target-group') === 'test' ? 'קבוצת בדיקות' : 'קבוצה ראשית';
+        var pin = _val('event-auto-pin') ? ' · 📌 הצמדה' : '';
+        meta.textContent = '→ ' + group + ' / ' + topicLabel + pin;
+    }
+}
+
+function _onAnyFieldChange() {
+    saveDraft();
+    updatePreview();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadDraft();
+    DRAFT_FIELDS.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', _onAnyFieldChange);
+        el.addEventListener('change', _onAnyFieldChange);
+    });
+    updatePreview();
+});
 
 function deleteEvent(eventId) {
     showConfirm('האם למחוק את האירוע?', async function() {
