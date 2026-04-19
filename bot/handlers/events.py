@@ -207,7 +207,15 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-    # Update the message with new RSVP counts
+    # Update the message with new RSVP counts.
+    # Only edit the inline keyboard — NOT the text/caption — because:
+    #   1. Photo+caption messages (events with covers) can't use edit_message_text;
+    #      Telegram returns "Bad Request: there is no text in the message to edit".
+    #      edit_message_reply_markup works for both text and photo messages.
+    #   2. The button labels themselves carry the counts (✅ מגיע/ה (N) / 🤔 אולי (M)),
+    #      so the user gets immediate visual confirmation of the new state.
+    #   3. Avoids overwriting the original event-card text (which the dashboard
+    #      authored) with the bot's own reformatted version.
     event = await db.get_event(event_id)
     if not event:
         return
@@ -215,23 +223,17 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     yes_list = json.loads(event["rsvp_yes"])
     maybe_list = json.loads(event["rsvp_maybe"])
 
-    announcement = _format_event_message(
-        event_id, event["title"], event["description"],
-        event["event_date"], event.get("event_time"),
-        event.get("location"), yes_list, maybe_list,
-    )
-
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(f"✅ מגיע/ה! ({len(yes_list)})", callback_data=f"rsvp_yes_{event_id}"),
+            InlineKeyboardButton(f"✅ מגיע/ה ({len(yes_list)})", callback_data=f"rsvp_yes_{event_id}"),
             InlineKeyboardButton(f"🤔 אולי ({len(maybe_list)})", callback_data=f"rsvp_maybe_{event_id}"),
         ]
     ])
 
     try:
-        await query.edit_message_text(text=announcement, reply_markup=keyboard)
+        await query.edit_message_reply_markup(reply_markup=keyboard)
     except Exception as e:
-        logger.error("Failed to update RSVP message: %s", e)
+        logger.error("Failed to update RSVP markup: %s", e)
 
 
 async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
