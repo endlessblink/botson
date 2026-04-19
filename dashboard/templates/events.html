@@ -219,6 +219,13 @@ function setEventCoverStatus(msg, isError) {
     el.className = 'text-xs ' + (isError ? 'text-[#fca5a5]' : 'text-[#71717a]');
     if (typeof updatePreview === 'function') updatePreview();
     if (typeof saveDraft === 'function') saveDraft();
+    // Scroll the preview card into view so the user actually sees the cover.
+    if (!isError && eventCoverPath) {
+        var card = document.getElementById('preview-cover');
+        if (card && card.scrollIntoView) {
+            try { card.scrollIntoView({behavior: 'smooth', block: 'start'}); } catch (e) {}
+        }
+    }
 }
 
 function clearEventCover() {
