@@ -50,11 +50,25 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"
 fi
 
-# Trap signals for clean shutdown
+# Trap signals for clean shutdown.
+#
+# Bounded wait: SIGTERM → poll up to 15s for exit → SIGKILL fallback. The
+# python-telegram-bot shutdown sequence occasionally hangs (coroutine
+# Updater.stop never awaited) which previously left systemd to SIGKILL at
+# TimeoutStopSec=90s. Capping the wait here keeps restarts predictable.
+SHUTDOWN_GRACE_SECS=15
 cleanup() {
     echo "Received shutdown signal..."
     if [ -n "${BOT_PID:-}" ] && kill -0 "$BOT_PID" 2>/dev/null; then
-        kill "$BOT_PID"
+        kill -TERM "$BOT_PID" 2>/dev/null
+        for _ in $(seq 1 "$SHUTDOWN_GRACE_SECS"); do
+            kill -0 "$BOT_PID" 2>/dev/null || break
+            sleep 1
+        done
+        if kill -0 "$BOT_PID" 2>/dev/null; then
+            echo "Bot (PID $BOT_PID) did not exit in ${SHUTDOWN_GRACE_SECS}s — SIGKILL."
+            kill -KILL "$BOT_PID" 2>/dev/null
+        fi
         wait "$BOT_PID" 2>/dev/null
     fi
     if [ -n "${WATCH_PID:-}" ] && kill -0 "$WATCH_PID" 2>/dev/null; then

@@ -55,6 +55,7 @@ class Database:
             "ALTER TABLE events ADD COLUMN topic_id INTEGER",
             "ALTER TABLE events ADD COLUMN source_poll_message_id INTEGER",
             "ALTER TABLE events ADD COLUMN source_poll_option_key TEXT",
+            "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
         ]
         for sql in migrations:
             try:
@@ -812,8 +813,88 @@ class Database:
             row = await cursor.fetchone()
             return dict(row) if row else None
 
+    async def create_emoji_session(
+        self,
+        chat_id: int,
+        message_thread_id: int | None,
+        puzzle_count: int,
+    ) -> int:
+        """Create a new Emoji Night session grouping multiple rounds."""
+        async with self._db.execute(
+            """INSERT INTO emoji_puzzle_sessions
+               (chat_id, message_thread_id, started_at, puzzle_count, winner_summary, status)
+               VALUES (?, ?, ?, ?, '[]', 'active')""",
+            (chat_id, message_thread_id, _now_il(), puzzle_count),
+        ) as cursor:
+            session_id = cursor.lastrowid
+        await self._db.commit()
+        return session_id
+
+    async def get_active_session(
+        self, chat_id: int, message_thread_id: int | None,
+    ) -> dict | None:
+        """Return the currently active Emoji Night session for a chat/thread."""
+        async with self._db.execute(
+            """SELECT * FROM emoji_puzzle_sessions
+               WHERE chat_id = ?
+                 AND ((message_thread_id IS NULL AND ? IS NULL) OR message_thread_id = ?)
+                 AND status = 'active'
+               ORDER BY started_at DESC
+               LIMIT 1""",
+            (chat_id, message_thread_id, message_thread_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def complete_emoji_session(
+        self,
+        session_id: int,
+        winner_summary: list[dict] | None = None,
+    ) -> bool:
+        """Mark a session complete and store its wrap-up summary payload."""
+        summary_json = json.dumps(winner_summary or [], ensure_ascii=False)
+        async with self._db.execute(
+            """UPDATE emoji_puzzle_sessions
+               SET ended_at = ?, winner_summary = ?, status = 'completed'
+               WHERE id = ? AND status = 'active'""",
+            (_now_il(), summary_json, session_id),
+        ) as cursor:
+            changed = cursor.rowcount > 0
+        await self._db.commit()
+        return changed
+
+    async def get_session_leaderboard(self, session_id: int) -> list[dict]:
+        """Aggregate winners within one session for the wrap-up message."""
+        async with self._db.execute(
+            """SELECT
+                 r.winner_user_id AS user_id,
+                 COALESCE(m.display_name, CAST(r.winner_user_id AS TEXT)) AS display_name,
+                 COUNT(*) AS wins
+               FROM emoji_puzzle_rounds r
+               LEFT JOIN members m ON m.user_id = r.winner_user_id
+               WHERE r.session_id = ?
+                 AND r.winner_user_id IS NOT NULL
+               GROUP BY r.winner_user_id, COALESCE(m.display_name, CAST(r.winner_user_id AS TEXT))
+               ORDER BY wins DESC, MIN(r.solved_at) ASC, r.winner_user_id ASC""",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_recent_emoji_sessions(self, limit: int = 20) -> list[dict]:
+        """Recent Emoji Night sessions for dashboard history."""
+        async with self._db.execute(
+            """SELECT * FROM emoji_puzzle_sessions
+               ORDER BY started_at DESC
+               LIMIT ?""",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
     async def start_emoji_round(
         self,
+        session_id: int | None,
         puzzle_id: int,
         chat_id: int,
         message_id: int,
@@ -824,10 +905,10 @@ class Database:
         sent_at = _now_il()
         async with self._db.execute(
             """INSERT INTO emoji_puzzle_rounds
-               (puzzle_id, chat_id, message_thread_id, message_id, sent_at,
-                status, award_points)
-               VALUES (?, ?, ?, ?, ?, 'active', ?)""",
-            (puzzle_id, chat_id, message_thread_id, message_id, sent_at, award_points),
+               (session_id, puzzle_id, chat_id, message_thread_id, message_id, sent_at,
+                 status, award_points)
+               VALUES (?, ?, ?, ?, ?, ?, 'active', ?)""",
+            (session_id, puzzle_id, chat_id, message_thread_id, message_id, sent_at, award_points),
         ) as cursor:
             round_id = cursor.lastrowid
         await self._db.execute(
@@ -1006,7 +1087,7 @@ class Database:
         async with self._db.execute(
             """SELECT sm.id AS schedule_id, sm.text, sm.poll_options,
                       sm.sent_message_id AS message_id, sm.sent_at,
-                      sm.channel_topic_id, sm.target_group,
+                      sm.channel_topic_id, sm.target_group, sm.cover_path,
                       COALESCE(SUM(pv_count.n), 0) AS total_votes
                FROM scheduled_messages sm
                LEFT JOIN (

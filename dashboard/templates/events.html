@@ -115,10 +115,22 @@
             </div>
             <div class="md:col-span-2">
                 <label class="text-xs text-[#71717a] block mb-1.5">תמונת כותרת (אופציונלי)</label>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                     <input type="file" id="event-cover-input" accept="image/png,image/jpeg,image/webp,image/gif"
                         class="text-xs text-[#a1a1aa] file:bg-[#1f1f1f] file:text-[#fafafa] file:border-0 file:rounded file:px-3 file:py-1.5 file:cursor-pointer file:hover:bg-[#272727]"
                         onchange="uploadEventCover(event)">
+                    <button type="button" onclick="generateEventCover()"
+                        class="bg-[#1f1f1f] hover:bg-[#272727] text-[#fafafa] text-xs px-3 py-1.5 rounded cursor-pointer transition-colors">
+                        ✨ ייצר תמונה (AI)
+                    </button>
+                    <button type="button" onclick="scrapeEventCover()"
+                        class="bg-[#1f1f1f] hover:bg-[#272727] text-[#fafafa] text-xs px-3 py-1.5 rounded cursor-pointer transition-colors">
+                        🔗 הבא מקישור
+                    </button>
+                    <button type="button" onclick="clearEventCover()"
+                        class="text-[#71717a] hover:text-[#fca5a5] text-xs px-2 py-1.5 cursor-pointer transition-colors">
+                        ✕ נקה
+                    </button>
                     <span id="event-cover-status" class="text-xs text-[#71717a]"></span>
                 </div>
             </div>
@@ -196,14 +208,26 @@
 
 {% block scripts %}
 <script>
-// ── Cover upload (matches planner.html /api/covers/upload contract) ──
+// ── Cover sources (mirrors planner.html — upload/generate/scrape contracts) ──
 var eventCoverPath = null;
+
+function setEventCoverStatus(msg, isError) {
+    var el = document.getElementById('event-cover-status');
+    el.textContent = msg;
+    el.className = 'text-xs ' + (isError ? 'text-[#fca5a5]' : 'text-[#71717a]');
+}
+
+function clearEventCover() {
+    eventCoverPath = null;
+    var input = document.getElementById('event-cover-input');
+    if (input) input.value = '';
+    setEventCoverStatus('', false);
+}
 
 async function uploadEventCover(ev) {
     var file = ev.target.files && ev.target.files[0];
     if (!file) return;
-    var status = document.getElementById('event-cover-status');
-    status.textContent = 'מעלה…';
+    setEventCoverStatus('מעלה…', false);
     try {
         var fd = new FormData();
         fd.append('file', file);
@@ -211,9 +235,49 @@ async function uploadEventCover(ev) {
         if (!r.ok) throw new Error(await r.text());
         var j = await r.json();
         eventCoverPath = j.path || j.cover_path || j.relative_path || null;
-        status.textContent = '✓ ' + (eventCoverPath || file.name);
+        setEventCoverStatus('✓ ' + (eventCoverPath || file.name), false);
     } catch (e) {
-        status.textContent = 'שגיאה: ' + e.message;
+        setEventCoverStatus('שגיאה: ' + e.message, true);
+    }
+}
+
+async function generateEventCover() {
+    var titleEl = document.getElementById('event-title');
+    var seed = (titleEl && titleEl.value.trim()) || '';
+    var prompt = window.prompt('תאר את התמונה בקצרה (יווצר ע״י AI):', seed.slice(0, 200));
+    if (!prompt) return;
+    setEventCoverStatus('✨ יוצר תמונה…', false);
+    try {
+        var r = await fetch('/api/covers/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({prompt: prompt}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()));
+        var j = await r.json();
+        eventCoverPath = j.path || j.cover_path || null;
+        setEventCoverStatus('✓ ' + eventCoverPath + ' (AI)', false);
+    } catch (e) {
+        setEventCoverStatus('שגיאה ביצירה: ' + e.message, true);
+    }
+}
+
+async function scrapeEventCover() {
+    var url = window.prompt('הדבק קישור לעמוד שמכיל תמונה:');
+    if (!url) return;
+    setEventCoverStatus('מחפש תמונה בקישור…', false);
+    try {
+        var r = await fetch('/api/covers/scrape', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url: url}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()));
+        var j = await r.json();
+        eventCoverPath = j.path || j.cover_path || null;
+        setEventCoverStatus('✓ ' + eventCoverPath + ' (מקישור)', false);
+    } catch (e) {
+        setEventCoverStatus('שגיאה: ' + e.message, true);
     }
 }
 
@@ -285,6 +349,10 @@ function applyPollOption(poll, opt) {
     document.getElementById('event-title').value = opt.label;
     if (poll.topic_id) document.getElementById('event-topic').value = String(poll.topic_id);
     if (poll.target_group) document.getElementById('event-target-group').value = poll.target_group;
+    if (poll.cover_path) {
+        eventCoverPath = poll.cover_path;
+        setEventCoverStatus('✓ ' + poll.cover_path + ' (מהסקר)', false);
+    }
     switchTab('blank');
     showToast('פרטי האופציה הועתקו — ערוך וצור');
 }

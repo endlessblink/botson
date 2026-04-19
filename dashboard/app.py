@@ -39,6 +39,59 @@ def _signal_bot_reload():
     except Exception:
         return False
 
+
+def _load_settings_file() -> dict:
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _save_settings_file(settings: dict) -> None:
+    settings_path = CONFIG_DIR / "settings.yaml"
+    with open(settings_path, "w", encoding="utf-8") as f:
+        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+
+
+def _parse_aliases_input(raw) -> list[str]:
+    if isinstance(raw, list):
+        items = raw
+    else:
+        text = str(raw or "")
+        items = text.replace("\n", ",").split(",")
+    seen = set()
+    result = []
+    for item in items:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            result.append(cleaned)
+    return result
+
+
+def _puzzle_group_label(chat_id: int) -> str:
+    main_group = int(os.getenv("GROUP_ID", "0") or 0)
+    test_group = int(os.getenv("TEST_GROUP_ID", "0") or 0)
+    if chat_id == main_group:
+        return "קבוצה ראשית"
+    if chat_id == test_group:
+        return "Sherlocks Den"
+    return str(chat_id)
+
+
+def _winner_summary_text(raw: str | None) -> str:
+    try:
+        items = json.loads(raw or "[]")
+    except Exception:
+        items = []
+    if not items:
+        return "—"
+    parts = []
+    for item in items[:3]:
+        name = item.get("display_name", "חבר/ה")
+        wins = item.get("wins", 0)
+        parts.append(f"{name} ({wins})")
+    return ", ".join(parts)
+
 app = FastAPI(title="Botson Dashboard", docs_url=None, redoc_url=None)
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("DASHBOARD_SECRET", secrets.token_hex(32)))
 
@@ -682,47 +735,68 @@ async def reset_levels(request: Request, db: Database = Depends(get_db)):
 
 # ── Public Calendar Mini App ─────────────────────────────
 
-@app.get("/calendar", response_class=HTMLResponse)
-async def calendar_mini_app(request: Request, db: Database = Depends(get_db)):
-    """Public calendar page rendered as a Telegram Mini App.
+_CAL_HEB_DOW = ["א", "ב", "ג", "ד", "ה", "ו", "ש"]
+_CAL_HEB_MONTHS = {1: "ינואר", 2: "פברואר", 3: "מרץ", 4: "אפריל",
+                   5: "מאי", 6: "יוני", 7: "יולי", 8: "אוגוסט",
+                   9: "ספטמבר", 10: "אוקטובר", 11: "נובמבר", 12: "דצמבר"}
+_CAL_TYPE_STYLE = {
+    "morning":    {"emoji": "🌞", "label": "בוקר",  "css": "bg-amber-500/20 text-amber-200 border-amber-500/40"},
+    "evening":    {"emoji": "🌙", "label": "ערב",   "css": "bg-indigo-500/20 text-indigo-200 border-indigo-500/40"},
+    "discussion": {"emoji": "💬", "label": "שיחה",  "css": "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"},
+    "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
+    "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
+}
 
-    No auth — designed to be opened by group members from the bot's
-    web_app inline button.
+
+def _parse_month(qs: str | None) -> tuple[int, int]:
+    """Parse ?month=YYYY-MM into (year, month). Default = current."""
+    from datetime import date as _date
+    if qs:
+        try:
+            y, m = qs.split("-")
+            yi, mi = int(y), int(m)
+            if 1 <= mi <= 12 and 2020 <= yi <= 2099:
+                return yi, mi
+        except (ValueError, AttributeError):
+            pass
+    today = _date.today()
+    return today.year, today.month
+
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_mini_app(request: Request, month: str | None = None,
+                            db: Database = Depends(get_db)):
+    """Public interactive calendar Mini App.
+
+    Query params:
+      ?month=YYYY-MM   defaults to current month
+
+    Each cell is tappable — the bottom-sheet panel opens with full event text
+    for that day. Top header has month nav (prev/next/today).
     """
     import calendar as _cal
     from datetime import date as _date
     from collections import defaultdict
 
-    HEB_DOW = ["א", "ב", "ג", "ד", "ה", "ו", "ש"]
-    HEB_MONTHS = {1: "ינואר", 2: "פברואר", 3: "מרץ", 4: "אפריל",
-                  5: "מאי", 6: "יוני", 7: "יולי", 8: "אוגוסט",
-                  9: "ספטמבר", 10: "אוקטובר", 11: "נובמבר", 12: "דצמבר"}
-    TYPE_STYLE = {
-        "morning":    {"emoji": "🌞", "label": "בוקר",  "css": "bg-amber-500/20 text-amber-200 border-amber-500/40"},
-        "evening":    {"emoji": "🌙", "label": "ערב",   "css": "bg-indigo-500/20 text-indigo-200 border-indigo-500/40"},
-        "discussion": {"emoji": "💬", "label": "שיחה",  "css": "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"},
-        "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
-        "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
-    }
-
+    year, month_num = _parse_month(month)
     today = _date.today()
-    year, month = today.year, today.month
-    last_day = _cal.monthrange(year, month)[1]
-    month_start = _date(year, month, 1).isoformat()
-    month_end = _date(year, month, last_day).isoformat()
+    last_day = _cal.monthrange(year, month_num)[1]
+    month_start = _date(year, month_num, 1).isoformat()
+    month_end = _date(year, month_num, last_day).isoformat()
 
-    sched_rows = []
     async with db._db.execute(
-        """SELECT scheduled_date, scheduled_time, message_type FROM scheduled_messages
+        """SELECT scheduled_date, scheduled_time, message_type, text
+           FROM scheduled_messages
            WHERE status='scheduled' AND scheduled_date BETWEEN ? AND ?
            ORDER BY scheduled_date, scheduled_time""",
         (month_start, month_end),
     ) as cur:
         sched_rows = await cur.fetchall()
 
-    event_rows = []
     async with db._db.execute(
-        """SELECT event_date, event_time FROM events
+        """SELECT event_date, event_time, title, description, location,
+                  rsvp_yes, rsvp_maybe
+           FROM events
            WHERE active=1 AND event_date BETWEEN ? AND ?
            ORDER BY event_date, event_time""",
         (month_start, month_end),
@@ -731,45 +805,80 @@ async def calendar_mini_app(request: Request, db: Database = Depends(get_db)):
 
     by_day = defaultdict(list)
     for r in sched_rows:
-        meta = TYPE_STYLE.get(r["message_type"], TYPE_STYLE["event"])
+        meta = _CAL_TYPE_STYLE.get(r["message_type"], _CAL_TYPE_STYLE["event"])
         by_day[r["scheduled_date"]].append({
-            "emoji": meta["emoji"], "css": meta["css"],
+            "emoji": meta["emoji"],
+            "css": meta["css"],
+            "label": meta["label"],
             "time": (r["scheduled_time"] or "")[:5],
+            "type": r["message_type"],
+            "text": (r["text"] or "").strip(),
         })
     for r in event_rows:
-        meta = TYPE_STYLE["event"]
+        meta = _CAL_TYPE_STYLE["event"]
+        rsvp_yes = 0
+        rsvp_maybe = 0
+        try:
+            rsvp_yes = len(json.loads(r["rsvp_yes"] or "[]"))
+            rsvp_maybe = len(json.loads(r["rsvp_maybe"] or "[]"))
+        except (TypeError, ValueError):
+            pass
+        text = r["title"] or ""
+        if r["description"]:
+            text += "\n" + r["description"]
+        if r["location"]:
+            text += f"\n📍 {r['location']}"
+        text += f"\n\n✅ {rsvp_yes} מגיעים · 🤔 {rsvp_maybe} אולי"
         by_day[r["event_date"]].append({
-            "emoji": meta["emoji"], "css": meta["css"],
+            "emoji": meta["emoji"],
+            "css": meta["css"],
+            "label": meta["label"],
             "time": (r["event_time"] or "")[:5] or "—",
+            "type": "event",
+            "text": text,
         })
 
     _cal.setfirstweekday(_cal.SUNDAY)
-    raw_weeks = _cal.monthcalendar(year, month)
+    raw_weeks = _cal.monthcalendar(year, month_num)
     weeks = []
+    days_data: dict[str, list] = {}
     for week in raw_weeks:
         row = []
         for day in week:
             if day == 0:
                 row.append(None)
             else:
-                iso = _date(year, month, day).isoformat()
+                iso = _date(year, month_num, day).isoformat()
+                items = by_day.get(iso, [])
+                days_data[iso] = items
                 row.append({
                     "day": day,
-                    "is_today": day == today.day,
-                    "is_past": day < today.day,
-                    "chips": by_day.get(iso, []),
+                    "iso": iso,
+                    "is_today": iso == today.isoformat(),
+                    "is_past": iso < today.isoformat(),
+                    "chips": items,
                 })
         weeks.append(row)
 
-    # Drop "event" key from legend if no manual events exist this month
-    legend = {k: v for k, v in TYPE_STYLE.items() if k != "event"}
+    # Prev/next month
+    prev_year, prev_month = (year - 1, 12) if month_num == 1 else (year, month_num - 1)
+    next_year, next_month = (year + 1, 1) if month_num == 12 else (year, month_num + 1)
+
+    legend = {k: v for k, v in _CAL_TYPE_STYLE.items() if k != "event"}
 
     return templates.TemplateResponse(request, name="calendar.html", context={
         "year": year,
-        "month_name": HEB_MONTHS[month],
-        "heb_dow": HEB_DOW,
+        "month_num": month_num,
+        "month_name": _CAL_HEB_MONTHS[month_num],
+        "heb_dow": _CAL_HEB_DOW,
+        "heb_months": _CAL_HEB_MONTHS,
         "weeks": weeks,
         "legend": legend,
+        "days_json": json.dumps(days_data, ensure_ascii=False),
+        "today_iso": today.isoformat(),
+        "prev_url": f"/calendar?month={prev_year:04d}-{prev_month:02d}",
+        "next_url": f"/calendar?month={next_year:04d}-{next_month:02d}",
+        "today_url": "/calendar",
     })
 
 
@@ -811,6 +920,7 @@ async def list_polls_api(request: Request, db: Database = Depends(get_db)):
             "sent_at": p["sent_at"],
             "topic_id": p.get("channel_topic_id"),
             "target_group": p.get("target_group"),
+            "cover_path": p.get("cover_path"),
             "total_votes": p["total_votes"],
             "options": options,
         })
@@ -1041,6 +1151,149 @@ async def trivia_page(request: Request, db: Database = Depends(get_db)):
         "questions": questions,
         "settings": settings,
     })
+
+
+@app.get("/puzzles", response_class=HTMLResponse)
+async def puzzles_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    settings = get_settings()
+    puzzles = await db.list_emoji_puzzles()
+    sessions = await db.get_recent_emoji_sessions(20)
+    stats = await db.get_emoji_round_stats()
+
+    for puzzle in puzzles:
+        try:
+            alias_list = json.loads(puzzle.get("aliases") or "[]")
+        except Exception:
+            alias_list = []
+        puzzle["aliases_list"] = alias_list
+        puzzle["aliases_text"] = ", ".join(alias_list)
+
+    for session in sessions:
+        session["group_label"] = _puzzle_group_label(int(session.get("chat_id") or 0))
+        session["winner_summary_text"] = _winner_summary_text(session.get("winner_summary"))
+
+    return templates.TemplateResponse(request, name="puzzles.html", context={
+        "settings": settings,
+        "puzzles": puzzles,
+        "sessions": sessions,
+        "stats": stats,
+    })
+
+
+@app.post("/api/puzzles/create")
+async def create_puzzle(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    emoji_prompt = str(data.get("emoji_prompt") or "").strip()
+    answer_he = str(data.get("answer_he") or "").strip()
+    answer_en = str(data.get("answer_en") or "").strip()
+    if not emoji_prompt or not answer_he or not answer_en:
+        raise HTTPException(status_code=400, detail="emoji_prompt, answer_he, answer_en required")
+
+    aliases = _parse_aliases_input(data.get("aliases"))
+    puzzle_id = await db.create_emoji_puzzle(
+        emoji_prompt=emoji_prompt,
+        answer_he=answer_he,
+        answer_en=answer_en,
+        aliases=json.dumps(aliases, ensure_ascii=False),
+        difficulty=int(data.get("difficulty", 2) or 2),
+        media_type=str(data.get("media_type") or "movie").strip() or "movie",
+    )
+    if "enabled" in data:
+        await db.update_emoji_puzzle(puzzle_id, enabled=1 if data.get("enabled") else 0)
+    return {"status": "ok", "id": puzzle_id}
+
+
+@app.patch("/api/puzzles/{puzzle_id}")
+async def update_puzzle(puzzle_id: int, request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    fields = {}
+    for key in ("emoji_prompt", "answer_he", "answer_en", "media_type"):
+        if key in data:
+            fields[key] = str(data.get(key) or "").strip()
+    if "difficulty" in data:
+        fields["difficulty"] = int(data.get("difficulty") or 2)
+    if "enabled" in data:
+        fields["enabled"] = 1 if data.get("enabled") else 0
+    if "aliases" in data:
+        fields["aliases"] = json.dumps(_parse_aliases_input(data.get("aliases")), ensure_ascii=False)
+
+    if not fields:
+        return {"status": "ok"}
+
+    changed = await db.update_emoji_puzzle(puzzle_id, **fields)
+    if not changed and not await db.get_emoji_puzzle(puzzle_id):
+        raise HTTPException(status_code=404, detail="puzzle not found or no changes")
+    return {"status": "ok"}
+
+
+@app.delete("/api/puzzles/{puzzle_id}")
+async def delete_puzzle(puzzle_id: int, request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    changed = await db.delete_emoji_puzzle(puzzle_id)
+    if not changed:
+        raise HTTPException(status_code=404, detail="puzzle not found")
+    return {"status": "ok"}
+
+
+@app.post("/api/puzzles/schedule")
+async def save_puzzle_schedule(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    settings = _load_settings_file()
+    settings.setdefault("features", {})
+    settings.setdefault("schedule", {})
+    settings.setdefault("gamification", {})
+
+    settings["features"]["emoji_puzzle"] = {
+        "enabled": bool(data.get("enabled", False)),
+        "groups": [str(g) for g in data.get("groups", []) if str(g) in ("main", "test")],
+    }
+    settings["schedule"]["emoji_puzzle"] = {
+        "days": [int(d) for d in data.get("days", [])],
+        "time": str(data.get("time") or "22:00").strip() or "22:00",
+        "puzzle_count": int(data.get("puzzle_count") or 5),
+        "interval_minutes": int(data.get("interval_minutes") or 6),
+        "intro_offset_seconds": int(data.get("intro_offset_seconds") or 60),
+        "wrap_offset_seconds": int(data.get("wrap_offset_seconds") or 420),
+    }
+    settings["gamification"]["emoji_puzzle_winner"] = int(data.get("emoji_puzzle_winner") or 5)
+
+    _save_settings_file(settings)
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded}
+
+
+@app.post("/api/puzzles/run-now")
+async def run_puzzles_now(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    target = str(data.get("target") or "test").strip()
+    from bot.handlers.emoji_puzzle import resolve_emoji_target, start_emoji_night
+
+    chat_id, thread_id = resolve_emoji_target(target)
+    if not chat_id:
+        raise HTTPException(status_code=400, detail=f"Unknown target '{target}'")
+
+    ctx = type("EmojiCtx", (), {})()
+    ctx.bot_data = {"db": db}
+    session_id = await start_emoji_night(ctx, chat_id, thread_id, force=True)
+    if not session_id:
+        raise HTTPException(status_code=409, detail="Could not start session")
+    return {"status": "ok", "session_id": session_id, "target": target}
 
 
 @app.post("/api/trivia/questions")
