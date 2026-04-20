@@ -23,8 +23,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
+from ..utils.config import PUBLIC_DASHBOARD_URL
 
-CALENDAR_URL = "https://telegram-mini-app.in-theflow.com/calendar"
+CALENDAR_URL = f"{PUBLIC_DASHBOARD_URL}/calendar" if PUBLIC_DASHBOARD_URL else ""
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +144,16 @@ async def calendar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "לחיצה על הכפתור פותחת את הלוח עם כל הפעילות בקבוצה. "
         "ניווט בין חודשים, ולחיצה על תאריך מציגה את כל הפרטים."
     )
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("📅 פתח את הלוח", url=CALENDAR_URL),
-    ]])
+    reply_markup = None
+    if CALENDAR_URL:
+        reply_markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📅 פתח את הלוח", url=CALENDAR_URL),
+        ]])
+    else:
+        logger.error("PUBLIC_DASHBOARD_URL is not set; calendar button disabled")
+        text += "\n\nכרגע הקישור ללוח לא מוגדר."
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text=text, reply_markup=kb,
+        chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup,
     )
 
 

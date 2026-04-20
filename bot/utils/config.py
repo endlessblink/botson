@@ -62,6 +62,7 @@ GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Jerusalem")
 DB_PATH = os.getenv("DB_PATH", "./data/bot.db")
+PUBLIC_DASHBOARD_URL = os.getenv("PUBLIC_DASHBOARD_URL", "").rstrip("/")
 _goals_raw = os.getenv("GOALS_TOPIC_ID", "").strip()
 GOALS_TOPIC_ID = int(_goals_raw) if _goals_raw else None
 TEST_GROUP_ID = int(os.getenv("TEST_GROUP_ID", "0")) or None
