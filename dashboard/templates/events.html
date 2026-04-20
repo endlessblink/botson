@@ -144,12 +144,12 @@
     </div>
 
     <div class="px-5 py-4 border-t border-[#1f1f1f] flex items-center gap-3">
-        <button onclick="submitEvent({publish: true})"
-            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
+        <button id="event-submit-publish" onclick="submitEvent({publish: true})"
+            class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             צור ופרסם בטלגרם
         </button>
-        <button onclick="submitEvent({publish: false})"
-            class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
+        <button id="event-submit-draft" onclick="submitEvent({publish: false})"
+            class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             שמור בלי לפרסם
         </button>
         <span class="text-xs text-[#71717a] mr-2">"שמור" יוצר את האירוע ב-DB ללא שליחה לטלגרם</span>
@@ -463,8 +463,13 @@ function escapeHtml(s) {
     });
 }
 
+var _eventSubmitting = false;
 async function submitEvent(opts) {
     opts = opts || {publish: true};
+    if (_eventSubmitting) {
+        console.log('[events] submit already in progress — ignoring');
+        return;
+    }
     var title = document.getElementById('event-title').value.trim();
     var date = document.getElementById('event-date').value;
     console.log('[events] submit start', {publish: opts.publish, title: title, date: date,
@@ -473,6 +478,13 @@ async function submitEvent(opts) {
         showToast('נא למלא כותרת ותאריך', 'error');
         return;
     }
+    _eventSubmitting = true;
+    var btnPub = document.getElementById('event-submit-publish');
+    var btnDraft = document.getElementById('event-submit-draft');
+    var origPubText = btnPub ? btnPub.textContent : '';
+    var origDraftText = btnDraft ? btnDraft.textContent : '';
+    if (btnPub) { btnPub.disabled = true; btnPub.textContent = 'שומר…'; }
+    if (btnDraft) { btnDraft.disabled = true; btnDraft.textContent = 'שומר…'; }
     var topicVal = document.getElementById('event-topic').value;
     try {
         var payload = {
@@ -493,11 +505,19 @@ async function submitEvent(opts) {
         var resp = await apiCall('/api/events/create', payload);
         console.log('[events] response:', resp);
         partialClearAfterSubmit();
-        showToast(opts.publish ? 'אירוע נוצר ופורסם' : 'אירוע נשמר (ללא פרסום)');
+        if (resp && resp.status === 'duplicate') {
+            showToast('אירוע זהה כבר קיים — לא נוצר כפיל', 'error');
+        } else {
+            showToast(opts.publish ? 'אירוע נוצר ופורסם' : 'אירוע נשמר (ללא פרסום)');
+        }
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
         console.error('[events] submit failed', e);
         showToast('שגיאה ביצירת אירוע: ' + e.message, 'error');
+        // Re-enable on error so user can retry
+        _eventSubmitting = false;
+        if (btnPub) { btnPub.disabled = false; btnPub.textContent = origPubText; }
+        if (btnDraft) { btnDraft.disabled = false; btnDraft.textContent = origDraftText; }
     }
 }
 

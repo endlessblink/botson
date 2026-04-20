@@ -1048,6 +1048,25 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
                 target_group, cover_path, auto_pin,
                 source_poll_message_id, source_poll_option_key)
 
+    # Dedup check: an active event with the same title/date/time/description
+    # is treated as a duplicate (likely a double-clicked submit). Return the
+    # existing event instead of creating a second one and re-publishing.
+    norm_desc = (description or "").strip()
+    async with db._db.execute(
+        """SELECT id FROM events
+           WHERE active = 1
+             AND title = ?
+             AND event_date = ?
+             AND IFNULL(event_time, '') = IFNULL(?, '')
+             AND IFNULL(description, '') = ?
+           ORDER BY id LIMIT 1""",
+        (title, event_date, event_time, norm_desc),
+    ) as cur:
+        existing = await cur.fetchone()
+    if existing:
+        logger.info("[events.create] duplicate detected — returning existing id=%d", existing["id"])
+        return {"status": "duplicate", "event_id": existing["id"], "published": False}
+
     event_id = await db.create_event(
         title=title, description=description, event_date=event_date,
         event_time=event_time, location=location, created_by=0,
