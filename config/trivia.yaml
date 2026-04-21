@@ -269,7 +269,7 @@ questions:
     correct: 1
     category: "ישראל"
 
-  - text: "איזו סדרה ישראלית עובדה בארה"ב בשם 'Euphoria'?"
+  - text: 'איזו סדרה ישראלית עובדה בארה"ב בשם "Euphoria"?'
     options: ["בטיפול", "שעת נעילה", "אופוריה", "פאודה"]
     correct: 2
     category: "ישראל"

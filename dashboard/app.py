@@ -1,12 +1,15 @@
 """Botson Dashboard — FastAPI backend for managing the bot."""
 
 import asyncio
+import copy
 import json
 import logging
 import os
 import secrets
 import signal
+import time
 from pathlib import Path
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -18,7 +21,7 @@ if not logger.handlers:
 
 import yaml
 from fastapi import FastAPI, Request, Depends, HTTPException, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -769,6 +772,186 @@ _CAL_TYPE_STYLE = {
     "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
 }
 
+_TRIVIA_DEMO_LOCK = asyncio.Lock()
+_TRIVIA_DEMO_STATE = {
+    "id": "independence-live",
+    "title": "יום העצמאות — טריוויה חיה",
+    "host": "Botson",
+    "starts_at": "15:00",
+    "status": "lobby",
+    "question_duration": 15,
+    "reveal_duration": 5,
+    "question_index": -1,
+    "question_started_at": None,
+    "players": {},
+    "answers": {},
+    "used_question_texts": [],
+    "questions": [],
+    "task": None,
+}
+
+
+def _trivia_live_pool() -> list[dict]:
+    try:
+        data = load_yaml("trivia.yaml") or {}
+    except Exception:
+        return []
+    return [
+        q for q in (data.get("questions") or [])
+        if str(q.get("category") or "").strip() == "ישראל"
+    ]
+
+
+def _pick_trivia_live_questions(count: int = 10) -> list[dict]:
+    pool = _trivia_live_pool()
+    if len(pool) < count:
+        return copy.deepcopy(pool)
+    import random as _random
+    return copy.deepcopy(_random.sample(pool, count))
+
+
+def _sorted_live_players(state: dict) -> list[dict]:
+    players = list(state["players"].values())
+    players.sort(key=lambda item: (-item.get("score", 0), item.get("joined_at", 0)))
+    return players
+
+
+def _player_rank(state: dict, player_id: str | None) -> int | None:
+    if not player_id or player_id not in state["players"]:
+        return None
+    ordered = _sorted_live_players(state)
+    for idx, player in enumerate(ordered, start=1):
+        if player["id"] == player_id:
+            return idx
+    return None
+
+
+def _public_trivia_live_state(player_id: str | None = None) -> dict:
+    state = _TRIVIA_DEMO_STATE
+    ordered = _sorted_live_players(state)
+    question = None
+    if 0 <= state["question_index"] < len(state["questions"]):
+        raw_q = state["questions"][state["question_index"]]
+        question = {
+            "index": state["question_index"] + 1,
+            "total": len(state["questions"]),
+            "text": raw_q["text"],
+            "options": raw_q["options"],
+            "category": raw_q.get("category", "כללי"),
+        }
+        if state["status"] in {"reveal", "final"}:
+            question["correct"] = raw_q["correct"]
+    remaining_s = None
+    if state["status"] == "question" and state["question_started_at"]:
+        elapsed = max(0, time.time() - state["question_started_at"])
+        remaining_s = max(0, int(state["question_duration"] - elapsed))
+
+    you = state["players"].get(player_id) if player_id else None
+    answered = player_id in state["answers"] if player_id else False
+    payload = {
+        "id": state["id"],
+        "title": state["title"],
+        "host": state["host"],
+        "starts_at": state["starts_at"],
+        "status": state["status"],
+        "question": question,
+        "remaining_s": remaining_s,
+        "leaderboard": [
+            {
+                "id": player["id"],
+                "name": player["name"],
+                "score": player["score"],
+                "correct": player["correct"],
+                "streak": player["streak"],
+                "last_delta": player.get("last_delta", 0),
+            }
+            for player in ordered
+        ],
+        "player_count": len(ordered),
+        "you": {
+            "id": you["id"],
+            "name": you["name"],
+            "score": you["score"],
+            "rank": _player_rank(state, player_id),
+            "answered": answered,
+            "last_answer_correct": you.get("last_answer_correct"),
+            "last_delta": you.get("last_delta", 0),
+        } if you else None,
+    }
+    return payload
+
+
+async def _run_trivia_live_session() -> None:
+    try:
+        while True:
+            await asyncio.sleep(_TRIVIA_DEMO_STATE["question_duration"])
+            async with _TRIVIA_DEMO_LOCK:
+                state = _TRIVIA_DEMO_STATE
+                if state["status"] != "question":
+                    break
+                state["status"] = "reveal"
+            await asyncio.sleep(_TRIVIA_DEMO_STATE["reveal_duration"])
+            async with _TRIVIA_DEMO_LOCK:
+                state = _TRIVIA_DEMO_STATE
+                next_index = state["question_index"] + 1
+                if next_index >= len(state["questions"]):
+                    state["status"] = "final"
+                    state["question_started_at"] = None
+                    state["answers"] = {}
+                    break
+                state["status"] = "question"
+                state["question_index"] = next_index
+                state["question_started_at"] = time.time()
+                state["answers"] = {}
+                for player in state["players"].values():
+                    player["last_delta"] = 0
+                    player["last_answer_correct"] = None
+    finally:
+        async with _TRIVIA_DEMO_LOCK:
+            _TRIVIA_DEMO_STATE["task"] = None
+
+
+async def _start_trivia_live_session() -> None:
+    async with _TRIVIA_DEMO_LOCK:
+        if _TRIVIA_DEMO_STATE["task"]:
+            return
+        if not _TRIVIA_DEMO_STATE["players"]:
+            raise HTTPException(status_code=409, detail="No players joined yet")
+        _TRIVIA_DEMO_STATE["questions"] = _pick_trivia_live_questions(10)
+        _TRIVIA_DEMO_STATE["used_question_texts"] = [q["text"] for q in _TRIVIA_DEMO_STATE["questions"]]
+        _TRIVIA_DEMO_STATE["status"] = "question"
+        _TRIVIA_DEMO_STATE["question_index"] = 0
+        _TRIVIA_DEMO_STATE["question_started_at"] = time.time()
+        _TRIVIA_DEMO_STATE["answers"] = {}
+        for player in _TRIVIA_DEMO_STATE["players"].values():
+            player["last_delta"] = 0
+            player["last_answer_correct"] = None
+        _TRIVIA_DEMO_STATE["task"] = asyncio.create_task(_run_trivia_live_session())
+
+
+async def _reset_trivia_live_session() -> None:
+    async with _TRIVIA_DEMO_LOCK:
+        task = _TRIVIA_DEMO_STATE.get("task")
+        if task:
+            task.cancel()
+        _TRIVIA_DEMO_STATE.update({
+            "status": "lobby",
+            "question_index": -1,
+            "question_started_at": None,
+            "answers": {},
+            "used_question_texts": [],
+            "questions": [],
+            "task": None,
+        })
+        for player in _TRIVIA_DEMO_STATE["players"].values():
+            player.update({
+                "score": 0,
+                "correct": 0,
+                "streak": 0,
+                "last_delta": 0,
+                "last_answer_correct": None,
+            })
+
 
 def _parse_month(qs: str | None) -> tuple[int, int]:
     """Parse ?month=YYYY-MM into (year, month). Default = current."""
@@ -913,68 +1096,88 @@ async def calendar_mini_app(request: Request, month: str | None = None,
 
 @app.get("/trivia-live-demo", response_class=HTMLResponse)
 async def trivia_live_demo(request: Request):
-    """Public prototype for a Telegram Mini App style live trivia round."""
-    demo_state = {
-        "title": "יום העצמאות — טריוויה חיה",
-        "host": "Botson",
-        "starts_at": "15:00",
-        "players": [
-            {"name": "נועה", "score": 132, "streak": 3, "status": "leader"},
-            {"name": "יואב", "score": 121, "streak": 2, "status": "up"},
-            {"name": "מיקה", "score": 118, "streak": 1, "status": "steady"},
-            {"name": "תמר", "score": 109, "streak": 2, "status": "down"},
-            {"name": "אדם", "score": 97, "streak": 0, "status": "steady"},
-            {"name": "שחר", "score": 88, "streak": 1, "status": "up"},
-        ],
-        "stages": [
-            {
-                "kind": "lobby",
-                "headline": "החדר נפתח",
-                "subline": "משתתפים מצטרפים לפני תחילת הסיבוב. אפשר לראות מי בפנים עוד לפני השאלה הראשונה.",
-                "cta": "הצטרפ/י למשחק",
-            },
-            {
-                "kind": "question",
-                "headline": "שאלה 4 מתוך 10",
-                "subline": "כולם עונים מאותו מסך, עם טיימר משותף ונעילת תשובה אחרי הקליק.",
-                "question": "מי כתב את מילות ההמנון 'התקווה'?",
-                "answers": [
-                    {"label": "חיים נחמן ביאליק", "correct": False},
-                    {"label": "נפתלי הרץ אימבר", "correct": True},
-                    {"label": "שאול טשרניחובסקי", "correct": False},
-                    {"label": "נתן אלתרמן", "correct": False},
-                ],
-                "countdown": 12,
-                "you_rank": 2,
-                "you_score": 121,
-            },
-            {
-                "kind": "reveal",
-                "headline": "התשובה נחשפת",
-                "subline": "אפשר לתת פידבק מיידי, אנימציה, צליל, ושינוי מקום בטבלה בלי להציף את הצ'אט.",
-                "question": "מי כתב את מילות ההמנון 'התקווה'?",
-                "correct_answer": "נפתלי הרץ אימבר",
-                "you_result": "correct",
-                "score_delta": 18,
-                "rank_delta": "+1",
-            },
-            {
-                "kind": "leaderboard",
-                "headline": "לוח תוצאות חי",
-                "subline": "בין שאלות רואים את כל המשתתפים, שינויי דירוג, והמובילה נשארת בראש כמו בקאהוט.",
-                "focus_player": "יואב",
-            },
-            {
-                "kind": "final",
-                "headline": "סיום הסיבוב",
-                "subline": "בסיום אפשר להציג פודיום, לשלוח סיכום חזרה לקבוצה, ולשמור ניקוד למסלול העונתי.",
-                "podium": ["נועה", "יואב", "מיקה"],
-            },
-        ],
-    }
+    """Public MVP for a Telegram Mini App style live trivia round."""
     return templates.TemplateResponse(request, name="trivia-live-demo.html", context={
-        "demo_json": json.dumps(demo_state, ensure_ascii=False),
+        "initial_state_json": json.dumps(_public_trivia_live_state(), ensure_ascii=False),
     })
+
+
+@app.get("/api/trivia-live/state")
+async def trivia_live_state(player_id: str | None = None):
+    return JSONResponse(_public_trivia_live_state(player_id))
+
+
+@app.post("/api/trivia-live/join")
+async def trivia_live_join(request: Request):
+    data = await request.json()
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    async with _TRIVIA_DEMO_LOCK:
+        player_id = secrets.token_urlsafe(8)
+        _TRIVIA_DEMO_STATE["players"][player_id] = {
+            "id": player_id,
+            "name": name[:24],
+            "score": 0,
+            "correct": 0,
+            "streak": 0,
+            "joined_at": time.time(),
+            "last_delta": 0,
+            "last_answer_correct": None,
+        }
+    return JSONResponse({"player_id": player_id, "state": _public_trivia_live_state(player_id)})
+
+
+@app.post("/api/trivia-live/answer")
+async def trivia_live_answer(request: Request):
+    data = await request.json()
+    player_id = str(data.get("player_id") or "").strip()
+    answer_index = int(data.get("answer_index"))
+    async with _TRIVIA_DEMO_LOCK:
+        state = _TRIVIA_DEMO_STATE
+        if state["status"] != "question":
+            raise HTTPException(status_code=409, detail="question not active")
+        if player_id not in state["players"]:
+            raise HTTPException(status_code=404, detail="player not found")
+        if player_id in state["answers"]:
+            raise HTTPException(status_code=409, detail="already answered")
+        if not (0 <= state["question_index"] < len(state["questions"])):
+            raise HTTPException(status_code=409, detail="invalid question state")
+        question = state["questions"][state["question_index"]]
+        if answer_index < 0 or answer_index >= len(question["options"]):
+            raise HTTPException(status_code=400, detail="invalid answer index")
+        player = state["players"][player_id]
+        correct = answer_index == question["correct"]
+        elapsed = max(0, time.time() - (state["question_started_at"] or time.time()))
+        remaining = max(0, state["question_duration"] - elapsed)
+        delta = 0
+        if correct:
+            delta = 10 + int(remaining)
+            player["score"] += delta
+            player["correct"] += 1
+            player["streak"] += 1
+        else:
+            player["streak"] = 0
+        player["last_delta"] = delta
+        player["last_answer_correct"] = correct
+        state["answers"][player_id] = {
+            "answer_index": answer_index,
+            "correct": correct,
+            "at": time.time(),
+        }
+    return JSONResponse({"ok": True, "correct": correct, "delta": delta})
+
+
+@app.post("/api/trivia-live/start")
+async def trivia_live_start():
+    await _start_trivia_live_session()
+    return JSONResponse({"ok": True, "state": _public_trivia_live_state()})
+
+
+@app.post("/api/trivia-live/reset")
+async def trivia_live_reset():
+    await _reset_trivia_live_session()
+    return JSONResponse({"ok": True, "state": _public_trivia_live_state()})
 
 
 # ── Polls API (read-only — feeds the Events "from poll" picker) ──
