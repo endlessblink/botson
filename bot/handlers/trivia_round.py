@@ -48,13 +48,14 @@ def _load_questions() -> list[dict]:
         return []
 
 
-def _pick_questions(n: int) -> list[dict]:
-    """Pick n questions, preferring the categories in PREFERRED_CATEGORIES."""
+def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> list[dict]:
+    """Pick n questions, preferring the supplied categories first."""
     pool = _load_questions()
     if not pool:
         return []
-    preferred = [q for q in pool if q.get("category") in PREFERRED_CATEGORIES]
-    rest = [q for q in pool if q.get("category") not in PREFERRED_CATEGORIES]
+    preferred_categories = preferred_categories or PREFERRED_CATEGORIES
+    preferred = [q for q in pool if q.get("category") in preferred_categories]
+    rest = [q for q in pool if q.get("category") not in preferred_categories]
     random.shuffle(preferred)
     random.shuffle(rest)
     picked: list[dict] = []
@@ -76,15 +77,15 @@ def _build_answer_markup(q_index: int, options: list[str]) -> InlineKeyboardMark
     return InlineKeyboardMarkup(rows)
 
 
-def _format_announcement(pre_roll_s: int) -> str:
+def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: int) -> str:
     if pre_roll_s >= 60:
         minutes = max(1, pre_roll_s // 60)
         when = f"עוד {minutes} דקות"
     else:
         when = f"עוד {pre_roll_s} שניות"
     return (
-        f"🎬 טריוויה: {THEME_LABEL}!\n\n"
-        f"{QUESTION_COUNT} שאלות מהירות · {QUESTION_TIMEOUT_S} שניות לכל אחת.\n"
+        f"🎬 טריוויה: {theme_label}!\n\n"
+        f"{question_count} שאלות מהירות · {QUESTION_TIMEOUT_S} שניות לכל אחת.\n"
         f"תשובה נכונה = {POINTS_CORRECT} נק׳ · מקום ראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס 🏆\n\n"
         f"השאלה הראשונה יורדת {when} — תתחממו 🍿"
     )
@@ -109,7 +110,7 @@ def _question_text(q: dict, q_index: int, remaining_s: int) -> str:
     else:
         timer = f"⏱ נשארו {remaining_s} שניות {bar}"
     return (
-        f"🧠 שאלה {q_index + 1}/{QUESTION_COUNT} · {category}\n\n"
+        f"🧠 שאלה {q_index + 1}/{q.get('_round_question_count', QUESTION_COUNT)} · {category}\n\n"
         f"{q['text']}\n\n"
         f"{timer}"
     )
@@ -167,6 +168,7 @@ async def _reveal_question(bot, chat_id: int, message_id: int, q: dict,
 
 def _build_final_text(round_state: dict, bonus_winners: list[int]) -> str:
     scores = round_state["scores"]
+    question_count = round_state.get("question_count", QUESTION_COUNT)
     if not scores:
         return "🧠 סוף הטריוויה!\n\nאף אחד לא ענה נכון הפעם. בפעם הבאה 💪"
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["correct"], kv[1]["name"]))
@@ -175,7 +177,7 @@ def _build_final_text(round_state: dict, bonus_winners: list[int]) -> str:
     for i, (uid, s) in enumerate(ranked):
         medal = medals[i] if i < 3 else f"{i+1}."
         bonus = f" (+{POINTS_FIRST_PLACE_BONUS} בונוס 🏆)" if uid in bonus_winners else ""
-        lines.append(f"{medal} {s['name']} — {s['correct']}/{QUESTION_COUNT} נכון · {s['points']} נק׳{bonus}")
+        lines.append(f"{medal} {s['name']} — {s['correct']}/{question_count} נכון · {s['points']} נק׳{bonus}")
     if bonus_winners:
         winners_names = ", ".join(round_state["scores"][u]["name"] for u in bonus_winners)
         lines.append(f"\n🏆 מקום ראשון: {winners_names} (+{POINTS_FIRST_PLACE_BONUS} בונוס)")
@@ -183,19 +185,29 @@ def _build_final_text(round_state: dict, bonus_winners: list[int]) -> str:
 
 
 async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
-                      pre_roll_s: int) -> None:
+                      pre_roll_s: int,
+                      preferred_categories: set[str] | None = None,
+                      theme_label: str | None = None,
+                      question_count: int = QUESTION_COUNT) -> None:
     """Drive a single round start → finish. Safe to cancel via STOP_FILE."""
     if chat_id in _active_rounds:
         logger.info("trivia_round: round already active in chat %s", chat_id)
         return
 
-    questions = _pick_questions(QUESTION_COUNT)
-    if len(questions) < QUESTION_COUNT:
+    preferred_categories = preferred_categories or PREFERRED_CATEGORIES
+    theme_label = theme_label or THEME_LABEL
+    question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
+
+    questions = _pick_questions(question_count, preferred_categories)
+    for q in questions:
+        q["_round_question_count"] = question_count
+    if len(questions) < question_count:
         logger.error("trivia_round: not enough questions (%d)", len(questions))
         return
 
     round_state: dict = {
         "questions": questions,
+        "question_count": question_count,
         "q_index": -1,
         "msg_id": None,
         "scores": {},  # user_id → {name, correct, points}
@@ -206,7 +218,10 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
 
     try:
         # Announcement
-        ann_kwargs = {"chat_id": chat_id, "text": _format_announcement(pre_roll_s)}
+        ann_kwargs = {
+            "chat_id": chat_id,
+            "text": _format_announcement(pre_roll_s, theme_label=theme_label, question_count=question_count),
+        }
         if thread_id is not None:
             ann_kwargs["message_thread_id"] = thread_id
         try:
@@ -431,7 +446,14 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
     """Runs every ~10s. Looks for data/trivia_round_trigger.json, launches a round.
 
     Trigger JSON schema:
-        {"chat_id": -1003747545764, "thread_id": null, "pre_roll_s": 30}
+        {
+          "chat_id": -1003747545764,
+          "thread_id": null,
+          "pre_roll_s": 30,
+          "theme_label": "ישראל",
+          "categories": ["ישראל"],
+          "question_count": 5
+        }
     Dashboard writes this file; bot consumes and deletes it.
     """
     if not TRIGGER_FILE.exists():
@@ -455,14 +477,39 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
     thread_id = payload.get("thread_id")
     thread_id = int(thread_id) if thread_id else None
     pre_roll_s = int(payload.get("pre_roll_s", 30))
+    theme_label = str(payload.get("theme_label") or "").strip() or None
+    question_count = int(payload.get("question_count") or QUESTION_COUNT)
+    raw_categories = payload.get("categories") or []
+    preferred_categories = {
+        str(cat).strip() for cat in raw_categories
+        if str(cat).strip()
+    } or None
 
     db: Database = context.bot_data.get("db")
     if not db:
         logger.warning("trivia_round: no db in bot_data")
         return
 
-    logger.info("trivia_round: trigger launching round chat=%s pre_roll=%ss", chat_id, pre_roll_s)
-    asyncio.create_task(_run_round(context.bot, db, chat_id, thread_id, pre_roll_s))
+    logger.info(
+        "trivia_round: trigger launching round chat=%s pre_roll=%ss theme=%s categories=%s count=%s",
+        chat_id,
+        pre_roll_s,
+        theme_label or THEME_LABEL,
+        sorted(preferred_categories or PREFERRED_CATEGORIES),
+        question_count,
+    )
+    asyncio.create_task(
+        _run_round(
+            context.bot,
+            db,
+            chat_id,
+            thread_id,
+            pre_roll_s,
+            preferred_categories=preferred_categories,
+            theme_label=theme_label,
+            question_count=question_count,
+        )
+    )
 
 
 def register(app):
