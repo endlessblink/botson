@@ -911,6 +911,72 @@ async def calendar_mini_app(request: Request, month: str | None = None,
     })
 
 
+@app.get("/trivia-live-demo", response_class=HTMLResponse)
+async def trivia_live_demo(request: Request):
+    """Public prototype for a Telegram Mini App style live trivia round."""
+    demo_state = {
+        "title": "יום העצמאות — טריוויה חיה",
+        "host": "Botson",
+        "starts_at": "15:00",
+        "players": [
+            {"name": "נועה", "score": 132, "streak": 3, "status": "leader"},
+            {"name": "יואב", "score": 121, "streak": 2, "status": "up"},
+            {"name": "מיקה", "score": 118, "streak": 1, "status": "steady"},
+            {"name": "תמר", "score": 109, "streak": 2, "status": "down"},
+            {"name": "אדם", "score": 97, "streak": 0, "status": "steady"},
+            {"name": "שחר", "score": 88, "streak": 1, "status": "up"},
+        ],
+        "stages": [
+            {
+                "kind": "lobby",
+                "headline": "החדר נפתח",
+                "subline": "משתתפים מצטרפים לפני תחילת הסיבוב. אפשר לראות מי בפנים עוד לפני השאלה הראשונה.",
+                "cta": "הצטרפ/י למשחק",
+            },
+            {
+                "kind": "question",
+                "headline": "שאלה 4 מתוך 10",
+                "subline": "כולם עונים מאותו מסך, עם טיימר משותף ונעילת תשובה אחרי הקליק.",
+                "question": "מי כתב את מילות ההמנון 'התקווה'?",
+                "answers": [
+                    {"label": "חיים נחמן ביאליק", "correct": False},
+                    {"label": "נפתלי הרץ אימבר", "correct": True},
+                    {"label": "שאול טשרניחובסקי", "correct": False},
+                    {"label": "נתן אלתרמן", "correct": False},
+                ],
+                "countdown": 12,
+                "you_rank": 2,
+                "you_score": 121,
+            },
+            {
+                "kind": "reveal",
+                "headline": "התשובה נחשפת",
+                "subline": "אפשר לתת פידבק מיידי, אנימציה, צליל, ושינוי מקום בטבלה בלי להציף את הצ'אט.",
+                "question": "מי כתב את מילות ההמנון 'התקווה'?",
+                "correct_answer": "נפתלי הרץ אימבר",
+                "you_result": "correct",
+                "score_delta": 18,
+                "rank_delta": "+1",
+            },
+            {
+                "kind": "leaderboard",
+                "headline": "לוח תוצאות חי",
+                "subline": "בין שאלות רואים את כל המשתתפים, שינויי דירוג, והמובילה נשארת בראש כמו בקאהוט.",
+                "focus_player": "יואב",
+            },
+            {
+                "kind": "final",
+                "headline": "סיום הסיבוב",
+                "subline": "בסיום אפשר להציג פודיום, לשלוח סיכום חזרה לקבוצה, ולשמור ניקוד למסלול העונתי.",
+                "podium": ["נועה", "יואב", "מיקה"],
+            },
+        ],
+    }
+    return templates.TemplateResponse(request, name="trivia-live-demo.html", context={
+        "demo_json": json.dumps(demo_state, ensure_ascii=False),
+    })
+
+
 # ── Polls API (read-only — feeds the Events "from poll" picker) ──
 
 @app.get("/api/polls")
