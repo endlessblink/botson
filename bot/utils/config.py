@@ -1,6 +1,7 @@
 """YAML config loader and settings."""
 
 import os
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -26,6 +27,53 @@ def get_prompts() -> dict[str, list[str]]:
 def get_settings() -> dict:
     """Load bot settings."""
     return load_yaml("settings.yaml")
+
+
+def get_holiday_blackouts() -> list[dict]:
+    """Load manually configured holiday blackout rows from settings.yaml."""
+    settings = get_settings() or {}
+    raw_items = settings.get("holiday_blackouts", []) or []
+    items: list[dict] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        date_iso = str(raw.get("date") or "").strip()
+        if not date_iso:
+            continue
+        items.append({
+            "date": date_iso,
+            "name": str(raw.get("name") or "").strip(),
+            "note": str(raw.get("note") or "").strip(),
+            "block_auto": bool(raw.get("block_auto", True)),
+        })
+    items.sort(key=lambda item: item["date"])
+    return items
+
+
+def get_holiday_blackout(date_iso: str | date) -> dict | None:
+    """Return the blackout row for a date, if one exists."""
+    if isinstance(date_iso, date):
+        date_iso = date_iso.isoformat()
+    for item in get_holiday_blackouts():
+        if item.get("date") == date_iso:
+            return item
+    return None
+
+
+def is_auto_blocked_on(date_iso: str | date) -> bool:
+    """Whether automatic bot content should be suppressed on a date."""
+    item = get_holiday_blackout(date_iso)
+    return bool(item and item.get("block_auto", True))
+
+
+def should_skip_scheduled_message(date_iso: str | date, created_by: str | None) -> bool:
+    """Block only bot-generated scheduled rows on blackout dates.
+
+    Admin-created planner/dashboard rows remain allowed.
+    """
+    if not is_auto_blocked_on(date_iso):
+        return False
+    return str(created_by or "").strip() in {"auto", "ai-fill"}
 
 
 def get_emoji_puzzles() -> list[dict]:
