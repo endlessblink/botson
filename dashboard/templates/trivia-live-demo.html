@@ -21,7 +21,6 @@
       --tg-text: var(--tg-theme-text-color, #f4f4f5);
       --tg-hint: var(--tg-theme-hint-color, #71717a);
       --tg-section: var(--tg-theme-secondary-bg-color, rgba(24, 24, 27, 0.92));
-      --tg-button: var(--tg-theme-button-color, #3b82f6);
     }
     body { color: var(--tg-text); }
     .panel { background: var(--tg-section); }
@@ -34,6 +33,32 @@
       0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35); }
       70% { box-shadow: 0 0 0 14px rgba(59, 130, 246, 0); }
       100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+    .winner-glow {
+      box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.30), 0 0 26px rgba(251, 191, 36, 0.18);
+      animation: winner-glow 1.8s ease-in-out infinite;
+    }
+    @keyframes winner-glow {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+    .confetti {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .confetti span {
+      position: absolute;
+      width: 8px;
+      height: 16px;
+      border-radius: 999px;
+      opacity: 0.85;
+      animation: confetti-fall 3.2s linear infinite;
+    }
+    @keyframes confetti-fall {
+      0% { transform: translateY(-30px) rotate(0deg); }
+      100% { transform: translateY(240px) rotate(360deg); }
     }
   </style>
 </head>
@@ -67,6 +92,17 @@
         </div>
       </div>
 
+      <div class="rounded-2xl bg-zinc-950/60 border border-zinc-800 p-3 mb-4 flex items-center justify-between gap-3">
+        <div>
+          <div class="text-[11px] text-zinc-500">התקדמות בסיבוב</div>
+          <div id="round-progress" class="text-sm font-bold mt-1 text-zinc-200"></div>
+        </div>
+        <div class="text-left">
+          <div class="text-[11px] text-zinc-500">נשארו</div>
+          <div id="questions-left" class="text-lg font-black text-amber-200 mt-1"></div>
+        </div>
+      </div>
+
       <div class="rounded-[28px] bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 border border-zinc-800 p-4 min-h-[350px]">
         <div id="join-panel" class="rounded-3xl border border-zinc-800 bg-zinc-950/70 p-4 mb-3 hidden">
           <div class="text-sm text-zinc-300 mb-2">כדי לבדוק מולטיפלייר, פתח/י את הדף בכמה טאבים או מכשירים והצטרפ/י בשם שונה בכל אחד.</div>
@@ -75,6 +111,7 @@
             <button id="join-button" type="button" class="rounded-2xl bg-blue-500 text-white px-4 py-3 font-black">הצטרפ/י</button>
           </div>
         </div>
+
         <div class="flex items-center justify-between mb-3">
           <div id="stage-pill" class="text-xs font-bold rounded-full px-3 py-1 bg-blue-500/15 text-blue-200 border border-blue-400/20"></div>
           <div id="countdown-wrap" class="hidden items-center gap-2">
@@ -119,6 +156,10 @@
       session: INITIAL_STATE,
       playerId: localStorage.getItem("botsonTriviaLivePlayerId") || "",
       selectedAnswer: null,
+      lastQuestionKey: null,
+      lastStatus: INITIAL_STATE.status || null,
+      audioCtx: null,
+      audioUnlocked: false,
       pollTimer: null,
     };
 
@@ -132,6 +173,8 @@
       playersCount: document.getElementById("players-count"),
       youRank: document.getElementById("you-rank"),
       youScore: document.getElementById("you-score"),
+      roundProgress: document.getElementById("round-progress"),
+      questionsLeft: document.getElementById("questions-left"),
       stagePill: document.getElementById("stage-pill"),
       countdownWrap: document.getElementById("countdown-wrap"),
       countdown: document.getElementById("countdown"),
@@ -142,6 +185,13 @@
     };
 
     function setSession(nextSession) {
+      const nextQuestionKey = nextSession.question
+        ? `${nextSession.status}:${nextSession.question.index}`
+        : `${nextSession.status}:none`;
+      if (state.lastQuestionKey !== null && state.lastQuestionKey !== nextQuestionKey) {
+        state.selectedAnswer = null;
+      }
+      state.lastQuestionKey = nextQuestionKey;
       state.session = nextSession;
     }
 
@@ -166,7 +216,70 @@
       renderStage();
     }
 
+    function unlockAudio() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!state.audioCtx) state.audioCtx = new Ctx();
+      if (state.audioCtx.state === "suspended") state.audioCtx.resume();
+      state.audioUnlocked = true;
+    }
+
+    function playSequence(tones) {
+      if (!state.audioCtx || !state.audioUnlocked) return;
+      const ctx = state.audioCtx;
+      if (ctx.state === "suspended") ctx.resume();
+      tones.forEach((tone) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = tone.type || "sine";
+        osc.frequency.setValueAtTime(tone.freq, ctx.currentTime + tone.at);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + tone.at);
+        gain.gain.exponentialRampToValueAtTime(tone.gain || 0.02, ctx.currentTime + tone.at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + tone.at + tone.duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + tone.at);
+        osc.stop(ctx.currentTime + tone.at + tone.duration + 0.03);
+      });
+    }
+
+    function playTone(kind) {
+      const library = {
+        join: [
+          { freq: 392, at: 0.00, duration: 0.14, gain: 0.016, type: "sine" },
+          { freq: 523.25, at: 0.11, duration: 0.18, gain: 0.018, type: "triangle" },
+        ],
+        tick: [
+          { freq: 523.25, at: 0.00, duration: 0.10, gain: 0.013, type: "sine" },
+          { freq: 659.25, at: 0.10, duration: 0.12, gain: 0.014, type: "triangle" },
+        ],
+        success: [
+          { freq: 659.25, at: 0.00, duration: 0.10, gain: 0.018, type: "triangle" },
+          { freq: 783.99, at: 0.10, duration: 0.12, gain: 0.020, type: "sine" },
+          { freq: 987.77, at: 0.22, duration: 0.16, gain: 0.018, type: "triangle" },
+        ],
+        fail: [
+          { freq: 349.23, at: 0.00, duration: 0.10, gain: 0.013, type: "sine" },
+          { freq: 261.63, at: 0.11, duration: 0.14, gain: 0.014, type: "triangle" },
+        ],
+        final: [
+          { freq: 523.25, at: 0.00, duration: 0.12, gain: 0.016, type: "sine" },
+          { freq: 659.25, at: 0.13, duration: 0.14, gain: 0.017, type: "triangle" },
+          { freq: 783.99, at: 0.28, duration: 0.20, gain: 0.018, type: "triangle" },
+        ],
+        winner: [
+          { freq: 523.25, at: 0.00, duration: 0.10, gain: 0.016, type: "sine" },
+          { freq: 659.25, at: 0.10, duration: 0.10, gain: 0.017, type: "triangle" },
+          { freq: 783.99, at: 0.20, duration: 0.12, gain: 0.018, type: "triangle" },
+          { freq: 1046.50, at: 0.36, duration: 0.22, gain: 0.020, type: "sine" },
+          { freq: 1318.51, at: 0.58, duration: 0.24, gain: 0.019, type: "triangle" },
+        ],
+      };
+      if (library[kind]) playSequence(library[kind]);
+    }
+
     async function joinGame() {
+      unlockAudio();
       const name = els.joinName.value.trim();
       if (!name) return;
       const joined = await api("/api/trivia-live/join", "POST", { name });
@@ -174,25 +287,8 @@
       localStorage.setItem("botsonTriviaLivePlayerId", state.playerId);
       setSession(joined.state);
       state.selectedAnswer = null;
+      playTone("join");
       renderStage();
-    }
-
-    function playTone(kind) {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = kind === "success" ? "triangle" : "sawtooth";
-      osc.frequency.value = kind === "success" ? 880 : 220;
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.24);
-      osc.onended = () => ctx.close();
     }
 
     function renderLeaderboard(players) {
@@ -200,13 +296,14 @@
         const tone = index === 0
           ? "bg-amber-500/15 border-amber-400/25 text-amber-200"
           : "bg-zinc-950/60 border-zinc-800 text-zinc-100";
-        const delta = player.last_delta > 0 ? `+${player.last_delta}` : "•";
+        const delta = player.last_delta > 0 ? `+${player.last_delta}` : player.last_delta < 0 ? `${player.last_delta}` : "•";
+        const botTag = player.is_bot ? '<span class="text-[10px] rounded-full bg-zinc-800 px-1.5 py-0.5 text-zinc-400">BOT</span>' : '';
         return `
           <div class="rounded-2xl border ${tone} px-3 py-2 flex items-center justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-7 h-7 rounded-full ${index === 0 ? "bg-amber-400 text-zinc-950" : "bg-zinc-800 text-zinc-300"} flex items-center justify-center text-xs font-black shrink-0">${index + 1}</div>
               <div class="min-w-0">
-                <div class="font-bold truncate">${player.name}</div>
+                <div class="font-bold truncate flex items-center gap-2">${player.name}${botTag}</div>
                 <div class="text-[11px] text-zinc-500">רצף ${player.streak} · ${delta}</div>
               </div>
             </div>
@@ -246,6 +343,17 @@
       const youScore = you ? you.score : "—";
       const hasSelection = state.selectedAnswer !== null && session.question;
       const selectedIsCorrect = !!(hasSelection && state.selectedAnswer === session.question.correct);
+      const justStartedQuestion = state.lastStatus && state.lastStatus !== "question" && session.status === "question";
+      const justFinished = state.lastStatus && state.lastStatus !== "final" && session.status === "final";
+      if (justStartedQuestion) playTone("tick");
+      if (justFinished) {
+        if (you && you.rank === 1) playTone("winner");
+        else playTone("final");
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+          window.Telegram.WebApp.HapticFeedback.notificationOccurred("success");
+        }
+      }
+      state.lastStatus = session.status;
 
       els.joinPanel.classList.toggle("hidden", !!state.playerId);
       els.title.textContent = session.title;
@@ -259,6 +367,8 @@
       els.playersCount.textContent = playerCount;
       els.youRank.textContent = you ? `#${youRank}` : "—";
       els.youScore.textContent = you ? `${youScore}` : "—";
+      els.roundProgress.textContent = session.question ? `שאלה ${session.question.index} מתוך ${session.question.total}` : "מחכים לפתיחה";
+      els.questionsLeft.textContent = `${session.questions_left ?? 0}`;
       els.stagePill.textContent = ({
         lobby: "חדר המתנה",
         question: "שאלה חיה",
@@ -282,7 +392,7 @@
             <div class="flex flex-wrap gap-2 mb-4">
               ${players.length ? players.map((player) => `<span class="rounded-full bg-zinc-900 border border-zinc-800 px-3 py-1 text-sm">${player.name}</span>`).join("") : '<span class="text-sm text-zinc-500">עדיין אין שחקנים</span>'}
             </div>
-            <div class="text-xs text-zinc-500">כל טאב או מכשיר יכול להצטרף כשחקן אחר וייכנס לאותה טבלת תוצאות.</div>
+            <div class="text-xs text-zinc-500">אם רק שחקן/ית אחד/ת יתחיל/תתחיל, יתווספו בוטים יריבים כדי לשמור על תחושת תחרות.</div>
           </div>
         `;
       } else if (session.status === "question") {
@@ -294,26 +404,24 @@
           </div>
         `;
       } else if (session.status === "reveal") {
+        const actualDelta = you ? Number(you.last_delta || 0) : 0;
         const revealTone = hasSelection
           ? (selectedIsCorrect
               ? {
                   resultLabel: "תשובה נכונה",
-                  resultValue: "+18 נק׳",
-                  rankValue: "+1",
+                  resultValue: `${actualDelta > 0 ? "+" : ""}${actualDelta} נק׳`,
                   resultClass: "text-emerald-200",
                   answerClass: "bg-emerald-500/12 border-emerald-400/25",
                 }
               : {
                   resultLabel: "תשובה שגויה",
-                  resultValue: "+0 נק׳",
-                  rankValue: "0",
+                  resultValue: `${actualDelta} נק׳`,
                   resultClass: "text-rose-200",
                   answerClass: "bg-rose-500/12 border-rose-400/25",
                 })
           : {
               resultLabel: "לא נבחרה תשובה",
               resultValue: "+0 נק׳",
-              rankValue: "0",
               resultClass: "text-zinc-200",
               answerClass: "bg-zinc-900 border-zinc-800",
             };
@@ -330,42 +438,56 @@
               <div class="text-lg font-black ${revealTone.resultClass}">${revealTone.resultValue}</div>
             </div>
             <div class="rounded-2xl bg-zinc-950/60 border border-zinc-800 p-3">
-              <div class="text-[11px] text-zinc-500">שינוי מיקום</div>
-              <div class="text-lg font-black text-blue-200">${revealTone.rankValue}</div>
+              <div class="text-[11px] text-zinc-500">מקום עכשיו</div>
+              <div class="text-lg font-black text-blue-200">${you ? `#${you.rank}` : '—'}</div>
             </div>
           </div>
         `;
       } else if (session.status === "final") {
         const podium = players.slice(0, 3);
+        const youWon = you && you.rank === 1;
         els.mainSurface.innerHTML = `
           <div class="text-sm text-zinc-400">סיום הסיבוב</div>
-          <div class="grid grid-cols-3 gap-2 mt-3 items-end">
-            <div class="rounded-2xl bg-zinc-900 border border-zinc-800 p-3 text-center order-2">
-              <div class="text-xs text-zinc-500">מקום שני</div>
-              <div class="font-black mt-1">${podium[1] ? podium[1].name : "—"}</div>
+          <div class="relative ${youWon ? 'winner-glow rounded-3xl p-2' : ''}">
+            ${youWon ? `
+              <div class="confetti">
+                <span style="right:8%;top:0;background:#fbbf24;animation-delay:0s"></span>
+                <span style="right:22%;top:-8px;background:#60a5fa;animation-delay:.4s"></span>
+                <span style="right:38%;top:-4px;background:#fb7185;animation-delay:.8s"></span>
+                <span style="right:58%;top:-10px;background:#34d399;animation-delay:1.1s"></span>
+                <span style="right:74%;top:-2px;background:#c084fc;animation-delay:.6s"></span>
+              </div>
+            ` : ''}
+            <div class="grid grid-cols-3 gap-2 mt-3 items-end">
+              <div class="rounded-2xl bg-zinc-900 border border-zinc-800 p-3 text-center order-2">
+                <div class="text-xs text-zinc-500">מקום שני</div>
+                <div class="font-black mt-1">${podium[1] ? podium[1].name : '—'}</div>
+              </div>
+              <div class="rounded-2xl bg-amber-500/15 border border-amber-400/30 p-4 text-center order-1">
+                <div class="text-xs text-amber-300">מקום ראשון</div>
+                <div class="font-black text-lg mt-1">${podium[0] ? podium[0].name : '—'}</div>
+              </div>
+              <div class="rounded-2xl bg-zinc-900 border border-zinc-800 p-3 text-center order-3">
+                <div class="text-xs text-zinc-500">מקום שלישי</div>
+                <div class="font-black mt-1">${podium[2] ? podium[2].name : '—'}</div>
+              </div>
             </div>
-            <div class="rounded-2xl bg-amber-500/15 border border-amber-400/30 p-4 text-center order-1">
-              <div class="text-xs text-amber-300">מקום ראשון</div>
-              <div class="font-black text-lg mt-1">${podium[0] ? podium[0].name : "—"}</div>
-            </div>
-            <div class="rounded-2xl bg-zinc-900 border border-zinc-800 p-3 text-center order-3">
-              <div class="text-xs text-zinc-500">מקום שלישי</div>
-              <div class="font-black mt-1">${podium[2] ? podium[2].name : "—"}</div>
-            </div>
+            ${youWon ? '<div class="text-center text-amber-200 font-black mt-4 text-lg">זכית במקום הראשון 👑</div>' : ''}
           </div>
         `;
       }
 
       renderLeaderboard(players);
 
-      document.querySelectorAll(".answer-btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
+      document.querySelectorAll('.answer-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          unlockAudio();
           state.selectedAnswer = Number(btn.dataset.answerIndex);
-          api("/api/trivia-live/answer", "POST", { player_id: state.playerId, answer_index: state.selectedAnswer })
+          api('/api/trivia-live/answer', 'POST', { player_id: state.playerId, answer_index: state.selectedAnswer })
             .then((resp) => {
-              playTone(resp.correct ? "success" : "fail");
+              playTone(resp.correct ? 'success' : 'fail');
               if (window.Telegram?.WebApp?.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.impactOccurred(resp.correct ? "medium" : "light");
+                window.Telegram.WebApp.HapticFeedback.impactOccurred(resp.correct ? 'medium' : 'light');
               }
               refreshState();
             })
@@ -374,21 +496,23 @@
       });
     }
 
-    els.joinButton.addEventListener("click", joinGame);
-    els.joinName.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") joinGame();
+    els.joinButton.addEventListener('click', joinGame);
+    els.joinName.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') joinGame();
     });
-    els.startButton.addEventListener("click", async () => {
+    els.startButton.addEventListener('click', async () => {
       try {
-        await api("/api/trivia-live/start", "POST");
+        unlockAudio();
+        await api('/api/trivia-live/start', 'POST');
         state.selectedAnswer = null;
         await refreshState();
       } catch (err) {
         alert(err.message);
       }
     });
-    els.resetButton.addEventListener("click", async () => {
-      await api("/api/trivia-live/reset", "POST");
+    els.resetButton.addEventListener('click', async () => {
+      unlockAudio();
+      await api('/api/trivia-live/reset', 'POST');
       state.selectedAnswer = null;
       await refreshState();
     });

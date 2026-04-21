@@ -5,11 +5,12 @@ import copy
 import json
 import logging
 import os
+import random
 import secrets
 import signal
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,7 +28,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
-from bot.utils.config import DB_PATH, get_settings, get_prompts, get_spam_patterns, get_topic_rules, load_yaml
+from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.levels import get_level, get_progress
 
 RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
@@ -284,6 +285,41 @@ async def update_schedule(request: Request):
     # Auto-reload bot schedule
     reloaded = _signal_bot_reload()
     return {"status": "ok", "bot_reloaded": reloaded}
+
+
+@app.post("/api/settings/holiday-blackouts")
+async def update_holiday_blackouts(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    rows = data.get("items", []) if isinstance(data, dict) else []
+    cleaned: list[dict] = []
+    seen_dates: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        date_iso = str(row.get("date") or "").strip()
+        if not date_iso or date_iso in seen_dates:
+            continue
+        try:
+            date.fromisoformat(date_iso)
+        except ValueError:
+            continue
+        cleaned.append({
+            "date": date_iso,
+            "name": str(row.get("name") or "").strip(),
+            "note": str(row.get("note") or "").strip(),
+            "block_auto": bool(row.get("block_auto", True)),
+        })
+        seen_dates.add(date_iso)
+
+    settings = _load_settings_file()
+    settings["holiday_blackouts"] = cleaned
+    _save_settings_file(settings)
+
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded, "count": len(cleaned)}
 
 
 @app.post("/api/reload-schedule")
@@ -788,7 +824,11 @@ _TRIVIA_DEMO_STATE = {
     "used_question_texts": [],
     "questions": [],
     "task": None,
+    "bot_tasks": [],
 }
+
+_TRIVIA_DEMO_CORRECT_POINTS = 10
+_TRIVIA_DEMO_WRONG_PENALTY = 5
 
 
 def _trivia_live_pool() -> list[dict]:
@@ -864,10 +904,12 @@ def _public_trivia_live_state(player_id: str | None = None) -> dict:
                 "correct": player["correct"],
                 "streak": player["streak"],
                 "last_delta": player.get("last_delta", 0),
+                "is_bot": bool(player.get("is_bot")),
             }
             for player in ordered
         ],
         "player_count": len(ordered),
+        "questions_left": max(0, len(state["questions"]) - max(0, state["question_index"] + (1 if state["status"] in {"question", "reveal"} else 0))),
         "you": {
             "id": you["id"],
             "name": you["name"],
@@ -876,9 +918,82 @@ def _public_trivia_live_state(player_id: str | None = None) -> dict:
             "answered": answered,
             "last_answer_correct": you.get("last_answer_correct"),
             "last_delta": you.get("last_delta", 0),
+            "is_bot": bool(you.get("is_bot")),
         } if you else None,
     }
     return payload
+
+
+def _ensure_trivia_demo_bots(min_total_players: int = 3) -> None:
+    state = _TRIVIA_DEMO_STATE
+    players = state["players"]
+    human_count = sum(1 for player in players.values() if not player.get("is_bot"))
+    if human_count != 1:
+        return
+    bot_names = ["Bot Herzl", "Bot Golda", "Bot Falcon", "Bot Carmel"]
+    needed = max(0, min_total_players - len(players))
+    for idx in range(needed):
+        player_id = f"bot-{secrets.token_hex(4)}"
+        players[player_id] = {
+            "id": player_id,
+            "name": bot_names[idx % len(bot_names)],
+            "score": 0,
+            "correct": 0,
+            "streak": 0,
+            "joined_at": time.time() + idx + 1,
+            "last_delta": 0,
+            "last_answer_correct": None,
+            "is_bot": True,
+        }
+
+
+async def _trivia_demo_bot_answer(player_id: str, question_index: int) -> None:
+    await asyncio.sleep(random.uniform(2.5, 8.5))
+    async with _TRIVIA_DEMO_LOCK:
+        state = _TRIVIA_DEMO_STATE
+        if state["status"] != "question" or state["question_index"] != question_index:
+            return
+        if player_id not in state["players"] or player_id in state["answers"]:
+            return
+        player = state["players"][player_id]
+        if not player.get("is_bot"):
+            return
+        question = state["questions"][question_index]
+        correct = random.random() < 0.62
+        if correct:
+            answer_index = int(question["correct"])
+        else:
+            wrong = [idx for idx in range(len(question["options"])) if idx != question["correct"]]
+            answer_index = random.choice(wrong)
+        elapsed = max(0, time.time() - (state["question_started_at"] or time.time()))
+        remaining = max(0, state["question_duration"] - elapsed)
+        delta = 0
+        if correct:
+            delta = _TRIVIA_DEMO_CORRECT_POINTS + int(remaining)
+            player["score"] += delta
+            player["correct"] += 1
+            player["streak"] += 1
+        else:
+            delta = -min(_TRIVIA_DEMO_WRONG_PENALTY, player["score"])
+            player["score"] += delta
+            player["streak"] = 0
+        player["last_delta"] = delta
+        player["last_answer_correct"] = correct
+        state["answers"][player_id] = {
+            "answer_index": answer_index,
+            "correct": correct,
+            "at": time.time(),
+        }
+
+
+def _schedule_trivia_demo_bots(question_index: int) -> None:
+    state = _TRIVIA_DEMO_STATE
+    for task in state.get("bot_tasks", []):
+        task.cancel()
+    state["bot_tasks"] = []
+    for player_id, player in state["players"].items():
+        if player.get("is_bot"):
+            state["bot_tasks"].append(asyncio.create_task(_trivia_demo_bot_answer(player_id, question_index)))
 
 
 async def _run_trivia_live_session() -> None:
@@ -906,8 +1021,12 @@ async def _run_trivia_live_session() -> None:
                 for player in state["players"].values():
                     player["last_delta"] = 0
                     player["last_answer_correct"] = None
+                _schedule_trivia_demo_bots(next_index)
     finally:
         async with _TRIVIA_DEMO_LOCK:
+            for task in _TRIVIA_DEMO_STATE.get("bot_tasks", []):
+                task.cancel()
+            _TRIVIA_DEMO_STATE["bot_tasks"] = []
             _TRIVIA_DEMO_STATE["task"] = None
 
 
@@ -917,6 +1036,7 @@ async def _start_trivia_live_session() -> None:
             return
         if not _TRIVIA_DEMO_STATE["players"]:
             raise HTTPException(status_code=409, detail="No players joined yet")
+        _ensure_trivia_demo_bots()
         _TRIVIA_DEMO_STATE["questions"] = _pick_trivia_live_questions(10)
         _TRIVIA_DEMO_STATE["used_question_texts"] = [q["text"] for q in _TRIVIA_DEMO_STATE["questions"]]
         _TRIVIA_DEMO_STATE["status"] = "question"
@@ -926,6 +1046,7 @@ async def _start_trivia_live_session() -> None:
         for player in _TRIVIA_DEMO_STATE["players"].values():
             player["last_delta"] = 0
             player["last_answer_correct"] = None
+        _schedule_trivia_demo_bots(0)
         _TRIVIA_DEMO_STATE["task"] = asyncio.create_task(_run_trivia_live_session())
 
 
@@ -942,6 +1063,7 @@ async def _reset_trivia_live_session() -> None:
             "used_question_texts": [],
             "questions": [],
             "task": None,
+            "bot_tasks": [],
         })
         for player in _TRIVIA_DEMO_STATE["players"].values():
             player.update({
@@ -1152,11 +1274,13 @@ async def trivia_live_answer(request: Request):
         remaining = max(0, state["question_duration"] - elapsed)
         delta = 0
         if correct:
-            delta = 10 + int(remaining)
+            delta = _TRIVIA_DEMO_CORRECT_POINTS + int(remaining)
             player["score"] += delta
             player["correct"] += 1
             player["streak"] += 1
         else:
+            delta = -min(_TRIVIA_DEMO_WRONG_PENALTY, player["score"])
+            player["score"] += delta
             player["streak"] = 0
         player["last_delta"] = delta
         player["last_answer_correct"] = correct
@@ -2131,6 +2255,9 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
         if i not in days_list:
             continue
         day_date = sunday + timedelta(days=i)
+        if is_auto_blocked_on(day_date):
+            skipped += len(times)
+            continue
         for t in times:
             key = (day_date.isoformat(), t, mtype)
             if key in committed_keys:
@@ -2358,6 +2485,8 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     week_days = []
     for i in range(7):
         day_date = sunday + timedelta(days=i)
+        holiday_block = get_holiday_blackout(day_date)
+        auto_blocked = bool(holiday_block and holiday_block.get("block_auto", True))
         activities = []
 
         # Check each schedule item
@@ -2382,7 +2511,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "committed": True,
                     "scheduled_id": committed_row.get("id"),
                 })
-            else:
+            elif not auto_blocked:
                 preview = ""
                 full_text = ""
                 used_idx = -1
@@ -2432,7 +2561,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                         "committed": True,
                         "scheduled_id": committed_row.get("id"),
                     })
-                else:
+                elif not auto_blocked:
                     preview = ""
                     full_text = ""
                     channel_hint = ""
@@ -2489,7 +2618,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "committed": True,
                     "scheduled_id": committed_row.get("id"),
                 })
-            else:
+            elif not auto_blocked:
                 preview = ""
                 full_text = ""
                 used_idx = -1
@@ -2511,7 +2640,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "scheduled_id": None,
                 })
 
-        if i in schedule.get("weekly_leaderboard", {}).get("days", []):
+        if (not auto_blocked) and i in schedule.get("weekly_leaderboard", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "levels")
             activities.append({
                 "time": schedule["weekly_leaderboard"].get("time", "18:00"),
@@ -2521,7 +2650,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                 "channel": "", "enabled": enabled
             })
 
-        if i in schedule.get("weekly_roundup", {}).get("days", []):
+        if (not auto_blocked) and i in schedule.get("weekly_roundup", {}).get("days", []):
             enabled = _is_feature_enabled_simple(features, "roundup")
             activities.append({
                 "time": schedule["weekly_roundup"].get("time", "18:00"),
@@ -2540,7 +2669,9 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             "day_num": i,
             "is_today": day_date == today,
             "is_weekend": i >= 5,
-            "activities": activities
+            "activities": activities,
+            "holiday_block": holiday_block,
+            "auto_blocked": auto_blocked,
         })
 
     # Get calendar events (scheduled messages) for this week
