@@ -2919,16 +2919,30 @@ def _default_pending_reviews():
     ]
 
 
+def _ensure_special_pending_reviews(items):
+    wanted = {
+        "id": "trivia-israel-announce-2026-04-22",
+        "title": "🇮🇱 תזכורת — טריוויה ליום העצמאות",
+        "channel": "כללי (General)",
+        "when": "רביעי 14:45",
+        "preview": "🇮🇱 היום ב-15:00 — טריוויה מיוחדת ליום העצמאות\n\n10 שאלות מהירות על ישראל: היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n\nתשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆\n\nהשאלה הראשונה יורדת ב-15:00 בדיוק — תהיו כאן.",
+        "note": "טיוטת הכרזה לפני סיבוב הטריוויה המתוזמן של מחר. אישור כאן ייצור טיוטת planner שאפשר לשלוח ממנו.",
+    }
+    if any(item.get("id") == wanted["id"] for item in items):
+        return items
+    return items + [wanted]
+
+
 def _load_pending_reviews():
     if PENDING_REVIEWS_PATH.exists():
         try:
             items = json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
-            return _ensure_emoji_puzzle_reviews(items)
+            return _ensure_special_pending_reviews(_ensure_emoji_puzzle_reviews(items))
         except Exception:
             logger.exception("[review] failed to read %s — reseeding", PENDING_REVIEWS_PATH)
     items = _default_pending_reviews()
     _save_pending_reviews(items)
-    return _ensure_emoji_puzzle_reviews(items)
+    return _ensure_special_pending_reviews(_ensure_emoji_puzzle_reviews(items))
 
 
 def _save_pending_reviews(items):

@@ -83,8 +83,9 @@ def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: i
         when = f"עוד {minutes} דקות"
     else:
         when = f"עוד {pre_roll_s} שניות"
+    theme_emoji = "🇮🇱" if "ישראל" in theme_label else "🎬"
     return (
-        f"🎬 טריוויה: {theme_label}!\n\n"
+        f"{theme_emoji} טריוויה: {theme_label}!\n\n"
         f"{question_count} שאלות מהירות · {QUESTION_TIMEOUT_S} שניות לכל אחת.\n"
         f"תשובה נכונה = {POINTS_CORRECT} נק׳ · מקום ראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס 🏆\n\n"
         f"השאלה הראשונה יורדת {when} — תתחממו 🍿"
@@ -116,6 +117,18 @@ def _question_text(q: dict, q_index: int, remaining_s: int) -> str:
     )
 
 
+def _leaderboard_snapshot(scores: dict, *, limit: int = 3) -> str:
+    if not scores:
+        return "עדיין אין מובילים"
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["correct"], -kv[1]["points"], kv[1]["name"]))
+    medals = ["🥇", "🥈", "🥉"]
+    lines = []
+    for idx, (_uid, row) in enumerate(ranked[:limit]):
+        medal = medals[idx] if idx < len(medals) else f"{idx+1}."
+        lines.append(f"{medal} {row['name']} — {row['points']} נק׳")
+    return "\n".join(lines)
+
+
 async def _post_question(bot, db: Database, chat_id: int, thread_id: int | None,
                           q_index: int, q: dict) -> int:
     """Post question q_index and return message_id."""
@@ -143,17 +156,22 @@ async def _update_question_timer(bot, chat_id: int, message_id: int, q: dict,
 
 
 async def _reveal_question(bot, chat_id: int, message_id: int, q: dict,
-                             q_index: int, round_state: dict) -> None:
+                              q_index: int, round_state: dict) -> None:
     correct_idx = q["correct"]
     correct_text = q["options"][correct_idx]
     answers = round_state.get("answers_this_q", {})
     n_correct = sum(1 for v in answers.values() if v == correct_idx)
     n_wrong = len(answers) - n_correct
+    question_count = round_state.get("question_count", QUESTION_COUNT)
+    questions_left = max(0, question_count - (q_index + 1))
+    leaders = _leaderboard_snapshot(round_state.get("scores", {}))
     text = (
-        f"🧠 שאלה {q_index + 1}/{QUESTION_COUNT} · נסגרה\n\n"
+        f"🧠 שאלה {q_index + 1}/{question_count} · נסגרה\n\n"
         f"{q['text']}\n\n"
         f"✅ התשובה: {correct_text}\n"
-        f"📊 {n_correct} נכון · {n_wrong} לא נכון"
+        f"📊 {n_correct} נכון · {n_wrong} לא נכון\n\n"
+        f"🏁 נשארו עוד {questions_left} שאלות\n"
+        f"{leaders}"
     )
     try:
         # Strip keyboard so users can't click after reveal (otherwise late clicks
@@ -171,7 +189,7 @@ def _build_final_text(round_state: dict, bonus_winners: list[int]) -> str:
     question_count = round_state.get("question_count", QUESTION_COUNT)
     if not scores:
         return "🧠 סוף הטריוויה!\n\nאף אחד לא ענה נכון הפעם. בפעם הבאה 💪"
-    ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["correct"], kv[1]["name"]))
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["correct"], -kv[1]["points"], kv[1]["name"]))
     medals = ["🥇", "🥈", "🥉"]
     lines = ["🧠 סוף הטריוויה! תוצאות:\n"]
     for i, (uid, s) in enumerate(ranked):
@@ -181,6 +199,7 @@ def _build_final_text(round_state: dict, bonus_winners: list[int]) -> str:
     if bonus_winners:
         winners_names = ", ".join(round_state["scores"][u]["name"] for u in bonus_winners)
         lines.append(f"\n🏆 מקום ראשון: {winners_names} (+{POINTS_FIRST_PLACE_BONUS} בונוס)")
+    lines.append("\nתודה ששיחקתם — נתראה בסיבוב הבא 🇮🇱")
     return "\n".join(lines)
 
 
