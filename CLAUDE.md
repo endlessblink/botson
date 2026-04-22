@@ -124,8 +124,10 @@ Source of truth is the live `forum_topics` table in `data/bot.db`. Topics not li
 | 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics |
 | 153 | Ai וטכנולוגיה | ai |
 | 3113 | AI & Tech | ai_en |
-| 341 | מצטרפים חדשים + עדכונים | welcome |
-| 7 | כללי (General) — unconfirmed | general |
+| 341 | ברוכים הבאים! מידע למצטרפים חדשים | welcome |
+| 7 | כל מה שאין לו ערוץ | general |
+
+Note: the live `forum_topics.name` row for topic `7` may be stale in SQLite. When there is any mismatch between DB label and Telegram UI label, treat the topic ID as source of truth. User-confirmed current UI label for topic `7` is `כל מה שאין לו ערוץ`.
 | ? | טבעונים וצמחוניים | vegan |
 | ? | מצחיק / מגניב | funny |
 

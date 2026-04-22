@@ -56,6 +56,15 @@ features:
     groups:
     - main
     - test
+holiday_blackouts:
+- date: '2026-04-13'
+  name: יום השואה
+  note: לפרסם רק תוכן ידני ומאושר. מתאים להודעת זיכרון קצרה, מכבדת ולא שגרתית.
+  block_auto: true
+- date: '2026-04-20'
+  name: יום הזיכרון
+  note: לפרסם רק תוכן ידני ומאושר. מתאים להודעת זיכרון/התכנסות שקטה ולא לפעילות אוטומטית רגילה.
+  block_auto: true
 gamification:
   discussion_reply: 3
   emoji_puzzle_winner: 5
@@ -129,7 +138,7 @@ topics:
     movies: 54
     politics: 1431
     singles: 59
-  general: null
+  general: 7
   goals: 2184
   welcome: 341
 welcome:
