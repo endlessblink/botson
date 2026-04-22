@@ -227,10 +227,12 @@ async def settings_page(request: Request, db: Database = Depends(get_db)):
     observed_topics = await db.get_forum_topics()
     verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
     merged_topics = merge_observed_and_verified_topics(observed_topics, verified_topics)
+    handler_routings = await db.list_handler_routings() if hasattr(db, 'list_handler_routings') else []
     return templates.TemplateResponse(request, name="settings.html", context={
         "settings": settings,
         "verified_topics": verified_topics,
         "merged_topics": merged_topics,
+        "handler_routings": handler_routings,
     })
 
 
@@ -448,6 +450,64 @@ async def add_forum_topic(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     raise HTTPException(status_code=400, detail="Observed forum topic names are no longer manually writable; use /api/topics/verified for trusted mappings")
+
+
+@app.get("/api/handler-routing")
+async def list_handler_routing(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    rows = await db.list_handler_routings()
+    return {"routings": rows}
+
+
+@app.post("/api/handler-routing/save")
+async def save_handler_routing(request: Request, db: Database = Depends(get_db)):
+    """Upsert a single handler's routing row.
+
+    Expected JSON: {handler, play_topic_id, teaser_topic_ids}
+    play_topic_id must either be null or exist in verified_forum_topics.
+    Each teaser_topic_ids entry must also be verified. Reject the
+    edit loudly instead of silently storing a broken route.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    handler = str(data.get("handler") or "").strip()
+    if not handler:
+        raise HTTPException(status_code=400, detail="handler is required")
+    play_raw = data.get("play_topic_id")
+    play_topic_id = int(play_raw) if play_raw not in (None, "", 0, "0") else None
+    teasers_raw = data.get("teaser_topic_ids") or []
+    if not isinstance(teasers_raw, list):
+        raise HTTPException(status_code=400, detail="teaser_topic_ids must be a list")
+    teaser_topic_ids: list[int] = []
+    for x in teasers_raw:
+        try:
+            teaser_topic_ids.append(int(x))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"teaser id {x!r} is not an int")
+
+    if play_topic_id is not None and not await db.is_verified_topic_id(play_topic_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"play_topic_id {play_topic_id} is not verified; run the dot-test first",
+        )
+    for tid in teaser_topic_ids:
+        if not await db.is_verified_topic_id(tid):
+            raise HTTPException(
+                status_code=400,
+                detail=f"teaser_topic_id {tid} is not verified; run the dot-test first",
+            )
+
+    await db.set_handler_routing(handler, play_topic_id, teaser_topic_ids)
+    reloaded = _signal_bot_reload()
+    return {
+        "status": "ok",
+        "bot_reloaded": reloaded,
+        "handler": handler,
+        "play_topic_id": play_topic_id,
+        "teaser_topic_ids": teaser_topic_ids,
+    }
 
 
 # ── Bot Control API ──────────────────────────────────────

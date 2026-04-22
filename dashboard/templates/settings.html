@@ -109,6 +109,52 @@
     </div>
 </div>
 
+<!-- Handler Routing -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">ניתוב פיצ'רים לערוצים</h2>
+        <p class="text-xs text-[#71717a] mt-1">כל פיצ'ר בוחר באיזה topic הוא פוסט. רק topics מאומתים זמינים לבחירה.</p>
+    </div>
+    <div class="px-6 py-4 space-y-3">
+        {% set handler_labels = {
+            'trivia_round': '🧠 טריוויה (סיבובים)',
+            'trivia_scheduled': '🧠 טריוויה (מתוזמנת)',
+            'emoji_puzzle': '🧩 חידות אימוג\'י',
+            'free_games': '🎮 משחקים חינם',
+            'weekly_roundup': '📊 סיכום שבועי',
+            'weekly_leaderboard': '🏆 טבלת רמות שבועית',
+            'events_publish': '🎉 פרסום אירועים',
+            'events_reminder': '⏰ תזכורות אירועים'
+        } %}
+        {% for row in handler_routings %}
+        <div class="flex items-center justify-between p-3 bg-[#111111] border border-[#1f1f1f] rounded-lg">
+            <div class="flex-1">
+                <div class="text-sm text-[#e4e4e7]">{{ handler_labels.get(row.handler, row.handler) }}</div>
+                <div class="text-[11px] text-[#71717a] font-mono">{{ row.handler }}</div>
+            </div>
+            <div class="flex items-center gap-2">
+                <select id="routing-{{ row.handler }}"
+                        data-handler="{{ row.handler }}"
+                        class="bg-[#171717] border border-[#272727] text-[#e4e4e7] text-xs rounded px-2 py-1">
+                    <option value="" class="bg-[#0a0a0a]">(כבוי)</option>
+                    {% for vt in verified_topics %}
+                    <option value="{{ vt.topic_id }}"
+                            class="bg-[#0a0a0a]"
+                            {% if row.play_topic_id == vt.topic_id %}selected{% endif %}>
+                        {{ vt.verified_name }} ({{ vt.category_key }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <button onclick="saveHandlerRouting('{{ row.handler }}')"
+                        class="h-7 px-2 rounded-md text-[11px] border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] transition-colors">
+                    שמור
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
 <!-- Feature Toggles -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
     <div class="px-6 py-4 border-b border-[#1f1f1f]">
@@ -311,6 +357,22 @@ async function sendTopicDot(topicId) {
         fillVerifiedTopic(topicId, '', '', 'confirmed in Telegram UI after test dot');
     } catch (e) {
         showToast('שגיאה בשליחת dot: ' + e.message, 'error');
+    }
+}
+
+async function saveHandlerRouting(handler) {
+    try {
+        const select = document.getElementById('routing-' + handler);
+        const raw = select.value;
+        const payload = {
+            handler: handler,
+            play_topic_id: raw ? parseInt(raw, 10) : null,
+            teaser_topic_ids: []
+        };
+        await apiCall('/api/handler-routing/save', payload);
+        showToast('ניתוב נשמר עבור ' + handler);
+    } catch (e) {
+        showToast('שגיאה בשמירת ניתוב: ' + e.message, 'error');
     }
 }
 
