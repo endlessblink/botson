@@ -532,9 +532,10 @@
                             <button type="button" onclick="saveTriviaQuestions()" class="text-[11px] text-emerald-400/90 hover:text-emerald-300 transition-colors cursor-pointer">💾 שמור</button>
                         </div>
                     </div>
-                    <textarea id="trivia-questions-textarea" dir="rtl" rows="5" placeholder="ייצר או הדבק שאלות (JSON)"
+                    <textarea id="trivia-questions-textarea" dir="rtl" rows="5" placeholder="ייצר שאלות או הדבק ב-JSON / פורמט טקסט (שאלה:/תשובות:/נכונה:/קטגוריה:)"
+                        oninput="triviaQuestionsDirty = true"
                         class="w-full bg-[#111318] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-y font-mono"></textarea>
-                    <p class="text-[11px] text-[#71717a] mt-1">AI מייצר שאלות. "שמור" כותב ל-trivia.yaml — מה שיוצג במשחק.</p>
+                    <p class="text-[11px] text-[#71717a] mt-1">AI מייצר שאלות. <strong>חייב ללחוץ "💾 שמור"</strong> לפני הסיבוב — אחרת הסיבוב ישתמש בשאלות הישנות מ-trivia.yaml.</p>
                 </div>
 
                 <!-- Play topic -->
@@ -555,7 +556,7 @@
                 <!-- Teaser topic -->
                 <div>
                     <label class="text-xs text-[#71717a] mb-1 block">טיזר (אופציונלי)</label>
-                    <select id="trivia-teaser-topic"
+                    <select id="trivia-teaser-topic" onchange="refreshTeaserPreview()"
                         class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                         <option value="">(ללא טיזר)</option>
                         {% for vt in verified_topics %}
@@ -563,6 +564,18 @@
                         {% endfor %}
                     </select>
                     <p class="text-[11px] text-[#71717a] mt-1">הודעת "עוד רגע מתחיל" לערוץ תואם-נושא. המשחק עצמו בערוץ למעלה.</p>
+                </div>
+
+                <!-- Teaser message preview/editor (shown only when a teaser topic is selected) -->
+                <div id="trivia-teaser-preview-wrap" class="hidden">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs text-[#71717a]">הודעת טיזר</label>
+                        <button type="button" onclick="var t=document.getElementById('trivia-teaser-text');delete t.dataset.userEdited;refreshTeaserPreview();" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">↺ ברירת מחדל</button>
+                    </div>
+                    <textarea id="trivia-teaser-text" dir="rtl" rows="3"
+                        oninput="this.dataset.userEdited='1'"
+                        class="w-full bg-[#111318] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-y"></textarea>
+                    <p class="text-[11px] text-[#71717a] mt-1">ההודעה שתישלח לערוץ הטיזר רגע לפני המשחק. עדכון נושא/מספר שאלות — לחץ "↺ ברירת מחדל" לרענון.</p>
                 </div>
 
                 <!-- Theme + categories -->
@@ -857,29 +870,115 @@ function selectType(type) {
 }
 
 // ─── Trivia ───
+// Parses the AI-generated plain text (שאלה:/תשובות:/נכונה:/קטגוריה: blocks) into
+// structured question objects. Blocks are 4 consecutive lines separated by
+// blank lines. Matches what build_generation_prompt emits.
+function _parseTriviaQuestions(raw) {
+    var questions = [];
+    var invalidBlocks = [];
+    var blocks = raw.split(/\n\n+/);
+    for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i].trim();
+        if (!block) continue;
+        var lines = block.split('\n');
+        if (lines.length !== 4) {
+            invalidBlocks.push('בלוק ' + (i + 1) + ': חייבות להיות בדיוק 4 שורות');
+            continue;
+        }
+        var questionText = lines[0].replace(/^שאלה:\s*/, '').trim();
+        var optionsLine = lines[1].replace(/^תשובות:\s*/, '').trim();
+        var options = optionsLine.split('|').map(function(o) { return o.trim(); }).filter(Boolean);
+        var correctLine = lines[2].replace(/^נכונה:\s*/, '').trim();
+        var correct = Number(correctLine);
+        var category = lines[3] ? lines[3].replace(/^קטגוריה:\s*/, '').trim() : 'כללי';
+        if (!questionText) { invalidBlocks.push('בלוק ' + (i + 1) + ': חסר טקסט שאלה'); continue; }
+        if (options.length !== 4) { invalidBlocks.push('בלוק ' + (i + 1) + ': חייבות להיות בדיוק 4 תשובות'); continue; }
+        if (!Number.isInteger(correct) || correct < 0 || correct > 3) {
+            invalidBlocks.push('בלוק ' + (i + 1) + ': אינדקס תשובה נכונה חייב להיות 0-3');
+            continue;
+        }
+        questions.push({ text: questionText, options: options, correct: correct, category: category || 'כללי' });
+    }
+    return { questions: questions, invalidBlocks: invalidBlocks };
+}
+
 async function saveTriviaQuestions() {
     var raw = (document.getElementById('trivia-questions-textarea').value || '').trim();
-    if (!raw) { showToast('אין שאלות לשמור', 'error'); return; }
-    var questions;
+    if (!raw) { showToast('אין שאלות לשמור', 'error'); return false; }
+    // Try JSON first (paste from elsewhere); fall back to the text block parser.
+    var questions = null;
     try {
         var parsed = JSON.parse(raw);
         questions = Array.isArray(parsed) ? parsed : (parsed.questions || []);
-    } catch (e) {
-        showToast('JSON לא תקין: ' + e.message, 'error');
-        return;
+    } catch (_) {
+        var parsedText = _parseTriviaQuestions(raw);
+        if (parsedText.invalidBlocks.length) {
+            showToast('השמירה בוטלה: ' + parsedText.invalidBlocks[0] + (parsedText.invalidBlocks.length > 1 ? ' (ועוד ' + (parsedText.invalidBlocks.length - 1) + ')' : ''), 'error');
+            return false;
+        }
+        questions = parsedText.questions;
+    }
+    if (!questions || questions.length === 0) {
+        showToast('לא נמצאו שאלות תקינות', 'error');
+        return false;
     }
     try {
         var res = await apiCall('/api/trivia/questions', { questions: questions });
-        showToast('נשמרו ' + (res.verified_count || questions.length) + ' שאלות');
+        showToast('נשמרו ואומתו ' + (res.verified_count || questions.length) + ' שאלות');
+        triviaQuestionsDirty = false;
+        return true;
     } catch (e) {
         showToast('שגיאה בשמירה: ' + e.message, 'error');
+        return false;
+    }
+}
+
+// Dirty flag — set when the textarea changes, cleared on save. Drives the
+// pre-launch guard so we don't silently run an old trivia.yaml.
+var triviaQuestionsDirty = false;
+
+function _buildDefaultTeaser(theme, count, playLabel) {
+    var gameChannel = playLabel || 'הפינה של בוטסון';
+    return '🧠 עוד רגע מתחיל סיבוב טריוויה (' + (theme || 'כללי') + ') ב' + gameChannel + ' — ' + count + ' שאלות. בואו לשחק!';
+}
+
+function refreshTeaserPreview() {
+    var teaserBox = document.getElementById('trivia-teaser-text');
+    var teaserWrap = document.getElementById('trivia-teaser-preview-wrap');
+    if (!teaserBox || !teaserWrap) return;
+    var teaserTopic = document.getElementById('trivia-teaser-topic').value;
+    if (!teaserTopic) {
+        teaserWrap.classList.add('hidden');
+        return;
+    }
+    teaserWrap.classList.remove('hidden');
+    // Only fill with the default if the user hasn't customized it.
+    if (!teaserBox.dataset.userEdited) {
+        var theme = document.getElementById('trivia-theme').value.trim();
+        var count = parseInt(document.getElementById('trivia-count').value) || 5;
+        var playSel = document.getElementById('trivia-play-topic');
+        var playLabel = (playSel.options[playSel.selectedIndex] || {}).text || '';
+        // Strip the "(category_key)" suffix for display.
+        playLabel = playLabel.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        teaserBox.value = _buildDefaultTeaser(theme, count, playLabel);
     }
 }
 
 async function startTriviaRound() {
+    // Guard: unsaved AI-generated questions would be ignored by the round.
+    var raw = (document.getElementById('trivia-questions-textarea').value || '').trim();
+    if (raw && triviaQuestionsDirty) {
+        var save = confirm('יש שאלות לא שמורות בתיבה. לשמור אותן ל-trivia.yaml לפני הסיבוב?');
+        if (save) {
+            var ok = await saveTriviaQuestions();
+            if (!ok) return; // save failed, user already saw error
+        }
+    }
+
     var target = document.getElementById('trivia-target').value;
     var playTopic = document.getElementById('trivia-play-topic').value;
     var teaserTopic = document.getElementById('trivia-teaser-topic').value;
+    var teaserText = (document.getElementById('trivia-teaser-text').value || '').trim();
     var theme = document.getElementById('trivia-theme').value.trim();
     var catsRaw = document.getElementById('trivia-categories').value;
     var categories = catsRaw.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
@@ -899,6 +998,7 @@ async function startTriviaRound() {
     }
     if (teaserTopic) {
         body.teaser_topic_id = parseInt(teaserTopic, 10);
+        if (teaserText) body.teaser_text = teaserText;
     }
     try {
         var res = await apiCall('/api/trivia/round/start', body);

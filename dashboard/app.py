@@ -2014,6 +2014,8 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
     topic_id = int(topic_id) if topic_id not in (None, "") else None
     teaser_topic_id = data.get("teaser_topic_id")
     teaser_topic_id = int(teaser_topic_id) if teaser_topic_id not in (None, "", 0, "0") else None
+    teaser_text = data.get("teaser_text")
+    teaser_text = str(teaser_text).strip() if teaser_text else None
     topic_verification_source = str(data.get("topic_verification_source") or "").strip()
     theme_label = str(data.get("theme_label") or "").strip() or "ישראל"
     raw_categories = data.get("categories") or []
@@ -2043,6 +2045,7 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
             question_count=question_count,
             live_topic_ids=verified_topic_ids,
             teaser_topic_id=teaser_topic_id,
+            teaser_text=teaser_text,
         )
     except TriviaVerificationError as e:
         raise HTTPException(status_code=400, detail=str(e))

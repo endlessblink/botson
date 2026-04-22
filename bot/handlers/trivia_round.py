@@ -218,7 +218,8 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
                       preferred_categories: set[str] | None = None,
                       theme_label: str | None = None,
                       question_count: int = QUESTION_COUNT,
-                      teaser_topic_id: int | None = None) -> None:
+                      teaser_topic_id: int | None = None,
+                      teaser_text: str | None = None) -> None:
     """Drive a single round start → finish. Safe to cancel via STOP_FILE."""
     if chat_id in _active_rounds:
         logger.info("trivia_round: round already active in chat %s", chat_id)
@@ -250,17 +251,20 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
         # Optional teaser in a theme-matched topic, fired BEFORE the main
         # announcement so the linked audience has time to jump over.
         if teaser_topic_id is not None and teaser_topic_id != thread_id:
-            teaser_text = (
-                f"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון — "
-                f"{question_count} שאלות. בואו לשחק!"
-            )
+            if teaser_text:
+                teaser_body = teaser_text
+            else:
+                teaser_body = (
+                    f"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון — "
+                    f"{question_count} שאלות. בואו לשחק!"
+                )
             try:
                 await safe_send(
                     bot,
                     db,
                     "send_message",
                     chat_id=chat_id,
-                    text=teaser_text,
+                    text=teaser_body,
                     message_thread_id=teaser_topic_id,
                 )
             except UnverifiedTopicError as e:
@@ -542,6 +546,8 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
     thread_id = int(thread_id) if thread_id else None
     teaser_topic_id = payload.get("teaser_topic_id")
     teaser_topic_id = int(teaser_topic_id) if teaser_topic_id else None
+    teaser_text_raw = payload.get("teaser_text")
+    teaser_text = str(teaser_text_raw).strip() if teaser_text_raw else None
     pre_roll_s = int(payload.get("pre_roll_s", 30))
     theme_label = str(payload.get("theme_label") or "").strip() or None
     question_count = int(payload.get("question_count") or QUESTION_COUNT)
@@ -575,6 +581,7 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
             theme_label=theme_label,
             question_count=question_count,
             teaser_topic_id=teaser_topic_id,
+            teaser_text=teaser_text,
         )
     )
 

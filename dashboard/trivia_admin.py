@@ -76,6 +76,7 @@ def build_round_trigger_payload(
     question_count: int,
     live_topic_ids: set[int] | None = None,
     teaser_topic_id: int | None = None,
+    teaser_text: str | None = None,
 ) -> dict[str, Any]:
     normalized_target = str(target or "").strip().lower()
     if normalized_target not in {"main", "test"}:
@@ -129,11 +130,18 @@ def build_round_trigger_payload(
             # Pointless to teaser the same thread we play in; drop silently.
             teaser_id = None
 
+    teaser_msg = None
+    if teaser_id is not None and teaser_text is not None:
+        cleaned = str(teaser_text).strip()
+        if cleaned:
+            teaser_msg = cleaned
+
     return {
         "chat_id": int(chat_id),
         "pre_roll_s": preroll,
         "thread_id": thread_id,
         "teaser_topic_id": teaser_id,
+        "teaser_text": teaser_msg,
         "theme_label": theme,
         "categories": normalized_categories,
         "question_count": count,
