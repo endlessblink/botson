@@ -30,6 +30,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.levels import get_level, get_progress
+from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, save_and_verify_trivia_questions
 
 RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
 
@@ -1784,10 +1785,12 @@ async def save_trivia_questions(request: Request):
     data = await request.json()
     path = CONFIG_DIR / "trivia.yaml"
 
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump({"questions": data["questions"]}, f, allow_unicode=True, default_flow_style=False)
+    try:
+        verification = save_and_verify_trivia_questions(path, data.get("questions") or [])
+    except TriviaVerificationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    return {"status": "ok"}
+    return {"status": "ok", **verification}
 
 
 @app.post("/api/trivia/reset")
@@ -1804,27 +1807,71 @@ TRIVIA_ROUND_STOP = Path(__file__).parent.parent / "data" / "trivia_round_stop"
 
 
 @app.post("/api/trivia/round/start")
-async def start_trivia_round(request: Request):
-    """Write a trigger file that the bot's trigger_watcher picks up within ~10s."""
+async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
+    """Write a persisted trigger file that the bot's trigger_watcher picks up within ~10s."""
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
     data = await request.json()
+    settings = get_settings() or {}
     target = (data.get("target") or "test").lower()
     pre_roll_s = int(data.get("pre_roll_s", 30))
-    pre_roll_s = max(5, min(3600, pre_roll_s))
+    topic_id = data.get("topic_id")
+    topic_id = int(topic_id) if topic_id not in (None, "") else None
+    topic_verification_source = str(data.get("topic_verification_source") or "").strip()
+    theme_label = str(data.get("theme_label") or "").strip() or "ישראל"
+    raw_categories = data.get("categories") or []
+    if isinstance(raw_categories, str):
+        categories = [part.strip() for part in raw_categories.split(",") if part.strip()]
+    else:
+        categories = [str(part).strip() for part in raw_categories if str(part).strip()]
+    question_count = int(data.get("question_count") or 5)
 
     main_group = int(os.getenv("GROUP_ID", "0"))
     test_group = int(os.getenv("TEST_GROUP_ID", "0"))
-    chat_id = test_group if target == "test" else main_group
-    if not chat_id:
-        raise HTTPException(status_code=400, detail=f"No chat id for target '{target}'")
+    live_topic_ids = None
+    if target == "main":
+        live_topics = await db.get_forum_topics()
+        live_topic_ids = {int(row.get("topic_id")) for row in live_topics if row.get("topic_id") is not None}
 
-    payload = {"chat_id": chat_id, "pre_roll_s": pre_roll_s, "thread_id": None}
+    try:
+        payload = build_round_trigger_payload(
+            target=target,
+            main_group_id=main_group,
+            test_group_id=test_group,
+            pre_roll_s=pre_roll_s,
+            topic_id=topic_id,
+            topic_verification_source=topic_verification_source,
+            theme_label=theme_label,
+            categories=categories,
+            question_count=question_count,
+            live_topic_ids=live_topic_ids,
+        )
+    except TriviaVerificationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if target == "main":
+        configured_general = (settings.get("topics") or {}).get("general")
+        payload["target_provenance"]["configured_general_topic"] = configured_general
+
     TRIVIA_ROUND_TRIGGER.parent.mkdir(parents=True, exist_ok=True)
-    TRIVIA_ROUND_TRIGGER.write_text(json.dumps(payload), encoding="utf-8")
-    logger.info("trivia_round: trigger written target=%s pre_roll=%ss chat=%s", target, pre_roll_s, chat_id)
-    return {"status": "ok", "chat_id": chat_id, "pre_roll_s": pre_roll_s}
+    serialized = json.dumps(payload, ensure_ascii=False)
+    TRIVIA_ROUND_TRIGGER.write_text(serialized, encoding="utf-8")
+    persisted = TRIVIA_ROUND_TRIGGER.read_text(encoding="utf-8")
+    if persisted != serialized:
+        raise HTTPException(status_code=500, detail="Trigger verification failed")
+
+    logger.info(
+        "trivia_round: trigger persisted target=%s chat=%s thread=%s theme=%s categories=%s count=%s provenance=%s",
+        target,
+        payload["chat_id"],
+        payload["thread_id"],
+        payload["theme_label"],
+        payload["categories"],
+        payload["question_count"],
+        payload["target_provenance"],
+    )
+    return {"status": "ok", "persisted_trigger": payload}
 
 
 @app.post("/api/trivia/round/stop")
@@ -2936,17 +2983,27 @@ def _default_pending_reviews():
 
 
 def _ensure_special_pending_reviews(items):
-    wanted = {
-        "id": "trivia-israel-announce-2026-04-22",
-        "title": "🇮🇱 תזכורת — טריוויה ליום העצמאות",
-        "channel": "כללי (General)",
-        "when": "רביעי 14:45",
-        "preview": "🇮🇱 היום ב-15:00 — טריוויה מיוחדת ליום העצמאות\n\n10 שאלות מהירות על ישראל: היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n\nתשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆\n\nהשאלה הראשונה יורדת ב-15:00 בדיוק — תהיו כאן.",
-        "note": "טיוטת הכרזה לפני סיבוב הטריוויה המתוזמן של מחר. אישור כאן ייצור טיוטת planner שאפשר לשלוח ממנו.",
-    }
-    if any(item.get("id") == wanted["id"] for item in items):
-        return items
-    return items + [wanted]
+    wanted_items = [
+        {
+            "id": "trivia-israel-announce-2026-04-22",
+            "title": "🇮🇱 תזכורת — טריוויה ליום העצמאות",
+            "channel": "כללי (General)",
+            "when": "רביעי 14:45",
+            "preview": "🇮🇱 היום ב-15:00 — טריוויה מיוחדת ליום העצמאות\n\n10 שאלות מהירות על ישראל: היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n\nתשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆\n\nהשאלה הראשונה יורדת ב-15:00 בדיוק — תהיו כאן.",
+            "note": "טיוטת הכרזה לפני סיבוב הטריוויה המתוזמן של מחר. אישור כאן ייצור טיוטת planner שאפשר לשלוח ממנו.",
+        },
+        {
+            "id": "trivia-israel-update-2026-04-22-1605",
+            "title": "🇮🇱 עדכון — טריוויה היום ב-16:15",
+            "channel": "ברוכים הבאים! מידע למצטרפים חדשים (341)",
+            "when": "רביעי 16:05",
+            "preview": "🇮🇱 היום ב-16:15 — טריוויה מיוחדת על ישראל\n\n10 שאלות מהירות על ישראל: היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n\nתשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆\n\nהשאלה הראשונה יורדת ב-16:15 בדיוק — תהיו כאן.",
+            "note": "טיוטת עדכון ל-topic 341 לפני סיבוב הטריוויה. אישור כאן ייצור טיוטת planner שאפשר לשלוח ממנו אחרי deploy.",
+        },
+    ]
+    existing_ids = {item.get("id") for item in items}
+    missing = [item for item in wanted_items if item["id"] not in existing_ids]
+    return items + missing
 
 
 def _load_pending_reviews():

@@ -27,10 +27,10 @@
     <div class="flex items-center justify-between mb-3">
         <div>
             <h3 class="text-sm font-medium text-[#fafafa]">סיבוב טריוויה חי</h3>
-            <p class="text-xs text-[#71717a] mt-1">5 שאלות · 30 שניות לכל אחת · 12 נק׳ לתשובה נכונה · +20 בונוס מקום ראשון</p>
+            <p class="text-xs text-[#71717a] mt-1">שיגור עם אימות: יעד, topic, נושא וקטגוריות חייבים להיות מפורשים כדי שאפשר יהיה לסמוך על מה שנשלח.</p>
         </div>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
             <label class="block text-xs text-[#71717a] mb-1">קבוצה</label>
             <select id="round-target" class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
@@ -43,7 +43,33 @@
             <input id="round-preroll" type="number" min="5" max="3600" value="30"
                    class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
         </div>
-        <div class="flex items-end gap-2">
+        <div>
+            <label class="block text-xs text-[#71717a] mb-1">כותרת נושא</label>
+            <input id="round-theme-label" type="text" value="ישראל"
+                   class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+        </div>
+        <div>
+            <label class="block text-xs text-[#71717a] mb-1">קטגוריות (מופרדות בפסיק)</label>
+            <input id="round-categories" type="text" value="ישראל"
+                   class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+        </div>
+        <div>
+            <label class="block text-xs text-[#71717a] mb-1">מספר שאלות</label>
+            <input id="round-question-count" type="number" min="1" max="20" value="5"
+                   class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+        </div>
+        <div>
+            <label class="block text-xs text-[#71717a] mb-1">Topic ID מאומת (נדרש ל-main)</label>
+            <input id="round-topic-id" type="number" min="1" placeholder="למשל 7"
+                   class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+            <p class="text-[11px] text-[#71717a] mt-1">hint: settings.general={{ settings.topics.general if settings.topics and settings.topics.general else 'לא מוגדר' }} — לא נחשב לאימות בפני עצמו.</p>
+        </div>
+        <div class="sm:col-span-2 lg:col-span-2">
+            <label class="block text-xs text-[#71717a] mb-1">בסיס ידני לאימות topic</label>
+            <input id="round-topic-source" type="text" placeholder="למשל: user-confirmed Telegram UI label + dot marker"
+                   class="w-full bg-[#111111] border border-[#1f1f1f] rounded-md text-sm text-[#fafafa] px-3 py-2 focus:outline-none focus:border-[#3f3f3f]">
+        </div>
+        <div class="flex items-end gap-2 sm:col-span-2 lg:col-span-1">
             <button onclick="startTriviaRound()" class="bg-emerald-500 text-[#0a0a0a] hover:bg-emerald-400 h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">התחל סיבוב</button>
             <button onclick="stopTriviaRound()" class="bg-transparent border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] h-9 px-4 rounded-md text-sm cursor-pointer transition-colors">עצור</button>
         </div>
@@ -183,46 +209,90 @@ async function saveTrivia() {
         return;
     }
     var questions = [];
+    var invalidBlocks = [];
     var blocks = text.split(/\n\n+/);
     for (var i = 0; i < blocks.length; i++) {
-        var lines = blocks[i].trim().split('\n');
-        if (lines.length < 4) continue;
-        var questionText = lines[0].replace(/^שאלה:\s*/, '');
-        var optionsLine = lines[1].replace(/^תשובות:\s*/, '');
-        var options = optionsLine.split('|').map(function(o) { return o.trim(); });
-        var correctLine = lines[2].replace(/^נכונה:\s*/, '');
-        var correct = parseInt(correctLine) || 0;
-        var category = lines[3] ? lines[3].replace(/^קטגוריה:\s*/, '').trim() : 'כללי';
-        if (options.length >= 4 && questionText) {
-            questions.push({
-                text: questionText,
-                options: options.slice(0, 4),
-                correct: correct,
-                category: category
-            });
+        var block = blocks[i].trim();
+        if (!block) continue;
+        var lines = block.split('\n');
+        if (lines.length !== 4) {
+            invalidBlocks.push('בלוק ' + (i + 1) + ': חייבות להיות בדיוק 4 שורות');
+            continue;
         }
+        var questionText = lines[0].replace(/^שאלה:\s*/, '').trim();
+        var optionsLine = lines[1].replace(/^תשובות:\s*/, '').trim();
+        var options = optionsLine.split('|').map(function(o) { return o.trim(); }).filter(Boolean);
+        var correctLine = lines[2].replace(/^נכונה:\s*/, '').trim();
+        var correct = Number(correctLine);
+        var category = lines[3] ? lines[3].replace(/^קטגוריה:\s*/, '').trim() : 'כללי';
+        if (!questionText) {
+            invalidBlocks.push('בלוק ' + (i + 1) + ': חסר טקסט שאלה');
+            continue;
+        }
+        if (options.length !== 4) {
+            invalidBlocks.push('בלוק ' + (i + 1) + ': חייבות להיות בדיוק 4 תשובות');
+            continue;
+        }
+        if (!Number.isInteger(correct) || correct < 0 || correct > 3) {
+            invalidBlocks.push('בלוק ' + (i + 1) + ': אינדקס תשובה נכונה חייב להיות 0-3');
+            continue;
+        }
+        questions.push({
+            text: questionText,
+            options: options,
+            correct: correct,
+            category: category || 'כללי'
+        });
+    }
+    if (invalidBlocks.length) {
+        showToast('השמירה בוטלה: ' + invalidBlocks[0] + (invalidBlocks.length > 1 ? ' (ועוד ' + (invalidBlocks.length - 1) + ')' : ''), 'error');
+        return;
     }
     if (questions.length === 0) {
         showToast('לא נמצאו שאלות תקינות', 'error');
         return;
     }
     try {
-        await apiCall('/api/trivia/questions', { questions: questions });
-        showToast(questions.length + ' שאלות נשמרו');
+        var res = await apiCall('/api/trivia/questions', { questions: questions });
+        showToast('נשמר ואומת: ' + res.verified_count + ' שאלות');
         setTimeout(function() { location.reload(); }, 1000);
     } catch (e) {
-        showToast('שגיאה בשמירה', 'error');
+        showToast('שגיאה בשמירה: ' + e.message, 'error');
     }
 }
 
 async function startTriviaRound() {
     var target = document.getElementById('round-target').value;
     var preroll = parseInt(document.getElementById('round-preroll').value) || 30;
+    var themeLabel = document.getElementById('round-theme-label').value.trim();
+    var categories = document.getElementById('round-categories').value
+        .split(',')
+        .map(function(part) { return part.trim(); })
+        .filter(Boolean);
+    var questionCount = parseInt(document.getElementById('round-question-count').value) || 5;
+    var topicIdRaw = document.getElementById('round-topic-id').value.trim();
+    var topicSource = document.getElementById('round-topic-source').value.trim();
+    var body = {
+        target: target,
+        pre_roll_s: preroll,
+        theme_label: themeLabel,
+        categories: categories,
+        question_count: questionCount
+    };
+    if (topicIdRaw) {
+        body.topic_id = parseInt(topicIdRaw, 10);
+    }
+    if (topicSource) {
+        body.topic_verification_source = topicSource;
+    }
     try {
-        await apiCall('/api/trivia/round/start', { target: target, pre_roll_s: preroll });
-        showToast('סיבוב טריוויה יורד! הטריגר נשלח לבוט');
+        var res = await apiCall('/api/trivia/round/start', body);
+        var trigger = res.persisted_trigger || {};
+        var provenance = trigger.target_provenance || {};
+        var where = trigger.thread_id ? ('topic ' + trigger.thread_id) : 'ללא topic';
+        showToast('טריגר נשמר: chat ' + trigger.chat_id + ' · ' + where + ' · ' + (provenance.verification_source || ''));
     } catch (e) {
-        showToast('שגיאה בהתחלת הסיבוב', 'error');
+        showToast('שגיאה בהתחלת הסיבוב: ' + e.message, 'error');
     }
 }
 
