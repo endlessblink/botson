@@ -74,7 +74,7 @@
 </div>
 
 <!-- List Panels -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
     <!-- Leaderboard Panel -->
     <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg animate-fade-in-up stagger-5">
@@ -89,6 +89,26 @@
                 <span class="text-sm text-[#fafafa] truncate">{{ m.display_name }}</span>
             </div>
             <span class="text-sm text-[#a1a1aa] stat-number shrink-0 mr-2">{{ m.karma_points }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="px-4 py-8 text-center text-sm text-[#71717a]">אין נתונים עדיין</div>
+        {% endif %}
+    </div>
+
+    <!-- Trivia Leaderboard Panel -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg animate-fade-in-up stagger-5">
+        <div class="px-4 py-3 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">טבלת טריוויה</h2>
+        </div>
+        {% if trivia_leaders %}
+        {% for t in trivia_leaders %}
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#1f1f1f] last:border-0 hover:bg-[#111111]">
+            <div class="flex items-center gap-3 min-w-0">
+                <span class="text-xs text-[#71717a] w-6 shrink-0">{{ loop.index }}</span>
+                <span class="text-sm text-[#fafafa] truncate">{{ t.display_name }}</span>
+            </div>
+            <span class="text-sm text-[#a1a1aa] stat-number shrink-0 mr-2">{{ t.total_score }}</span>
         </div>
         {% endfor %}
         {% else %}

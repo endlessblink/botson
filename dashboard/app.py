@@ -1821,27 +1821,9 @@ async def remove_blocked_user(user_id: int, request: Request, db: Database = Dep
 
 
 # ── Trivia API ───────────────────────────────────────────
-
-@app.get("/trivia", response_class=HTMLResponse)
-async def trivia_page(request: Request, db: Database = Depends(get_db)):
-    if not request.session.get("authenticated"):
-        return RedirectResponse(url="/login", status_code=303)
-
-    leaders = await db.get_trivia_leaderboard(50)
-    questions = []
-    try:
-        data = load_yaml("trivia.yaml")
-        questions = data.get("questions", [])
-    except Exception:
-        pass
-    settings = get_settings()
-
-    return templates.TemplateResponse(request, name="trivia.html", context={
-        "leaders": leaders,
-        "questions": questions,
-        "settings": settings,
-    })
-
+# The /trivia standalone page was removed on 2026-04-22. All trivia UI now
+# lives in the planner drawer's "🧠 טריוויה" type. Leaderboard is on סקירה כללית.
+# /api/trivia/* endpoints below are still called by the planner drawer.
 
 @app.get("/puzzles", response_class=HTMLResponse)
 async def puzzles_page(request: Request, db: Database = Depends(get_db)):
@@ -2030,6 +2012,8 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
     pre_roll_s = int(data.get("pre_roll_s", 30))
     topic_id = data.get("topic_id")
     topic_id = int(topic_id) if topic_id not in (None, "") else None
+    teaser_topic_id = data.get("teaser_topic_id")
+    teaser_topic_id = int(teaser_topic_id) if teaser_topic_id not in (None, "", 0, "0") else None
     topic_verification_source = str(data.get("topic_verification_source") or "").strip()
     theme_label = str(data.get("theme_label") or "").strip() or "ישראל"
     raw_categories = data.get("categories") or []
@@ -2058,6 +2042,7 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
             categories=categories,
             question_count=question_count,
             live_topic_ids=verified_topic_ids,
+            teaser_topic_id=teaser_topic_id,
         )
     except TriviaVerificationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -3874,6 +3859,10 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "other": [t for t in forum_topics if t["topic_id"] not in mapped_ids],
     }
 
+    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
+    trivia_routing = await db.get_handler_routing("trivia_round") if hasattr(db, 'get_handler_routing') else None
+    trivia_default_play = trivia_routing.get("play_topic_id") if trivia_routing else None
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "now_date": now.strftime("%Y-%m-%d"),
         "forum_topics": forum_topics,
@@ -3883,6 +3872,8 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "holiday_blackouts": _json.dumps(settings_obj.get("holiday_blackouts", []), ensure_ascii=False),
         "discussion_channels": discussion_channels,
         "grouped_channels": grouped_channels,
+        "verified_topics": verified_topics,
+        "trivia_default_play": trivia_default_play,
     })
 
 

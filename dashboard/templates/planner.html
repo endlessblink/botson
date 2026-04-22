@@ -394,12 +394,16 @@
                     <span class="type-card-emoji">⚡</span>
                     <span class="type-card-label">הודעה חופשית</span>
                 </div>
+                <div class="type-card" data-type="trivia" onclick="selectType('trivia')">
+                    <span class="type-card-emoji">🧠</span>
+                    <span class="type-card-label">טריוויה</span>
+                </div>
             </div>
         </div>
 
         <!-- Step 2: Content Panel -->
         <div id="wizard-step-2" class="wizard-step px-5 py-4 hidden">
-            <div class="space-y-4">
+            <div class="space-y-4" id="non-trivia-fields">
                 <!-- Text area -->
                 <div>
                     <div class="flex items-center justify-between mb-1">
@@ -513,6 +517,102 @@
                         <button type="button" class="day-toggle" data-day="5" onclick="toggleDay(5)">ו</button>
                         <button type="button" class="day-toggle" data-day="6" onclick="toggleDay(6)">ש</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Trivia-specific fields (shown only when type='trivia') -->
+            <div id="trivia-fields" class="hidden space-y-4">
+                <!-- AI questions generator -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs text-[#71717a]">שאלות טריוויה</label>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="generateContent('trivia','append','trivia-questions-textarea')" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">✨ הוסף</button>
+                            <button type="button" onclick="generateContent('trivia','replace','trivia-questions-textarea')" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">✨ ייצר מחדש</button>
+                            <button type="button" onclick="saveTriviaQuestions()" class="text-[11px] text-emerald-400/90 hover:text-emerald-300 transition-colors cursor-pointer">💾 שמור</button>
+                        </div>
+                    </div>
+                    <textarea id="trivia-questions-textarea" dir="rtl" rows="5" placeholder="ייצר או הדבק שאלות (JSON)"
+                        class="w-full bg-[#111318] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-y font-mono"></textarea>
+                    <p class="text-[11px] text-[#71717a] mt-1">AI מייצר שאלות. "שמור" כותב ל-trivia.yaml — מה שיוצג במשחק.</p>
+                </div>
+
+                <!-- Play topic -->
+                <div>
+                    <label class="text-xs text-[#71717a] mb-1 block">ערוץ משחק</label>
+                    <select id="trivia-play-topic"
+                        class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                        {% for vt in verified_topics %}
+                        <option value="{{ vt.topic_id }}"
+                                {% if trivia_default_play == vt.topic_id %}selected{% endif %}>
+                            {{ vt.verified_name }} ({{ vt.category_key }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[11px] text-[#71717a] mt-1">בחר topic מאומת. ברירת מחדל: ניתוב trivia_round.</p>
+                </div>
+
+                <!-- Teaser topic -->
+                <div>
+                    <label class="text-xs text-[#71717a] mb-1 block">טיזר (אופציונלי)</label>
+                    <select id="trivia-teaser-topic"
+                        class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                        <option value="">(ללא טיזר)</option>
+                        {% for vt in verified_topics %}
+                        <option value="{{ vt.topic_id }}">{{ vt.verified_name }} ({{ vt.category_key }})</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[11px] text-[#71717a] mt-1">הודעת "עוד רגע מתחיל" לערוץ תואם-נושא. המשחק עצמו בערוץ למעלה.</p>
+                </div>
+
+                <!-- Theme + categories -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">כותרת נושא</label>
+                        <input id="trivia-theme" type="text" value="ישראל"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">קטגוריות (פסיק)</label>
+                        <input id="trivia-categories" type="text" value="ישראל"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                </div>
+
+                <!-- Count + pre-roll -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">מספר שאלות</label>
+                        <input id="trivia-count" type="number" min="1" max="20" value="5"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                    <div>
+                        <label class="text-xs text-[#71717a] mb-1 block">השהייה (שניות)</label>
+                        <input id="trivia-preroll" type="number" min="5" max="3600" value="30"
+                            class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                    </div>
+                </div>
+
+                <!-- Target group -->
+                <div>
+                    <label class="text-xs text-[#71717a] mb-1 block">קבוצה</label>
+                    <select id="trivia-target"
+                        class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                        <option value="main">ראשית</option>
+                        <option value="test" selected>Sherlocks Den (בדיקה)</option>
+                    </select>
+                </div>
+
+                <!-- Launch button -->
+                <div class="pt-2 border-t border-[#1f1f1f] flex items-center justify-end gap-2">
+                    <button type="button" onclick="stopTriviaRound()"
+                        class="text-sm border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] h-9 px-3 rounded-md cursor-pointer transition-colors">
+                        עצור סיבוב פעיל
+                    </button>
+                    <button type="button" onclick="startTriviaRound()"
+                        class="text-sm bg-emerald-500 text-[#0a0a0a] hover:bg-emerald-400 h-9 px-4 rounded-md font-medium cursor-pointer transition-colors">
+                        התחל סיבוב
+                    </button>
                 </div>
             </div>
         </div>
@@ -689,8 +789,10 @@ function wizardGo(step) {
     else btnBack.classList.remove('hidden');
 
     // Next button visibility (not on step 1 since cards auto-advance, not on step 4)
+    // Also hidden for trivia — that flow self-contains in step 2 with its own launch button.
     var btnNext = document.getElementById('btn-next');
-    if (step >= 1 && step < 4) btnNext.classList.remove('hidden');
+    var isTrivia = (wizardState.type === 'trivia');
+    if (step >= 1 && step < 4 && !isTrivia) btnNext.classList.remove('hidden');
     else btnNext.classList.add('hidden');
 
     // Step 3: render preview
@@ -734,7 +836,12 @@ function selectType(type) {
     var textarea = document.getElementById('create-text');
     if (textarea) textarea.placeholder = TYPE_PLACEHOLDERS[type] || TYPE_PLACEHOLDERS.custom;
 
-    // Show/hide conditional fields
+    // Trivia gets its own panel; hide everything else when trivia is selected
+    var isTrivia = (type === 'trivia');
+    document.getElementById('non-trivia-fields').classList.toggle('hidden', isTrivia);
+    document.getElementById('trivia-fields').classList.toggle('hidden', !isTrivia);
+
+    // Show/hide conditional fields (no-ops when trivia is selected)
     document.getElementById('poll-fields').classList.toggle('hidden', type !== 'poll');
     document.getElementById('event-fields').classList.toggle('hidden', type !== 'event');
     document.getElementById('days-fields').classList.toggle('hidden', type !== 'morning' && type !== 'digest');
@@ -747,6 +854,71 @@ function selectType(type) {
 
     // Auto-advance after brief delay
     setTimeout(function() { wizardGo(2); }, 150);
+}
+
+// ─── Trivia ───
+async function saveTriviaQuestions() {
+    var raw = (document.getElementById('trivia-questions-textarea').value || '').trim();
+    if (!raw) { showToast('אין שאלות לשמור', 'error'); return; }
+    var questions;
+    try {
+        var parsed = JSON.parse(raw);
+        questions = Array.isArray(parsed) ? parsed : (parsed.questions || []);
+    } catch (e) {
+        showToast('JSON לא תקין: ' + e.message, 'error');
+        return;
+    }
+    try {
+        var res = await apiCall('/api/trivia/questions', { questions: questions });
+        showToast('נשמרו ' + (res.verified_count || questions.length) + ' שאלות');
+    } catch (e) {
+        showToast('שגיאה בשמירה: ' + e.message, 'error');
+    }
+}
+
+async function startTriviaRound() {
+    var target = document.getElementById('trivia-target').value;
+    var playTopic = document.getElementById('trivia-play-topic').value;
+    var teaserTopic = document.getElementById('trivia-teaser-topic').value;
+    var theme = document.getElementById('trivia-theme').value.trim();
+    var catsRaw = document.getElementById('trivia-categories').value;
+    var categories = catsRaw.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    var count = parseInt(document.getElementById('trivia-count').value) || 5;
+    var preroll = parseInt(document.getElementById('trivia-preroll').value) || 30;
+
+    var body = {
+        target: target,
+        pre_roll_s: preroll,
+        theme_label: theme,
+        categories: categories,
+        question_count: count
+    };
+    if (playTopic) {
+        body.topic_id = parseInt(playTopic, 10);
+        body.topic_verification_source = 'dashboard-selected verified topic ' + playTopic;
+    }
+    if (teaserTopic) {
+        body.teaser_topic_id = parseInt(teaserTopic, 10);
+    }
+    try {
+        var res = await apiCall('/api/trivia/round/start', body);
+        var trigger = res.persisted_trigger || {};
+        var where = trigger.thread_id ? ('topic ' + trigger.thread_id) : 'ללא topic';
+        var teaser = trigger.teaser_topic_id ? (' · teaser ' + trigger.teaser_topic_id) : '';
+        showToast('סיבוב מוכן: chat ' + trigger.chat_id + ' · ' + where + teaser);
+        closeDrawer();
+    } catch (e) {
+        showToast('שגיאה בהתחלת הסיבוב: ' + e.message, 'error');
+    }
+}
+
+async function stopTriviaRound() {
+    try {
+        await apiCall('/api/trivia/round/stop', {});
+        showToast('נשלחה בקשה לעצור');
+    } catch (e) {
+        showToast('שגיאה בעצירה: ' + e.message, 'error');
+    }
 }
 
 // ─── Channel Selection ───
