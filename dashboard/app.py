@@ -447,13 +447,7 @@ async def delete_verified_topic(category_key: str, request: Request, db: Databas
 async def add_forum_topic(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    data = await request.json()
-    topic_id = data.get("topic_id")
-    name = data.get("name", "").strip()
-    if not topic_id or not name:
-        raise HTTPException(status_code=400, detail="topic_id and name required")
-    await db.upsert_forum_topic(int(topic_id), name)
-    return {"status": "ok"}
+    raise HTTPException(status_code=400, detail="Observed forum topic names are no longer manually writable; use /api/topics/verified for trusted mappings")
 
 
 # ── Bot Control API ──────────────────────────────────────
