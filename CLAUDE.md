@@ -111,26 +111,34 @@ After any file change on VPS (manual edit, deploy, etc.), always: `chown -R bots
 
 ### Forum Topic IDs (main group)
 
-Source of truth is the live `forum_topics` table in `data/bot.db`. Topics not listed here haven't been seen by the bot yet.
+**Source of truth is the `verified_forum_topics` table in `data/bot.db`**, populated by the dashboard's dot-test workflow (Settings page → "send dot"). The `forum_topics.name` column is NOT trustworthy — it can be stale, overwritten, or polluted by user message text.
 
-| Topic ID | Channel Name | Category Key |
+#### Dot-verified (safe to use)
+
+| Topic ID | Channel Name | Category Key | Verified |
+|----------|-------------|-------------|----------|
+| 7 | אל הוריים טבעונים וצמחונים | vegan | 2026-04-22 via dot |
+| 54 | סרטים סדרות וכו | movies | 2026-04-22 via dot |
+| 153 | מצחיק / מגניב | funny | 2026-04-22 via dot |
+| 341 | מצטרפים חדשים + עדכונים | welcome | 2026-04-22 via dot |
+
+#### Unverified — needs dot test before use
+
+These IDs appear in `forum_topics` or earlier notes but have NOT been dot-verified. The claimed name is what was previously recorded; it may be wrong (topic 153 was claimed `ai`, dot revealed it is `funny`). Do not use for sends until confirmed via the Settings page dot workflow.
+
+| Topic ID | Claimed Name | Claimed Key |
 |----------|-------------|-------------|
 | 2184 | יום יום | goals |
 | 1517 | גיימינג + משחקי לוח | gaming |
 | 442 | אנימה / קומיקס וכל הדברים הגיקיים | geek |
-| 54 | סרטים סדרות וכו | movies |
 | 59 | אל הוריים/יות מכירים | singles |
 | 335 | כל מה שחמוד 🐕🦝🐨 | cute |
 | 347 | ערוץ אומנות ויצירה 🎨📷 | art |
 | 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics |
-| 153 | Ai וטכנולוגיה | ai |
 | 3113 | AI & Tech | ai_en |
-| 341 | ברוכים הבאים! מידע למצטרפים חדשים | welcome |
-| 7 | UNVERIFIED / DO NOT USE | untrusted |
+| ? | Ai וטכנולוגיה (Hebrew) | ai |
 
-Critical note: topic `7` must NOT be treated as `כל מה שאין לו ערוץ` or as the general thread. That earlier mapping was wrong. The local `forum_topics` table is not a trustworthy source of Telegram UI truth because it can be stale, overwritten, or polluted by message text. Do not use topic `7` for sends, schedules, or launches unless the user explicitly reconfirms it in the current session.
-| ? | טבעונים וצמחוניים | vegan |
-| ? | מצחיק / מגניב | funny |
+Historical note: topic `7` was wrongly treated as the `general` / `כל מה שאין לו ערוץ` thread in earlier sessions — a dot test on 2026-04-22 revealed it is actually the vegan thread. The `general` / `כל מה שאין לו ערוץ` topic currently has NO known verified ID. Every automatic handler (trivia, roundup, levels, events, event reminders) looks up `get_verified_topic_id("general")` and safely skips when none exists — do not plug a guessed ID into `settings.topics.general` to "fix" this; it will bypass the safety. See `docs/2026-04-22-trivia-topic-incident.md`.
 
 ### Level System
 

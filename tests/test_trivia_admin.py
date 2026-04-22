@@ -91,7 +91,7 @@ class BuildRoundTriggerPayloadTests(unittest.TestCase):
             test_group_id=-1002,
             pre_roll_s=45,
             topic_id=7,
-            topic_verification_source="user-confirmed Telegram UI label כל מה שאין לו ערוץ",
+            topic_verification_source="user-confirmed after bot sent a dot into thread 7 (vegan)",
             theme_label="ישראל",
             categories=["ישראל"],
             question_count=6,
