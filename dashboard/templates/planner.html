@@ -527,15 +527,15 @@
                     <div class="flex items-center justify-between mb-1">
                         <label class="text-xs text-[#71717a]">שאלות טריוויה</label>
                         <div class="flex items-center gap-2">
-                            <button type="button" onclick="generateContent('trivia','append','trivia-questions-textarea')" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">✨ הוסף</button>
-                            <button type="button" onclick="generateContent('trivia','replace','trivia-questions-textarea')" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">✨ ייצר מחדש</button>
+                            <button type="button" onclick="generateTriviaQuestions('append', event)" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">✨ הוסף</button>
+                            <button type="button" onclick="generateTriviaQuestions('replace', event)" class="text-[11px] text-amber-400/90 hover:text-amber-300 transition-colors cursor-pointer">✨ ייצר מחדש</button>
                             <button type="button" onclick="saveTriviaQuestions()" class="text-[11px] text-emerald-400/90 hover:text-emerald-300 transition-colors cursor-pointer">💾 שמור</button>
                         </div>
                     </div>
-                    <textarea id="trivia-questions-textarea" dir="rtl" rows="5" placeholder="ייצר שאלות או הדבק ב-JSON / פורמט טקסט (שאלה:/תשובות:/נכונה:/קטגוריה:)"
+                    <textarea id="trivia-questions-textarea" dir="rtl" rows="8" placeholder="ייצר שאלות או הדבק ב-JSON / פורמט טקסט (שאלה:/תשובות:/נכונה:/קטגוריה:)"
                         oninput="triviaQuestionsDirty = true"
-                        class="w-full bg-[#111318] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-y font-mono"></textarea>
-                    <p class="text-[11px] text-[#71717a] mt-1">AI מייצר שאלות. <strong>חייב ללחוץ "💾 שמור"</strong> לפני הסיבוב — אחרת הסיבוב ישתמש בשאלות הישנות מ-trivia.yaml.</p>
+                        class="w-full bg-[#111318] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#d4d4d8] focus:outline-none focus:border-[#52525b] resize-y font-mono">{{ trivia_current_questions_text }}</textarea>
+                    <p class="text-[11px] text-[#71717a] mt-1">השאלות כאן הן מה שיוצג במשחק (trivia.yaml). ייצר/ערוך ולחץ <strong>💾 שמור</strong> — אחרת השינויים יאבדו. <br>AI ישתמש בערכים של <strong>כותרת נושא</strong> + <strong>קטגוריות</strong> למטה כדי לכוון את השאלות.</p>
                 </div>
 
                 <!-- Play topic -->
@@ -853,6 +853,10 @@ function selectType(type) {
     var isTrivia = (type === 'trivia');
     document.getElementById('non-trivia-fields').classList.toggle('hidden', isTrivia);
     document.getElementById('trivia-fields').classList.toggle('hidden', !isTrivia);
+    if (isTrivia) {
+        loadTriviaPrefs();
+        refreshTeaserPreview();
+    }
 
     // Show/hide conditional fields (no-ops when trivia is selected)
     document.getElementById('poll-fields').classList.toggle('hidden', type !== 'poll');
@@ -937,32 +941,127 @@ async function saveTriviaQuestions() {
 // pre-launch guard so we don't silently run an old trivia.yaml.
 var triviaQuestionsDirty = false;
 
-function _buildDefaultTeaser(theme, count, playLabel) {
+function _stripCatSuffix(label) {
+    return (label || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
+function _buildDefaultTeaser(theme, count, playLabel, teaserLabel) {
     var gameChannel = playLabel || 'הפינה של בוטסון';
-    return '🧠 עוד רגע מתחיל סיבוב טריוויה (' + (theme || 'כללי') + ') ב' + gameChannel + ' — ' + count + ' שאלות. בואו לשחק!';
+    var audiencePrefix = teaserLabel ? ('🧠 לחברי ' + teaserLabel + ' — ') : '🧠 ';
+    return audiencePrefix + 'עוד רגע מתחיל סיבוב טריוויה (' + (theme || 'כללי') + ') ב' + gameChannel + '. ' + count + ' שאלות, בואו לשחק!';
 }
 
 function refreshTeaserPreview() {
     var teaserBox = document.getElementById('trivia-teaser-text');
     var teaserWrap = document.getElementById('trivia-teaser-preview-wrap');
     if (!teaserBox || !teaserWrap) return;
-    var teaserTopic = document.getElementById('trivia-teaser-topic').value;
+    var teaserSel = document.getElementById('trivia-teaser-topic');
+    var teaserTopic = teaserSel.value;
     if (!teaserTopic) {
         teaserWrap.classList.add('hidden');
         return;
     }
     teaserWrap.classList.remove('hidden');
-    // Only fill with the default if the user hasn't customized it.
-    if (!teaserBox.dataset.userEdited) {
-        var theme = document.getElementById('trivia-theme').value.trim();
-        var count = parseInt(document.getElementById('trivia-count').value) || 5;
-        var playSel = document.getElementById('trivia-play-topic');
-        var playLabel = (playSel.options[playSel.selectedIndex] || {}).text || '';
-        // Strip the "(category_key)" suffix for display.
-        playLabel = playLabel.replace(/\s*\([^)]*\)\s*$/, '').trim();
-        teaserBox.value = _buildDefaultTeaser(theme, count, playLabel);
+    if (teaserBox.dataset.userEdited) return;  // respect manual edit
+    var theme = document.getElementById('trivia-theme').value.trim();
+    var count = parseInt(document.getElementById('trivia-count').value) || 5;
+    var playSel = document.getElementById('trivia-play-topic');
+    var playLabel = _stripCatSuffix((playSel.options[playSel.selectedIndex] || {}).text);
+    var teaserLabel = _stripCatSuffix((teaserSel.options[teaserSel.selectedIndex] || {}).text);
+    teaserBox.value = _buildDefaultTeaser(theme, count, playLabel, teaserLabel);
+}
+
+// Trivia-aware AI generator — passes theme + categories from the form so
+// the prompt actually steers subject matter (fix for "the category doesn't
+// affect the generated questions").
+async function generateTriviaQuestions(mode, evt) {
+    var textarea = document.getElementById('trivia-questions-textarea');
+    if (!textarea) return;
+    var theme = document.getElementById('trivia-theme').value.trim();
+    var categoriesRaw = document.getElementById('trivia-categories').value.trim();
+    var btn = evt && evt.target ? evt.target.closest('button') : null;
+    var orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '…מייצר'; }
+    try {
+        var res = await apiCall('/api/generate', {
+            field: 'trivia',
+            mode: mode,
+            existing: mode === 'append' ? textarea.value : '',
+            category: categoriesRaw,
+            instructions: theme,
+        });
+        if (mode === 'append' && textarea.value.trim()) {
+            textarea.value = textarea.value.trimEnd() + '\n\n' + res.content;
+        } else {
+            textarea.value = res.content;
+        }
+        triviaQuestionsDirty = true;
+        showToast('שאלות נוצרו — זכור ללחוץ 💾 שמור');
+    } catch (e) {
+        showToast('שגיאה בייצור: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     }
 }
+
+// Form-field persistence — remember the last values the user set.
+var TRIVIA_PREFS_KEY = 'trivia-drawer-prefs-v1';
+function loadTriviaPrefs() {
+    try {
+        var raw = localStorage.getItem(TRIVIA_PREFS_KEY);
+        if (!raw) return;
+        var p = JSON.parse(raw);
+        var setVal = function(id, v) {
+            var el = document.getElementById(id);
+            if (el && v !== undefined && v !== null && v !== '') el.value = v;
+        };
+        setVal('trivia-target', p.target);
+        setVal('trivia-theme', p.theme);
+        setVal('trivia-categories', p.categories);
+        setVal('trivia-count', p.count);
+        setVal('trivia-preroll', p.preroll);
+        // play/teaser topics — only restore if the option still exists
+        ['trivia-play-topic','trivia-teaser-topic'].forEach(function(id) {
+            var el = document.getElementById(id);
+            var want = p[id];
+            if (!el || !want) return;
+            for (var i = 0; i < el.options.length; i++) {
+                if (el.options[i].value === String(want)) { el.value = want; break; }
+            }
+        });
+    } catch (_) { /* ignore corrupted prefs */ }
+}
+function saveTriviaPrefs() {
+    try {
+        var pick = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
+        localStorage.setItem(TRIVIA_PREFS_KEY, JSON.stringify({
+            target: pick('trivia-target'),
+            theme: pick('trivia-theme'),
+            categories: pick('trivia-categories'),
+            count: pick('trivia-count'),
+            preroll: pick('trivia-preroll'),
+            'trivia-play-topic': pick('trivia-play-topic'),
+            'trivia-teaser-topic': pick('trivia-teaser-topic'),
+        }));
+    } catch (_) {}
+}
+// Wire change listeners once DOM is ready (template is always rendered).
+document.addEventListener('DOMContentLoaded', function() {
+    ['trivia-target','trivia-theme','trivia-categories','trivia-count','trivia-preroll','trivia-play-topic','trivia-teaser-topic']
+        .forEach(function(id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', saveTriviaPrefs);
+            if (el.tagName === 'INPUT') el.addEventListener('input', saveTriviaPrefs);
+        });
+    // Also refresh the teaser preview when theme/count change.
+    ['trivia-theme','trivia-count','trivia-play-topic'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', refreshTeaserPreview);
+        if (el.tagName === 'INPUT') el.addEventListener('input', refreshTeaserPreview);
+    });
+});
 
 async function startTriviaRound() {
     // Guard: unsaved AI-generated questions would be ignored by the round.

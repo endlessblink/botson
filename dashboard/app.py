@@ -2151,6 +2151,17 @@ def build_generation_prompt(field: str, mode: str, existing: str, category: str,
 פלט: רק את השאלות, שורה אחת לכל שאלה, בלי מספור ובלי הסברים."""
 
     elif field == "trivia":
+        # For trivia, `category` is the comma-separated user hint (e.g. "ישראל"
+        # or "סרטים,טלוויזיה") and `instructions` is the theme_label. Both
+        # steer subject matter and the required `קטגוריה:` tag on each block.
+        theme_hint = (instructions or "").strip()
+        cat_hint = (category or "").strip()
+        if cat_hint:
+            topic_line = f"נושא מרכזי: {theme_hint or cat_hint}. הקפד שכל השאלות יהיו בתחום זה ובקטגוריות הבאות בלבד: {cat_hint}. תייג כל שאלה עם קטגוריה מתאימה מהרשימה."
+        elif theme_hint:
+            topic_line = f"נושא מרכזי: {theme_hint}. כל השאלות צריכות להיות קשורות לנושא הזה."
+        else:
+            topic_line = "נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל."
         base = f"""צור {count} שאלות טריוויה בעברית עבור {COMMUNITY_CONTEXT}
 
 כל שאלה צריכה להיות בפורמט הבא (4 שורות לכל שאלה, מופרדות בשורה ריקה):
@@ -2159,7 +2170,7 @@ def build_generation_prompt(field: str, mode: str, existing: str, category: str,
 נכונה: [מספר התשובה הנכונה 0-3]
 קטגוריה: [קטגוריה]
 
-נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל.
+{topic_line}
 פלט: רק את השאלות בפורמט שצוין, בלי הסברים נוספים."""
 
     else:
@@ -3887,6 +3898,30 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     trivia_routing = await db.get_handler_routing("trivia_round") if hasattr(db, 'get_handler_routing') else None
     trivia_default_play = trivia_routing.get("play_topic_id") if trivia_routing else None
 
+    # Load current trivia.yaml and render as the text-block format the AI
+    # generator produces, so the questions textarea shows what the round
+    # will actually use. Empty string if yaml is missing or malformed.
+    trivia_current_questions_text = ""
+    try:
+        tdata = load_yaml("trivia.yaml") or {}
+        blocks = []
+        for q in (tdata.get("questions") or []):
+            txt = str(q.get("text") or "").strip()
+            opts = q.get("options") or []
+            correct = q.get("correct")
+            cat = str(q.get("category") or "כללי").strip()
+            if not txt or len(opts) != 4 or not isinstance(correct, int):
+                continue
+            blocks.append(
+                "שאלה: " + txt + "\n" +
+                "תשובות: " + " | ".join(str(o).strip() for o in opts) + "\n" +
+                "נכונה: " + str(int(correct)) + "\n" +
+                "קטגוריה: " + cat
+            )
+        trivia_current_questions_text = "\n\n".join(blocks)
+    except Exception:
+        pass
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "now_date": now.strftime("%Y-%m-%d"),
         "forum_topics": forum_topics,
@@ -3898,6 +3933,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "grouped_channels": grouped_channels,
         "verified_topics": verified_topics,
         "trivia_default_play": trivia_default_play,
+        "trivia_current_questions_text": trivia_current_questions_text,
     })
 
 
