@@ -9,19 +9,40 @@
     <p class="text-sm text-[#a1a1aa] mt-1">הגדרות תשתית הבוט</p>
 </div>
 
-<!-- Topic IDs -->
+<!-- Holiday Blackouts -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
     <div class="px-6 py-4 border-b border-[#1f1f1f]">
-        <h2 class="text-sm font-medium text-[#fafafa]">מזהי ערוצים (Topic IDs)</h2>
-        <p class="text-xs text-[#71717a] mt-1">הזינו את מזהי הערוצים מטלגרם</p>
+        <h2 class="text-sm font-medium text-[#fafafa]">ימי זיכרון / חסימות אוטומטיות</h2>
+        <p class="text-xs text-[#71717a] mt-1">הבוט לא ישלח תוכן אוטומטי בתאריכים האלה. אפשר עדיין לפרסם תוכן ידני או אירועים ידניים.</p>
     </div>
-    <div class="px-6 py-4">
+    <div class="px-6 py-4 space-y-3" id="holiday-blackout-list">
+        {% for item in settings.holiday_blackouts or [] %}
+        <div class="holiday-row grid grid-cols-1 md:grid-cols-[160px_180px_1fr_auto] gap-3 items-start p-3 bg-[#111111] border border-[#1f1f1f] rounded-lg">
+            <input type="date" value="{{ item.date }}" class="holiday-date bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            <input type="text" value="{{ item.name or '' }}" placeholder="שם היום" class="holiday-name bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            <input type="text" value="{{ item.note or '' }}" placeholder="הצעה לתוכן ידני / הערה לאדמין" class="holiday-note bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+            <button onclick="removeHolidayRow(this)" class="h-9 px-3 rounded-md text-xs border border-rose-500/20 text-rose-300 hover:bg-rose-500/10 transition-colors">הסר</button>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="px-6 py-4 border-t border-[#1f1f1f] flex items-center gap-3 flex-wrap">
+        <button onclick="addHolidayRow()" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">
+            הוסף תאריך חסום
+        </button>
+        <button onclick="saveHolidayBlackouts()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
+            שמור ימי זיכרון
+        </button>
+    </div>
+</div>
+
+<!-- Verified Topics -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
+    <div class="px-6 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">Verified topic registry</h2>
+        <p class="text-xs text-[#71717a] mt-1">Only verified mappings are trusted for sends and launches. Observed topic names are hints only.</p>
+    </div>
+    <div class="px-6 py-4 space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label for="topic-general" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">כללי (General)</label>
-                <input type="number" id="topic-general" value="{{ settings.topics.general or '' }}" placeholder="Topic ID"
-                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
-            </div>
             <div>
                 <label for="topic-welcome" class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">ברוכים הבאים (Welcome)</label>
                 <input type="number" id="topic-welcome" value="{{ settings.topics.welcome or '' }}" placeholder="Topic ID"
@@ -33,10 +54,57 @@
                     class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
             </div>
         </div>
+
+        <div class="border border-[#1f1f1f] rounded-lg p-4 bg-[#111111]">
+            <h3 class="text-sm text-[#fafafa] font-medium mb-3">Add / update verified topic</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <input type="number" id="verified-topic-id" placeholder="Topic ID"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                <input type="text" id="verified-topic-name" placeholder="Verified label"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                <input type="text" id="verified-topic-category" placeholder="Category key (e.g. welcome, vegan)"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                <input type="text" id="verified-topic-source" placeholder="Verification source"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full md:col-span-2 lg:col-span-1">
+            </div>
+            <div class="mt-3 flex items-center gap-3 flex-wrap">
+                <button onclick="saveVerifiedTopic()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">שמור topic מאומת</button>
+                <span class="text-xs text-[#71717a]">Tip: your Telegram dot marker is still useful as a human visual marker, but the trusted mapping is only created when you save it here.</span>
+            </div>
+        </div>
+
+        <div>
+            <h3 class="text-sm text-[#fafafa] font-medium mb-2">Observed + verified topics</h3>
+            <div class="space-y-2 max-h-[360px] overflow-auto">
+                {% for row in merged_topics %}
+                <div class="border border-[#1f1f1f] rounded-lg p-3 bg-[#111111]">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="text-sm text-[#fafafa]">ID {{ row.topic_id }}</div>
+                            <div class="text-xs text-[#71717a] mt-1">observed: {{ row.observed_name or '—' }}</div>
+                            <div class="text-xs text-[#71717a]">verified: {{ row.verified_name or '—' }}{% if row.category_key %} · {{ row.category_key }}{% endif %}</div>
+                            <div class="text-[11px] text-[#52525b]">source: {{ row.verification_source or 'unverified' }}</div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            {% if row.is_verified %}
+                            <span class="text-[11px] px-2 py-1 rounded bg-emerald-500/10 text-emerald-400">verified</span>
+                            <button onclick="fillVerifiedTopic({{ row.topic_id }}, '{{ (row.verified_name or '')|replace("'", "\\'") }}', '{{ (row.category_key or '')|replace("'", "\\'") }}', '{{ (row.verification_source or '')|replace("'", "\\'") }}')" class="h-8 px-3 rounded-md text-xs border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] transition-colors">edit</button>
+                            <button onclick="deleteVerifiedTopic('{{ row.category_key }}')" class="h-8 px-3 rounded-md text-xs border border-rose-500/20 text-rose-300 hover:bg-rose-500/10 transition-colors">remove</button>
+                            {% else %}
+                            <span class="text-[11px] px-2 py-1 rounded bg-amber-500/10 text-amber-300">unverified</span>
+                            <button onclick="sendTopicDot({{ row.topic_id }})" class="h-8 px-3 rounded-md text-xs border border-sky-500/20 text-sky-300 hover:bg-sky-500/10 transition-colors">send dot</button>
+                            <button onclick="fillVerifiedTopic({{ row.topic_id }}, '{{ (row.observed_name or '')|replace("'", "\\'") }}', '', '')" class="h-8 px-3 rounded-md text-xs border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] transition-colors">use here</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
     </div>
     <div class="px-6 py-4 border-t border-[#1f1f1f]">
         <button onclick="saveTopics()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">
-            שמור ערוצים
+            שמור topic IDs בטוחים
         </button>
     </div>
 </div>
@@ -165,16 +233,93 @@
 
 {% block scripts %}
 <script>
+function addHolidayRow(item = { date: '', name: '', note: '' }) {
+    const row = document.createElement('div');
+    row.className = 'holiday-row grid grid-cols-1 md:grid-cols-[160px_180px_1fr_auto] gap-3 items-start p-3 bg-[#111111] border border-[#1f1f1f] rounded-lg';
+    row.innerHTML = `
+        <input type="date" value="${item.date || ''}" class="holiday-date bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+        <input type="text" value="${item.name || ''}" placeholder="שם היום" class="holiday-name bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+        <input type="text" value="${item.note || ''}" placeholder="הצעה לתוכן ידני / הערה לאדמין" class="holiday-note bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+        <button onclick="removeHolidayRow(this)" class="h-9 px-3 rounded-md text-xs border border-rose-500/20 text-rose-300 hover:bg-rose-500/10 transition-colors">הסר</button>
+    `;
+    document.getElementById('holiday-blackout-list').appendChild(row);
+}
+
+function removeHolidayRow(button) {
+    button.closest('.holiday-row')?.remove();
+}
+
+async function saveHolidayBlackouts() {
+    const items = Array.from(document.querySelectorAll('.holiday-row')).map((row) => ({
+        date: row.querySelector('.holiday-date')?.value || '',
+        name: row.querySelector('.holiday-name')?.value?.trim() || '',
+        note: row.querySelector('.holiday-note')?.value?.trim() || '',
+        block_auto: true,
+    })).filter((item) => item.date);
+
+    try {
+        await apiCall('/api/settings/holiday-blackouts', { items });
+        showToast('ימי הזיכרון נשמרו');
+    } catch (e) {
+        showToast('שגיאה בשמירה', 'error');
+    }
+}
+
 async function saveTopics() {
     try {
         await apiCall('/api/settings/topics', {
-            general: parseInt(document.getElementById('topic-general').value) || null,
             welcome: parseInt(document.getElementById('topic-welcome').value) || null,
             goals: parseInt(document.getElementById('topic-goals').value) || null,
         });
-        showToast('ערוצים נשמרו בהצלחה');
+        showToast('Topic IDs הבטוחים נשמרו בהצלחה');
     } catch (e) {
-        showToast('שגיאה בשמירה', 'error');
+        showToast('שגיאה בשמירה: ' + e.message, 'error');
+    }
+}
+
+async function saveVerifiedTopic() {
+    try {
+        await apiCall('/api/topics/verified', {
+            topic_id: parseInt(document.getElementById('verified-topic-id').value) || null,
+            verified_name: document.getElementById('verified-topic-name').value.trim(),
+            category_key: document.getElementById('verified-topic-category').value.trim(),
+            verification_source: document.getElementById('verified-topic-source').value.trim(),
+        });
+        showToast('topic מאומת נשמר');
+        setTimeout(function() { location.reload(); }, 800);
+    } catch (e) {
+        showToast('שגיאה בשמירה: ' + e.message, 'error');
+    }
+}
+
+function fillVerifiedTopic(topicId, topicName, categoryKey, verificationSource) {
+    document.getElementById('verified-topic-id').value = topicId || '';
+    document.getElementById('verified-topic-name').value = topicName || '';
+    document.getElementById('verified-topic-category').value = categoryKey || '';
+    document.getElementById('verified-topic-source').value = verificationSource || '';
+}
+
+async function sendTopicDot(topicId) {
+    try {
+        await apiCall('/api/bot/send-message', {
+            text: '·',
+            topic_id: topicId,
+            target: 'main'
+        });
+        showToast('dot sent to topic ' + topicId + '. Check Telegram, then save the verified mapping.');
+        fillVerifiedTopic(topicId, '', '', 'confirmed in Telegram UI after test dot');
+    } catch (e) {
+        showToast('שגיאה בשליחת dot: ' + e.message, 'error');
+    }
+}
+
+async function deleteVerifiedTopic(categoryKey) {
+    try {
+        await apiCall('/api/topics/verified/' + encodeURIComponent(categoryKey), {}, 'DELETE');
+        showToast('topic מאומת הוסר');
+        setTimeout(function() { location.reload(); }, 800);
+    } catch (e) {
+        showToast('שגיאה בהסרה: ' + e.message, 'error');
     }
 }
 

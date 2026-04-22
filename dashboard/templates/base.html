@@ -248,14 +248,21 @@
     </div>
 
     <script>
-        async function apiCall(url, data = null) {
+        async function apiCall(url, data = null, method = 'POST') {
             const opts = {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
             };
-            if (data) opts.body = JSON.stringify(data);
+            if (data && method !== 'GET') opts.body = JSON.stringify(data);
             const res = await fetch(url, opts);
-            if (!res.ok) throw new Error('API error: ' + res.status);
+            if (!res.ok) {
+                let detail = '';
+                try {
+                    const payload = await res.json();
+                    detail = payload.detail || payload.message || '';
+                } catch (_) {}
+                throw new Error(detail || ('API error: ' + res.status));
+            }
             return res.json();
         }
 

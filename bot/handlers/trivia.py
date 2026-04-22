@@ -1,5 +1,6 @@
 """Trivia game handler with scoring."""
 
+from datetime import date
 import json
 import logging
 import random
@@ -8,7 +9,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings, is_feature_enabled
+from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
@@ -82,6 +83,9 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
 
     if not is_feature_enabled("trivia"):
         return
+    if is_auto_blocked_on(date.today()):
+        logger.info("trivia: blackout date, skipping automatic round")
+        return
 
     if _active_trivia:
         return  # Don't overlap
@@ -94,7 +98,11 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
     _answered_users = set()
 
     settings = get_settings()
-    general_topic = settings.get("topics", {}).get("general")
+    db: Database = context.bot_data["db"]
+    general_topic = await db.get_verified_topic_id("general")
+    if general_topic is None:
+        logger.warning("trivia: no verified topic mapping for category 'general'; skipping automatic send")
+        return
 
     buttons = []
     for i, option in enumerate(q["options"]):

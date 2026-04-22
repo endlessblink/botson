@@ -87,6 +87,15 @@ CREATE TABLE IF NOT EXISTS forum_topics (
     last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS verified_forum_topics (
+    topic_id INTEGER PRIMARY KEY,
+    verified_name TEXT NOT NULL,
+    category_key TEXT NOT NULL UNIQUE,
+    verification_source TEXT NOT NULL,
+    verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id)
+);
+
 CREATE TABLE IF NOT EXISTS blocked_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL UNIQUE,

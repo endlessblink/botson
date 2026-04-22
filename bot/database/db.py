@@ -56,6 +56,7 @@ class Database:
             "ALTER TABLE events ADD COLUMN source_poll_message_id INTEGER",
             "ALTER TABLE events ADD COLUMN source_poll_option_key TEXT",
             "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
+            "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
         ]
         for sql in migrations:
             try:
@@ -533,6 +534,46 @@ class Database:
             "SELECT topic_id, name, last_seen_at FROM forum_topics ORDER BY name"
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
+
+    async def upsert_verified_forum_topic(self, topic_id: int, verified_name: str, category_key: str, verification_source: str):
+        """Store a human-verified topic mapping used for trusted sends."""
+        now = _now_il()
+        await self._db.execute(
+            """INSERT INTO verified_forum_topics (topic_id, verified_name, category_key, verification_source, verified_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(category_key) DO UPDATE SET
+                   topic_id = excluded.topic_id,
+                   verified_name = excluded.verified_name,
+                   verification_source = excluded.verification_source,
+                   verified_at = excluded.verified_at""",
+            (topic_id, verified_name, category_key, verification_source, now),
+        )
+        await self._db.commit()
+
+    async def get_verified_forum_topics(self) -> list[dict]:
+        """Get trusted topic mappings joined with latest observed activity."""
+        async with self._db.execute(
+            """SELECT v.topic_id, v.verified_name, v.category_key, v.verification_source, v.verified_at,
+                      f.name AS observed_name, f.last_seen_at
+               FROM verified_forum_topics v
+               LEFT JOIN forum_topics f ON f.topic_id = v.topic_id
+               ORDER BY v.category_key"""
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def get_verified_topic_id(self, category_key: str) -> int | None:
+        """Return the trusted topic_id for a category, or None if unverified."""
+        async with self._db.execute(
+            "SELECT topic_id FROM verified_forum_topics WHERE category_key = ?",
+            (category_key,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return int(row[0]) if row and row[0] is not None else None
+
+    async def remove_verified_forum_topic(self, category_key: str):
+        """Remove a trusted topic mapping."""
+        await self._db.execute("DELETE FROM verified_forum_topics WHERE category_key = ?", (category_key,))
+        await self._db.commit()
 
     # ── Scheduled Messages (Content Calendar) ────────────────
 

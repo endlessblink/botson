@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from telegram.ext import ContextTypes
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
+from ..utils.config import GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 from ..utils.levels import get_level
 
 logger = logging.getLogger(__name__)
@@ -16,10 +16,16 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: send weekly roundup to general channel every Friday."""
     if not is_feature_enabled("roundup"):
         return
+    if is_auto_blocked_on(datetime.now().date()):
+        logger.info("roundup: blackout date, skipping automatic post")
+        return
 
     settings = get_settings()
     db: Database = context.bot_data["db"]
-    general_topic = settings.get("topics", {}).get("general")
+    general_topic = await db.get_verified_topic_id("general")
+    if general_topic is None:
+        logger.warning("roundup: no verified topic mapping for category 'general'; skipping send")
+        return
 
     week_ago = datetime.now() - timedelta(days=7)
 

@@ -4,13 +4,14 @@ Points are earned only through validated actions (bot prompt replies, trivia,
 events, streaks) — not raw message activity. See config/settings.yaml gamification section.
 """
 
+from datetime import date
 import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
+from ..utils.config import GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 from ..utils.helpers import is_admin, is_bot_user, get_display_name
 from ..utils.levels import get_level, get_progress, check_level_up, make_progress_bar
 
@@ -125,6 +126,10 @@ async def reset_levels_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: post weekly level leaderboard to general channel."""
+    if is_auto_blocked_on(date.today()):
+        logger.info("levels: blackout date, skipping weekly leaderboard")
+        return
+
     db: Database = context.bot_data["db"]
     leaders = await db.get_weekly_leaders(10)
 
@@ -132,7 +137,10 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
         return
 
     settings = get_settings()
-    general_topic = settings.get("topics", {}).get("general")
+    general_topic = await db.get_verified_topic_id("general")
+    if general_topic is None:
+        logger.warning("levels: no verified topic mapping for category 'general'; skipping weekly leaderboard")
+        return
 
     medals = ["🥇", "🥈", "🥉"]
     lines = ["🏆 טבלת רמות שבועית:", ""]

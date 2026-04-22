@@ -31,6 +31,11 @@ from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.levels import get_level, get_progress
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, save_and_verify_trivia_questions
+from dashboard.verified_topics import (
+    VerifiedTopicError,
+    merge_observed_and_verified_topics,
+    normalize_verified_topic_entry,
+)
 
 RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
 
@@ -214,13 +219,18 @@ async def dashboard_home(request: Request, db: Database = Depends(get_db)):
 # ── Settings API ─────────────────────────────────────────
 
 @app.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
+async def settings_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=303)
 
     settings = get_settings()
+    observed_topics = await db.get_forum_topics()
+    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
+    merged_topics = merge_observed_and_verified_topics(observed_topics, verified_topics)
     return templates.TemplateResponse(request, name="settings.html", context={
         "settings": settings,
+        "verified_topics": verified_topics,
+        "merged_topics": merged_topics,
     })
 
 
@@ -236,6 +246,9 @@ async def update_topics(request: Request):
 
     if "topics" not in settings:
         settings["topics"] = {}
+    if "general" in data and data.get("general"):
+        raise HTTPException(status_code=400, detail="topics.general is no longer a trusted setting; use verified topics workflow")
+    data = {k: v for k, v in data.items() if k != "general"}
     settings["topics"].update(data)
 
     with open(settings_path, "w", encoding="utf-8") as f:
@@ -392,6 +405,42 @@ async def get_forum_topics(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=401)
     topics = await db.get_forum_topics()
     return {"topics": topics}
+
+
+@app.get("/api/topics/verified")
+async def get_verified_topics(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    topics = await db.get_verified_forum_topics()
+    return {"topics": topics}
+
+
+@app.post("/api/topics/verified")
+async def upsert_verified_topic(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    try:
+        entry = normalize_verified_topic_entry(
+            topic_id=data.get("topic_id"),
+            verified_name=data.get("verified_name"),
+            category_key=data.get("category_key"),
+            verification_source=data.get("verification_source"),
+        )
+    except VerifiedTopicError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await db.upsert_verified_forum_topic(**entry)
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded, "entry": entry}
+
+
+@app.delete("/api/topics/verified/{category_key}")
+async def delete_verified_topic(category_key: str, request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    await db.remove_verified_forum_topic(category_key)
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded, "category_key": category_key}
 
 
 @app.post("/api/topics/forum")
@@ -805,9 +854,22 @@ _CAL_TYPE_STYLE = {
     "morning":    {"emoji": "🌞", "label": "בוקר",  "css": "bg-amber-500/20 text-amber-200 border-amber-500/40"},
     "evening":    {"emoji": "🌙", "label": "ערב",   "css": "bg-indigo-500/20 text-indigo-200 border-indigo-500/40"},
     "discussion": {"emoji": "💬", "label": "שיחה",  "css": "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"},
+    "trivia":     {"emoji": "🧠", "label": "טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
     "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
     "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
 }
+
+# One-off Independence Day (יום העצמאות 5786) live trivia round — matches
+# _TRIVIA_DEMO_STATE["starts_at"] and the pending review id below. Surfaced
+# as a calendar chip so users see the 15:00 slot, not just the 12:00
+# announcement.
+_TRIVIA_INDEPENDENCE_DATE = "2026-04-22"
+_TRIVIA_INDEPENDENCE_TIME = "15:00"
+_TRIVIA_INDEPENDENCE_TEXT = (
+    "🇮🇱 טריוויה חיה ליום העצמאות — 10 שאלות מהירות על ישראל: "
+    "היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n"
+    "תשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆"
+)
 
 _TRIVIA_DEMO_LOCK = asyncio.Lock()
 _TRIVIA_DEMO_STATE = {
@@ -1103,17 +1165,23 @@ async def calendar_mini_app(request: Request, month: str | None = None,
     for that day. Top header has month nav (prev/next/today).
     """
     import calendar as _cal
-    from datetime import date as _date
+    from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
     from collections import defaultdict
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    from bot.utils.config import is_feature_enabled as _is_feature_enabled
 
+    settings = get_settings() or {}
     year, month_num = _parse_month(month)
-    today = _date.today()
+    _tz = _ZoneInfo("Asia/Jerusalem")
+    now_il = _datetime.now(_tz)
+    today = now_il.date()
+    current_hhmm = now_il.strftime("%H:%M")
     last_day = _cal.monthrange(year, month_num)[1]
     month_start = _date(year, month_num, 1).isoformat()
     month_end = _date(year, month_num, last_day).isoformat()
 
     async with db._db.execute(
-        """SELECT scheduled_date, scheduled_time, message_type, text
+        """SELECT scheduled_date, scheduled_time, message_type, text, channel_topic_id
            FROM scheduled_messages
            WHERE status='scheduled' AND scheduled_date BETWEEN ? AND ?
            ORDER BY scheduled_date, scheduled_time""",
@@ -1123,13 +1191,32 @@ async def calendar_mini_app(request: Request, month: str | None = None,
 
     async with db._db.execute(
         """SELECT event_date, event_time, title, description, location,
-                  rsvp_yes, rsvp_maybe
+                  rsvp_yes, rsvp_maybe, topic_id
            FROM events
            WHERE active=1 AND event_date BETWEEN ? AND ?
            ORDER BY event_date, event_time""",
         (month_start, month_end),
     ) as cur:
         event_rows = await cur.fetchall()
+
+    # topic_id → Hebrew channel name. Prefer live forum_topics (bot-observed),
+    # fall back to settings.topics (category → id map) so we can show *something*
+    # for topics the bot hasn't seen yet.
+    forum_topics = await db.get_forum_topics()
+    topics_by_id = {row["topic_id"]: row["name"] for row in forum_topics if row.get("topic_id") and row.get("name")}
+    topics_cfg = settings.get("topics", {}) or {}
+    for key, tid in topics_cfg.items():
+        if isinstance(tid, int) and tid not in topics_by_id:
+            topics_by_id[tid] = key
+    discussions_cfg = topics_cfg.get("discussions", {}) or {}
+    for key, tid in discussions_cfg.items():
+        if isinstance(tid, int) and tid not in topics_by_id:
+            topics_by_id[tid] = key
+
+    def _topic_name(tid):
+        if tid is None:
+            return None
+        return topics_by_id.get(tid)
 
     def _short(s: str, n: int = 60) -> str:
         s = (s or "").strip().replace("\n", " ")
@@ -1144,6 +1231,7 @@ async def calendar_mini_app(request: Request, month: str | None = None,
     for r in sched_rows:
         meta = _CAL_TYPE_STYLE.get(r["message_type"], _CAL_TYPE_STYLE["event"])
         full = (r["text"] or "").strip()
+        tid = r["channel_topic_id"]
         by_day[r["scheduled_date"]].append({
             "emoji": meta["emoji"],
             "css": meta["css"],
@@ -1152,6 +1240,8 @@ async def calendar_mini_app(request: Request, month: str | None = None,
             "type": r["message_type"],
             "text": full,
             "short": _short(full),
+            "topic_id": tid,
+            "topic_name": _topic_name(tid),
         })
     for r in event_rows:
         meta = _CAL_TYPE_STYLE["event"]
@@ -1168,6 +1258,7 @@ async def calendar_mini_app(request: Request, month: str | None = None,
         if r["location"]:
             text += f"\n📍 {r['location']}"
         text += f"\n\n✅ {rsvp_yes} מגיעים · 🤔 {rsvp_maybe} אולי"
+        tid = r["topic_id"]
         by_day[r["event_date"]].append({
             "emoji": meta["emoji"],
             "css": meta["css"],
@@ -1176,7 +1267,66 @@ async def calendar_mini_app(request: Request, month: str | None = None,
             "type": "event",
             "text": text,
             "short": _short(r["title"] or ""),
+            "topic_id": tid,
+            "topic_name": _topic_name(tid),
         })
+
+    # ── Synthesize trivia chips ──────────────────────────────────────
+    # Trivia is scheduled as a live APScheduler job (see bot/scheduler/jobs.py)
+    # and never written to scheduled_messages or events, so it was invisible
+    # on the calendar. Mirror that schedule here from config.
+    if _is_feature_enabled("trivia"):
+        trivia_meta = _CAL_TYPE_STYLE["trivia"]
+        trivia_sched = settings.get("schedule", {}).get("trivia", {"time": "20:00", "days": [2, 5]}) or {}
+        trivia_time = (trivia_sched.get("time", "20:00") or "20:00")[:5]
+        # Hebrew days: 0=Sunday..6=Saturday. Python date.weekday(): 0=Monday..6=Sunday.
+        heb_days = set(trivia_sched.get("days", [2, 5]) or [])
+        d = _date.fromisoformat(month_start)
+        end = _date.fromisoformat(month_end)
+        while d <= end:
+            heb_dow = (d.weekday() + 1) % 7
+            if heb_dow in heb_days:
+                iso = d.isoformat()
+                # Skip past days and today's already-passed slots.
+                if d < today or (d == today and trivia_time <= current_hhmm):
+                    d += _timedelta(days=1)
+                    continue
+                by_day[iso].append({
+                    "emoji": trivia_meta["emoji"],
+                    "css": trivia_meta["css"],
+                    "label": trivia_meta["label"],
+                    "time": trivia_time,
+                    "type": "trivia",
+                    "text": "שאלת טריוויה אוטומטית — הבוט בוחר שאלה מ-trivia.yaml בזמן השליחה.",
+                    "short": "שאלת טריוויה אוטומטית",
+                    "topic_id": None,
+                    "topic_name": None,
+                })
+            d += _timedelta(days=1)
+
+    # One-off: Independence Day 5786 live trivia round at 15:00 (in-memory
+    # demo state lives at _TRIVIA_DEMO_STATE). Show it on the day itself so
+    # users see the actual slot, not just the 12:00 announcement row.
+    if month_start <= _TRIVIA_INDEPENDENCE_DATE <= month_end:
+        indep_date = _date.fromisoformat(_TRIVIA_INDEPENDENCE_DATE)
+        if not (indep_date < today or (indep_date == today and _TRIVIA_INDEPENDENCE_TIME <= current_hhmm)):
+            trivia_meta = _CAL_TYPE_STYLE["trivia"]
+            by_day[_TRIVIA_INDEPENDENCE_DATE].append({
+                "emoji": "🇮🇱",
+                "css": trivia_meta["css"],
+                "label": "טריוויה חיה",
+                "time": _TRIVIA_INDEPENDENCE_TIME,
+                "type": "trivia",
+                "text": _TRIVIA_INDEPENDENCE_TEXT,
+                "short": "טריוויה ליום העצמאות",
+                "topic_id": None,
+                "topic_name": None,
+            })
+
+    # Keep each day ordered by time — synthesized trivia rows were appended
+    # after the DB rows, so a plain sort restores chronological order.
+    for iso, items in by_day.items():
+        items.sort(key=lambda it: it.get("time") or "")
 
     _cal.setfirstweekday(_cal.SUNDAY)
     raw_weeks = _cal.monthcalendar(year, month_num)
@@ -1829,10 +1979,10 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
 
     main_group = int(os.getenv("GROUP_ID", "0"))
     test_group = int(os.getenv("TEST_GROUP_ID", "0"))
-    live_topic_ids = None
+    verified_topic_ids = None
     if target == "main":
-        live_topics = await db.get_forum_topics()
-        live_topic_ids = {int(row.get("topic_id")) for row in live_topics if row.get("topic_id") is not None}
+        verified_topics = await db.get_verified_forum_topics()
+        verified_topic_ids = {int(row.get("topic_id")) for row in verified_topics if row.get("topic_id") is not None}
 
     try:
         payload = build_round_trigger_payload(
@@ -1845,7 +1995,7 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
             theme_label=theme_label,
             categories=categories,
             question_count=question_count,
-            live_topic_ids=live_topic_ids,
+            live_topic_ids=verified_topic_ids,
         )
     except TriviaVerificationError as e:
         raise HTTPException(status_code=400, detail=str(e))

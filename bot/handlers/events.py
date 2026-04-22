@@ -142,12 +142,16 @@ async def event_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
 
-    # Post to general channel
+    # Post to verified general topic only
     settings = get_settings()
-    general_topic = settings.get("topics", {}).get("general")
+    general_topic = await db.get_verified_topic_id("general")
+    if general_topic is None:
+        await update.message.reply_text("שגיאה: אין topic מאומת לקטגוריה general")
+        logger.warning("events: no verified topic mapping for category 'general'; refusing publish")
+        context.user_data.clear()
+        return ConversationHandler.END
     kwargs = {"chat_id": GROUP_ID, "text": announcement, "reply_markup": keyboard}
-    if general_topic:
-        kwargs["message_thread_id"] = general_topic
+    kwargs["message_thread_id"] = general_topic
 
     try:
         sent = await context.bot.send_message(**kwargs)
@@ -280,7 +284,10 @@ async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
         return
 
     settings = get_settings()
-    general_topic = settings.get("topics", {}).get("general")
+    general_topic = await db.get_verified_topic_id("general")
+    if general_topic is None:
+        logger.warning("events: no verified topic mapping for category 'general'; skipping reminders")
+        return
 
     for event in events:
         yes_count = len(json.loads(event["rsvp_yes"]))
