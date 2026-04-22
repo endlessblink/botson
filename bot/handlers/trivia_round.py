@@ -17,6 +17,7 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from ..database.db import Database
 from ..utils.config import GROUP_ID, TEST_GROUP_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -136,10 +137,15 @@ async def _post_question(bot, db: Database, chat_id: int, thread_id: int | None,
     """Post question q_index and return message_id."""
     text = _question_text(q, q_index, QUESTION_TIMEOUT_S)
     markup = _build_answer_markup(q_index, q["options"])
-    kwargs = {"chat_id": chat_id, "text": text, "reply_markup": markup}
-    if thread_id is not None:
-        kwargs["message_thread_id"] = thread_id
-    msg = await bot.send_message(**kwargs)
+    msg = await safe_send(
+        bot,
+        db,
+        "send_message",
+        chat_id=chat_id,
+        text=text,
+        reply_markup=markup,
+        message_thread_id=thread_id,
+    )
     return msg.message_id
 
 
@@ -211,7 +217,8 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
                       pre_roll_s: int,
                       preferred_categories: set[str] | None = None,
                       theme_label: str | None = None,
-                      question_count: int = QUESTION_COUNT) -> None:
+                      question_count: int = QUESTION_COUNT,
+                      teaser_topic_id: int | None = None) -> None:
     """Drive a single round start → finish. Safe to cancel via STOP_FILE."""
     if chat_id in _active_rounds:
         logger.info("trivia_round: round already active in chat %s", chat_id)
@@ -240,15 +247,40 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
     _active_rounds[chat_id] = round_state
 
     try:
+        # Optional teaser in a theme-matched topic, fired BEFORE the main
+        # announcement so the linked audience has time to jump over.
+        if teaser_topic_id is not None and teaser_topic_id != thread_id:
+            teaser_text = (
+                f"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון — "
+                f"{question_count} שאלות. בואו לשחק!"
+            )
+            try:
+                await safe_send(
+                    bot,
+                    db,
+                    "send_message",
+                    chat_id=chat_id,
+                    text=teaser_text,
+                    message_thread_id=teaser_topic_id,
+                )
+            except UnverifiedTopicError as e:
+                logger.warning("trivia_round: teaser refused by guard: %s", e)
+            except Exception as e:
+                logger.warning("trivia_round: teaser send failed: %s", e)
+
         # Announcement
-        ann_kwargs = {
-            "chat_id": chat_id,
-            "text": _format_announcement(pre_roll_s, theme_label=theme_label, question_count=question_count),
-        }
-        if thread_id is not None:
-            ann_kwargs["message_thread_id"] = thread_id
         try:
-            await bot.send_message(**ann_kwargs)
+            await safe_send(
+                bot,
+                db,
+                "send_message",
+                chat_id=chat_id,
+                text=_format_announcement(pre_roll_s, theme_label=theme_label, question_count=question_count),
+                message_thread_id=thread_id,
+            )
+        except UnverifiedTopicError as e:
+            logger.error("trivia_round: announcement refused by guard: %s", e)
+            return
         except Exception as e:
             logger.error("trivia_round: announcement failed: %s", e)
             return
@@ -267,14 +299,17 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             slept += step
 
         # Kickoff message — makes it unambiguous that the round is starting now.
-        kickoff_kwargs = {
-            "chat_id": chat_id,
-            "text": f"🚀 מתחילים! השאלה הראשונה יורדת עוד {kickoff_gap} שניות — תתרכזו בכפתורים 👇",
-        }
-        if thread_id is not None:
-            kickoff_kwargs["message_thread_id"] = thread_id
         try:
-            await bot.send_message(**kickoff_kwargs)
+            await safe_send(
+                bot,
+                db,
+                "send_message",
+                chat_id=chat_id,
+                text=f"🚀 מתחילים! השאלה הראשונה יורדת עוד {kickoff_gap} שניות — תתרכזו בכפתורים 👇",
+                message_thread_id=thread_id,
+            )
+        except UnverifiedTopicError as e:
+            logger.warning("trivia_round: kickoff refused by guard: %s", e)
         except Exception as e:
             logger.warning("trivia_round: kickoff send failed: %s", e)
 
@@ -342,11 +377,17 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
                 logger.warning("trivia_round: bonus award failed for %s: %s", uid, e)
 
         # Final message
-        final_kwargs = {"chat_id": chat_id, "text": _build_final_text(round_state, bonus_winners)}
-        if thread_id is not None:
-            final_kwargs["message_thread_id"] = thread_id
         try:
-            await bot.send_message(**final_kwargs)
+            await safe_send(
+                bot,
+                db,
+                "send_message",
+                chat_id=chat_id,
+                text=_build_final_text(round_state, bonus_winners),
+                message_thread_id=thread_id,
+            )
+        except UnverifiedTopicError as e:
+            logger.warning("trivia_round: final refused by guard: %s", e)
         except Exception as e:
             logger.error("trivia_round: final message failed: %s", e)
 
@@ -499,6 +540,8 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
         return
     thread_id = payload.get("thread_id")
     thread_id = int(thread_id) if thread_id else None
+    teaser_topic_id = payload.get("teaser_topic_id")
+    teaser_topic_id = int(teaser_topic_id) if teaser_topic_id else None
     pre_roll_s = int(payload.get("pre_roll_s", 30))
     theme_label = str(payload.get("theme_label") or "").strip() or None
     question_count = int(payload.get("question_count") or QUESTION_COUNT)
@@ -531,6 +574,7 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
             preferred_categories=preferred_categories,
             theme_label=theme_label,
             question_count=question_count,
+            teaser_topic_id=teaser_topic_id,
         )
     )
 

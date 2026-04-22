@@ -17,6 +17,7 @@ from ..utils.config import GROUP_ID, TEST_GROUP_ID, get_settings, is_auto_blocke
 from ..utils.helpers import get_display_name, is_bot_user
 from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -336,16 +337,26 @@ async def _run_emoji_session(
     interval_seconds: int,
     wrap_offset_seconds: int,
 ):
-    kwargs = {"chat_id": chat_id}
-    if thread_id is not None:
-        kwargs["message_thread_id"] = thread_id
-
     if intro_offset_seconds > 0:
         await asyncio.sleep(intro_offset_seconds)
-    await bot.send_message(text=_format_intro_text(len(puzzles)), **kwargs)
+    await safe_send(
+        bot,
+        db,
+        "send_message",
+        chat_id=chat_id,
+        text=_format_intro_text(len(puzzles)),
+        message_thread_id=thread_id,
+    )
 
     for idx, puzzle in enumerate(puzzles, start=1):
-        msg = await bot.send_message(text=_format_puzzle_text(puzzle, idx, len(puzzles)), **kwargs)
+        msg = await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=chat_id,
+            text=_format_puzzle_text(puzzle, idx, len(puzzles)),
+            message_thread_id=thread_id,
+        )
         await db.start_emoji_round(session_id, puzzle["id"], chat_id, msg.message_id, thread_id, _POINTS_BY_RANK[0])
         if idx < len(puzzles) and interval_seconds > 0:
             await asyncio.sleep(interval_seconds)
@@ -355,19 +366,42 @@ async def _run_emoji_session(
 
     leaderboard = await db.get_session_leaderboard(session_id)
     unsolved_rounds = await db.get_session_unsolved_rounds(session_id)
-    await bot.send_message(text=_format_wrap_text(leaderboard, len(puzzles), unsolved_rounds), **kwargs)
+    await safe_send(
+        bot,
+        db,
+        "send_message",
+        chat_id=chat_id,
+        text=_format_wrap_text(leaderboard, len(puzzles), unsolved_rounds),
+        message_thread_id=thread_id,
+    )
     await db.close_session_rounds(session_id)
     await db.complete_emoji_session(session_id, leaderboard)
 
 
 async def send_scheduled_emoji_night(context: ContextTypes.DEFAULT_TYPE):
-    """Cron job: start one Emoji Night session for each enabled target group."""
+    """Cron job: start one Emoji Night session. Target comes from
+    bot_message_routing.emoji_puzzle, not the legacy settings.topics lookup."""
     if is_auto_blocked_on(datetime.now(_IL_TZ).date()):
         logger.info("emoji_puzzle: blackout date, skipping automatic session")
         return
 
+    db: Database = context.bot_data["db"]
+    routing = await db.get_handler_routing("emoji_puzzle")
+    if not routing or routing["play_topic_id"] is None:
+        logger.warning("emoji_puzzle: no routing configured for 'emoji_puzzle'; skipping")
+        return
+    play_id = routing["play_topic_id"]
+
     settings = get_settings()
-    for chat_id, thread_id in get_enabled_emoji_targets(settings):
+    feature = settings.get("features", {}).get("emoji_puzzle", {}) or {}
+    groups = feature.get("groups", []) if isinstance(feature, dict) else []
+    targets: list[tuple[int, int | None]] = []
+    if "main" in (groups or []) and GROUP_ID:
+        targets.append((GROUP_ID, play_id))
+    if "test" in (groups or []) and TEST_GROUP_ID:
+        targets.append((TEST_GROUP_ID, None))
+
+    for chat_id, thread_id in targets:
         try:
             await start_emoji_night(context, chat_id, thread_id)
         except Exception as e:
@@ -378,26 +412,23 @@ async def send_scheduled_emoji_message(bot, db: Database, msg: dict):
     """Handle custom scheduled-message types for Emoji Night."""
     payload = _parse_payload(msg.get("poll_options"))
     message_type = msg.get("message_type")
-    kwargs = {
-        "chat_id": msg["_resolved_chat_id"],
-        "text": msg["text"],
-    }
-    if msg.get("channel_topic_id") is not None:
-        kwargs["message_thread_id"] = msg.get("channel_topic_id")
+    chat_id = msg["_resolved_chat_id"]
+    text = msg["text"]
+    thread_id = msg.get("channel_topic_id")
 
     if message_type == "emoji_puzzle_wrap":
         session_id = int(payload.get("session_id", 0) or 0)
         total = int(payload.get("total", 0) or 0)
         leaderboard = await db.get_session_leaderboard(session_id)
         unsolved_rounds = await db.get_session_unsolved_rounds(session_id)
-        kwargs["text"] = _format_wrap_text(leaderboard, total, unsolved_rounds)
-        sent = await bot.send_message(**kwargs)
+        text = _format_wrap_text(leaderboard, total, unsolved_rounds)
+        sent = await safe_send(bot, db, "send_message", chat_id=chat_id, text=text, message_thread_id=thread_id)
         if unsolved_rounds:
             await db.mark_session_rounds_revealed(session_id)
         await db.complete_emoji_session(session_id, leaderboard)
         return sent
 
-    sent = await bot.send_message(**kwargs)
+    sent = await safe_send(bot, db, "send_message", chat_id=chat_id, text=text, message_thread_id=thread_id)
 
     if message_type == "emoji_puzzle_round":
         await db.start_emoji_round(
@@ -475,12 +506,17 @@ async def handle_emoji_puzzle_reply(update: Update, context: ContextTypes.DEFAUL
             text = f"{badge} נקלט! מקום {rank} ל-{actor['display_name']} (+{award_points} נקודות)"
         else:
             text = f"✅ נקלט! {actor['display_name']} פתר/ה נכון, אבל רק הראשון/ה מקבל/ת נקודות על החידה הזאת."
-        await context.bot.send_message(
+        await safe_send(
+            context.bot,
+            db,
+            "send_message",
             chat_id=update.effective_chat.id,
             text=text,
             reply_to_message_id=round_row["message_id"],
             message_thread_id=getattr(update.message, "message_thread_id", None),
         )
+    except UnverifiedTopicError as e:
+        logger.warning("emoji_puzzle: win reply refused by guard: %s", e)
     except Exception as e:
         logger.warning("emoji_puzzle: failed to send win reply: %s", e)
 
@@ -488,7 +524,10 @@ async def handle_emoji_puzzle_reply(update: Update, context: ContextTypes.DEFAUL
     if new_level and not actor["is_anonymous"]:
         mention = f"[{actor['display_name']}](tg://user?id={actor['id']})"
         try:
-            await context.bot.send_message(
+            await safe_send(
+                context.bot,
+                db,
+                "send_message",
                 chat_id=update.effective_chat.id,
                 text=f"🎉 מזל טוב {mention}! עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
                 parse_mode="Markdown",
@@ -504,16 +543,19 @@ async def reveal_unsolved_rounds_job(context: ContextTypes.DEFAULT_TYPE):
     rounds = await db.get_emoji_rounds_to_reveal(24)
     for round_row in rounds:
         answer = round_row.get("answer_he") or round_row.get("answer_en") or "לא ידוע"
-        kwargs = {
-            "chat_id": round_row["chat_id"],
-            "text": f"🕒 זמן לחשוף: {round_row.get('emoji_prompt', '')}\nהתשובה היא: {answer}",
-            "reply_to_message_id": round_row["message_id"],
-        }
-        if round_row.get("message_thread_id") is not None:
-            kwargs["message_thread_id"] = round_row.get("message_thread_id")
         try:
-            await context.bot.send_message(**kwargs)
+            await safe_send(
+                context.bot,
+                db,
+                "send_message",
+                chat_id=round_row["chat_id"],
+                text=f"🕒 זמן לחשוף: {round_row.get('emoji_prompt', '')}\nהתשובה היא: {answer}",
+                reply_to_message_id=round_row["message_id"],
+                message_thread_id=round_row.get("message_thread_id"),
+            )
             await db.mark_emoji_round_revealed(round_row["id"])
+        except UnverifiedTopicError as e:
+            logger.warning("emoji_puzzle: reveal refused by guard for round %s: %s", round_row["id"], e)
         except Exception as e:
             logger.warning("emoji_puzzle: failed to reveal round %s: %s", round_row["id"], e)
 

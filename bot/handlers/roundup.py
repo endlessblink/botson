@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 from ..database.db import Database
 from ..utils.config import GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 from ..utils.levels import get_level
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,11 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     settings = get_settings()
     db: Database = context.bot_data["db"]
-    general_topic = await db.get_verified_topic_id("botson_corner")
-    if general_topic is None:
-        logger.warning("roundup: no verified topic mapping for category 'botson_corner'; skipping send")
+    routing = await db.get_handler_routing("weekly_roundup")
+    if not routing or routing["play_topic_id"] is None:
+        logger.warning("roundup: no routing configured for 'weekly_roundup'; skipping send")
         return
+    play_id = routing["play_topic_id"]
 
     week_ago = datetime.now() - timedelta(days=7)
 
@@ -67,13 +69,18 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     text = "\n".join(lines)
 
-    kwargs = {"chat_id": GROUP_ID, "text": text}
-    if general_topic:
-        kwargs["message_thread_id"] = general_topic
-
     try:
-        await context.bot.send_message(**kwargs)
+        await safe_send(
+            context.bot,
+            db,
+            "send_message",
+            chat_id=GROUP_ID,
+            text=text,
+            message_thread_id=play_id,
+        )
         logger.info("Sent weekly roundup")
         await db.log_activity("roundup", "שלח סיכום שבועי")
+    except UnverifiedTopicError as e:
+        logger.warning("roundup: guard refused send: %s", e)
     except Exception as e:
         logger.error("Failed to send weekly roundup: %s", e)

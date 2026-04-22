@@ -13,6 +13,7 @@ from ..utils.config import GROUP_ID, GOALS_TOPIC_ID, get_settings, is_auto_block
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +98,12 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
     q = random.choice(questions)
     _answered_users = set()
 
-    settings = get_settings()
     db: Database = context.bot_data["db"]
-    general_topic = await db.get_verified_topic_id("botson_corner")
-    if general_topic is None:
-        logger.warning("trivia: no verified topic mapping for category 'botson_corner'; skipping automatic send")
+    routing = await db.get_handler_routing("trivia_scheduled")
+    if not routing or routing["play_topic_id"] is None:
+        logger.warning("trivia: no routing configured for 'trivia_scheduled'; skipping automatic send")
         return
+    play_id = routing["play_topic_id"]
 
     buttons = []
     for i, option in enumerate(q["options"]):
@@ -113,22 +114,28 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
     category = q.get("category", "כללי")
     text = f"🧠 זמן טריוויה! ({category})\n\n{q['text']}"
 
-    kwargs = {"chat_id": GROUP_ID, "text": text, "reply_markup": keyboard}
-    if general_topic:
-        kwargs["message_thread_id"] = general_topic
-
-    db = context.bot_data["db"]
     try:
-        sent = await context.bot.send_message(**kwargs)
+        sent = await safe_send(
+            context.bot,
+            db,
+            "send_message",
+            chat_id=GROUP_ID,
+            text=text,
+            reply_markup=keyboard,
+            message_thread_id=play_id,
+        )
         _active_trivia = {
             "question": q,
             "message_id": sent.message_id,
             "chat_id": sent.chat_id,
+            "thread_id": play_id,
             "correct_count": 0,
             "wrong_count": 0,
         }
         logger.info("Sent scheduled trivia question")
         await db.log_activity("trivia", "שלח שאלת טריוויה")
+    except UnverifiedTopicError as e:
+        logger.warning("trivia: guard refused send: %s", e)
     except Exception as e:
         logger.error("Failed to send trivia: %s", e)
 
@@ -172,11 +179,16 @@ async def handle_trivia_answer(update: Update, context: ContextTypes.DEFAULT_TYP
             name = get_display_name(user)
             mention = f"[{name}](tg://user?id={user.id})"
             trivia_chat_id = _active_trivia["chat_id"] if _active_trivia else GROUP_ID
+            trivia_thread_id = _active_trivia.get("thread_id") if _active_trivia else None
             try:
-                await context.bot.send_message(
+                await safe_send(
+                    context.bot,
+                    db,
+                    "send_message",
                     chat_id=trivia_chat_id,
                     text=f"🎉 מזל טוב {mention}! עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!",
                     parse_mode="Markdown",
+                    message_thread_id=trivia_thread_id,
                 )
             except Exception:
                 pass

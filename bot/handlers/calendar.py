@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 from ..database.db import Database
 from .emoji_puzzle import send_scheduled_emoji_message
 from ..utils.config import should_skip_scheduled_message
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -22,27 +23,40 @@ def _media_dir() -> Path:
     return Path(os.getenv("MEDIA_DIR", "./media")).resolve()
 
 
-async def send_message_with_optional_cover(bot, *, chat_id: int, text: str,
+async def send_message_with_optional_cover(bot, *, db: Database, chat_id: int, text: str,
                                             message_thread_id: int | None = None,
-                                            cover_path: str | None = None):
+                                            cover_path: str | None = None,
+                                            bypass_verification: bool = False):
     """Send a message, as a photo with caption if cover_path is set.
 
     cover_path is stored relative to MEDIA_DIR (e.g. "covers/foo.png").
-    Returns the sent Message object.
+    Returns the sent Message object. Raises UnverifiedTopicError if the target
+    fails the topic_guard check (unless bypass_verification=True).
     """
     if cover_path:
         full = _media_dir() / cover_path
         if full.exists():
             with full.open("rb") as f:
-                kwargs = {"chat_id": chat_id, "photo": f, "caption": text}
-                if message_thread_id is not None:
-                    kwargs["message_thread_id"] = message_thread_id
-                return await bot.send_photo(**kwargs)
+                return await safe_send(
+                    bot,
+                    db,
+                    "send_photo",
+                    chat_id=chat_id,
+                    photo=f,
+                    caption=text,
+                    message_thread_id=message_thread_id,
+                    bypass_verification=bypass_verification,
+                )
         logger.warning("cover_path %s not found at %s — falling back to text", cover_path, full)
-    kwargs = {"chat_id": chat_id, "text": text}
-    if message_thread_id is not None:
-        kwargs["message_thread_id"] = message_thread_id
-    return await bot.send_message(**kwargs)
+    return await safe_send(
+        bot,
+        db,
+        "send_message",
+        chat_id=chat_id,
+        text=text,
+        message_thread_id=message_thread_id,
+        bypass_verification=bypass_verification,
+    )
 
 
 def _parse_poll_options(raw) -> list[str]:
@@ -74,33 +88,41 @@ def _build_poll_markup(options: list[str]):
     return InlineKeyboardMarkup(rows)
 
 
-async def send_poll_message(bot, *, chat_id: int, question: str,
+async def send_poll_message(bot, *, db: Database, chat_id: int, question: str,
                              options: list[str],
                              message_thread_id: int | None = None,
                              duration_hours: int | None = None,
-                             cover_path: str | None = None):
-    """Send an inline-button poll. Returns the sent Message.
-
-    Layout matches the group convention: text (with any URL auto-previewed by
-    Telegram) or photo+caption, and inline buttons below for each option.
-    Votes are tracked in-memory by bot/handlers/polls.py. `duration_hours` is
-    accepted for API compatibility but unused — inline polls don't auto-close.
-    """
+                             cover_path: str | None = None,
+                             bypass_verification: bool = False):
+    """Send an inline-button poll. Returns the sent Message. Raises
+    UnverifiedTopicError for guarded targets."""
     markup = _build_poll_markup(options)
     if cover_path:
         full = _media_dir() / cover_path
         if full.exists():
             with full.open("rb") as f:
-                kwargs = {"chat_id": chat_id, "photo": f, "caption": question,
-                          "reply_markup": markup}
-                if message_thread_id is not None:
-                    kwargs["message_thread_id"] = message_thread_id
-                return await bot.send_photo(**kwargs)
+                return await safe_send(
+                    bot,
+                    db,
+                    "send_photo",
+                    chat_id=chat_id,
+                    photo=f,
+                    caption=question,
+                    reply_markup=markup,
+                    message_thread_id=message_thread_id,
+                    bypass_verification=bypass_verification,
+                )
         logger.warning("poll cover_path %s not found — sending without photo", cover_path)
-    kwargs = {"chat_id": chat_id, "text": question, "reply_markup": markup}
-    if message_thread_id is not None:
-        kwargs["message_thread_id"] = message_thread_id
-    return await bot.send_message(**kwargs)
+    return await safe_send(
+        bot,
+        db,
+        "send_message",
+        chat_id=chat_id,
+        text=question,
+        reply_markup=markup,
+        message_thread_id=message_thread_id,
+        bypass_verification=bypass_verification,
+    )
 
 
 def _next_matching_day(current_date: date, days: list[int]) -> date:
@@ -165,6 +187,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 if msg.get("message_type") == "poll" and len(poll_options) >= 2:
                     sent = await send_poll_message(
                         bot,
+                        db=db,
                         chat_id=group_id,
                         question=msg["text"],
                         options=poll_options,
@@ -180,6 +203,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                         )
                     sent = await send_message_with_optional_cover(
                         bot,
+                        db=db,
                         chat_id=group_id,
                         text=msg["text"],
                         message_thread_id=msg.get("channel_topic_id"),

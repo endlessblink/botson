@@ -557,6 +557,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
     message_type = data.get("message_type")
     poll_options = data.get("poll_options")
     poll_duration = data.get("poll_duration")
+    is_topic_discovery = bool(data.get("is_topic_discovery"))
 
     if not text:
         raise HTTPException(status_code=400, detail="Message text required")
@@ -567,6 +568,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         send_poll_message,
         _parse_poll_options,
     )
+    from bot.utils.topic_guard import UnverifiedTopicError
     bot = Bot(os.getenv("BOT_TOKEN", ""))
 
     if target == "test":
@@ -582,23 +584,29 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         if message_type == "poll" and len(opts) >= 2:
             msg = await send_poll_message(
                 bot,
+                db=db,
                 chat_id=group_id,
                 question=text,
                 options=opts,
                 message_thread_id=int(topic_id) if topic_id else None,
                 duration_hours=poll_duration,
                 cover_path=cover_path,
+                bypass_verification=is_topic_discovery,
             )
         else:
             msg = await send_message_with_optional_cover(
                 bot,
+                db=db,
                 chat_id=group_id,
                 text=text,
                 message_thread_id=int(topic_id) if topic_id else None,
                 cover_path=cover_path,
+                bypass_verification=is_topic_discovery,
             )
         await db.log_activity("manual_send", f"שלח הודעה ידנית ({'טסט' if target == 'test' else 'ראשית'})", target_channel=str(topic_id or "general"))
         return {"status": "ok", "message_id": msg.message_id}
+    except UnverifiedTopicError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1652,7 +1660,7 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
 
     try:
         sent = await send_message_with_optional_cover(
-            bot, chat_id=chat_id, text=text,
+            bot, db=db, chat_id=chat_id, text=text,
             message_thread_id=int(topic_id) if topic_id else None,
             cover_path=cover_path,
         )
@@ -3571,6 +3579,7 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
         if msg.get("message_type") == "poll" and len(opts) >= 2:
             sent = await send_poll_message(
                 bot,
+                db=db,
                 chat_id=group_id,
                 question=msg["text"],
                 options=opts,
@@ -3581,6 +3590,7 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
         else:
             sent = await send_message_with_optional_cover(
                 bot,
+                db=db,
                 chat_id=group_id,
                 text=msg["text"],
                 message_thread_id=msg.get("channel_topic_id"),

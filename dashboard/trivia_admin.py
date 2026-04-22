@@ -75,6 +75,7 @@ def build_round_trigger_payload(
     categories: list[str],
     question_count: int,
     live_topic_ids: set[int] | None = None,
+    teaser_topic_id: int | None = None,
 ) -> dict[str, Any]:
     normalized_target = str(target or "").strip().lower()
     if normalized_target not in {"main", "test"}:
@@ -117,10 +118,22 @@ def build_round_trigger_payload(
         }
         thread_id = int(topic_id) if topic_id is not None else None
 
+    teaser_id = None
+    if teaser_topic_id is not None:
+        teaser_id = int(teaser_topic_id)
+        if normalized_target == "main" and live_topic_ids is not None and teaser_id not in live_topic_ids:
+            raise TriviaVerificationError(
+                f"Teaser topic {teaser_id} is not present in live verified topics"
+            )
+        if thread_id is not None and teaser_id == thread_id:
+            # Pointless to teaser the same thread we play in; drop silently.
+            teaser_id = None
+
     return {
         "chat_id": int(chat_id),
         "pre_roll_s": preroll,
         "thread_id": thread_id,
+        "teaser_topic_id": teaser_id,
         "theme_label": theme,
         "categories": normalized_categories,
         "question_count": count,

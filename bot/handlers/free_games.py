@@ -10,6 +10,7 @@ import httpx
 
 from ..database.db import Database
 from ..utils.config import GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -183,12 +184,21 @@ async def fetch_and_post_once(bot, db: Database, group_id: int,
         return summary
 
     text = f"🎮 משחק חינם\n\n{candidate['title']}\n\n{candidate['link']}"
-    kwargs = {"chat_id": group_id, "text": text, "disable_web_page_preview": False}
-    if topic_id:
-        kwargs["message_thread_id"] = topic_id
 
     try:
-        msg = await bot.send_message(**kwargs)
+        msg = await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=group_id,
+            text=text,
+            disable_web_page_preview=False,
+            message_thread_id=topic_id,
+        )
+    except UnverifiedTopicError as e:
+        logger.warning("free_games: guard refused send for %s: %s", candidate["guid"], e)
+        summary["error"] = f"guard refused: {e}"
+        return summary
     except Exception as e:
         logger.warning("free_games: send_message failed for %s: %s", candidate["guid"], e)
         summary["error"] = f"send failed: {e}"
@@ -235,6 +245,14 @@ async def send_free_games(context):
     settings = get_settings()
     fg_schedule = settings.get("schedule", {}).get("free_games", {})
     feed_url = fg_schedule.get("feed_url", _DEFAULT_FEED)
-    topic_id = settings.get("topics", {}).get("gaming") if target_gid == GROUP_ID else None
+
+    # Routing table is the source of truth; settings.topics.gaming is legacy.
+    topic_id = None
+    if target_gid == GROUP_ID:
+        routing = await db.get_handler_routing("free_games")
+        if not routing or routing["play_topic_id"] is None:
+            logger.warning("free_games: no routing configured for 'free_games'; skipping")
+            return
+        topic_id = routing["play_topic_id"]
 
     await fetch_and_post_once(context.bot, db, target_gid, topic_id, feed_url)

@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 
 from ..database.db import Database
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
@@ -142,21 +143,29 @@ async def event_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
 
-    # Post to verified general topic only
-    settings = get_settings()
-    general_topic = await db.get_verified_topic_id("botson_corner")
-    if general_topic is None:
-        await update.message.reply_text("שגיאה: אין topic מאומת לקטגוריה botson_corner")
-        logger.warning("events: no verified topic mapping for category 'botson_corner'; refusing publish")
+    routing = await db.get_handler_routing("events_publish")
+    if not routing or routing["play_topic_id"] is None:
+        await update.message.reply_text("שגיאה: אין יעד מוגדר ל-events_publish")
+        logger.warning("events: no routing configured for 'events_publish'; refusing publish")
         context.user_data.clear()
         return ConversationHandler.END
-    kwargs = {"chat_id": GROUP_ID, "text": announcement, "reply_markup": keyboard}
-    kwargs["message_thread_id"] = general_topic
+    play_id = routing["play_topic_id"]
 
     try:
-        sent = await context.bot.send_message(**kwargs)
+        sent = await safe_send(
+            context.bot,
+            db,
+            "send_message",
+            chat_id=GROUP_ID,
+            text=announcement,
+            reply_markup=keyboard,
+            message_thread_id=play_id,
+        )
         await db.update_event(event_id, message_id=sent.message_id)
         await update.message.reply_text(f"✅ האירוע פורסם! (ID: {event_id})")
+    except UnverifiedTopicError as e:
+        logger.warning("events: guard refused publish: %s", e)
+        await update.message.reply_text("שגיאה: היעד אינו מאומת")
     except Exception as e:
         logger.error("Failed to publish event: %s", e)
         await update.message.reply_text("שגיאה בפרסום האירוע")
@@ -283,11 +292,11 @@ async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
     if not events:
         return
 
-    settings = get_settings()
-    general_topic = await db.get_verified_topic_id("botson_corner")
-    if general_topic is None:
-        logger.warning("events: no verified topic mapping for category 'botson_corner'; skipping reminders")
+    routing = await db.get_handler_routing("events_reminder")
+    if not routing or routing["play_topic_id"] is None:
+        logger.warning("events: no routing configured for 'events_reminder'; skipping reminders")
         return
+    play_id = routing["play_topic_id"]
 
     for event in events:
         yes_count = len(json.loads(event["rsvp_yes"]))
@@ -302,12 +311,17 @@ async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
             text += f"📍 {event['location']}\n"
         text += f"\n✅ {yes_count} מגיעים"
 
-        kwargs = {"chat_id": GROUP_ID, "text": text}
-        if general_topic:
-            kwargs["message_thread_id"] = general_topic
-
         try:
-            await context.bot.send_message(**kwargs)
+            await safe_send(
+                context.bot,
+                db,
+                "send_message",
+                chat_id=GROUP_ID,
+                text=text,
+                message_thread_id=play_id,
+            )
+        except UnverifiedTopicError as e:
+            logger.warning("events: guard refused reminder: %s", e)
         except Exception as e:
             logger.error("Failed to send event reminder: %s", e)
 

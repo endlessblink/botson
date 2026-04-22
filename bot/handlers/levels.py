@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
 from ..utils.config import GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 from ..utils.helpers import is_admin, is_bot_user, get_display_name
 from ..utils.levels import get_level, get_progress, check_level_up, make_progress_bar
 
@@ -136,11 +137,11 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
     if not leaders:
         return
 
-    settings = get_settings()
-    general_topic = await db.get_verified_topic_id("botson_corner")
-    if general_topic is None:
-        logger.warning("levels: no verified topic mapping for category 'botson_corner'; skipping weekly leaderboard")
+    routing = await db.get_handler_routing("weekly_leaderboard")
+    if not routing or routing["play_topic_id"] is None:
+        logger.warning("levels: no routing configured for 'weekly_leaderboard'; skipping")
         return
+    play_id = routing["play_topic_id"]
 
     medals = ["🥇", "🥈", "🥉"]
     lines = ["🏆 טבלת רמות שבועית:", ""]
@@ -149,13 +150,18 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
         lvl = get_level(m.get("karma_points", 0))
         lines.append(f"{medal} {lvl['emoji']} {m['display_name']} — {lvl['tag']}")
 
-    kwargs = {"chat_id": GROUP_ID, "text": "\n".join(lines)}
-    if general_topic:
-        kwargs["message_thread_id"] = general_topic
-
     try:
-        await context.bot.send_message(**kwargs)
+        await safe_send(
+            context.bot,
+            db,
+            "send_message",
+            chat_id=GROUP_ID,
+            text="\n".join(lines),
+            message_thread_id=play_id,
+        )
         logger.info("Sent weekly leaderboard")
+    except UnverifiedTopicError as e:
+        logger.warning("levels: guard refused send: %s", e)
     except Exception as e:
         logger.error("Failed to send weekly leaderboard: %s", e)
 

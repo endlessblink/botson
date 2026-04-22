@@ -304,7 +304,8 @@ async function sendTopicDot(topicId) {
         await apiCall('/api/bot/send-message', {
             text: '·',
             topic_id: topicId,
-            target: 'main'
+            target: 'main',
+            is_topic_discovery: true
         });
         showToast('dot sent to topic ' + topicId + '. Check Telegram, then save the verified mapping.');
         fillVerifiedTopic(topicId, '', '', 'confirmed in Telegram UI after test dot');
