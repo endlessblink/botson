@@ -35,14 +35,6 @@ topics:
     keywords_off: ["סרט", "משחק", "קריפטו"]
     siblings: [2184, 335]
 
-  - topic_id: 153
-    category_key: ai
-    name_he: "Ai וטכנולוגיה"
-    description_he: "בינה מלאכותית, טכנולוגיה, כלים, פיתוח"
-    keywords_on: ["AI", "בינה מלאכותית", "ChatGPT", "Claude", "Gemini", "LLM", "מודל", "פיתוח", "קוד", "טכנולוגיה", "תכנות", "אפליקציה", "כלי", "אוטומציה"]
-    keywords_off: ["דייט", "פוליטיקה", "הימורים"]
-    siblings: [3113, 1517]
-
   - topic_id: 335
     category_key: cute
     name_he: "כל מה שחמוד"
@@ -101,8 +93,8 @@ topics:
 
   - topic_id: 3113
     category_key: ai_en
-    name_he: "AI & Tech"
-    description_he: "English-language AI and technology discussion (mirror of Ai וטכנולוגיה)"
-    keywords_on: ["AI", "LLM", "GPT", "Claude", "Gemini", "model", "coding", "developer", "API", "tech", "automation", "framework"]
-    keywords_off: ["politics", "crypto", "dating"]
-    siblings: [153, 1517]
+    name_he: "Ai וטכנולוגיה"
+    description_he: "בינה מלאכותית, טכנולוגיה, כלים, פיתוח (thread renamed from 'AI & Tech' to 'Ai וטכנולוגיה' in Telegram UI; dot-verified 2026-04-22)"
+    keywords_on: ["AI", "בינה מלאכותית", "ChatGPT", "Claude", "Gemini", "LLM", "מודל", "פיתוח", "קוד", "טכנולוגיה", "תכנות", "אפליקציה", "כלי", "אוטומציה", "GPT", "model", "coding", "developer", "API", "tech", "automation", "framework"]
+    keywords_off: ["דייט", "פוליטיקה", "הימורים", "politics", "crypto", "dating"]
+    siblings: [1517]
