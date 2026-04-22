@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from ..database.db import Database
 from .emoji_puzzle import send_scheduled_emoji_message
-from ..utils.config import get_settings
+from ..utils.config import should_skip_scheduled_message
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +134,15 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     test_group = int(os.getenv("TEST_GROUP_ID", "0"))
 
     for msg in due:
+        if should_skip_scheduled_message(msg.get("scheduled_date", ""), msg.get("created_by")):
+            logger.info(
+                "Skipping auto scheduled message %s on blackout date %s",
+                msg.get("id"),
+                msg.get("scheduled_date"),
+            )
+            await db.delete_scheduled_message(msg["id"])
+            continue
+
         target = msg.get("target_group", "main")
         if target == "test":
             group_id = test_group

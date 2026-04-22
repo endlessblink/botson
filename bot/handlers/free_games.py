@@ -1,5 +1,6 @@
 """Free-games RSS handler — fetches GG.deals freebie feed and posts new items."""
 
+from datetime import date
 import logging
 import os
 from typing import Any
@@ -8,7 +9,7 @@ import feedparser  # type: ignore[import-untyped]
 import httpx
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
+from ..utils.config import GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,10 @@ async def fetch_and_post_once(bot, db: Database, group_id: int,
 
 async def send_free_games(context):
     """Scheduler entrypoint — called by JobQueue.run_daily."""
+    if is_auto_blocked_on(date.today()):
+        logger.info("free_games: blackout date, skipping automatic post")
+        return
+
     target_gid = _resolve_target_group()
     if not target_gid:
         logger.info("free_games: disabled for all groups, skipping tick")

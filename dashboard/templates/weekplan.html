@@ -110,6 +110,11 @@
                             {{ day.day_name }}
                         </span>
                         <span class="text-xs text-[#52525b] mr-1.5">{{ day.date.strftime('%d.%-m') }}</span>
+                        {% if day.holiday_block %}
+                        <div class="mt-1 text-[10px] text-amber-300">
+                            {{ day.holiday_block.name or 'יום חסום' }}
+                        </div>
+                        {% endif %}
                     </div>
                     {% if day.is_today %}
                         <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">היום</span>
@@ -118,6 +123,15 @@
 
                 <!-- Activities -->
                 <div class="flex-1 px-3 py-2 space-y-2">
+                    {% if day.holiday_block %}
+                    <div class="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100">
+                        <div class="font-medium">חסימה אוטומטית פעילה</div>
+                        <div class="text-amber-200/80 mt-0.5">הבוט לא ישלח תוכן אוטומטי בתאריך הזה. תוכן ידני עדיין מותר.</div>
+                        {% if day.holiday_block.note %}
+                        <div class="text-amber-100 mt-1">רעיון/הערה: {{ day.holiday_block.note }}</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     {% if day.activities %}
                         {% for act in day.activities %}
                         {% set is_editable = act.type in ('morning', 'evening', 'discussion') and (act.get('pool_idx', -1) >= 0 or act.get('committed', False)) %}
@@ -194,6 +208,11 @@
                                 {{ day.day_name }}
                             </span>
                             <span class="text-xs text-[#3f3f46] mr-1.5">{{ day.date.strftime('%d.%-m') }}</span>
+                            {% if day.holiday_block %}
+                            <div class="mt-1 text-[10px] text-amber-300">
+                                {{ day.holiday_block.name or 'יום חסום' }}
+                            </div>
+                            {% endif %}
                         </div>
                         {% if day.is_today %}
                             <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">היום</span>
@@ -202,6 +221,15 @@
 
                     <!-- Activities -->
                     <div class="flex-1 px-3 py-2 space-y-2">
+                        {% if day.holiday_block %}
+                        <div class="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100">
+                            <div class="font-medium">חסימה אוטומטית פעילה</div>
+                            <div class="text-amber-200/80 mt-0.5">הבוט לא ישלח תוכן אוטומטי בתאריך הזה. תוכן ידני עדיין מותר.</div>
+                            {% if day.holiday_block.note %}
+                            <div class="text-amber-100 mt-1">רעיון/הערה: {{ day.holiday_block.note }}</div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                         {% if day.activities %}
                             {% for act in day.activities %}
                             {% set is_editable = act.type in ('morning', 'evening', 'discussion') and (act.get('pool_idx', -1) >= 0 or act.get('committed', False)) %}

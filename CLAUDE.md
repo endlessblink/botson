@@ -98,6 +98,7 @@ After any file change on VPS (manual edit, deploy, etc.), always: `chown -R bots
 - **Never use `drop_pending_updates=True`** — it causes the bot to miss all queued messages on restart
 - **Always verify before assuming** — check logs/DB with full timestamps before claiming something did or didn't happen. Never guess from memory.
 - **Always check Israel time before any date/time work** — run `date +"%Y-%m-%d %H:%M %A"` before writing schedules, checking logs, or mentioning times. System clock is IDT. Never guess.
+- **Do not act on uncertain topic/channel assumptions.** If a target topic/channel is not 100% verified from the live source of truth, stop and ask. Never infer from stale notes, guessed labels, or partial memory.
 
 ## Telegram Group Info
 
@@ -125,9 +126,9 @@ Source of truth is the live `forum_topics` table in `data/bot.db`. Topics not li
 | 153 | Ai וטכנולוגיה | ai |
 | 3113 | AI & Tech | ai_en |
 | 341 | ברוכים הבאים! מידע למצטרפים חדשים | welcome |
-| 7 | כל מה שאין לו ערוץ | general |
+| 7 | UNVERIFIED / DO NOT USE | untrusted |
 
-Note: the live `forum_topics.name` row for topic `7` may be stale in SQLite. When there is any mismatch between DB label and Telegram UI label, treat the topic ID as source of truth. User-confirmed current UI label for topic `7` is `כל מה שאין לו ערוץ`.
+Critical note: topic `7` must NOT be treated as `כל מה שאין לו ערוץ` or as the general thread. That earlier mapping was wrong. The local `forum_topics` table is not a trustworthy source of Telegram UI truth because it can be stale, overwritten, or polluted by message text. Do not use topic `7` for sends, schedules, or launches unless the user explicitly reconfirms it in the current session.
 | ? | טבעונים וצמחוניים | vegan |
 | ? | מצחיק / מגניב | funny |
 

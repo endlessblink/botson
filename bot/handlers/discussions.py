@@ -7,7 +7,7 @@ exports CATEGORY_NAMES for human-readable labeling in the dashboard.
 
 # Channel category to human-readable name mapping
 CATEGORY_NAMES = {
-    "general": "כל מה שאין לו ערוץ",
+    "general": "UNVERIFIED — do not use until user reconfirms the real topic",
     "geek": "אנימה / קומיקס וכל הדברים הגיקיים",
     "gaming": "גיימינג + משחקי לוח",
     "movies": "סרטים סדרות וכו",

@@ -244,6 +244,27 @@
     .fc .fc-daygrid-event.preview-event:hover {
         filter: brightness(1.2);
     }
+    .planner-holiday-block {
+        background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+        box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.22);
+    }
+    .planner-holiday-badge {
+        position: absolute;
+        left: 6px;
+        top: 6px;
+        max-width: calc(100% - 40px);
+        font-size: 9px;
+        line-height: 1.2;
+        color: #fde68a;
+        background: rgba(245, 158, 11, 0.14);
+        border: 1px solid rgba(245, 158, 11, 0.22);
+        border-radius: 999px;
+        padding: 2px 7px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        pointer-events: none;
+    }
 </style>
 
 <div class="flex items-center justify-between mb-4">
@@ -1309,6 +1330,11 @@ async function sendNowFromDrawer(target) {
 
 // ─── Calendar Init ───
 var schedulePattern = {{ schedule_pattern | default('{}') | safe }};
+var holidayBlackouts = {{ holiday_blackouts | default('[]') | safe }};
+var holidayBlackoutMap = {};
+holidayBlackouts.forEach(function(item) {
+    if (item && item.date) holidayBlackoutMap[item.date] = item;
+});
 document.addEventListener('DOMContentLoaded', function() {
     var calendarEl = document.getElementById('calendar');
 
@@ -1471,6 +1497,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
         dayCellDidMount: function(arg) {
             if (arg.view.type.indexOf('dayGrid') === -1) return;
+            var yyyy = arg.date.getFullYear();
+            var mm = String(arg.date.getMonth() + 1).padStart(2, '0');
+            var dd = String(arg.date.getDate()).padStart(2, '0');
+            var dateStr = yyyy + '-' + mm + '-' + dd;
+            var holidayBlock = holidayBlackoutMap[dateStr];
+            if (holidayBlock) {
+                arg.el.classList.add('planner-holiday-block');
+                arg.el.title = (holidayBlock.name || 'יום חסום') + (holidayBlock.note ? ' — ' + holidayBlock.note : '');
+                var frameEl = arg.el.querySelector('.fc-daygrid-day-frame');
+                if (frameEl && !frameEl.querySelector('.planner-holiday-badge')) {
+                    var badge = document.createElement('div');
+                    badge.className = 'planner-holiday-badge';
+                    badge.textContent = holidayBlock.name || 'חסימה';
+                    frameEl.appendChild(badge);
+                }
+            }
+
             var dow = arg.date.getDay(); // 0=Sunday
             var dots = [];
             var types = [
@@ -1516,10 +1559,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 addBtn.type = 'button';
                 addBtn.title = 'הוסף הודעה ליום זה';
                 addBtn.textContent = '+';
-                var yyyy = arg.date.getFullYear();
-                var mm = String(arg.date.getMonth() + 1).padStart(2, '0');
-                var dd = String(arg.date.getDate()).padStart(2, '0');
-                var dateStr = yyyy + '-' + mm + '-' + dd;
                 addBtn.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();

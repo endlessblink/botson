@@ -28,6 +28,20 @@
       transition: transform 0.25s ease-out;
     }
     .sheet.open { transform: translateY(0); }
+    .holiday-badge {
+      font-size: 9px;
+      line-height: 1.2;
+      color: #fde68a;
+      background: rgba(245, 158, 11, 0.14);
+      border: 1px solid rgba(245, 158, 11, 0.22);
+      border-radius: 999px;
+      padding: 2px 6px;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      align-self: flex-start;
+    }
   </style>
 </head>
 <body class="text-zinc-100 px-2 py-2">
@@ -80,6 +94,9 @@
                 <span class="text-xs font-medium text-zinc-300 px-0.5">{{ cell.day }}</span>
                 {% endif %}
               </div>
+              {% if cell.holiday_block %}
+              <div class="holiday-badge">{{ cell.holiday_block.name or 'חסימה אוטומטית' }}</div>
+              {% endif %}
               {% for chip in cell.chips[:4] %}
               <div class="{{ chip.css }} border text-[11px] rounded px-1.5 py-1 leading-tight overflow-hidden">
                 <div class="flex items-center gap-1 mb-0.5 font-mono">
@@ -87,6 +104,9 @@
                   <span class="text-[10px] opacity-90">{{ chip.time }}</span>
                 </div>
                 <div class="line-clamp-2 text-[10px] opacity-95">{{ chip.short }}</div>
+                {% if chip.topic_name %}
+                <div class="text-[9px] opacity-70 truncate mt-0.5">📍 {{ chip.topic_name }}</div>
+                {% endif %}
               </div>
               {% endfor %}
               {% if cell.chips|length > 4 %}
@@ -116,6 +136,7 @@
 
   <script>
     const DAYS_DATA = {{ days_json|safe }};
+    const HOLIDAY_BLACKOUTS = {{ holiday_blackouts_json|safe }};
     const HEB_DOW = {{ heb_dow|tojson }};
     const TODAY_ISO = "{{ today_iso }}";
 
@@ -136,16 +157,25 @@
 
     function openDay(iso) {
       const items = DAYS_DATA[iso] || [];
+      const holidayBlock = HOLIDAY_BLACKOUTS[iso] || null;
       sheetTitle.textContent = isoToHebrewDate(iso);
+      const holidayHtml = holidayBlock ? `
+        <div class="border border-amber-500/20 bg-amber-500/10 rounded-lg p-3">
+          <div class="text-amber-200 text-sm font-medium">${escapeHtml(holidayBlock.name || 'חסימה אוטומטית')}</div>
+          <p class="text-amber-100/90 text-xs leading-relaxed mt-1">הבוט לא ישלח תוכן אוטומטי בתאריך הזה. תוכן ידני עדיין מותר.</p>
+          ${holidayBlock.note ? `<p class="text-amber-50 text-xs leading-relaxed mt-2">${escapeHtml(holidayBlock.note)}</p>` : ''}
+        </div>
+      ` : '';
       if (items.length === 0) {
-        sheetBody.innerHTML = '<p class="text-zinc-500 text-center py-6">אין פעילות מתוכננת ביום זה</p>';
+        sheetBody.innerHTML = holidayHtml || '<p class="text-zinc-500 text-center py-6">אין פעילות מתוכננת ביום זה</p>';
       } else {
-        sheetBody.innerHTML = items.map(it => `
+        sheetBody.innerHTML = holidayHtml + items.map(it => `
           <div class="border border-zinc-800 rounded-lg p-3">
             <div class="flex items-center justify-between mb-2">
               <span class="${it.css} border text-xs rounded px-2 py-0.5">${it.emoji} ${it.label}</span>
               <span class="text-zinc-400 text-sm font-mono">${it.time}</span>
             </div>
+            ${it.topic_name ? `<div class="text-xs text-zinc-400 mb-1">📍 ${escapeHtml(it.topic_name)}</div>` : ''}
             <p class="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">${escapeHtml(it.text)}</p>
           </div>
         `).join("");

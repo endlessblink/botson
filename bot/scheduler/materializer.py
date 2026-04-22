@@ -16,7 +16,7 @@ import logging
 from datetime import date, timedelta
 
 from ..database.db import Database
-from ..utils.config import load_yaml, get_settings, is_feature_enabled
+from ..utils.config import load_yaml, get_settings, is_auto_blocked_on, is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +71,10 @@ def compute_week_previews(
         day_date = sunday + timedelta(days=i)
         day_iso = day_date.isoformat()
         day_ord = day_date.toordinal()
+        auto_blocked = is_auto_blocked_on(day_iso)
 
         # Morning
-        if i in schedule.get("morning_prompt", {}).get("days", []):
+        if (not auto_blocked) and i in schedule.get("morning_prompt", {}).get("days", []):
             m_time = schedule["morning_prompt"].get("time", "09:00")
             if (day_iso, m_time, "morning") not in committed_index and morning_queue:
                 text = morning_queue[day_ord % len(morning_queue)]
@@ -83,7 +84,7 @@ def compute_week_previews(
                 })
 
         # Discussion (multiple times per day possible)
-        if i in schedule.get("discussion_prompt", {}).get("days", []):
+        if (not auto_blocked) and i in schedule.get("discussion_prompt", {}).get("days", []):
             times = schedule["discussion_prompt"].get("times", ["18:00"])
             for time_idx, t in enumerate(times):
                 if (day_iso, t, "discussion") in committed_index:
@@ -116,7 +117,7 @@ def compute_week_previews(
 
         # Evening — same date-seeded pick, offset from morning to avoid
         # accidental alignment even if both queues happen to be same length.
-        if i in schedule.get("evening_prompt", {}).get("days", []):
+        if (not auto_blocked) and i in schedule.get("evening_prompt", {}).get("days", []):
             e_time = schedule["evening_prompt"].get("time", "21:00")
             if (day_iso, e_time, "evening") not in committed_index and evening_queue:
                 text = evening_queue[(day_ord + 3) % len(evening_queue)]

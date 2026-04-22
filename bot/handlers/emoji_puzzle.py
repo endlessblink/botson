@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, TEST_GROUP_ID, get_settings, is_feature_enabled
+from ..utils.config import GROUP_ID, TEST_GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 from ..utils.helpers import get_display_name, is_bot_user
 from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
@@ -362,6 +362,10 @@ async def _run_emoji_session(
 
 async def send_scheduled_emoji_night(context: ContextTypes.DEFAULT_TYPE):
     """Cron job: start one Emoji Night session for each enabled target group."""
+    if is_auto_blocked_on(datetime.now(_IL_TZ).date()):
+        logger.info("emoji_puzzle: blackout date, skipping automatic session")
+        return
+
     settings = get_settings()
     for chat_id, thread_id in get_enabled_emoji_targets(settings):
         try:
