@@ -2169,16 +2169,31 @@ def build_generation_prompt(field: str, mode: str, existing: str, category: str,
 
 
 async def _generate_via_cli(prompt: str) -> str:
-    """Try generating content via Claude Code CLI."""
+    """Try generating content via Claude Code CLI.
+
+    systemd services run with HOME pointing at WorkingDirectory, not the
+    user's real home — which means `claude` can't find ~/.claude/.
+    Look up the real home from /etc/passwd and override HOME in env.
+    """
+    import pwd as _pwd
+    try:
+        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
+    except Exception:
+        real_home = os.path.expanduser("~")
+    env = {**os.environ, "HOME": real_home}
     proc = await asyncio.create_subprocess_exec(
         "claude", "-p", prompt, "--model", "sonnet",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
     if proc.returncode != 0:
-        raise RuntimeError(f"CLI error: {stderr.decode()[:200]}")
-    return stdout.decode().strip()
+        raise RuntimeError(f"CLI error (rc={proc.returncode}): {stderr.decode()[:300]}")
+    out = stdout.decode().strip()
+    if not out:
+        raise RuntimeError(f"CLI returned empty output (stderr={stderr.decode()[:200]})")
+    return out
 
 
 async def _generate_via_api(prompt: str) -> str:
@@ -2223,13 +2238,19 @@ async def generate_content(request: Request):
     prompt = build_generation_prompt(field, mode, existing, category, instructions)
 
     # Try Claude Code CLI first, fall back to Anthropic API
+    cli_err = None
     try:
         content = await _generate_via_cli(prompt)
-    except Exception:
+    except Exception as e:
+        cli_err = e
+        logger.warning("generate_content: CLI failed, falling back to API: %s", e)
         try:
             content = await _generate_via_api(prompt)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+        except Exception as api_err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Generation failed: CLI={cli_err}; API={api_err}",
+            )
 
     return {"content": content}
 
