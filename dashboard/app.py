@@ -1135,6 +1135,11 @@ async def calendar_mini_app(request: Request, month: str | None = None,
         return s if len(s) <= n else s[:n - 1] + "…"
 
     by_day = defaultdict(list)
+    holiday_blackouts = {
+        item["date"]: item
+        for item in (settings.get("holiday_blackouts", []) or [])
+        if isinstance(item, dict) and item.get("date")
+    }
     for r in sched_rows:
         meta = _CAL_TYPE_STYLE.get(r["message_type"], _CAL_TYPE_STYLE["event"])
         full = (r["text"] or "").strip()
@@ -1190,6 +1195,7 @@ async def calendar_mini_app(request: Request, month: str | None = None,
                     "iso": iso,
                     "is_today": iso == today.isoformat(),
                     "is_past": iso < today.isoformat(),
+                    "holiday_block": holiday_blackouts.get(iso),
                     "chips": items,
                 })
         weeks.append(row)
@@ -1209,6 +1215,7 @@ async def calendar_mini_app(request: Request, month: str | None = None,
         "weeks": weeks,
         "legend": legend,
         "days_json": json.dumps(days_data, ensure_ascii=False),
+        "holiday_blackouts_json": json.dumps(holiday_blackouts, ensure_ascii=False),
         "today_iso": today.isoformat(),
         "prev_url": f"/calendar?month={prev_year:04d}-{prev_month:02d}",
         "next_url": f"/calendar?month={next_year:04d}-{next_month:02d}",
@@ -1347,6 +1354,15 @@ async def list_polls_api(request: Request, db: Database = Depends(get_db)):
             "options": options,
         })
     return {"polls": out}
+
+
+@app.get("/api/topics/live")
+async def live_topics_api(request: Request, db: Database = Depends(get_db)):
+    """Return the currently known forum topics directly from the live DB table."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    topics = await db.get_forum_topics()
+    return {"topics": topics}
 
 
 # ── Events API ───────────────────────────────────────────
@@ -3563,6 +3579,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "topic_names": topic_names,
         "drafts": drafts,
         "schedule_pattern": schedule_pattern,
+        "holiday_blackouts": _json.dumps(settings_obj.get("holiday_blackouts", []), ensure_ascii=False),
         "discussion_channels": discussion_channels,
         "grouped_channels": grouped_channels,
     })
