@@ -106,6 +106,56 @@ class BuildRoundTriggerPayloadTests(unittest.TestCase):
         self.assertEqual(payload["target_provenance"]["topic_id"], 7)
         self.assertIn("user-confirmed", payload["target_provenance"]["verification_source"])
 
+    def test_teaser_topic_id_roundtrip(self):
+        payload = build_round_trigger_payload(
+            target="main",
+            main_group_id=-1001,
+            test_group_id=-1002,
+            pre_roll_s=45,
+            topic_id=4037,
+            topic_verification_source="user-confirmed",
+            theme_label="movies",
+            categories=["movies"],
+            question_count=5,
+            live_topic_ids={4037, 54},
+            teaser_topic_id=54,
+        )
+        self.assertEqual(payload["thread_id"], 4037)
+        self.assertEqual(payload["teaser_topic_id"], 54)
+
+    def test_teaser_topic_id_rejected_when_not_in_live_set(self):
+        with self.assertRaises(TriviaVerificationError):
+            build_round_trigger_payload(
+                target="main",
+                main_group_id=-1001,
+                test_group_id=-1002,
+                pre_roll_s=45,
+                topic_id=4037,
+                topic_verification_source="user-confirmed",
+                theme_label="movies",
+                categories=["movies"],
+                question_count=5,
+                live_topic_ids={4037},
+                teaser_topic_id=999,
+            )
+
+    def test_teaser_same_as_play_thread_is_dropped_silently(self):
+        payload = build_round_trigger_payload(
+            target="main",
+            main_group_id=-1001,
+            test_group_id=-1002,
+            pre_roll_s=45,
+            topic_id=4037,
+            topic_verification_source="user-confirmed",
+            theme_label="movies",
+            categories=["movies"],
+            question_count=5,
+            live_topic_ids={4037},
+            teaser_topic_id=4037,
+        )
+        self.assertEqual(payload["thread_id"], 4037)
+        self.assertIsNone(payload["teaser_topic_id"])
+
     def test_test_target_allows_missing_topic(self):
         payload = build_round_trigger_payload(
             target="test",

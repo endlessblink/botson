@@ -109,6 +109,14 @@ async def post_init(app: Application):
     # Setup reload watcher (checks for data/reload flag file every 5s)
     _setup_reload_watcher(app)
 
+    # Audit every configured topic_id against verified_forum_topics.
+    # Non-fatal: startup continues even if unverified IDs are found.
+    from .utils.topic_audit import run as run_topic_audit
+    try:
+        await run_topic_audit(db)
+    except Exception as e:
+        logger.warning("topic_audit startup run failed: %s", e)
+
     # Materialize the next 14 days of morning/evening/discussion slots
     # into scheduled_messages so calendar_checker owns every send.
     from .scheduler.materializer import materialize_forward

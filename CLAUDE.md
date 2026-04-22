@@ -119,26 +119,43 @@ After any file change on VPS (manual edit, deploy, etc.), always: `chown -R bots
 |----------|-------------|-------------|----------|
 | 7 | אל הוריים טבעונים וצמחונים | vegan | 2026-04-22 via dot |
 | 54 | סרטים סדרות וכו | movies | 2026-04-22 via dot |
+| 59 | אל הוריים/יות פנויים פנויות | singles | 2026-04-22 via dot |
 | 153 | מצחיק / מגניב | funny | 2026-04-22 via dot |
+| 335 | כל מה שחמוד | cute | 2026-04-22 via dot |
 | 341 | מצטרפים חדשים + עדכונים | welcome | 2026-04-22 via dot |
+| 347 | ערוץ אומנות ויצירה | art | 2026-04-22 via dot |
+| 442 | אנימה / קומיקס וכל הדברים הגיקיים | geek | 2026-04-22 via dot |
+| 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics | 2026-04-22 via dot |
+| 1517 | גיימינג + משחקי לוח | gaming | 2026-04-22 via dot |
+| 2184 | יום יום | goals | 2026-04-22 via dot |
+| 3113 | Ai וטכנולוגיה | ai_en | 2026-04-22 via dot (renamed from "AI & Tech") |
+| 4037 | הפינה של בוטסון | botson_corner | 2026-04-22 via dot (new — central home for bot-generated content) |
 
-#### Unverified — needs dot test before use
+All 13 main-group topics were dot-verified on 2026-04-22 in a single session. The `כל מה שאין לו ערוץ` (Telegram "General") topic exists but is deliberately **not** used by the bot — there is no trusted way to target it via Bot API, and trying to use it was the root of the incident. No handler writes to General.
 
-These IDs appear in `forum_topics` or earlier notes but have NOT been dot-verified. The claimed name is what was previously recorded; it may be wrong (topic 153 was claimed `ai`, dot revealed it is `funny`). Do not use for sends until confirmed via the Settings page dot workflow.
+#### Routing table
 
-| Topic ID | Claimed Name | Claimed Key |
-|----------|-------------|-------------|
-| 2184 | יום יום | goals |
-| 1517 | גיימינג + משחקי לוח | gaming |
-| 442 | אנימה / קומיקס וכל הדברים הגיקיים | geek |
-| 59 | אל הוריים/יות מכירים | singles |
-| 335 | כל מה שחמוד 🐕🦝🐨 | cute |
-| 347 | ערוץ אומנות ויצירה 🎨📷 | art |
-| 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics |
-| 3113 | AI & Tech | ai_en |
-| ? | Ai וטכנולוגיה (Hebrew) | ai |
+Which handler posts to which topic is owned by the `bot_message_routing` table (one row per handler), editable live via the dashboard Settings page → "ניתוב פיצ'רים לערוצים". The DB, not code, decides where each feature lands. Seeded defaults:
 
-Historical note: topic `7` was wrongly treated as the `general` / `כל מה שאין לו ערוץ` thread in earlier sessions — a dot test on 2026-04-22 revealed it is actually the vegan thread. The `general` / `כל מה שאין לו ערוץ` topic currently has NO known verified ID. Every automatic handler (trivia, roundup, levels, events, event reminders) looks up `get_verified_topic_id("general")` and safely skips when none exists — do not plug a guessed ID into `settings.topics.general` to "fix" this; it will bypass the safety. See `docs/2026-04-22-trivia-topic-incident.md`.
+| Handler | Default play_topic_id |
+|---|---|
+| `trivia_round` / `trivia_scheduled` | `4037` botson_corner |
+| `emoji_puzzle` / `free_games` | `4037` botson_corner |
+| `weekly_roundup` / `weekly_leaderboard` | `4037` botson_corner |
+| `events_publish` / `events_reminder` | `341` welcome |
+
+`trivia_round` also supports `teaser_topic_ids` — optional short announcements in theme-matched topics (e.g., movie trivia → teaser in `movies` / 54) set per-launch from the dashboard.
+
+#### Send guard (bot/utils/topic_guard.py)
+
+Every outbound Telegram send goes through `safe_send`. Rules:
+- DM (positive `chat_id`) → pass through.
+- Test group (`TEST_GROUP_ID`) → pass through.
+- Main group with `message_thread_id=None` → `UnverifiedTopicError` (no root sends).
+- Main group with id not in `verified_forum_topics` → `UnverifiedTopicError`.
+- `bypass_verification=True` skips the checks; only the dot-test workflow's `/api/bot/send-message?is_topic_discovery=true` path sets it.
+
+Historical note: topic `7` was wrongly treated as the `general` / `כל מה שאין לו ערוץ` thread in earlier sessions — a dot test on 2026-04-22 revealed it is actually the vegan thread. See `docs/2026-04-22-trivia-topic-incident.md`.
 
 ### Level System
 
