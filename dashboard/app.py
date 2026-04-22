@@ -2884,6 +2884,7 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
 # ── Review Page ──────────────────────────────────────────
 
 PENDING_REVIEWS_PATH = Path(__file__).parent.parent / "data" / "pending_reviews.json"
+PENDING_REVIEWS_CLEARED_FLAG = Path(__file__).parent.parent / "data" / ".pending_reviews_cleared"
 EMOJI_PUZZLE_REVIEW_FLAG = Path(__file__).parent.parent / "data" / ".emoji_puzzle_reviews_seeded"
 
 
@@ -3007,6 +3008,17 @@ def _ensure_special_pending_reviews(items):
 
 
 def _load_pending_reviews():
+    if PENDING_REVIEWS_CLEARED_FLAG.exists():
+        if PENDING_REVIEWS_PATH.exists():
+            try:
+                items = json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
+                return items if isinstance(items, list) else []
+            except Exception:
+                logger.exception("[review] failed to read cleared %s — returning empty queue", PENDING_REVIEWS_PATH)
+                return []
+        _save_pending_reviews([])
+        return []
+
     if PENDING_REVIEWS_PATH.exists():
         try:
             items = json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
@@ -3023,6 +3035,12 @@ def _save_pending_reviews(items):
     PENDING_REVIEWS_PATH.write_text(
         json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def _clear_all_pending_reviews():
+    PENDING_REVIEWS_CLEARED_FLAG.parent.mkdir(parents=True, exist_ok=True)
+    PENDING_REVIEWS_CLEARED_FLAG.write_text("cleared\n", encoding="utf-8")
+    _save_pending_reviews([])
 
 
 @app.get("/review", response_class=HTMLResponse)
@@ -3093,6 +3111,18 @@ def _next_date_for_hebrew_day(target_hebrew_day: int, time_str: str):
         if (cand.weekday() + 1) % 7 == target_hebrew_day:
             return cand
     return today + _td(days=7)  # unreachable
+
+
+@app.post("/api/review/clear-all")
+async def review_clear_all(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    items = _load_pending_reviews()
+    cleared = len(items)
+    _clear_all_pending_reviews()
+    logger.info("[review] cleared all pending items (count=%d)", cleared)
+    return {"ok": True, "cleared": cleared}
 
 
 @app.post("/api/review/{item_id}/dismiss")

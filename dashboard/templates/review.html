@@ -3,9 +3,24 @@
 {% block title %}Botson — סקירת הודעות{% endblock %}
 
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">סקירת הודעות</h1>
-    <p class="text-sm text-[#71717a] mt-1">הודעות שממתינות לאישור לפני שליחה</p>
+<div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">סקירת הודעות</h1>
+        <p class="text-sm text-[#71717a] mt-1">הודעות שממתינות לאישור לפני שליחה</p>
+    </div>
+    {% if pending %}
+    <div class="flex items-center gap-2">
+        <div data-clear-all-confirm class="hidden flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-200">
+            <span>למחוק את כל ההודעות הממתינות?</span>
+            <button data-action="clear-all-confirm" class="px-2.5 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer">כן, למחוק הכל</button>
+            <button data-action="clear-all-cancel" class="px-2.5 py-1 rounded-md border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] hover:text-[#fafafa] transition-colors cursor-pointer">ביטול</button>
+        </div>
+        <button data-action="clear-all" class="px-3 py-1.5 text-xs rounded-md bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer inline-flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            נקה הכל
+        </button>
+    </div>
+    {% endif %}
 </div>
 
 {% if not pending %}
@@ -51,7 +66,12 @@
         <p class="text-xs text-[#52525b] mt-4 italic">{{ msg.note }}</p>
         {% endif %}
     </div>
-    <div class="px-5 py-3 border-t border-[#1f1f1f] flex items-center gap-2 justify-end">
+    <div class="px-5 py-3 border-t border-[#1f1f1f] flex flex-wrap items-center gap-2 justify-end">
+        <div data-reject-confirm class="hidden mr-auto flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-200">
+            <span>למחוק את הטיוטה?</span>
+            <button data-action="reject-confirm" class="px-2.5 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer">כן, למחוק</button>
+            <button data-action="reject-cancel" class="px-2.5 py-1 rounded-md border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] hover:text-[#fafafa] transition-colors cursor-pointer">ביטול</button>
+        </div>
         <button data-action="copy" class="px-3 py-1.5 text-xs rounded-md border border-[#272727] text-[#a1a1aa] hover:bg-[#171717] hover:text-[#fafafa] transition-colors cursor-pointer inline-flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
             העתק
@@ -73,6 +93,61 @@
 {% block scripts %}
 <script>
 (function () {
+    var clearAllBtn = document.querySelector('[data-action="clear-all"]');
+    var clearAllConfirm = document.querySelector('[data-clear-all-confirm]');
+    var clearAllConfirmBtn = document.querySelector('[data-action="clear-all-confirm"]');
+    var clearAllCancelBtn = document.querySelector('[data-action="clear-all-cancel"]');
+
+    function closeClearAllConfirm() {
+        if (!clearAllConfirm) return;
+        clearAllConfirm.classList.add('hidden');
+        if (clearAllBtn) clearAllBtn.classList.remove('hidden');
+    }
+
+    function openClearAllConfirm() {
+        if (!clearAllConfirm) return;
+        clearAllConfirm.classList.remove('hidden');
+        if (clearAllBtn) clearAllBtn.classList.add('hidden');
+    }
+
+    async function postJson(url, body) {
+        var res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        });
+        var payload = null;
+        try { payload = await res.json(); } catch (e) { payload = null; }
+        if (!res.ok) {
+            var detail = (payload && (payload.detail || payload.message)) || ('HTTP ' + res.status);
+            var err = new Error(detail);
+            err.status = res.status;
+            throw err;
+        }
+        return payload;
+    }
+
+    if (clearAllBtn) clearAllBtn.addEventListener('click', function () {
+        openClearAllConfirm();
+    });
+
+    if (clearAllCancelBtn) clearAllCancelBtn.addEventListener('click', function () {
+        closeClearAllConfirm();
+    });
+
+    if (clearAllConfirmBtn) clearAllConfirmBtn.addEventListener('click', async function () {
+        try {
+            await postJson('/api/review/clear-all', {});
+            showToast('כל ההודעות הממתינות נמחקו');
+            setTimeout(function () {
+                location.reload();
+            }, 250);
+        } catch (e) {
+            closeClearAllConfirm();
+            showToast('שגיאה: ' + e.message, 'error');
+        }
+    });
+
     document.querySelectorAll('.review-card').forEach(function (card) {
         var id = card.dataset.id;
         var previewEl = card.querySelector('[data-preview]');
@@ -148,16 +223,39 @@
         });
 
         var rejectBtn = card.querySelector('[data-action="reject"]');
+        var rejectConfirm = card.querySelector('[data-reject-confirm]');
+        var rejectConfirmBtn = card.querySelector('[data-action="reject-confirm"]');
+        var rejectCancelBtn = card.querySelector('[data-action="reject-cancel"]');
+
+        function closeRejectConfirm() {
+            if (!rejectConfirm) return;
+            rejectConfirm.classList.add('hidden');
+            if (rejectBtn) rejectBtn.classList.remove('hidden');
+        }
+
+        function openRejectConfirm() {
+            if (!rejectConfirm) return;
+            rejectConfirm.classList.remove('hidden');
+            if (rejectBtn) rejectBtn.classList.add('hidden');
+        }
+
         if (rejectBtn) rejectBtn.addEventListener('click', function () {
-            showConfirm('למחוק את הטיוטה?', async function () {
-                try {
-                    await postJson('/api/review/' + encodeURIComponent(id) + '/dismiss', { action: 'reject' });
-                    fadeOutAndRemove();
-                    showToast('נמחק');
-                } catch (e) {
-                    showToast('שגיאה: ' + e.message, 'error');
-                }
-            });
+            openRejectConfirm();
+        });
+
+        if (rejectCancelBtn) rejectCancelBtn.addEventListener('click', function () {
+            closeRejectConfirm();
+        });
+
+        if (rejectConfirmBtn) rejectConfirmBtn.addEventListener('click', async function () {
+            try {
+                await postJson('/api/review/' + encodeURIComponent(id) + '/dismiss', { action: 'reject' });
+                fadeOutAndRemove();
+                showToast('נמחק');
+            } catch (e) {
+                closeRejectConfirm();
+                showToast('שגיאה: ' + e.message, 'error');
+            }
         });
     });
 })();
