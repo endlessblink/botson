@@ -144,10 +144,10 @@ async def event_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Post to verified general topic only
     settings = get_settings()
-    general_topic = await db.get_verified_topic_id("general")
+    general_topic = await db.get_verified_topic_id("botson_corner")
     if general_topic is None:
-        await update.message.reply_text("שגיאה: אין topic מאומת לקטגוריה general")
-        logger.warning("events: no verified topic mapping for category 'general'; refusing publish")
+        await update.message.reply_text("שגיאה: אין topic מאומת לקטגוריה botson_corner")
+        logger.warning("events: no verified topic mapping for category 'botson_corner'; refusing publish")
         context.user_data.clear()
         return ConversationHandler.END
     kwargs = {"chat_id": GROUP_ID, "text": announcement, "reply_markup": keyboard}
@@ -284,9 +284,9 @@ async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
         return
 
     settings = get_settings()
-    general_topic = await db.get_verified_topic_id("general")
+    general_topic = await db.get_verified_topic_id("botson_corner")
     if general_topic is None:
-        logger.warning("events: no verified topic mapping for category 'general'; skipping reminders")
+        logger.warning("events: no verified topic mapping for category 'botson_corner'; skipping reminders")
         return
 
     for event in events:

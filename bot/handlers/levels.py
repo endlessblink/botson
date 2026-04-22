@@ -137,9 +137,9 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
         return
 
     settings = get_settings()
-    general_topic = await db.get_verified_topic_id("general")
+    general_topic = await db.get_verified_topic_id("botson_corner")
     if general_topic is None:
-        logger.warning("levels: no verified topic mapping for category 'general'; skipping weekly leaderboard")
+        logger.warning("levels: no verified topic mapping for category 'botson_corner'; skipping weekly leaderboard")
         return
 
     medals = ["🥇", "🥈", "🥉"]

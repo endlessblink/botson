@@ -22,9 +22,9 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
 
     settings = get_settings()
     db: Database = context.bot_data["db"]
-    general_topic = await db.get_verified_topic_id("general")
+    general_topic = await db.get_verified_topic_id("botson_corner")
     if general_topic is None:
-        logger.warning("roundup: no verified topic mapping for category 'general'; skipping send")
+        logger.warning("roundup: no verified topic mapping for category 'botson_corner'; skipping send")
         return
 
     week_ago = datetime.now() - timedelta(days=7)

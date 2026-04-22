@@ -57,6 +57,7 @@ class Database:
             "ALTER TABLE events ADD COLUMN source_poll_option_key TEXT",
             "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
             "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
+            "CREATE TABLE IF NOT EXISTS bot_message_routing (handler TEXT PRIMARY KEY, play_topic_id INTEGER, teaser_topic_ids TEXT NOT NULL DEFAULT '[]', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
         ]
         for sql in migrations:
             try:
@@ -64,6 +65,35 @@ class Database:
             except Exception as e:  # noqa: BLE001
                 if "duplicate column" not in str(e).lower():
                     logger.warning("Migration skipped/failed: %s (%s)", sql, e)
+
+        await self._seed_default_handler_routing()
+
+    async def _seed_default_handler_routing(self):
+        """Seed bot_message_routing with default per-handler targets on first run.
+
+        Only inserts rows that don't exist yet (INSERT OR IGNORE), so operator
+        edits via the dashboard are never overwritten. Defaults reflect the
+        post-2026-04-22 routing decision: bot-generated content lives in
+        botson_corner (4037); events go to welcome (341).
+        """
+        defaults = [
+            ("trivia_round", 4037),
+            ("trivia_scheduled", 4037),
+            ("emoji_puzzle", 4037),
+            ("free_games", 4037),
+            ("weekly_roundup", 4037),
+            ("weekly_leaderboard", 4037),
+            ("events_publish", 341),
+            ("events_reminder", 341),
+        ]
+        for handler, topic_id in defaults:
+            try:
+                await self._db.execute(
+                    "INSERT OR IGNORE INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids) VALUES (?, ?, '[]')",
+                    (handler, topic_id),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("handler routing seed skipped/failed for %s: %s", handler, e)
 
     async def close(self):
         """Close database connection."""
@@ -569,6 +599,68 @@ class Database:
         ) as cursor:
             row = await cursor.fetchone()
             return int(row[0]) if row and row[0] is not None else None
+
+    async def is_verified_topic_id(self, topic_id: int) -> bool:
+        """Return True iff topic_id has a row in verified_forum_topics."""
+        async with self._db.execute(
+            "SELECT 1 FROM verified_forum_topics WHERE topic_id = ? LIMIT 1",
+            (int(topic_id),),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def get_handler_routing(self, handler: str) -> dict | None:
+        """Return the routing row for a handler, or None if absent."""
+        async with self._db.execute(
+            "SELECT handler, play_topic_id, teaser_topic_ids, updated_at FROM bot_message_routing WHERE handler = ?",
+            (handler,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            try:
+                teaser_ids = json.loads(row["teaser_topic_ids"] or "[]")
+            except Exception:
+                teaser_ids = []
+            return {
+                "handler": row["handler"],
+                "play_topic_id": int(row["play_topic_id"]) if row["play_topic_id"] is not None else None,
+                "teaser_topic_ids": [int(x) for x in teaser_ids if isinstance(x, (int, str))],
+                "updated_at": row["updated_at"],
+            }
+
+    async def list_handler_routings(self) -> list[dict]:
+        """Return all handler routing rows."""
+        async with self._db.execute(
+            "SELECT handler, play_topic_id, teaser_topic_ids, updated_at FROM bot_message_routing ORDER BY handler"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        out = []
+        for row in rows:
+            try:
+                teaser_ids = json.loads(row["teaser_topic_ids"] or "[]")
+            except Exception:
+                teaser_ids = []
+            out.append({
+                "handler": row["handler"],
+                "play_topic_id": int(row["play_topic_id"]) if row["play_topic_id"] is not None else None,
+                "teaser_topic_ids": [int(x) for x in teaser_ids if isinstance(x, (int, str))],
+                "updated_at": row["updated_at"],
+            })
+        return out
+
+    async def set_handler_routing(self, handler: str, play_topic_id: int | None, teaser_topic_ids: list[int] | None = None) -> None:
+        """Upsert a handler routing row."""
+        teaser_json = json.dumps([int(x) for x in (teaser_topic_ids or [])])
+        await self._db.execute(
+            """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(handler) DO UPDATE SET
+                   play_topic_id = excluded.play_topic_id,
+                   teaser_topic_ids = excluded.teaser_topic_ids,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (handler, play_topic_id, teaser_json),
+        )
+        await self._db.commit()
 
     async def remove_verified_forum_topic(self, category_key: str):
         """Remove a trusted topic mapping."""

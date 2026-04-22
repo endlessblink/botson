@@ -99,9 +99,9 @@ async def send_scheduled_trivia(context: ContextTypes.DEFAULT_TYPE):
 
     settings = get_settings()
     db: Database = context.bot_data["db"]
-    general_topic = await db.get_verified_topic_id("general")
+    general_topic = await db.get_verified_topic_id("botson_corner")
     if general_topic is None:
-        logger.warning("trivia: no verified topic mapping for category 'general'; skipping automatic send")
+        logger.warning("trivia: no verified topic mapping for category 'botson_corner'; skipping automatic send")
         return
 
     buttons = []
