@@ -117,7 +117,7 @@ def _question_text(q: dict, q_index: int, remaining_s: int) -> str:
     )
 
 
-def _leaderboard_snapshot(scores: dict, *, limit: int = 3) -> str:
+def _leaderboard_snapshot(scores: dict, *, limit: int = 5) -> str:
     if not scores:
         return "עדיין אין מובילים"
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["correct"], -kv[1]["points"], kv[1]["name"]))
@@ -126,6 +126,8 @@ def _leaderboard_snapshot(scores: dict, *, limit: int = 3) -> str:
     for idx, (_uid, row) in enumerate(ranked[:limit]):
         medal = medals[idx] if idx < len(medals) else f"{idx+1}."
         lines.append(f"{medal} {row['name']} — {row['points']} נק׳")
+    if len(ranked) > limit:
+        lines.append(f"… ועוד {len(ranked) - limit} משתתפים")
     return "\n".join(lines)
 
 
@@ -191,11 +193,13 @@ def _build_final_text(round_state: dict, bonus_winners: list[int]) -> str:
         return "🧠 סוף הטריוויה!\n\nאף אחד לא ענה נכון הפעם. בפעם הבאה 💪"
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["correct"], -kv[1]["points"], kv[1]["name"]))
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["🧠 סוף הטריוויה! תוצאות:\n"]
-    for i, (uid, s) in enumerate(ranked):
+    lines = [f"🧠 סוף הטריוויה! תוצאות:\n\n👥 השתתפו {len(ranked)} שחקנים"]
+    for i, (uid, s) in enumerate(ranked[:10]):
         medal = medals[i] if i < 3 else f"{i+1}."
         bonus = f" (+{POINTS_FIRST_PLACE_BONUS} בונוס 🏆)" if uid in bonus_winners else ""
         lines.append(f"{medal} {s['name']} — {s['correct']}/{question_count} נכון · {s['points']} נק׳{bonus}")
+    if len(ranked) > 10:
+        lines.append(f"\n… ועוד {len(ranked) - 10} משתתפים בדירוג")
     if bonus_winners:
         winners_names = ", ".join(round_state["scores"][u]["name"] for u in bonus_winners)
         lines.append(f"\n🏆 מקום ראשון: {winners_names} (+{POINTS_FIRST_PLACE_BONUS} בונוס)")
