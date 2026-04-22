@@ -1064,14 +1064,14 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function startTriviaRound() {
-    // Guard: unsaved AI-generated questions would be ignored by the round.
+    // Auto-save: unsaved textarea content gets written to trivia.yaml before
+    // the round fires. No confirm dialog — if the save fails (bad format) we
+    // block launch with an error so you can fix it. User explicitly asked for
+    // this behavior 2026-04-23.
     var raw = (document.getElementById('trivia-questions-textarea').value || '').trim();
     if (raw && triviaQuestionsDirty) {
-        var save = confirm('יש שאלות לא שמורות בתיבה. לשמור אותן ל-trivia.yaml לפני הסיבוב?');
-        if (save) {
-            var ok = await saveTriviaQuestions();
-            if (!ok) return; // save failed, user already saw error
-        }
+        var ok = await saveTriviaQuestions();
+        if (!ok) return; // save failed; showToast already fired
     }
 
     var target = document.getElementById('trivia-target').value;

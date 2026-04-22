@@ -2151,15 +2151,26 @@ def build_generation_prompt(field: str, mode: str, existing: str, category: str,
 פלט: רק את השאלות, שורה אחת לכל שאלה, בלי מספור ובלי הסברים."""
 
     elif field == "trivia":
-        # For trivia, `category` is the comma-separated user hint (e.g. "ישראל"
-        # or "סרטים,טלוויזיה") and `instructions` is the theme_label. Both
-        # steer subject matter and the required `קטגוריה:` tag on each block.
+        # `category` is the user's categories input (comma-separated, e.g.
+        # "ישראל" or "טכנולוגיה,ישראל"); `instructions` is the theme_label.
+        # CRITICAL: the category tag on each block must match one of the user's
+        # values EXACTLY — the round launcher filters by string equality, so
+        # free-form AI tags produce zero matches and _pick_questions ends up
+        # empty (the 2026-04-23 "tech round showed film questions" bug).
         theme_hint = (instructions or "").strip()
         cat_hint = (category or "").strip()
-        if cat_hint:
-            topic_line = f"נושא מרכזי: {theme_hint or cat_hint}. הקפד שכל השאלות יהיו בתחום זה ובקטגוריות הבאות בלבד: {cat_hint}. תייג כל שאלה עם קטגוריה מתאימה מהרשימה."
+        cat_list = [c.strip() for c in cat_hint.split(",") if c.strip()] if cat_hint else []
+        if cat_list:
+            allowed_tags = " | ".join(cat_list)
+            topic_line = (
+                f"נושא מרכזי: {theme_hint or cat_hint}. הקפד שכל השאלות יהיו בתחום זה ובקטגוריות הבאות בלבד: {cat_hint}.\n"
+                f"חובה: בכל שאלה, השורה 'קטגוריה:' חייבת להיות בדיוק אחד מהערכים הבאים (ללא שינוי טקסט): {allowed_tags}."
+            )
         elif theme_hint:
-            topic_line = f"נושא מרכזי: {theme_hint}. כל השאלות צריכות להיות קשורות לנושא הזה."
+            topic_line = (
+                f"נושא מרכזי: {theme_hint}. כל השאלות צריכות להיות קשורות לנושא הזה.\n"
+                f"חובה: השורה 'קטגוריה:' של כל שאלה חייבת להיות בדיוק: {theme_hint}."
+            )
         else:
             topic_line = "נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל."
         base = f"""צור {count} שאלות טריוויה בעברית עבור {COMMUNITY_CONTEXT}

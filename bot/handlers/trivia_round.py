@@ -50,24 +50,51 @@ def _load_questions() -> list[dict]:
 
 
 def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> list[dict]:
-    """Pick n questions, preferring the supplied categories first."""
+    """Pick n questions matching the supplied categories.
+
+    When the caller passed explicit categories (preferred_categories is not None)
+    we NEVER silently fall back to unrelated questions — doing so caused tech
+    rounds to play film questions on 2026-04-22. Callers that want the old
+    broad-pool behaviour should pass preferred_categories=None.
+    """
     pool = _load_questions()
     if not pool:
         return []
-    preferred_categories = preferred_categories or PREFERRED_CATEGORIES
-    preferred = [q for q in pool if q.get("category") in preferred_categories]
-    rest = [q for q in pool if q.get("category") not in preferred_categories]
-    random.shuffle(preferred)
-    random.shuffle(rest)
+    strict = preferred_categories is not None
+    categories = preferred_categories if strict else PREFERRED_CATEGORIES
+
+    def _matches(q: dict) -> bool:
+        cat = str(q.get("category") or "").strip().lower()
+        return any(cat == str(c).strip().lower() for c in categories)
+
+    matching = [q for q in pool if _matches(q)]
+    random.shuffle(matching)
+
     picked: list[dict] = []
     seen_texts: set[str] = set()
-    for q in preferred + rest:
+    for q in matching:
         if q.get("text") in seen_texts:
             continue
         picked.append(q)
         seen_texts.add(q.get("text", ""))
         if len(picked) >= n:
             break
+
+    if strict:
+        # Never mix unrelated categories into a themed round. If the filter
+        # produced fewer than N, return what we have; the caller logs + skips.
+        return picked
+
+    # Default (legacy) behaviour: top up with non-matching when user didn't
+    # specify a theme.
+    if len(picked) < n:
+        rest = [q for q in pool if not _matches(q) and q.get("text") not in seen_texts]
+        random.shuffle(rest)
+        for q in rest:
+            picked.append(q)
+            seen_texts.add(q.get("text", ""))
+            if len(picked) >= n:
+                break
     return picked
 
 
@@ -233,7 +260,13 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
     for q in questions:
         q["_round_question_count"] = question_count
     if len(questions) < question_count:
-        logger.error("trivia_round: not enough questions (%d)", len(questions))
+        logger.error(
+            "trivia_round: not enough questions matching categories=%s (found=%d, requested=%d). "
+            "Check that the questions saved in trivia.yaml have exactly one of these category tags.",
+            sorted(preferred_categories or PREFERRED_CATEGORIES),
+            len(questions),
+            question_count,
+        )
         return
 
     round_state: dict = {
