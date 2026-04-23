@@ -983,10 +983,13 @@ async function generateTriviaQuestions(mode, evt) {
     var orig = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '…מייצר'; }
     try {
+        // Always pass the current textarea as "existing" so the AI de-dups —
+        // narrow themes (e.g. "טכנולוגיה בישראל") otherwise keep landing on
+        // the same Check Point / NSO / Waze questions every regenerate.
         var res = await apiCall('/api/generate', {
             field: 'trivia',
             mode: mode,
-            existing: mode === 'append' ? textarea.value : '',
+            existing: textarea.value,
             category: categoriesRaw,
             instructions: theme,
         });

@@ -2214,7 +2214,10 @@ def build_generation_prompt(field: str, mode: str, existing: str, category: str,
     else:
         base = f"צור תוכן בעברית עבור {COMMUNITY_CONTEXT}"
 
-    if mode == "append" and existing:
+    if existing and (mode == "append" or (field == "trivia" and mode == "replace")):
+        # For trivia replace, the frontend now sends the current pool so the AI
+        # can avoid returning the same canonical questions on every regenerate
+        # (narrow themes otherwise keep landing on Check Point / NSO / Waze).
         base += f"\n\nהנה התוכן הקיים (אל תחזור עליו, צור תוכן חדש ושונה):\n{existing}"
 
     return base
