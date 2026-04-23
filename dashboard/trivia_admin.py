@@ -111,24 +111,36 @@ def build_round_trigger_payload(
         }
         thread_id = int(topic_id)
     else:
+        # Test target: the test group is a regular chat without forum topics,
+        # so any topic_id picked from the main-group dropdown would land in a
+        # thread Telegram doesn't recognize ("message thread not found"). Strip
+        # both play and teaser thread ids and post to the test-group root.
+        # Operator's main-group selections survive in localStorage so switching
+        # back to target=main brings them back automatically.
+        stripped_topic = int(topic_id) if topic_id is not None else None
         source = str(topic_verification_source or "").strip() or "test-target-no-topic"
         provenance = {
             "target": normalized_target,
-            "topic_id": int(topic_id) if topic_id is not None else None,
+            "topic_id": None,
             "verification_source": source,
+            "stripped_main_topic_id": stripped_topic,
         }
-        thread_id = int(topic_id) if topic_id is not None else None
+        thread_id = None
 
     teaser_id = None
     if teaser_topic_id is not None:
-        teaser_id = int(teaser_topic_id)
-        if normalized_target == "main" and live_topic_ids is not None and teaser_id not in live_topic_ids:
-            raise TriviaVerificationError(
-                f"Teaser topic {teaser_id} is not present in live verified topics"
-            )
-        if thread_id is not None and teaser_id == thread_id:
-            # Pointless to teaser the same thread we play in; drop silently.
-            teaser_id = None
+        if normalized_target == "test":
+            # Same reason as above: test group has no forums, no teasers fire.
+            provenance["stripped_teaser_topic_id"] = int(teaser_topic_id)
+        else:
+            teaser_id = int(teaser_topic_id)
+            if live_topic_ids is not None and teaser_id not in live_topic_ids:
+                raise TriviaVerificationError(
+                    f"Teaser topic {teaser_id} is not present in live verified topics"
+                )
+            if thread_id is not None and teaser_id == thread_id:
+                # Pointless to teaser the same thread we play in; drop silently.
+                teaser_id = None
 
     teaser_msg = None
     if teaser_id is not None and teaser_text is not None:

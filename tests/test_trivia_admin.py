@@ -173,6 +173,30 @@ class BuildRoundTriggerPayloadTests(unittest.TestCase):
         self.assertIsNone(payload["thread_id"])
         self.assertEqual(payload["target_provenance"]["verification_source"], "test-target-no-topic")
 
+    def test_test_target_strips_main_group_thread_and_teaser(self):
+        # Operator picked play=4037 + teaser=3113 (both main-group topics)
+        # then switched the target to "test". The payload must drop both
+        # thread ids — Telegram would reject sends to non-existent threads
+        # in the test group.
+        payload = build_round_trigger_payload(
+            target="test",
+            main_group_id=-1001,
+            test_group_id=-1002,
+            pre_roll_s=15,
+            topic_id=4037,
+            topic_verification_source="dashboard-selected verified topic 4037",
+            theme_label="ישראל",
+            categories=["ישראל"],
+            question_count=5,
+            teaser_topic_id=3113,
+        )
+        self.assertEqual(payload["chat_id"], -1002)
+        self.assertIsNone(payload["thread_id"])
+        self.assertIsNone(payload["teaser_topic_id"])
+        # Provenance should record what was stripped so audit trails show why.
+        self.assertEqual(payload["target_provenance"]["stripped_main_topic_id"], 4037)
+        self.assertEqual(payload["target_provenance"]["stripped_teaser_topic_id"], 3113)
+
 
 if __name__ == "__main__":
     unittest.main()
