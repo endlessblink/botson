@@ -107,6 +107,11 @@
 | T-099 | 16 | Free Games: activate in main group (topic 1517) | TODO | P2 | T-097 |
 | T-100 | — | Configure git remote and push WIP commits | TODO | P1 | — |
 | T-101 | — | Handle media assets (gitignore / LFS / commit) | TODO | P3 | — |
+| T-111 | 18 | Trivia: end-to-end real Telegram launch verification | TODO | P1 | — |
+| T-112 | 18 | Trivia: verify drawer stays open on launch after hard-refresh | TODO | P2 | T-111 |
+| T-113 | 19 | Cleanup stale scheduled_messages rows with target_channel="general" | TODO | P2 | — |
+| T-114 | 19 | Handler Routing UI: teaser_topic_ids multi-select on Settings | TODO | P2 | — |
+| T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | TODO | P1 | — |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
@@ -959,6 +964,77 @@ Template `dashboard/templates/puzzles.html`. Style-mirror `trivia.html`.
 - Only after a successful dry-run: enable for `main` group, schedule first real event
 
 **Implemented so far:** deleted `scripts/emoji_puzzle_test.py` and replaced it with the real dashboard run-now flow. Local workspace has no `data/pending_reviews.json`, so there were no local `emoji-puzzle-r1-*` review items to remove here. Remaining work is the live Sherlocks Den dry-run and any copy/pacing iteration based on that observation.
+
+---
+
+#### T-111: Trivia — end-to-end real Telegram launch verification
+**Phase:** 18 — Trivia polish | **Priority:** P1 | **Status:** TODO
+
+All the pipeline fixes from 2026-04-22 to 2026-04-23 (strict category filter, auto-save, preflight check, teaser message, category-driven AI, test-group strip) have been verified with unit tests + curl smoke tests but **never by actually launching a real round into Telegram and watching the bot post**. This task is the human-in-the-loop verification.
+
+**How to test:**
+1. Dashboard → `/planner` → new message → **🧠 טריוויה**.
+2. Target: `Sherlocks Den (בדיקה)`. Categories: `ישראל`. Count: 3. Pre-roll: 15.
+3. Click `התחל סיבוב`.
+4. Within ~15s: bot posts 3 Israel-themed questions to Sherlocks Den.
+5. Answer one, confirm scoring works, round ends with leaderboard.
+6. Repeat with target=main + teaser selected, verify teaser lands in the teaser channel first and round plays in `הפינה של בוטסון`.
+
+**Pass criteria:** questions that play match `trivia.yaml` content; correct category; teaser (when set) references the teaser channel by name; round ends cleanly.
+
+---
+
+#### T-112: Trivia — verify drawer stays open on launch after hard-refresh
+**Phase:** 18 | **Priority:** P2 | **Status:** TODO | **Deps:** T-111
+
+The 2026-04-23 commit `fb8e058` removed `closeDrawer()` from `startTriviaRound` in `dashboard/templates/planner.html` so iterative test-launches don't force re-navigation. User reported drawer still closing on launch — suspected browser cache. Task: hard-refresh (Ctrl/Cmd+Shift+R) then launch; confirm drawer stays open. If it still closes, grep for other `closeDrawer` calls fired during the launch path.
+
+**Files:** `dashboard/templates/planner.html` (search for `closeDrawer`).
+
+---
+
+#### T-113: Cleanup stale scheduled_messages rows with target_channel="general"
+**Phase:** 19 — Cleanup | **Priority:** P2 | **Status:** TODO
+
+After the 2026-04-22 routing refactor, `"general"` is no longer a resolvable target. Old rows in the `scheduled_messages` table (VPS `/opt/robotnik/data/bot.db`) with `target_channel='general'` would now fail the `topic_guard` at send time. Probably zero live impact (the guard refuses, bot.log shows the refusal), but the rows are dead weight.
+
+**How to execute:**
+1. On VPS: `sqlite3 data/bot.db "SELECT id, scheduled_date, text FROM scheduled_messages WHERE target_channel='general' AND sent_at IS NULL;"`
+2. Review the list with the user.
+3. After approval: `DELETE FROM scheduled_messages WHERE target_channel='general' AND sent_at IS NULL;` or UPDATE them to a valid channel.
+
+**Files:** `bot/database/db.py` (scheduled_messages schema, for reference).
+
+---
+
+#### T-114: Handler Routing UI — teaser_topic_ids multi-select on Settings
+**Phase:** 19 | **Priority:** P2 | **Status:** TODO
+
+`bot_message_routing.teaser_topic_ids` is a JSON array — the API and DB already support per-handler multi-topic teasers. The dashboard Settings page currently only renders a single-select dropdown for `play_topic_id` (see `dashboard/templates/settings.html` "ניתוב פיצ'רים לערוצים" section). Build the teaser multi-select so operators can configure e.g. trivia → teaser in `movies` + `gaming` + `politics`.
+
+**Files:**
+- `dashboard/templates/settings.html` — add multi-select widget per row
+- `dashboard/app.py` `/api/handler-routing/save` (already accepts the list — no backend change)
+- `dashboard/templates/settings.html::saveHandlerRouting` JS — collect multiple selected option values
+
+**Reuse:** the `verified_topics` context list that already feeds the play dropdown.
+
+---
+
+#### T-115: Trivia flow — audit + remove hardcoded strings in generation/teaser
+**Phase:** 18 | **Priority:** P1 | **Status:** TODO
+
+Blocker for broad category use: the pipeline still has several hardcoded strings that break when the user picks a non-Israel theme. Audit and make every user-facing string derived from the user's inputs (category, theme, channel names) or configurable.
+
+**Known hardcoded bits to inspect/fix:**
+- `dashboard/app.py::build_generation_prompt` field=trivia — default fallback `"נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל"` when user passes no category/theme. Should be configurable or removed.
+- `dashboard/app.py::build_generation_prompt` — `COMMUNITY_CONTEXT` is a shared constant; verify it doesn't lock the AI to a specific demographic.
+- `bot/handlers/trivia_round.py::_run_round` default teaser fallback `"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון"` — hardcodes "בפינה של בוטסון" even when play channel is something else. User-provided `teaser_text` overrides, but when absent the fallback should derive the channel name from `verified_forum_topics` using `thread_id`.
+- `bot/handlers/trivia_round.py` constants `THEME_LABEL`, `PREFERRED_CATEGORIES`, `QUESTION_COUNT`, `QUESTION_TIMEOUT_S`, `POINTS_CORRECT`, `POINTS_FIRST_PLACE_BONUS` — check which are truly immutable vs which should be editable from the dashboard.
+- `dashboard/templates/planner.html::_buildDefaultTeaser` — includes "הפינה של בוטסון" fallback string; should always come from the selected play channel's name.
+- Hardcoded ה-category filter fallback pool `PREFERRED_CATEGORIES` in `trivia_round.py` — used only when caller passes `None`; confirm no dashboard path still triggers that fallback.
+
+**Pass criteria:** launching a round with a completely unrelated theme (e.g. categories=`["קולינריה"]`, play=an arbitrary verified channel) produces an AI-generated batch, a teaser that names *that* channel, and an announcement/final message with no lingering "ישראל" / "בוטסון corner" / Israel-specific copy.
 
 ---
 
