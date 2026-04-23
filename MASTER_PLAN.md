@@ -112,6 +112,7 @@
 | T-113 | 19 | Cleanup stale scheduled_messages rows with target_channel="general" | TODO | P2 | — |
 | T-114 | 19 | Handler Routing UI: teaser_topic_ids multi-select on Settings | TODO | P2 | — |
 | T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | TODO | P1 | — |
+| T-116 | 20 | Events: stop overwriting user content with date/time line | TODO | P1 | — |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
@@ -1035,6 +1036,35 @@ Blocker for broad category use: the pipeline still has several hardcoded strings
 - Hardcoded ה-category filter fallback pool `PREFERRED_CATEGORIES` in `trivia_round.py` — used only when caller passes `None`; confirm no dashboard path still triggers that fallback.
 
 **Pass criteria:** launching a round with a completely unrelated theme (e.g. categories=`["קולינריה"]`, play=an arbitrary verified channel) produces an AI-generated batch, a teaser that names *that* channel, and an announcement/final message with no lingering "ישראל" / "בוטסון corner" / Israel-specific copy.
+
+---
+
+#### T-116: Events — stop overwriting user content with date/time line
+**Phase:** 20 — Events polish | **Priority:** P1 | **Status:** TODO
+
+On `/events`, the title field gets auto-filled with a date/time summary like `"יום שישי | 24.4 | 18:30"`, wiping whatever the user typed (or what was pulled in from a source poll like `"משחקי קופסה אונליין: Splendor או משהו אחר..."`). The broken title then flows straight into the Telegram announcement when the event is published — the group sees a date string as the event name. The form already has explicit separate date (`event-date`) and time (`event-time`) inputs, so a title that is *also* date+time is pure redundancy.
+
+**Root cause — pinned:**
+- `dashboard/templates/events.html:645-655` defines `_autoTitleFor(dateIso, time)` that builds `"יום {day} | {D.M} | {HH:MM}"`.
+- `dashboard/templates/events.html:657-669` `_maybeRetitleFromDateTime()` runs it and writes into `#event-title`. The `_autoTitlePrev` guard is supposed to preserve user edits but misfires when the source is a poll (line 378 sets `_autoTitlePrev = null` after `_applyPollMeta` fills the title, then the next date/time change re-overwrites).
+- `seedDefaultsIfEmpty()` (around line 671) invokes the retitle on page load, producing the bad default even before the user interacts.
+
+**Proposed fix (recommended):**
+1. Remove the auto-title feature entirely. Delete `_autoTitleFor`, `_maybeRetitleFromDateTime`, `_autoTitlePrev`, and the calls that trigger them. Leave `#event-title` empty by default; user types a real title or it inherits from the poll source.
+2. Publish-side: confirm `bot/handlers/events.py` uses the title as-is and never fabricates one.
+
+**Alternative (if auto-title has fans):** only fill the title when both (a) it's empty AND (b) no poll source is active AND (c) no draft was loaded. Never run `_maybeRetitleFromDateTime` after any non-seed event (date/time changes must not rewrite title after page load).
+
+**Files to modify:**
+- `dashboard/templates/events.html` — kill the auto-title block and its callers (search `_autoTitle` / `_maybeRetitle`)
+- `dashboard/templates/events.html:377` — `_applyPollMeta` already writes the poll text to title; keep that, just drop the `_autoTitlePrev = null` reset if auto-title is removed
+- `bot/handlers/events.py` — verify the published message doesn't reconstruct a date-summary title
+
+**Pass criteria:**
+- Opening `/events` with empty form: `#event-title` stays empty (placeholder visible), date/time defaults appear separately below.
+- Creating an event from a poll: title = cleaned poll question (already works via `_applyPollMeta`), never overwritten when user picks a date/time.
+- Publishing the event to Telegram: group sees the user's title, not `"יום שישי | 24.4 | 18:30"`.
+- The events list (bottom of `/events`) shows the original titles per row, not date-summary strings.
 
 ---
 
