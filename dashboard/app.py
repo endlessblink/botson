@@ -2050,6 +2050,33 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
     except TriviaVerificationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Preflight: refuse to persist the trigger if trivia.yaml has too few
+    # questions matching the requested categories. Without this, the bot
+    # would silently log "not enough questions" to bot.log while the user
+    # only sees "סיבוב מוכן" and never learns the round didn't run.
+    if categories:
+        try:
+            tdata = load_yaml("trivia.yaml") or {}
+            wanted = {c.strip().lower() for c in categories if c.strip()}
+            matches = [
+                q for q in (tdata.get("questions") or [])
+                if isinstance(q, dict)
+                and str(q.get("category") or "").strip().lower() in wanted
+            ]
+            if len(matches) < question_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"אין מספיק שאלות מתאימות בקטגוריות {sorted(wanted)} "
+                        f"(נמצאו {len(matches)}, נדרש {question_count}). "
+                        f"ייצר שאלות בנושא ולחץ שמור לפני השקת הסיבוב."
+                    ),
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("trivia preflight category-match check skipped: %s", e)
+
     if target == "main":
         configured_general = (settings.get("topics") or {}).get("general")
         payload["target_provenance"]["configured_general_topic"] = configured_general
