@@ -1105,7 +1105,7 @@ async function startTriviaRound() {
         var where = trigger.thread_id ? ('topic ' + trigger.thread_id) : 'ללא topic';
         var teaser = trigger.teaser_topic_id ? (' · teaser ' + trigger.teaser_topic_id) : '';
         showToast('סיבוב מוכן: chat ' + trigger.chat_id + ' · ' + where + teaser);
-        closeDrawer();
+        // Drawer stays open so iterative test-launches don't force a re-navigation.
     } catch (e) {
         showToast('שגיאה בהתחלת הסיבוב: ' + e.message, 'error');
     }
