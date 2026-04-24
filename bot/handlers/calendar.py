@@ -185,6 +185,16 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     main_group = int(os.getenv("GROUP_ID", "0"))
     test_group = int(os.getenv("TEST_GROUP_ID", "0"))
 
+    # Stale-drop guard: defense-in-depth against rows whose scheduled_time is
+    # far in the past (bot was offline for hours, DB anomaly, etc.). Threshold
+    # via settings.yaml (stale_drop_minutes, default 30). Marks row 'failed'
+    # so it neither sends nor retries. Future-dated rows are unaffected.
+    try:
+        from bot.utils.config import get_settings as _get_settings
+        stale_drop_minutes = int((_get_settings() or {}).get("stale_drop_minutes", 30) or 30)
+    except Exception:
+        stale_drop_minutes = 30
+
     for msg in due:
         if should_skip_scheduled_message(msg.get("scheduled_date", ""), msg.get("created_by")):
             logger.info(
@@ -194,6 +204,25 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             )
             await db.delete_scheduled_message(msg["id"])
             continue
+
+        # Stale-drop check — fires only for rows significantly behind now.
+        if stale_drop_minutes > 0:
+            try:
+                sched_dt = datetime.strptime(
+                    f"{msg.get('scheduled_date','')} {(msg.get('scheduled_time') or '00:00')[:5]}",
+                    "%Y-%m-%d %H:%M",
+                ).replace(tzinfo=_IL_TZ)
+                delay_minutes = (now - sched_dt).total_seconds() / 60.0
+            except (ValueError, TypeError):
+                delay_minutes = 0
+            if delay_minutes > stale_drop_minutes:
+                logger.warning(
+                    "Stale-drop: msg id=%s scheduled=%s %s was %.1f min late (threshold %d) — marking failed without send",
+                    msg.get("id"), msg.get("scheduled_date"), msg.get("scheduled_time"),
+                    delay_minutes, stale_drop_minutes,
+                )
+                await db.mark_message_failed(msg["id"], f"stale:{int(delay_minutes)}min")
+                continue
 
         target = msg.get("target_group", "main")
         if target == "test":
