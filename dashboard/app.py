@@ -3248,27 +3248,73 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
     return _parse_digest_json(raw, "codex-cli"), {"transport": "codex-cli"}
 
 
+async def _generate_today_plan_via_ollama(bundle: dict) -> tuple[dict, dict]:
+    """Tier-3 fallback: local Ollama endpoint (default localhost:11434).
+    Works only when the dashboard runs on the same host as Ollama — i.e.
+    local dev. On VPS this transport gets a connection refused and falls
+    through cleanly.
+
+    Uses Ollama's `format: "json"` to constrain output to valid JSON —
+    no fence stripping needed.
+
+    Env overrides: OLLAMA_URL (default http://localhost:11434),
+    OLLAMA_MODEL (default gemma4:latest).
+    """
+    import httpx
+    url = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+    model = os.getenv("OLLAMA_MODEL", "gemma4:latest")
+    prompt = _build_cli_digest_prompt(bundle)
+    logger.info("[ai-fill-today] digest via ollama: model=%s url=%s prompt_chars=%d",
+                model, url, len(prompt))
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.7, "num_predict": 4096},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(f"{url}/api/generate", json=payload)
+    except httpx.ConnectError as e:
+        raise RuntimeError(f"ollama not reachable at {url}: {e}") from e
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"ollama rc={resp.status_code} body={resp.text[:400]}")
+    data = resp.json()
+    raw = (data.get("response") or "").strip()
+    logger.info("[ai-fill-today] ollama returned chars=%d", len(raw))
+    if not raw:
+        raise RuntimeError(f"ollama empty response: {data}")
+    return _parse_digest_json(raw, "ollama"), {"transport": "ollama", "model": model}
+
+
 async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
-    """Primary transport: Claude Code CLI (works on VPS with just claude login).
-    Fallback transport: Codex CLI. No direct API path — user prefers CLI auth."""
+    """Transport chain:
+      1. Claude Code CLI (preferred — same auth as every other endpoint)
+      2. Codex CLI (fallback — works if `codex` is installed + logged in)
+      3. Ollama / local Gemma (last resort — only if running on same host)
+
+    Every attempt is logged at INFO so `journalctl -u botson-dashboard`
+    shows the exact path taken.
+    """
     errors = []
 
-    try:
-        plan, usage = await _generate_today_plan_via_claude_cli(bundle)
-        logger.info("[ai-fill-today] digest OK via claude CLI")
-        return plan, usage
-    except Exception as e:
-        errors.append(f"claude-cli: {e}")
-        logger.warning("[ai-fill-today] claude CLI failed, will try codex CLI: %s", e)
+    for transport_name, fn in (
+        ("claude-cli", _generate_today_plan_via_claude_cli),
+        ("codex-cli", _generate_today_plan_via_codex_cli),
+        ("ollama", _generate_today_plan_via_ollama),
+    ):
+        try:
+            plan, usage = await fn(bundle)
+            logger.info("[ai-fill-today] digest OK via %s", transport_name)
+            return plan, usage
+        except Exception as e:
+            errors.append(f"{transport_name}: {e}")
+            logger.warning("[ai-fill-today] %s failed: %s", transport_name, e)
 
-    try:
-        plan, usage = await _generate_today_plan_via_codex_cli(bundle)
-        logger.info("[ai-fill-today] digest OK via codex CLI (fallback)")
-        return plan, usage
-    except Exception as e:
-        errors.append(f"codex-cli: {e}")
-        logger.exception("[ai-fill-today] codex CLI fallback also failed")
-
+    logger.error("[ai-fill-today] all transports failed: %s", " | ".join(errors))
     raise RuntimeError("digest failed on all transports: " + " | ".join(errors))
 
 
