@@ -3162,13 +3162,55 @@ def _parse_digest_json(raw: str, transport: str) -> dict:
 
 async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]:
     """Primary: Claude Code CLI. Uses the claude auth already logged in on
-    the host — no API key needed. Same `_generate_via_cli` helper every other
-    AI-generation endpoint uses."""
+    the host — no API key needed.
+
+    Direct invocation (not the shared `_generate_via_cli`) so we can capture
+    BOTH stdout and stderr on failure. The claude CLI writes rate-limit and
+    auth errors to stdout with rc=1 — we need stdout in the log to diagnose.
+    """
+    import shutil
+    import pwd as _pwd
+
+    claude_bin = shutil.which("claude") or "/usr/bin/claude"
+    try:
+        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
+    except Exception:
+        real_home = os.path.expanduser("~")
+
     prompt = _build_cli_digest_prompt(bundle)
-    logger.info("[ai-fill-today] digest via claude CLI: prompt_chars=%d", len(prompt))
-    raw = await _generate_via_cli(prompt)
-    logger.info("[ai-fill-today] claude CLI returned chars=%d", len(raw))
-    return _parse_digest_json(raw, "claude-cli"), {"transport": "claude-cli"}
+    logger.info(
+        "[ai-fill-today] digest via claude CLI: bin=%s euid=%d HOME=%s prompt_chars=%d",
+        claude_bin, os.geteuid(), real_home, len(prompt),
+    )
+
+    env = {**os.environ, "HOME": real_home}
+    proc = await asyncio.create_subprocess_exec(
+        claude_bin, "-p", prompt, "--model", "sonnet",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    try:
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise RuntimeError("claude CLI timed out after 120s")
+
+    stdout = stdout_b.decode(errors="replace").strip()
+    stderr = stderr_b.decode(errors="replace").strip()
+    logger.info(
+        "[ai-fill-today] claude CLI rc=%d stdout_chars=%d stderr_chars=%d",
+        proc.returncode, len(stdout), len(stderr),
+    )
+    if proc.returncode != 0:
+        # Capture BOTH streams verbatim — rate-limit / auth errors land on stdout.
+        raise RuntimeError(
+            f"claude CLI rc={proc.returncode} "
+            f"stdout={stdout[:400]!r} stderr={stderr[:400]!r}"
+        )
+    if not stdout:
+        raise RuntimeError(f"claude CLI empty stdout, stderr={stderr[:400]!r}")
+    return _parse_digest_json(stdout, "claude-cli"), {"transport": "claude-cli"}
 
 
 async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
