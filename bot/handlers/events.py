@@ -220,15 +220,6 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-    # Update the message with new RSVP counts.
-    # Only edit the inline keyboard — NOT the text/caption — because:
-    #   1. Photo+caption messages (events with covers) can't use edit_message_text;
-    #      Telegram returns "Bad Request: there is no text in the message to edit".
-    #      edit_message_reply_markup works for both text and photo messages.
-    #   2. The button labels themselves carry the counts (✅ מגיע/ה (N) / 🤔 אולי (M)),
-    #      so the user gets immediate visual confirmation of the new state.
-    #   3. Avoids overwriting the original event-card text (which the dashboard
-    #      authored) with the bot's own reformatted version.
     event = await db.get_event(event_id)
     if not event:
         return
@@ -243,10 +234,38 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
 
+    # Append a voter-names block to the event card text/caption. Split on our
+    # known marker so repeat clicks replace the existing block rather than
+    # stacking. The event card is plain text (dashboard._format_event_message
+    # does not use parse_mode), so names can be inserted without escaping.
+    voters = await db.get_event_voters(event_id)
+    yes_names = [v["display_name"] for v in voters["yes"]]
+    maybe_names = [v["display_name"] for v in voters["maybe"]]
+
+    original = query.message.caption or query.message.text or ""
+    base = original.split("\n\n✅ מגיעים", 1)[0]
+    if yes_names or maybe_names:
+        new_text = (
+            f"{base}\n\n"
+            f"✅ מגיעים ({len(yes_names)}): {', '.join(yes_names) if yes_names else '—'}\n"
+            f"🤔 אולי ({len(maybe_names)}): {', '.join(maybe_names) if maybe_names else '—'}"
+        )
+    else:
+        new_text = base
+
     try:
-        await query.edit_message_reply_markup(reply_markup=keyboard)
+        if query.message.caption is not None:
+            await query.edit_message_caption(caption=new_text, reply_markup=keyboard)
+        elif query.message.text is not None:
+            await query.edit_message_text(text=new_text, reply_markup=keyboard)
+        else:
+            # Message has no editable text surface (shouldn't happen for event cards).
+            await query.edit_message_reply_markup(reply_markup=keyboard)
     except Exception as e:
-        logger.error("Failed to update RSVP markup: %s", e)
+        # "Message is not modified" fires when the text hasn't actually changed
+        # (e.g. user re-clicks the same button with the same name already listed).
+        if "not modified" not in str(e).lower():
+            logger.error("Failed to update RSVP message: %s", e)
 
 
 async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

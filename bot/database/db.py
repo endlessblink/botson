@@ -420,6 +420,58 @@ class Database:
         )
         await self._db.commit()
 
+    async def get_event_voters(self, event_id: int) -> dict:
+        """Resolve RSVP user_ids for an event to display_name + username.
+
+        Returns {'yes': [{user_id, display_name, username}, ...], 'maybe': [...]}
+        in the order user_ids appear in the stored JSON arrays.
+
+        Array order is "most-recent-click-last" (update_event_rsvp removes and
+        re-appends on every click), not chronological first-RSVP. Fine for the
+        admin events panel; if chronological order is ever needed, introduce a
+        per-vote log table like `poll_votes`.
+        """
+        import json
+        event = await self.get_event(event_id)
+        if not event:
+            return {"yes": [], "maybe": []}
+
+        yes_ids = json.loads(event["rsvp_yes"] or "[]")
+        maybe_ids = json.loads(event["rsvp_maybe"] or "[]")
+        all_ids = list({*yes_ids, *maybe_ids})
+
+        members_by_id: dict = {}
+        if all_ids:
+            placeholders = ",".join("?" * len(all_ids))
+            async with self._db.execute(
+                f"SELECT user_id, username, display_name FROM members "
+                f"WHERE user_id IN ({placeholders})",
+                all_ids,
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                members_by_id[row["user_id"]] = dict(row)
+
+        def resolve(ids):
+            out = []
+            for uid in ids:
+                m = members_by_id.get(uid)
+                if m:
+                    out.append({
+                        "user_id": uid,
+                        "display_name": m["display_name"] or f"User {uid}",
+                        "username": m["username"],
+                    })
+                else:
+                    out.append({
+                        "user_id": uid,
+                        "display_name": f"User {uid}",
+                        "username": None,
+                    })
+            return out
+
+        return {"yes": resolve(yes_ids), "maybe": resolve(maybe_ids)}
+
     async def delete_event(self, event_id: int):
         """Soft-delete an event."""
         await self._db.execute(

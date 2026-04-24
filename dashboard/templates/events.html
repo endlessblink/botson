@@ -182,8 +182,25 @@
                     <td class="px-5 py-3">
                         <span class="text-sm text-[#a1a1aa]">{{ e.event_date }}{% if e.event_time %} · {{ e.event_time }}{% endif %}</span>
                     </td>
-                    <td class="px-5 py-3">
-                        <span class="text-sm text-[#a1a1aa]">{{ e.rsvp_yes_count }} אישרו · {{ e.rsvp_maybe_count }} אולי</span>
+                    <td class="px-5 py-3 min-w-[18rem]">
+                        <div class="flex flex-col gap-1.5 text-xs">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="text-[#a1a1aa] whitespace-nowrap">✅ מגיעים ({{ e.rsvp_yes_count }}):</span>
+                                {% for v in e.rsvp_yes %}
+                                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-emerald-200">{{ v.display_name }}{% if v.username %}<span class="text-[#71717a]">&nbsp;@{{ v.username }}</span>{% endif %}</span>
+                                {% else %}
+                                <span class="text-[#71717a]">—</span>
+                                {% endfor %}
+                            </div>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="text-[#a1a1aa] whitespace-nowrap">🤔 אולי ({{ e.rsvp_maybe_count }}):</span>
+                                {% for v in e.rsvp_maybe %}
+                                <span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-amber-200">{{ v.display_name }}{% if v.username %}<span class="text-[#71717a]">&nbsp;@{{ v.username }}</span>{% endif %}</span>
+                                {% else %}
+                                <span class="text-[#71717a]">—</span>
+                                {% endfor %}
+                            </div>
+                        </div>
                     </td>
                     <td class="px-5 py-3">
                         {% if e.active %}

@@ -1587,8 +1587,11 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
 
     events = await db.get_all_events()
     for e in events:
-        e["rsvp_yes_count"] = len(json.loads(e.get("rsvp_yes", "[]")))
-        e["rsvp_maybe_count"] = len(json.loads(e.get("rsvp_maybe", "[]")))
+        voters = await db.get_event_voters(e["id"])
+        e["rsvp_yes"] = voters["yes"]
+        e["rsvp_maybe"] = voters["maybe"]
+        e["rsvp_yes_count"] = len(voters["yes"])
+        e["rsvp_maybe_count"] = len(voters["maybe"])
     settings = get_settings()
     forum_topics = await db.get_forum_topics()
 
