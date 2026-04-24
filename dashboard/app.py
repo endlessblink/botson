@@ -3341,6 +3341,9 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
                         "options": [o.strip() for o in opts],
                         "correct": correct,
                         "category": (q.get("category") or "כללי").strip() or "כללי",
+                        # Provenance — consumed by today-summary + future audits.
+                        "added_at": today_iso,
+                        "source": "ai-fill-today",
                     })
                 else:
                     errors.append(f"trivia question rejected: {q}")
@@ -3422,12 +3425,16 @@ async def approve_today_drafts(request: Request, db: Database = Depends(get_db))
 
 @app.get("/api/weekplan/today-summary")
 async def today_summary(request: Request, db: Database = Depends(get_db)):
-    """Counts for the planner banner: today's AI drafts + today-added trivia/emoji."""
+    """Planner banner counts. Now uses precise provenance fields rather than
+    heuristics: trivia questions tagged with added_at/source by the digest
+    path, and emoji puzzles counted by date(created_at) (only ai-fill-today
+    writes to that table from the dashboard — no manual-add UI exists)."""
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     from datetime import date
     today_iso = date.today().isoformat()
 
+    # Drafts waiting for admin approval
     async with db._db.execute(
         """SELECT COUNT(*) FROM scheduled_messages
            WHERE scheduled_date = ? AND status = 'draft'
@@ -3437,33 +3444,51 @@ async def today_summary(request: Request, db: Database = Depends(get_db)):
         row = await cur.fetchone()
         draft_count = int(row[0]) if row else 0
 
+    # Emoji puzzles added today (+ preview answers for the banner)
+    emoji_today_count = 0
+    emoji_today_samples: list[dict] = []
     async with db._db.execute(
-        "SELECT COUNT(*) FROM emoji_puzzles WHERE date(created_at) = ?",
+        """SELECT id, emoji_prompt, answer_he, answer_en
+           FROM emoji_puzzles WHERE date(created_at) = ?
+           ORDER BY id DESC LIMIT 50""",
         (today_iso,),
     ) as cur:
-        row = await cur.fetchone()
-        emoji_today = int(row[0]) if row else 0
+        rows = await cur.fetchall()
+        emoji_today_count = len(rows)
+        for r in rows[:5]:   # top 5 for the banner preview
+            emoji_today_samples.append({
+                "id": r["id"],
+                "emoji_prompt": r["emoji_prompt"],
+                "answer_he": r["answer_he"],
+                "answer_en": r["answer_en"],
+            })
 
-    # Trivia: the ✨ button's additions carry the event title as category, and
-    # those categories won't exist in the pre-existing pool. Count any category
-    # whose member count is >= 1 but didn't exist before today is hard without
-    # a timestamp on yaml entries — use a cheap heuristic: look at the current
-    # event titles for today, count matching categories in the pool.
+    # Trivia questions added today by the digest (provenance-tagged)
+    trivia_today_count = 0
+    trivia_today_categories: dict[str, int] = {}
     try:
-        events = await db.get_upcoming_events(50)
-        today_event_titles = {(e.get("title") or "").strip() for e in events if e.get("event_date") == today_iso}
         pool = (load_yaml("trivia.yaml") or {}).get("questions") or []
-        trivia_today = sum(
-            1 for q in pool if (q.get("category") or "").strip() in today_event_titles
-        )
+        for q in pool:
+            if (q.get("added_at") or "").strip() == today_iso and (q.get("source") or "") == "ai-fill-today":
+                trivia_today_count += 1
+                cat = (q.get("category") or "כללי").strip() or "כללי"
+                trivia_today_categories[cat] = trivia_today_categories.get(cat, 0) + 1
     except Exception:
-        trivia_today = 0
+        pass
+
+    # Sort categories by count descending for the banner
+    trivia_categories_list = [
+        {"category": cat, "count": cnt}
+        for cat, cnt in sorted(trivia_today_categories.items(), key=lambda kv: -kv[1])
+    ]
 
     return {
         "date": today_iso,
         "drafts": draft_count,
-        "trivia_added_today": trivia_today,
-        "emoji_added_today": emoji_today,
+        "trivia_added_today": trivia_today_count,
+        "trivia_categories": trivia_categories_list,
+        "emoji_added_today": emoji_today_count,
+        "emoji_samples": emoji_today_samples,
     }
 
 

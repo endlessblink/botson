@@ -29,12 +29,20 @@ def _normalize_question(question: dict[str, Any], *, index: int) -> dict[str, An
     if not isinstance(correct, int) or correct < 0 or correct > 3:
         raise TriviaVerificationError(f"Question {index} has invalid correct index")
 
-    return {
+    result = {
         "text": text,
         "options": normalized_options,
         "correct": correct,
         "category": category,
     }
+    # Optional provenance fields — preserved verbatim if present.
+    added_at = question.get("added_at")
+    if added_at:
+        result["added_at"] = str(added_at).strip()
+    source = question.get("source")
+    if source:
+        result["source"] = str(source).strip()
+    return result
 
 
 def save_and_verify_trivia_questions(path: str | Path, questions: list[dict[str, Any]]) -> dict[str, Any]:
