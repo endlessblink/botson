@@ -3122,58 +3122,112 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
     }
 
 
-async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
-    """Call Anthropic Messages API with tool-use + prompt caching.
-    Returns (parsed_plan, usage_stats). Raises on transport/protocol error."""
-    import httpx
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set — digest call requires direct API")
+def _strip_json_fences(raw: str) -> str:
+    """Strip optional ```json ... ``` wrapping that Claude sometimes adds."""
+    import re
+    txt = (raw or "").strip()
+    if txt.startswith("```"):
+        txt = re.sub(r"^```(?:json)?\s*\n?", "", txt, count=1)
+        txt = re.sub(r"\n?```\s*$", "", txt, count=1)
+    return txt.strip()
 
-    user_content = (
-        "קונטקסט היום בפורמט JSON:\n```json\n"
-        f"{json.dumps(bundle, ensure_ascii=False, indent=2)}\n```\n\n"
-        "קרא את כל הקונטקסט והחלט. קרא לכלי today_plan עם ההחלטות."
+
+def _build_cli_digest_prompt(bundle: dict) -> str:
+    """System + bundle + schema rolled into one prompt for CLI transports."""
+    return (
+        DIGEST_SYSTEM_PROMPT
+        + "\n\n---\n\nקונטקסט היום (JSON):\n```json\n"
+        + json.dumps(bundle, ensure_ascii=False, indent=2)
+        + "\n```\n\n"
+        "החזר אך ורק JSON חוקי שתואם את הסכמה של today_plan.\n"
+        "הפלט חייב להיות בלוק ```json``` בלבד, ללא הקדמה, ללא הסבר, ללא טקסט אחר.\n\n"
+        "סכמה:\n```json\n"
+        + json.dumps(_today_plan_tool_schema()["input_schema"], ensure_ascii=False, indent=2)
+        + "\n```"
     )
 
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 8192,
-        "system": [
-            {"type": "text", "text": DIGEST_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
-        ],
-        "tools": [_today_plan_tool_schema()],
-        "tool_choice": {"type": "tool", "name": "today_plan"},
-        "messages": [{"role": "user", "content": user_content}],
-    }
 
-    async with httpx.AsyncClient(timeout=300) as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-                "anthropic-beta": "prompt-caching-2024-07-31",
-            },
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+def _parse_digest_json(raw: str, transport: str) -> dict:
+    """Parse a CLI JSON response with fence stripping + regex rescue."""
+    cleaned = _strip_json_fences(raw)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        import re
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if not match:
+            raise RuntimeError(f"{transport}: non-JSON output (first 300 chars): {raw[:300]}")
+        return json.loads(match.group(0))
 
-    usage = data.get("usage") or {}
-    usage_stats = {
-        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
-        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
-        "input_tokens": usage.get("input_tokens", 0),
-        "output_tokens": usage.get("output_tokens", 0),
-    }
 
-    for block in data.get("content") or []:
-        if block.get("type") == "tool_use" and block.get("name") == "today_plan":
-            return block.get("input") or {}, usage_stats
+async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]:
+    """Primary: Claude Code CLI. Uses the claude auth already logged in on
+    the host — no API key needed. Same `_generate_via_cli` helper every other
+    AI-generation endpoint uses."""
+    prompt = _build_cli_digest_prompt(bundle)
+    logger.info("[ai-fill-today] digest via claude CLI: prompt_chars=%d", len(prompt))
+    raw = await _generate_via_cli(prompt)
+    logger.info("[ai-fill-today] claude CLI returned chars=%d", len(raw))
+    return _parse_digest_json(raw, "claude-cli"), {"transport": "claude-cli"}
 
-    raise RuntimeError(f"No today_plan tool_use in response: stop_reason={data.get('stop_reason')}")
+
+async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
+    """Fallback: Codex CLI (`codex exec PROMPT`). Requires `codex` binary on
+    PATH + a prior `codex login`. Gracefully errors if absent (e.g. VPS)."""
+    import shutil
+    import pwd as _pwd
+
+    codex_bin = shutil.which("codex")
+    if not codex_bin:
+        raise RuntimeError("codex CLI not installed on this host")
+
+    prompt = _build_cli_digest_prompt(bundle)
+    logger.info("[ai-fill-today] digest via codex CLI: prompt_chars=%d", len(prompt))
+
+    try:
+        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
+    except Exception:
+        real_home = os.path.expanduser("~")
+    env = {**os.environ, "HOME": real_home}
+
+    proc = await asyncio.create_subprocess_exec(
+        codex_bin, "exec", prompt,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+    if proc.returncode != 0:
+        raise RuntimeError(f"codex CLI rc={proc.returncode} stderr={stderr.decode()[:300]}")
+    raw = stdout.decode().strip()
+    if not raw:
+        raise RuntimeError(f"codex CLI empty output, stderr={stderr.decode()[:200]}")
+    logger.info("[ai-fill-today] codex CLI returned chars=%d", len(raw))
+    return _parse_digest_json(raw, "codex-cli"), {"transport": "codex-cli"}
+
+
+async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
+    """Primary transport: Claude Code CLI (works on VPS with just claude login).
+    Fallback transport: Codex CLI. No direct API path — user prefers CLI auth."""
+    errors = []
+
+    try:
+        plan, usage = await _generate_today_plan_via_claude_cli(bundle)
+        logger.info("[ai-fill-today] digest OK via claude CLI")
+        return plan, usage
+    except Exception as e:
+        errors.append(f"claude-cli: {e}")
+        logger.warning("[ai-fill-today] claude CLI failed, will try codex CLI: %s", e)
+
+    try:
+        plan, usage = await _generate_today_plan_via_codex_cli(bundle)
+        logger.info("[ai-fill-today] digest OK via codex CLI (fallback)")
+        return plan, usage
+    except Exception as e:
+        errors.append(f"codex-cli: {e}")
+        logger.exception("[ai-fill-today] codex CLI fallback also failed")
+
+    raise RuntimeError("digest failed on all transports: " + " | ".join(errors))
 
 
 @app.post("/api/weekplan/ai-fill-today")
@@ -3206,16 +3260,18 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
 
     # Assemble the full context bundle and run the digest
     bundle = await _build_today_bundle(db, today, sunday, saturday, settings)
+    logger.info(
+        "[ai-fill-today] bundle: events=%d scheduled=%d drafts_existing=%d week_previews=%d verified_topics=%d trivia_cats=%d emoji_pool=%d",
+        len(bundle["events_today"]), len(bundle["scheduled_messages_today"]),
+        len(bundle["existing_drafts_today"]), len(bundle["this_week_previews"]),
+        len(bundle["verified_topic_ids"]), len(bundle["existing_trivia_categories"]),
+        len(bundle["existing_emoji_answers_sample"]),
+    )
     errors: list[str] = []
     try:
         plan, usage = await _generate_today_plan(bundle)
-        logger.info(
-            "[ai-fill-today] digest OK | cache_create=%d cache_read=%d in=%d out=%d",
-            usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"],
-            usage["input_tokens"], usage["output_tokens"],
-        )
     except Exception as e:
-        logger.exception("[ai-fill-today] digest failed")
+        # Already logged with traceback inside _generate_today_plan
         errors.append(f"digest: {e}")
         return {
             "skipped_holiday": False,
@@ -4581,6 +4637,29 @@ _COVER_MIMES = {
 _MAX_COVER_BYTES = 8 * 1024 * 1024  # 8 MB cap
 
 
+def _validated_cover_ext(data: bytes, content_type: str | None) -> str:
+    mime = (content_type or "").split(";")[0].lower()
+    ext = _COVER_MIMES.get(mime)
+    if not ext:
+        raise HTTPException(status_code=400, detail=f"Unsupported content-type {content_type}")
+    if not data:
+        raise HTTPException(status_code=400, detail="Image is empty")
+
+    valid = False
+    if ext == "jpg":
+        valid = data.startswith(b"\xff\xd8") and data.rstrip().endswith(b"\xff\xd9")
+    elif ext == "png":
+        valid = data.startswith(b"\x89PNG\r\n\x1a\n") and data.rstrip().endswith(b"IEND\xaeB`\x82")
+    elif ext == "gif":
+        valid = data.startswith((b"GIF87a", b"GIF89a")) and data.rstrip().endswith(b";")
+    elif ext == "webp":
+        valid = len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+
+    if not valid:
+        raise HTTPException(status_code=422, detail="Image corrupt or unsupported")
+    return ext
+
+
 def _cover_filename(source_tag: str, ext: str) -> str:
     import time
     return f"{int(time.time())}_{source_tag}_{secrets.token_hex(4)}.{ext}"
@@ -4596,12 +4675,10 @@ async def upload_cover(request: Request, file: UploadFile = File(...)):
     """Accept an uploaded image and save to MEDIA_DIR/covers/."""
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    ext = _COVER_MIMES.get((file.content_type or "").lower())
-    if not ext:
-        raise HTTPException(status_code=400, detail=f"Unsupported content-type {file.content_type}")
     data = await file.read(_MAX_COVER_BYTES + 1)
     if len(data) > _MAX_COVER_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 8MB)")
+    ext = _validated_cover_ext(data, file.content_type)
     dest = COVERS_DIR / _cover_filename("up", ext)
     dest.write_bytes(data)
     logger.info("Cover uploaded: %s (%d bytes)", dest.name, len(data))
@@ -4668,7 +4745,7 @@ async def scrape_cover(request: Request):
                 data = r.content
                 if len(data) > _MAX_COVER_BYTES:
                     raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
-                ext = _COVER_MIMES.get(ctype, "jpg")
+                ext = _validated_cover_ext(data, ctype)
             else:
                 # HTML page — find an image
                 html = r.text
@@ -4682,8 +4759,7 @@ async def scrape_cover(request: Request):
                 data = ir.content
                 if len(data) > _MAX_COVER_BYTES:
                     raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
-                mime = (ir.headers.get("content-type", "").split(";")[0]).lower()
-                ext = _COVER_MIMES.get(mime, "jpg")
+                ext = _validated_cover_ext(data, ir.headers.get("content-type"))
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Fetch failed: {e}")
 
@@ -4714,6 +4790,8 @@ async def generate_cover(request: Request):
         logger.error("kie.ai generation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
 
+    content_type = next((mime for mime, known_ext in _COVER_MIMES.items() if known_ext == ext), None)
+    ext = _validated_cover_ext(data, content_type)
     dest = COVERS_DIR / _cover_filename("ai", ext)
     dest.write_bytes(data)
     logger.info("Cover generated via kie.ai: %s (%d bytes)", dest.name, len(data))

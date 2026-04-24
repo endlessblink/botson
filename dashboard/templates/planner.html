@@ -1353,14 +1353,21 @@ async function scrapeCoverPrompt() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({url: url})
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+            var scrapeErr = await r.json().catch(function() { return {}; });
+            var detail = scrapeErr.detail || 'שגיאה בחילוץ';
+            var expectedMiss = r.status === 404 || r.status === 422;
+            var err = new Error(detail);
+            err.expectedMiss = expectedMiss;
+            throw err;
+        }
         var data = await r.json();
         setCover(data);
         showToast('תמונה נחלצה');
     } catch (e) {
-        console.error(e);
+        if (!e.expectedMiss) console.error(e);
         document.getElementById('cover-status').textContent = 'שגיאה';
-        showToast('שגיאה בחילוץ', 'error');
+        showToast(e.message || 'שגיאה בחילוץ', 'error');
     }
 }
 
@@ -2211,13 +2218,23 @@ async function aiFillToday() {
             var rem = (data.reminders || []).length;
             var slots = (data.regular_slots || []).length;
             var total = rem + slots;
-            var errs = (data.errors && data.errors.length) || 0;
-            var msg = 'נוצרו ' + total + ' טיוטות להיום';
-            if (data.trivia && data.trivia.generated > 0) msg += ' · +' + data.trivia.generated + ' שאלות טריוויה';
-            if (data.emoji && data.emoji.generated > 0) msg += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
-            if (total > 0) msg += ' — לבדיקה ואישור בלוח השנה';
-            if (errs > 0) msg += ' (' + errs + ' שגיאות)';
-            showToast(msg, errs > 0 ? 'error' : 'success');
+            var errs = (data.errors || []);
+            var msg;
+            if (total === 0 && errs.length > 0) {
+                // Pure failure — show the first error message verbatim
+                msg = 'נכשל: ' + errs[0];
+                if (errs.length > 1) msg += ' (ועוד ' + (errs.length - 1) + ' שגיאות)';
+                showToast(msg, 'error');
+            } else {
+                msg = 'נוצרו ' + total + ' טיוטות להיום';
+                if (data.trivia && data.trivia.generated > 0) msg += ' · +' + data.trivia.generated + ' שאלות טריוויה';
+                if (data.emoji && data.emoji.generated > 0) msg += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
+                if (total > 0) msg += ' — לבדיקה ואישור בלוח השנה';
+                if (errs.length > 0) msg += ' (' + errs.length + ' שגיאות)';
+                showToast(msg, errs.length > 0 ? 'error' : 'success');
+            }
+            // Log full error list + AI notes so they're visible in devtools
+            if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
             if (data.notes_for_admin) console.log('[ai-fill-today] notes:', data.notes_for_admin);
         }
         calendar.refetchEvents();
