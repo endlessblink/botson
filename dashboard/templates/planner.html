@@ -147,7 +147,7 @@
     /* Channel chips */
     .channel-chip {
         display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-        min-height: 44px; padding: 8px 16px; border-radius: 8px; font-size: 22px;
+        min-height: 30px; padding: 5px 12px; border-radius: 6px; font-size: 14px;
         background: transparent; border: 1px solid #272727; color: #ffffff;
         cursor: pointer; transition: all 0.15s;
         max-width: 100%; overflow: hidden; text-overflow: ellipsis;
@@ -418,7 +418,7 @@
                         </button>
                     </div>
                     <textarea id="create-text" rows="5" dir="rtl" placeholder="כתוב את ההודעה..."
-                        style="font-size: 32px; line-height: 1.4; color: #ffffff;"
+                        style="font-size: 14px; line-height: 1.5; color: #ffffff;"
                         class="w-full bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 focus:outline-none focus:border-[#52525b] resize-none transition-colors"></textarea>
                 </div>
 
@@ -445,7 +445,7 @@
                         </div>
                         {% if grouped_channels.discussions %}
                         <div>
-                            <div class="mb-2" style="font-size: 20px; color: #ffffff; font-weight: 600;">לדיונים</div>
+                            <div class="mb-1.5" style="font-size: 14px; color: #ffffff; font-weight: 600;">לדיונים</div>
                             <div class="flex flex-wrap gap-1.5">
                                 {% for t in grouped_channels.discussions %}
                                 <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" data-category="{{ t.category }}" onclick="selectChannel(this, '{{ t.topic_id }}', '{{ t.category }}')">{{ t.name }}</button>
@@ -455,7 +455,7 @@
                         {% endif %}
                         {% if grouped_channels.daily %}
                         <div>
-                            <div class="mb-2" style="font-size: 20px; color: #ffffff; font-weight: 600;">למטרות יומיות</div>
+                            <div class="mb-1.5" style="font-size: 14px; color: #ffffff; font-weight: 600;">למטרות יומיות</div>
                             <div class="flex flex-wrap gap-1.5">
                                 {% for t in grouped_channels.daily %}
                                 <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" data-category="" onclick="selectChannel(this, '{{ t.topic_id }}', '')">{{ t.name }}</button>
@@ -465,7 +465,7 @@
                         {% endif %}
                         {% if grouped_channels.other %}
                         <div>
-                            <div class="mb-2" style="font-size: 20px; color: #ffffff; font-weight: 600;">אחר</div>
+                            <div class="mb-1.5" style="font-size: 14px; color: #ffffff; font-weight: 600;">אחר</div>
                             <div class="flex flex-wrap gap-1.5">
                                 {% for t in grouped_channels.other %}
                                 <button type="button" class="channel-chip" data-topic="{{ t.topic_id }}" data-category="" onclick="selectChannel(this, '{{ t.topic_id }}', '')">{{ t.name }}</button>
