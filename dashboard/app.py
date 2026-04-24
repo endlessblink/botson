@@ -4222,7 +4222,14 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
                 "topic_id": tid,
             })
 
-    # Group channels by purpose for the create drawer picker
+    # Group channels by purpose for the create drawer picker. The "other"
+    # bucket only shows dot-verified topics — anything else in forum_topics
+    # is an auto-tracked placeholder ("Topic {id}") created by topic_tracker
+    # when the bot saw a message in an unknown thread but never caught the
+    # forum_topic_created service message. Those are not real, pickable
+    # channels for scheduling.
+    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
+    verified_ids = {v["topic_id"] for v in verified_topics}
     by_id = {t["topic_id"]: t for t in forum_topics}
     goals_id = topics_cfg.get("goals")
     welcome_id = topics_cfg.get("welcome")
@@ -4235,10 +4242,11 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
             if tid and tid in by_id
         ],
         "daily": [by_id[goals_id]] if goals_id and goals_id in by_id else [],
-        "other": [t for t in forum_topics if t["topic_id"] not in mapped_ids],
+        "other": [
+            t for t in forum_topics
+            if t["topic_id"] not in mapped_ids and t["topic_id"] in verified_ids
+        ],
     }
-
-    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
     trivia_routing = await db.get_handler_routing("trivia_round") if hasattr(db, 'get_handler_routing') else None
     trivia_default_play = trivia_routing.get("play_topic_id") if trivia_routing else None
 
