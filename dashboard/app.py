@@ -2761,6 +2761,95 @@ def _compute_reminder_time(event_time_hhmm: str, now_hhmm: str) -> str | None:
     return f"{target // 60:02d}:{target % 60:02d}"
 
 
+def _parse_trivia_blocks(raw: str) -> tuple[list[dict], list[str]]:
+    """Python port of _parseTriviaQuestions in planner.html:886-913.
+
+    Parses AI output of form: שאלה/תשובות/נכונה/קטגוריה blocks separated by
+    blank lines. Returns (questions, invalid_reasons).
+    """
+    questions: list[dict] = []
+    invalid: list[str] = []
+    blocks = [b.strip() for b in (raw or "").strip().split("\n\n") if b.strip()]
+    for i, block in enumerate(blocks):
+        lines = [ln for ln in block.split("\n") if ln.strip()]
+        if len(lines) != 4:
+            invalid.append(f"block {i+1}: expected 4 lines, got {len(lines)}")
+            continue
+        q_text = lines[0].split(":", 1)[-1].strip() if lines[0].startswith("שאלה:") else ""
+        opts_line = lines[1].split(":", 1)[-1].strip() if lines[1].startswith("תשובות:") else ""
+        options = [o.strip() for o in opts_line.split("|") if o.strip()]
+        correct_line = lines[2].split(":", 1)[-1].strip() if lines[2].startswith("נכונה:") else ""
+        category = lines[3].split(":", 1)[-1].strip() if lines[3].startswith("קטגוריה:") else "כללי"
+        if not q_text:
+            invalid.append(f"block {i+1}: missing question text"); continue
+        if len(options) != 4:
+            invalid.append(f"block {i+1}: need exactly 4 options, got {len(options)}"); continue
+        try:
+            correct = int(correct_line)
+        except (ValueError, TypeError):
+            invalid.append(f"block {i+1}: invalid correct index"); continue
+        if correct < 0 or correct > 3:
+            invalid.append(f"block {i+1}: correct index out of range"); continue
+        questions.append({
+            "text": q_text, "options": options, "correct": correct,
+            "category": category or "כללי",
+        })
+    return questions, invalid
+
+
+def _parse_emoji_blocks(raw: str) -> tuple[list[dict], list[str]]:
+    """Parse AI emoji-puzzle output: 4-line blocks with אמוג'י / תשובה_עברית /
+    תשובה_אנגלית / חלופות, separated by blank lines. Returns (puzzles, invalid).
+    """
+    puzzles: list[dict] = []
+    invalid: list[str] = []
+    blocks = [b.strip() for b in (raw or "").strip().split("\n\n") if b.strip()]
+    for i, block in enumerate(blocks):
+        lines = [ln for ln in block.split("\n") if ln.strip()]
+        if len(lines) != 4:
+            invalid.append(f"block {i+1}: expected 4 lines, got {len(lines)}")
+            continue
+        def _field(line: str, prefix: str) -> str:
+            return line.split(":", 1)[-1].strip() if line.startswith(prefix + ":") else ""
+        emoji_prompt = _field(lines[0], "אמוג'י")
+        answer_he = _field(lines[1], "תשובה_עברית")
+        answer_en = _field(lines[2], "תשובה_אנגלית")
+        aliases_raw = _field(lines[3], "חלופות")
+        if not emoji_prompt:
+            invalid.append(f"block {i+1}: missing emoji prompt"); continue
+        if not answer_he:
+            invalid.append(f"block {i+1}: missing Hebrew answer"); continue
+        if not answer_en:
+            invalid.append(f"block {i+1}: missing English answer"); continue
+        aliases_list: list[str] = []
+        if aliases_raw and aliases_raw.strip() not in ("-", "—"):
+            aliases_list = [a.strip() for a in aliases_raw.split(",") if a.strip()]
+        puzzles.append({
+            "emoji_prompt": emoji_prompt,
+            "answer_he": answer_he,
+            "answer_en": answer_en,
+            "aliases": aliases_list,
+        })
+    return puzzles, invalid
+
+
+def _build_emoji_puzzle_prompt(count: int, theme: str | None, context_block: str) -> str:
+    theme_line = f", בהקשר של: {theme}" if theme else ""
+    return (
+        f"{COMMUNITY_CONTEXT}\n\n"
+        f"{context_block}\n\n"
+        f"המשימה: צור {count} חידות אמוג'י לקהילה{theme_line}.\n"
+        f"כל חידה מייצגת סרט / סדרה / משחק / ספר ידועים באמצעות רצף אמוג'י קצר (3-6 אמוג'ים).\n"
+        f"פורמט לכל חידה — 4 שורות, בלוקים מופרדים בשורה ריקה:\n"
+        f"אמוג'י: <רצף אמוג'ים>\n"
+        f"תשובה_עברית: <שם בעברית>\n"
+        f"תשובה_אנגלית: <Name in English>\n"
+        f"חלופות: <פסיקים> (כתיבים נוספים; 0-3 פריטים, או \"-\" אם אין)\n\n"
+        f"הקפד שהשם המלא חד-משמעי. אל תחזור על חידות זהות.\n"
+        f"פלט: רק הבלוקים, בלי הסברים, בלי מספור."
+    )
+
+
 @app.post("/api/weekplan/ai-fill-today")
 async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     """Fill only today's empty slots + one reminder per event today, with
@@ -2940,6 +3029,110 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         except Exception as e:
             errors.append(f"event {ev_id} insert: {e}")
 
+    # ── C. Trivia pool (context-themed, scheduled days only) ────────────────
+    trivia_result: dict = {"generated": 0}
+    trivia_sched = schedule.get("trivia") or {"days": [2, 5], "time": "20:00"}
+    if hebrew_day not in (trivia_sched.get("days") or []):
+        trivia_result["skipped"] = "not_scheduled_today"
+    else:
+        # Derive today's theme: event title → holiday name → None
+        theme: str | None = None
+        if events_today:
+            theme = (events_today[0].get("title") or "").strip() or None
+        elif holiday and (holiday.get("name") or "").strip():
+            theme = holiday.get("name").strip()
+        if not theme:
+            trivia_result["skipped"] = "no_theme_today"
+        else:
+            existing_trivia = (load_yaml("trivia.yaml") or {}).get("questions") or []
+            already_themed = any(
+                (q.get("category") or "").strip() == theme for q in existing_trivia
+            )
+            if already_themed:
+                trivia_result.update({"skipped": "theme_already_in_pool", "theme": theme})
+            else:
+                base_prompt = build_generation_prompt(
+                    field="trivia", mode="append", existing="",
+                    category=theme, instructions=theme,
+                )
+                trivia_prompt = f"{context_block}\n\n{base_prompt}"
+                try:
+                    raw = await _generate_via_cli(trivia_prompt)
+                except Exception:
+                    try:
+                        raw = await _generate_via_api(trivia_prompt)
+                    except Exception as e:
+                        errors.append(f"trivia generate: {e}")
+                        raw = ""
+                parsed_q, invalid_blocks = _parse_trivia_blocks(raw)
+                trivia_result.update({"theme": theme, "invalid_blocks": invalid_blocks})
+                if parsed_q:
+                    try:
+                        merged = existing_trivia + parsed_q
+                        save_and_verify_trivia_questions(CONFIG_DIR / "trivia.yaml", merged)
+                        trivia_result["generated"] = len(parsed_q)
+                        logger.info("[ai-fill-today] trivia appended %d question(s) for theme=%r",
+                                    len(parsed_q), theme)
+                    except TriviaVerificationError as e:
+                        errors.append(f"trivia save: {e}")
+                else:
+                    trivia_result["skipped"] = "no_valid_questions_parsed"
+
+    # ── D. Emoji puzzle pool (context-themed, scheduled days only) ──────────
+    emoji_result: dict = {"generated": 0}
+    emoji_sched = schedule.get("emoji_puzzle") or {}
+    if hebrew_day not in (emoji_sched.get("days") or []):
+        emoji_result["skipped"] = "not_scheduled_today"
+    else:
+        target_count = int(emoji_sched.get("puzzle_count", 5) or 5)
+        # Daily cap via date(created_at) — no schema change
+        async with db._db.execute(
+            "SELECT COUNT(*) FROM emoji_puzzles WHERE date(created_at) = ?",
+            (today_iso,),
+        ) as cur:
+            row = await cur.fetchone()
+            already_today = int(row[0]) if row else 0
+        to_generate = max(0, target_count - already_today)
+        if to_generate == 0:
+            emoji_result["skipped"] = "daily_cap_reached"
+            emoji_result["already_today"] = already_today
+        else:
+            emoji_theme: str | None = None
+            if events_today:
+                emoji_theme = (events_today[0].get("title") or "").strip() or None
+            elif holiday and (holiday.get("name") or "").strip():
+                emoji_theme = holiday.get("name").strip()
+            emoji_prompt = _build_emoji_puzzle_prompt(to_generate, emoji_theme, context_block)
+            try:
+                raw = await _generate_via_cli(emoji_prompt)
+            except Exception:
+                try:
+                    raw = await _generate_via_api(emoji_prompt)
+                except Exception as e:
+                    errors.append(f"emoji generate: {e}")
+                    raw = ""
+            parsed_p, invalid_p = _parse_emoji_blocks(raw)
+            emoji_result.update({"theme": emoji_theme, "invalid_blocks": invalid_p})
+            inserted = 0
+            for p in parsed_p[:to_generate]:   # respect the daily cap even if AI overshoots
+                try:
+                    new_id = await db.create_emoji_puzzle(
+                        emoji_prompt=p["emoji_prompt"],
+                        answer_he=p["answer_he"],
+                        answer_en=p["answer_en"],
+                        aliases=json.dumps(p["aliases"], ensure_ascii=False),
+                        difficulty=2,
+                        media_type="movie",
+                    )
+                    inserted += 1
+                    logger.info("[ai-fill-today] emoji puzzle id=%d: %s -> %s",
+                                new_id, p["emoji_prompt"], p["answer_he"])
+                except Exception as e:
+                    errors.append(f"emoji insert '{p.get('answer_he', '?')}': {e}")
+            emoji_result["generated"] = inserted
+            if inserted == 0 and not errors:
+                emoji_result["skipped"] = "no_valid_puzzles_parsed"
+
     return {
         "created": created,
         "errors": errors,
@@ -2948,6 +3141,8 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
             {"id": e.get("id"), "title": e.get("title"), "event_time": e.get("event_time")}
             for e in events_today
         ],
+        "trivia": trivia_result,
+        "emoji": emoji_result,
     }
 
 

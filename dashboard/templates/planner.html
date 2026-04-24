@@ -2070,6 +2070,12 @@ async function aiFillToday() {
             var evCount = (data.events_today && data.events_today.length) || 0;
             var msg = 'נוצרו ' + n + ' טיוטות להיום';
             if (evCount > 0) msg += ' (כולל ' + evCount + ' אירוע' + (evCount > 1 ? 'ים' : '') + ')';
+            if (data.trivia && data.trivia.generated > 0) {
+                msg += ' · +' + data.trivia.generated + ' שאלות טריוויה';
+            }
+            if (data.emoji && data.emoji.generated > 0) {
+                msg += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
+            }
             if (errs > 0) msg += ' — ' + errs + ' שגיאות';
             showToast(msg, errs > 0 ? 'error' : 'success');
         }
