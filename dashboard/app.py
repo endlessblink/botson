@@ -4222,29 +4222,32 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
                 "topic_id": tid,
             })
 
-    # Group channels by purpose for the create drawer picker. The "other"
-    # bucket only shows dot-verified topics — anything else in forum_topics
-    # is an auto-tracked placeholder ("Topic {id}") created by topic_tracker
-    # when the bot saw a message in an unknown thread but never caught the
-    # forum_topic_created service message. Those are not real, pickable
-    # channels for scheduling.
+    # Group channels by purpose for the create drawer picker. CLAUDE.md rule:
+    # verified_forum_topics is the canonical source of truth for both *which*
+    # topics are real AND for their display names — forum_topics.name can be
+    # stale or polluted by user message text, so we never read from it here.
     verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
-    verified_ids = {v["topic_id"] for v in verified_topics}
-    by_id = {t["topic_id"]: t for t in forum_topics}
+    verified_by_id = {v["topic_id"]: v for v in verified_topics}
     goals_id = topics_cfg.get("goals")
     welcome_id = topics_cfg.get("welcome")
     mapped_ids = set(topic_ids_dict.values()) | {goals_id, welcome_id}
     mapped_ids.discard(None)
     grouped_channels = {
         "discussions": [
-            {"topic_id": tid, "name": by_id[tid]["name"], "category": cat}
+            {"topic_id": tid,
+             "name": verified_by_id[tid]["verified_name"],
+             "category": cat}
             for cat, tid in topic_ids_dict.items()
-            if tid and tid in by_id
+            if tid and tid in verified_by_id
         ],
-        "daily": [by_id[goals_id]] if goals_id and goals_id in by_id else [],
+        "daily": (
+            [{"topic_id": goals_id, "name": verified_by_id[goals_id]["verified_name"]}]
+            if goals_id and goals_id in verified_by_id else []
+        ),
         "other": [
-            t for t in forum_topics
-            if t["topic_id"] not in mapped_ids and t["topic_id"] in verified_ids
+            {"topic_id": v["topic_id"], "name": v["verified_name"]}
+            for v in verified_topics
+            if v["topic_id"] not in mapped_ids
         ],
     }
     trivia_routing = await db.get_handler_routing("trivia_round") if hasattr(db, 'get_handler_routing') else None

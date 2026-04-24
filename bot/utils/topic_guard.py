@@ -30,10 +30,21 @@ logger = logging.getLogger(__name__)
 
 class _VerifiedTopicsLookup(Protocol):
     async def is_verified_topic_id(self, topic_id: int) -> bool: ...
+    async def delete_topic(self, topic_id: int) -> None: ...
 
 
 class UnverifiedTopicError(RuntimeError):
     """Raised when a send targets an unverified topic in the main group."""
+
+
+# Telegram error strings that signal the target topic no longer exists.
+# On these, safe_send auto-removes the topic from both forum_topics and
+# verified_forum_topics so the picker stops offering a dead target.
+_DELETED_TOPIC_MARKERS = (
+    "message thread not found",
+    "topic_deleted",
+    "chat not found",
+)
 
 
 async def verify_send_target(
@@ -87,4 +98,19 @@ async def safe_send(
     call_kwargs["chat_id"] = chat_id
     if message_thread_id is not None:
         call_kwargs["message_thread_id"] = message_thread_id
-    return await method(**call_kwargs)
+    try:
+        return await method(**call_kwargs)
+    except Exception as e:
+        err = str(e).lower()
+        if message_thread_id is not None and any(m in err for m in _DELETED_TOPIC_MARKERS):
+            try:
+                await db.delete_topic(message_thread_id)
+                logger.warning(
+                    "topic_guard: auto-removed deleted topic_id=%s after send failed (%s)",
+                    message_thread_id, e,
+                )
+            except Exception:
+                logger.exception(
+                    "topic_guard: failed to auto-remove topic_id=%s", message_thread_id,
+                )
+        raise

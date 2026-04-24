@@ -660,6 +660,19 @@ class Database:
         ) as cursor:
             return await cursor.fetchone() is not None
 
+    async def delete_topic(self, topic_id: int) -> None:
+        """Remove a topic from both verified_forum_topics and forum_topics.
+
+        Called when a live send to the thread fails with "message thread not
+        found" (the admin deleted the topic in Telegram) so the picker and
+        routing tables stop offering a dead target. Also used by the cleanup
+        script to enforce the "only verified topics exist" invariant.
+        """
+        tid = int(topic_id)
+        await self._db.execute("DELETE FROM verified_forum_topics WHERE topic_id = ?", (tid,))
+        await self._db.execute("DELETE FROM forum_topics WHERE topic_id = ?", (tid,))
+        await self._db.commit()
+
     async def get_handler_routing(self, handler: str) -> dict | None:
         """Return the routing row for a handler, or None if absent."""
         async with self._db.execute(
