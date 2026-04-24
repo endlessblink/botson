@@ -331,9 +331,14 @@
             <span>טיוטה (ימולא אוטומטית)</span>
         </div>
     </div>
-    <button id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
-        ✨ מלא טיוטות ב-AI
-    </button>
+    <div class="flex items-center gap-2">
+        <button id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+            ✨ מלא את היום ב-AI
+        </button>
+        <button id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+            ✨ מלא טיוטות ב-AI
+        </button>
+    </div>
 </div>
 
 <!-- Calendar container -->
@@ -1993,6 +1998,38 @@ async function dismissDraft(draftId) {
         showToast('נמחק');
         location.reload();
     } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+async function aiFillToday() {
+    var btn = document.getElementById('ai-fill-today-btn');
+    if (!btn) return;
+    if (!confirm('לייצר תוכן AI לסלוטים הריקים של היום + תזכורות לאירועים של היום?')) return;
+
+    var origText = btn.innerHTML;
+    btn.innerHTML = '⏳ ממלא היום...';
+    btn.disabled = true;
+
+    try {
+        var resp = await fetch('/api/weekplan/ai-fill-today', {method: 'POST'});
+        var data = await resp.json();
+        if (data.skipped_holiday) {
+            showToast('היום חג חסום אוטומטית — לא נוצר תוכן', 'error');
+        } else {
+            var n = data.created || 0;
+            var errs = (data.errors && data.errors.length) || 0;
+            var evCount = (data.events_today && data.events_today.length) || 0;
+            var msg = 'נוצרו ' + n + ' טיוטות להיום';
+            if (evCount > 0) msg += ' (כולל ' + evCount + ' אירוע' + (evCount > 1 ? 'ים' : '') + ')';
+            if (errs > 0) msg += ' — ' + errs + ' שגיאות';
+            showToast(msg, errs > 0 ? 'error' : 'success');
+        }
+        calendar.refetchEvents();
+    } catch (e) {
+        showToast('שגיאה: ' + (e && e.message || e), 'error');
+    } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    }
 }
 
 async function aiFillAllVisible() {

@@ -2651,6 +2651,306 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
     return {"created": created, "skipped": skipped, "errors": errors}
 
 
+# ── AI fill: today-only, context-aware ─────────────────────
+
+_HEBREW_DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
+
+
+def _render_today_context(today, holiday, events_today, week_committed, id_to_name):
+    """Hebrew context blob shared across today's prompts."""
+    from datetime import date as _date
+    hebrew_day = (today.weekday() + 1) % 7
+    lines = [f"היום: יום {_HEBREW_DAY_NAMES[hebrew_day]}, {today.isoformat()}."]
+    if holiday:
+        hname = (holiday.get("name") or "").strip()
+        hnote = (holiday.get("note") or "").strip()
+        suffix = f" — {hnote}" if hnote else ""
+        if hname:
+            lines.append(f"חג/מועד: {hname}{suffix}.")
+
+    if events_today:
+        lines.append("אירועים מתוכננים היום:")
+        for e in events_today:
+            parts = [f'"{(e.get("title") or "").strip()}"']
+            et = (e.get("event_time") or "").strip()[:5]
+            if et:
+                parts.append(f"בשעה {et}")
+            loc = (e.get("location") or "").strip()
+            if loc:
+                parts.append(f"מיקום: {loc}")
+            tid = e.get("topic_id")
+            if tid and id_to_name.get(int(tid)):
+                parts.append(f"ערוץ: {id_to_name[int(tid)]}")
+            lines.append("- " + ", ".join(parts))
+
+    visible = [r for r in week_committed if r.get("status") != "cancelled"]
+    if visible:
+        lines.append("הודעות שכבר תוזמנו השבוע (לא לחזור על ניסוח/נושא):")
+        for r in visible:
+            d = r.get("scheduled_date", "") or ""
+            try:
+                dd = _date.fromisoformat(d)
+                day_he = _HEBREW_DAY_NAMES[(dd.weekday() + 1) % 7]
+            except Exception:
+                day_he = d
+            mt = r.get("message_type", "") or ""
+            tid = r.get("channel_topic_id")
+            tname = id_to_name.get(int(tid)) if tid else None
+            topic_str = f", ערוץ {tname}" if tname else ""
+            preview = (r.get("text") or "").strip().replace("\n", " ")[:60]
+            lines.append(f"- יום {day_he} ({mt}{topic_str}): \"{preview}\"")
+
+    return "\n".join(lines)
+
+
+def _build_today_regular_prompt(mtype: str, category: str | None, context_block: str) -> str:
+    type_instruction = {
+        "morning": "צור הודעת בוקר אחת מעוררת השראה בעברית. שורה או שתיים, פותחת באמוג'י רלוונטי, הטון: חם, מעודד, קליל.",
+        "evening": "צור הודעת ערב אחת רפלקטיבית בעברית. שורה או שתיים, פותחת באמוג'י רלוונטי, הטון: רגוע, מחבק, מעודד רפלקציה.",
+        "discussion": f'צור שאלה אחת לדיון בקטגוריה "{category or ""}" בעברית. שורה אחת, מעוררת שיחה ומעניינת, הטון: סקרני, פתוח, מזמין.',
+    }.get(mtype, "צור הודעה אחת בעברית.")
+    return (
+        f"{COMMUNITY_CONTEXT}\n\n"
+        f"{context_block}\n\n"
+        f"המשימה: {type_instruction}\n"
+        f"אירועי היום מוזכרים לעיל לידיעה בלבד — יש להם תזכורת נפרדת, אין לשלב אותם בהודעה הזו.\n"
+        f"אל תחזור על נושאים/ניסוחים שמופיעים כבר בהודעות השבוע.\n"
+        f"פלט: רק ההודעה עצמה, בלי מספור, בלי מרכאות, בלי הסברים."
+    )
+
+
+def _build_event_reminder_prompt(event: dict, topic_name: str | None, context_block: str) -> str:
+    title = (event.get("title") or "").strip()
+    ev_time = (event.get("event_time") or "").strip()[:5]
+    location = (event.get("location") or "").strip()
+    bits = [f'האירוע: "{title}"']
+    if ev_time:
+        bits.append(f"בשעה {ev_time}")
+    if location:
+        bits.append(f"מיקום: {location}")
+    if topic_name:
+        bits.append(f"ערוץ: {topic_name}")
+    return (
+        f"{COMMUNITY_CONTEXT}\n\n"
+        f"{context_block}\n\n"
+        f"המשימה: כתוב תזכורת קצרה לאירוע של היום. שורה עד שתיים, פותחת באמוג'י, הטון: חם וידידותי, קוראת לחברי הקהילה לא לשכוח / להצטרף.\n"
+        f"{', '.join(bits)}.\n"
+        f"פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."
+    )
+
+
+def _compute_reminder_time(event_time_hhmm: str, now_hhmm: str) -> str | None:
+    """event_time - 2h; clamp to now+5min; return None if event <= now+5min."""
+    try:
+        eh, em = (int(x) for x in event_time_hhmm.split(":")[:2])
+        nh, nm = (int(x) for x in now_hhmm.split(":")[:2])
+    except (ValueError, TypeError):
+        return None
+    event_minutes = eh * 60 + em
+    now_minutes = nh * 60 + nm
+    if event_minutes <= now_minutes + 5:
+        return None
+    target = event_minutes - 120
+    if target <= now_minutes:
+        target = now_minutes + 5
+        if target % 5:
+            target += 5 - (target % 5)
+        if target >= event_minutes:
+            target = event_minutes - 5
+    target = max(0, min(target, 24 * 60 - 1))
+    return f"{target // 60:02d}:{target % 60:02d}"
+
+
+@app.post("/api/weekplan/ai-fill-today")
+async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
+    """Fill only today's empty slots + one reminder per event today, with
+    group-wide context (events, holiday, week's committed messages) in the
+    prompt. Idempotent via created_by tagging.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    from datetime import date, datetime, timedelta
+    today = date.today()
+    today_iso = today.isoformat()
+    weekday_py = today.weekday()
+    hebrew_day = (weekday_py + 1) % 7
+    sunday = today - timedelta(days=hebrew_day)
+    saturday = sunday + timedelta(days=6)
+
+    settings = get_settings()
+    schedule = settings.get("schedule", {})
+    topic_ids = settings.get("topics", {}).get("discussions", {})
+    goals_topic = settings.get("topics", {}).get("goals")
+
+    if is_auto_blocked_on(today):
+        holiday = get_holiday_blackout(today_iso)
+        return {
+            "created": 0, "skipped_holiday": True, "holiday": holiday,
+            "errors": [], "events_today": [],
+        }
+    holiday = get_holiday_blackout(today_iso)
+
+    week_committed = await db.get_scheduled_messages(sunday.isoformat(), saturday.isoformat())
+    today_committed_keys: set[tuple[str, str, str]] = set()
+    today_reminder_event_ids: set[int] = set()
+    for row in week_committed:
+        if row.get("status") == "cancelled":
+            continue
+        if row.get("scheduled_date") == today_iso:
+            today_committed_keys.add((
+                today_iso,
+                (row.get("scheduled_time") or "")[:5],
+                row.get("message_type", "") or "",
+            ))
+            cb = row.get("created_by", "") or ""
+            if cb.startswith("ai-fill-today:event:"):
+                try:
+                    today_reminder_event_ids.add(int(cb.split(":")[-1]))
+                except (ValueError, IndexError):
+                    pass
+
+    all_upcoming = await db.get_upcoming_events(50)
+    events_today = [e for e in all_upcoming if e.get("event_date") == today_iso]
+
+    verified_rows = await db.get_verified_forum_topics()
+    id_to_name: dict[int, str] = {}
+    for vrow in verified_rows:
+        try:
+            tid = int(vrow.get("topic_id"))
+        except (TypeError, ValueError):
+            continue
+        vname = str(vrow.get("verified_name") or "").strip()
+        if tid > 0 and vname:
+            id_to_name[tid] = vname
+
+    context_block = _render_today_context(today, holiday, events_today, week_committed, id_to_name)
+
+    try:
+        discussions_pool = load_yaml("discussions.yaml") or {}
+    except Exception:
+        discussions_pool = {}
+    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+
+    def _slot_specs_for_today(mtype: str):
+        if mtype == "morning":
+            cfg = schedule.get("morning_prompt", {})
+            if hebrew_day not in cfg.get("days", []):
+                return []
+            return [(cfg.get("time", "09:00"), goals_topic, None)]
+        if mtype == "evening":
+            cfg = schedule.get("evening_prompt", {})
+            if hebrew_day not in cfg.get("days", []):
+                return []
+            return [(cfg.get("time", "21:00"), goals_topic, None)]
+        if mtype == "discussion":
+            cfg = schedule.get("discussion_prompt", {})
+            if hebrew_day not in cfg.get("days", []):
+                return []
+            if not active_categories:
+                return []
+            cat = active_categories[hebrew_day % len(active_categories)]
+            topic = topic_ids.get(cat)
+            return [(t, topic, cat) for t in cfg.get("times", ["18:00"])]
+        return []
+
+    created = 0
+    errors: list[str] = []
+
+    for mtype in ("morning", "evening", "discussion"):
+        for t, topic, cat in _slot_specs_for_today(mtype):
+            if (today_iso, t, mtype) in today_committed_keys:
+                continue
+            prompt = _build_today_regular_prompt(mtype, cat, context_block)
+            try:
+                content = await _generate_via_cli(prompt)
+            except Exception:
+                try:
+                    content = await _generate_via_api(prompt)
+                except Exception as e:
+                    errors.append(f"{mtype}: {e}")
+                    continue
+            content = content.strip().replace('"', '').replace("'", "")
+            lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
+            content = lines[0] if lines else content
+            try:
+                new_id = await db.create_scheduled_message(
+                    text=content,
+                    message_type=mtype,
+                    channel_topic_id=int(topic) if topic else None,
+                    target_group="main",
+                    scheduled_date=today_iso,
+                    scheduled_time=t,
+                    created_by="ai-fill-today",
+                )
+                created += 1
+                logger.info("[ai-fill-today] created %s id=%d at %s %s: %r",
+                            mtype, new_id, today_iso, t, content[:60])
+            except Exception as e:
+                errors.append(f"{mtype} insert: {e}")
+
+    now_hhmm = datetime.now().strftime("%H:%M")
+    events_fallback_topic = None
+    try:
+        rt = await db.get_handler_routing("events_publish")
+        if rt:
+            events_fallback_topic = rt.get("play_topic_id")
+    except Exception:
+        events_fallback_topic = None
+
+    for ev in events_today:
+        ev_id = ev.get("id")
+        if ev_id is None or ev_id in today_reminder_event_ids:
+            continue
+        ev_time = (ev.get("event_time") or "").strip()[:5]
+        if not ev_time:
+            continue
+        reminder_time = _compute_reminder_time(ev_time, now_hhmm)
+        if reminder_time is None:
+            continue
+        if (today_iso, reminder_time, "custom") in today_committed_keys:
+            continue
+        topic = ev.get("topic_id") or events_fallback_topic
+        topic_name = id_to_name.get(int(topic)) if topic else None
+        prompt = _build_event_reminder_prompt(ev, topic_name, context_block)
+        try:
+            content = await _generate_via_cli(prompt)
+        except Exception:
+            try:
+                content = await _generate_via_api(prompt)
+            except Exception as e:
+                errors.append(f"event {ev_id} reminder: {e}")
+                continue
+        content = content.strip().replace('"', '').replace("'", "")
+        lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
+        content = lines[0] if lines else content
+        try:
+            new_id = await db.create_scheduled_message(
+                text=content,
+                message_type="custom",
+                channel_topic_id=int(topic) if topic else None,
+                target_group="main",
+                scheduled_date=today_iso,
+                scheduled_time=reminder_time,
+                created_by=f"ai-fill-today:event:{ev_id}",
+            )
+            created += 1
+            logger.info("[ai-fill-today] reminder id=%d event=%d at %s: %r",
+                        new_id, ev_id, reminder_time, content[:60])
+        except Exception as e:
+            errors.append(f"event {ev_id} insert: {e}")
+
+    return {
+        "created": created,
+        "errors": errors,
+        "skipped_holiday": False,
+        "events_today": [
+            {"id": e.get("id"), "title": e.get("title"), "event_time": e.get("event_time")}
+            for e in events_today
+        ],
+    }
+
+
 @app.post("/api/generate-content")
 async def generate_content(request: Request):
     """Generate a single message via Claude for the create-drawer textarea.
