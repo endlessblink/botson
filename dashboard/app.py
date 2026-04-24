@@ -3622,113 +3622,13 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     }
 
 
-@app.post("/api/calendar/{msg_id}/approve")
-async def approve_calendar_message(msg_id: int, request: Request, db: Database = Depends(get_db)):
-    """Promote a single draft row to status='scheduled'.
-
-    Safety: if the row's scheduled_time is already in the past (or within the
-    next 2 minutes), refuse unless body has `force: true`. The bot's
-    calendar_checker runs every 60s, so a past-time promotion sends
-    immediately to the real group — always surface this to the admin.
-    """
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
-
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    force = bool(body.get("force", False))
-
-    async with db._db.execute(
-        "SELECT scheduled_date, scheduled_time, status FROM scheduled_messages WHERE id = ?",
-        (msg_id,),
-    ) as cur:
-        row = await cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="message not found")
-
-    from datetime import datetime
-    now = datetime.now()
-    try:
-        target = datetime.strptime(f"{row['scheduled_date']} {(row['scheduled_time'] or '00:00')[:5]}", "%Y-%m-%d %H:%M")
-    except ValueError:
-        target = None
-    if target is not None and not force:
-        delta = (target - now).total_seconds()
-        if delta < 120:  # already past or < 2 min away
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "past_due",
-                    "message": "סלוט זה מתוזמן בעבר או ממש קרוב — אישור ישלח אותו מיד. הוסף force=true כדי להמשיך",
-                    "scheduled_for": target.isoformat(),
-                    "seconds_from_now": int(delta),
-                },
-            )
-
-    await db.update_scheduled_message(msg_id, status="scheduled")
-    logger.info("[approve] msg_id=%d → status=scheduled (force=%s)", msg_id, force)
-    return {"status": "ok", "id": msg_id}
-
-
-@app.post("/api/weekplan/approve-today-drafts")
-async def approve_today_drafts(request: Request, db: Database = Depends(get_db)):
-    """Bulk-promote today's ai-fill-today drafts to status='scheduled'.
-
-    Safety: by default, SKIPS any draft whose scheduled_time is in the past or
-    less than 2 minutes away — those would auto-send immediately via the bot's
-    60s calendar_checker tick. To include them, POST {force: true}.
-    """
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
-
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    force = bool(body.get("force", False))
-
-    from datetime import date, datetime
-    today_iso = date.today().isoformat()
-    now = datetime.now()
-
-    async with db._db.execute(
-        """SELECT id, scheduled_time FROM scheduled_messages
-           WHERE scheduled_date = ? AND status = 'draft'
-             AND created_by LIKE 'ai-fill-today%'""",
-        (today_iso,),
-    ) as cur:
-        rows = await cur.fetchall()
-
-    eligible_ids: list[int] = []
-    skipped_past: list[dict] = []
-    for r in rows:
-        tstr = (r["scheduled_time"] or "00:00")[:5]
-        try:
-            target = datetime.strptime(f"{today_iso} {tstr}", "%Y-%m-%d %H:%M")
-        except ValueError:
-            target = None
-        if force or target is None or (target - now).total_seconds() >= 120:
-            eligible_ids.append(r["id"])
-        else:
-            skipped_past.append({"id": r["id"], "scheduled_time": tstr, "seconds_from_now": int((target - now).total_seconds())})
-
-    approved = 0
-    if eligible_ids:
-        placeholders = ",".join("?" * len(eligible_ids))
-        async with db._db.execute(
-            f"UPDATE scheduled_messages SET status = 'scheduled' WHERE id IN ({placeholders})",
-            eligible_ids,
-        ) as cur:
-            await db._db.commit()
-            approved = cur.rowcount
-
-    logger.info(
-        "[approve-today] %d promoted, %d skipped (past-due) for %s (force=%s)",
-        approved, len(skipped_past), today_iso, force,
-    )
-    return {"status": "ok", "approved": approved, "skipped_past_due": skipped_past}
+# ── approve endpoints removed 2026-04-24 ──
+# The draft→scheduled approve path was a design flaw: it handed content
+# to the 60s autonomous calendar_checker, which would auto-send any
+# past-due row. Replaced with explicit admin-initiated send-now:
+#   • per-draft     → POST /api/calendar/{id}/send-now
+#   • bulk-for-today → POST /api/weekplan/send-today-drafts-now
+# Both post synchronously to Telegram; drafts never become 'scheduled'.
 
 
 @app.get("/api/weekplan/today-summary")
@@ -4818,62 +4718,113 @@ async def delete_calendar_item(msg_id: int, request: Request, db: Database = Dep
     return {"status": "ok"}
 
 
-@app.post("/api/calendar/{msg_id}/send-now")
-async def send_calendar_item_now(msg_id: int, request: Request, db: Database = Depends(get_db)):
-    """Send a scheduled message immediately."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
+    """Send one scheduled_messages row to Telegram immediately.
 
-    data = await request.json() if request.headers.get("content-type") == "application/json" else {}
-    target = data.get("target", "main")  # "main" or "test"
+    Handles message_type=poll vs default, respects topic_guard via safe_send
+    (reached by send_message_with_optional_cover / send_poll_message), and
+    marks the row status='sent' with sent_message_id when target != 'test'.
 
-    # Get the message
-    messages = await db.get_scheduled_messages("2000-01-01", "2099-12-31")
-    msg = next((m for m in messages if m["id"] == msg_id), None)
-    if not msg:
-        raise HTTPException(status_code=404, detail="Message not found")
-
+    Returns the sent Telegram message_id. Raises on error.
+    """
     from telegram import Bot
-    bot = Bot(os.getenv("BOT_TOKEN", ""))
-
-    if target == "test":
-        group_id = int(os.getenv("TEST_GROUP_ID", "0"))
-    else:
-        group_id = int(os.getenv("GROUP_ID", "0"))
-
     from bot.handlers.calendar import (
         send_message_with_optional_cover,
         send_poll_message,
         _parse_poll_options,
     )
+    bot = Bot(os.getenv("BOT_TOKEN", ""))
+    group_id = int(os.getenv("TEST_GROUP_ID", "0") if target == "test" else os.getenv("GROUP_ID", "0"))
+
+    opts = _parse_poll_options(msg.get("poll_options"))
+    if msg.get("message_type") == "poll" and len(opts) >= 2:
+        sent = await send_poll_message(
+            bot,
+            db=db,
+            chat_id=group_id,
+            question=msg["text"],
+            options=opts,
+            message_thread_id=msg.get("channel_topic_id"),
+            duration_hours=msg.get("poll_duration"),
+            cover_path=msg.get("cover_path"),
+        )
+    else:
+        sent = await send_message_with_optional_cover(
+            bot,
+            db=db,
+            chat_id=group_id,
+            text=msg["text"],
+            message_thread_id=msg.get("channel_topic_id"),
+            cover_path=msg.get("cover_path"),
+        )
+    if target != "test":
+        await db.mark_message_sent(msg["id"], sent.message_id)
+    return sent.message_id
+
+
+@app.post("/api/calendar/{msg_id}/send-now")
+async def send_calendar_item_now(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Send a scheduled/draft row immediately, without touching the scheduler."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    target = data.get("target", "main")
+
+    messages = await db.get_scheduled_messages("2000-01-01", "2099-12-31")
+    msg = next((m for m in messages if m["id"] == msg_id), None)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
 
     try:
-        opts = _parse_poll_options(msg.get("poll_options"))
-        if msg.get("message_type") == "poll" and len(opts) >= 2:
-            sent = await send_poll_message(
-                bot,
-                db=db,
-                chat_id=group_id,
-                question=msg["text"],
-                options=opts,
-                message_thread_id=msg.get("channel_topic_id"),
-                duration_hours=msg.get("poll_duration"),
-                cover_path=msg.get("cover_path"),
-            )
-        else:
-            sent = await send_message_with_optional_cover(
-                bot,
-                db=db,
-                chat_id=group_id,
-                text=msg["text"],
-                message_thread_id=msg.get("channel_topic_id"),
-                cover_path=msg.get("cover_path"),
-            )
-        if target != "test":
-            await db.mark_message_sent(msg_id, sent.message_id)
-        return {"status": "ok", "message_id": sent.message_id}
+        sent_id = await _send_scheduled_row(db, msg, target)
+        logger.info("[send-now] msg_id=%d target=%s sent_message_id=%s", msg_id, target, sent_id)
+        return {"status": "ok", "message_id": sent_id}
     except Exception as e:
+        logger.exception("[send-now] failed for msg_id=%d", msg_id)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/weekplan/send-today-drafts-now")
+async def send_today_drafts_now(request: Request, db: Database = Depends(get_db)):
+    """Post every ai-fill-today draft for today immediately. No scheduler hop.
+
+    Body: { target?: "main" | "test" } (default "main").
+    Returns: { sent: [{id, message_id}], failed: [{id, error}] }.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    target = body.get("target", "main")
+
+    from datetime import date
+    today_iso = date.today().isoformat()
+    drafts = await db.get_scheduled_messages(today_iso, today_iso)
+    drafts = [
+        m for m in drafts
+        if m.get("status") == "draft"
+        and (m.get("created_by") or "").startswith("ai-fill-today")
+    ]
+    drafts.sort(key=lambda m: (m.get("scheduled_time") or "", m.get("id") or 0))
+
+    sent_list: list[dict] = []
+    failed_list: list[dict] = []
+    for i, msg in enumerate(drafts):
+        if i > 0:
+            await asyncio.sleep(2)  # Telegram rate-limit hygiene
+        try:
+            sent_id = await _send_scheduled_row(db, msg, target)
+            sent_list.append({"id": msg["id"], "message_id": sent_id})
+            logger.info("[send-today-now] msg_id=%d sent message_id=%s", msg["id"], sent_id)
+        except Exception as e:
+            failed_list.append({"id": msg["id"], "error": str(e)})
+            logger.exception("[send-today-now] failed for msg_id=%d", msg["id"])
+
+    return {"sent": sent_list, "failed": failed_list, "target": target}
 
 
 # ── Cover image endpoints ────────────────────────────────

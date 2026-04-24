@@ -362,8 +362,8 @@
                 <span id="today-summary-emoji-preview" class="text-[#a1a1aa]"></span>
             </span>
         </div>
-        <button id="approve-all-today-btn" onclick="approveAllToday()" class="hidden text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
-            ✅ אשר הכל להיום
+        <button id="send-all-today-btn" onclick="sendAllTodayNow()" class="hidden text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 hover:border-sky-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
+            📤 שלח את כל הטיוטות עכשיו
         </button>
     </div>
 </div>
@@ -2010,17 +2010,19 @@ document.addEventListener('DOMContentLoaded', function() {
             var dateStr = startDate ? startDate.toISOString().split('T')[0] : '';
             var timeStr = startDate ? startDate.toTimeString().substring(0,5) : '';
 
-            // AI-generated draft → simple approve / edit / delete prompt first
+            // AI-generated draft → send-now / edit / delete prompt first.
+            // NOTE: "s" sends IMMEDIATELY to the real group (no scheduler hop).
+            // Drafts never auto-promote to status='scheduled' — explicit send only.
             if (props.status === 'draft' && (props.createdBy || '').indexOf('ai-fill-today') === 0) {
                 var preview = (props.fullText || '').slice(0, 120);
                 var choice = window.prompt(
                     'טיוטת AI בשעה ' + timeStr + ':\n\n' + preview + '\n\n' +
-                    'הקלד:\n  a = לאשר ושלוח בזמן המתוזמן\n  e = לערוך\n  d = למחוק\n  (ריק = בטל)',
+                    'הקלד:\n  s = לשלוח עכשיו לקבוצה (ישלח מיד)\n  e = לערוך\n  d = למחוק\n  (ריק = בטל)',
                     ''
                 );
                 if (!choice) return;
                 choice = choice.trim().toLowerCase();
-                if (choice === 'a' || choice === 'א') { approveDraft(info.event.id); return; }
+                if (choice === 's' || choice === 'ש') { sendDraftNow(info.event.id); return; }
                 if (choice === 'd' || choice === 'ד') { dismissDraft(info.event.id); return; }
                 // 'e' or anything else → fall through to the edit flow below
             }
@@ -2261,7 +2263,7 @@ async function refreshTodaySummary() {
 
         // Drafts
         var draftsEl = document.getElementById('today-summary-drafts');
-        draftsEl.textContent = drafts > 0 ? drafts + ' טיוטות ממתינות לאישור' : '';
+        draftsEl.textContent = drafts > 0 ? drafts + ' טיוטות ממתינות — לחץ כדי לשלוח' : '';
 
         // Trivia: "+N שאלות טריוויה" + "בקטגוריה X" / "ב-M קטגוריות (X, Y, Z)"
         var triviaWrap = document.getElementById('today-summary-trivia-wrap');
@@ -2305,43 +2307,31 @@ async function refreshTodaySummary() {
             emojiWrap.classList.add('hidden');
         }
 
-        document.getElementById('approve-all-today-btn').classList.toggle('hidden', drafts === 0);
+        document.getElementById('send-all-today-btn').classList.toggle('hidden', drafts === 0);
     } catch (e) { /* silent */ }
 }
 
-async function approveAllToday() {
-    if (!confirm('לאשר את כל הטיוטות של היום לשליחה?')) return;
-    var btn = document.getElementById('approve-all-today-btn');
+async function sendAllTodayNow() {
+    if (!confirm('לשלוח את כל הטיוטות של היום לקבוצה עכשיו?\n\nהן יישלחו מיד — לא יישמרו לשליחה מתוזמנת.')) return;
+    var btn = document.getElementById('send-all-today-btn');
     var orig = btn.innerHTML;
-    btn.innerHTML = '⏳ מאשר...';
+    btn.innerHTML = '⏳ שולח...';
     btn.disabled = true;
     try {
-        var r = await fetch('/api/weekplan/approve-today-drafts', {
+        var r = await fetch('/api/weekplan/send-today-drafts-now', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
+            body: JSON.stringify({target: 'main'})
         });
         var data = await r.json();
-        var approved = data.approved || 0;
-        var skipped = (data.skipped_past_due || []).length;
-        if (skipped > 0) {
-            var forceIt = confirm(
-                skipped + ' טיוטות מתוזמנות לזמנים שכבר עברו או קרוב מדי (פחות מ-2 דקות).\n' +
-                'אישור עם force=true ישלח אותן מיד לקבוצה האמיתית.\n\nלהמשיך?'
-            );
-            if (forceIt) {
-                var r2 = await fetch('/api/weekplan/approve-today-drafts', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({force: true})
-                });
-                var data2 = await r2.json();
-                approved += (data2.approved || 0);
-            }
+        var sent = (data.sent || []).length;
+        var failed = (data.failed || []).length;
+        var msg = 'נשלחו ' + sent + ' טיוטות';
+        if (failed > 0) {
+            msg += ' · ' + failed + ' נכשלו';
+            console.error('[send-today-drafts-now] failures:', data.failed);
         }
-        var msg = 'אושרו ' + approved + ' טיוטות';
-        if (skipped > 0 && approved === (data.approved || 0)) msg += ' (' + skipped + ' דולגו — כבר בעבר)';
-        showToast(msg);
+        showToast(msg, failed > 0 ? 'error' : 'success');
         calendar.refetchEvents();
         refreshTodaySummary();
     } catch (e) {
@@ -2352,35 +2342,23 @@ async function approveAllToday() {
     }
 }
 
-async function approveDraft(msgId) {
+async function sendDraftNow(msgId) {
     try {
-        var r = await fetch('/api/calendar/' + msgId + '/approve', {
+        var r = await fetch('/api/calendar/' + msgId + '/send-now', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
+            body: JSON.stringify({target: 'main'})
         });
-        if (r.status === 409) {
-            var body = await r.json().catch(function() { return {}; });
-            var detail = (body && body.detail) || {};
-            var prompt = (detail.message || 'הסלוט מתוזמן בעבר.') +
-                '\n\nלשלוח בכל זאת (יישלח מיד לקבוצה)?';
-            if (!confirm(prompt)) { showToast('בוטל'); return; }
-            r = await fetch('/api/calendar/' + msgId + '/approve', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({force: true})
-            });
-        }
         if (!r.ok) {
             var err = await r.json().catch(function() { return {}; });
-            var emsg = (err && (err.detail && err.detail.message || err.detail || err.message)) || ('HTTP ' + r.status);
+            var emsg = (err && (err.detail || err.message)) || ('HTTP ' + r.status);
             throw new Error(emsg);
         }
-        showToast('אושר');
+        showToast('נשלח לקבוצה');
         calendar.refetchEvents();
         refreshTodaySummary();
     } catch (e) {
-        showToast('שגיאה: ' + (e && e.message || e), 'error');
+        showToast('שליחה נכשלה: ' + (e && e.message || e), 'error');
     }
 }
 
