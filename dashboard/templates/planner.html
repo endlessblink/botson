@@ -335,13 +335,28 @@
                 <button onclick="approveDraft({{ draft.id }}, this)" class="text-xs bg-[#fafafa] text-[#0a0a0a] px-3 py-1 rounded font-medium cursor-pointer">אשר</button>
                 <button onclick="sendDraft({{ draft.id }}, 'test')" class="text-xs text-[#71717a] hover:text-sky-400 border border-[#272727] px-2 py-1 rounded cursor-pointer">Den</button>
                 <button onclick="sendDraft({{ draft.id }}, 'main')" class="text-xs text-[#71717a] hover:text-green-400 border border-[#272727] px-2 py-1 rounded cursor-pointer">שלח</button>
+                <button onclick="editDraft({{ draft.id }})" class="text-xs text-[#71717a] hover:text-amber-400 border border-[#272727] px-2 py-1 rounded cursor-pointer">ערוך</button>
                 <button onclick="dismissDraft({{ draft.id }})" class="text-xs text-red-400/60 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 px-2 py-1 rounded cursor-pointer transition-colors mr-auto">מחק
             </div>
         </div>
         {% endfor %}
     </div>
 </div>
+<script>window.DRAFTS_DATA = {{ drafts_json | safe }};</script>
 {% endif %}
+
+<!-- Today summary banner — polled on load + after ✨ clicks -->
+<div id="today-summary" dir="rtl" class="hidden mb-2 px-3 py-2 rounded-md text-xs flex items-center justify-between gap-3 bg-[#111318] border border-[#272727] text-[#d4d4d8]">
+    <div class="flex items-center gap-3 flex-wrap">
+        <span id="today-summary-label" class="text-[#a1a1aa]">היום:</span>
+        <span id="today-summary-drafts"></span>
+        <a href="/trivia" class="underline underline-offset-2 hover:text-amber-400" id="today-summary-trivia"></a>
+        <a href="/puzzles" class="underline underline-offset-2 hover:text-amber-400" id="today-summary-emoji"></a>
+    </div>
+    <button id="approve-all-today-btn" onclick="approveAllToday()" class="hidden text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
+        ✅ אשר הכל להיום
+    </button>
+</div>
 
 <!-- Calendar legend + actions -->
 <div class="flex items-center justify-between mb-2 px-1" dir="rtl">
@@ -353,6 +368,10 @@
         <div class="flex items-center gap-1.5">
             <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:rgba(59,130,246,0.12);border-right:3px solid #3b82f6;"></span>
             <span>טיוטה (ימולא אוטומטית)</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <span class="event-status status-draft" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>
+            <span>טיוטה לאישור</span>
         </div>
     </div>
     <div class="flex items-center gap-2">
@@ -729,12 +748,14 @@
             <button id="btn-back" onclick="wizardGo(wizardState.step - 1)" class="hidden text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">חזרה</button>
             <button id="nav-delete-btn" onclick="deleteEvent()" class="hidden text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 px-3 h-9 rounded-md cursor-pointer transition-colors ml-2">מחק</button>
             <div class="flex-1"></div>
+            <button onclick="saveAsDraft()" class="text-sm text-[#71717a] hover:text-amber-400 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors ml-2">שמור כטיוטה</button>
             <button id="btn-next" onclick="wizardGo(wizardState.step + 1)" class="hidden text-sm bg-[#fafafa] text-[#0a0a0a] px-4 h-9 rounded-md font-medium cursor-pointer hover:bg-[#e4e4e7] transition-colors">הבא</button>
         </div>
         <div id="wizard-footer-actions" class="hidden flex gap-2">
             <button id="edit-delete-btn" onclick="deleteEvent()" class="hidden text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 px-3 h-9 rounded-md cursor-pointer transition-colors">מחק</button>
             <button onclick="wizardGo(wizardState.step - 1)" class="text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">חזרה</button>
             <div class="flex-1"></div>
+            <button onclick="saveAsDraft()" class="text-sm text-[#71717a] hover:text-amber-400 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">שמור כטיוטה</button>
             <button onclick="scheduleMsg()" class="text-sm bg-[#fafafa] text-[#0a0a0a] px-4 h-9 rounded-md font-medium cursor-pointer hover:bg-[#e4e4e7] transition-colors">תזמן</button>
             <button onclick="sendNowFromDrawer('test')" class="text-sm text-[#71717a] hover:text-sky-400 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">Den</button>
             <button onclick="sendNowFromDrawer('main')" class="text-sm text-[#71717a] hover:text-green-400 border border-[#272727] px-3 h-9 rounded-md cursor-pointer transition-colors">שלח</button>
@@ -760,6 +781,7 @@ var wizardState = {
     pollOptions: ['', ''], pollDuration: 24,
     eventLocation: '', eventMaxAttendees: null,
     editingId: null,
+    openedFromDraft: false,
     coverPath: null, coverUrl: null,
 };
 
@@ -1602,6 +1624,7 @@ function resetWizard() {
     wizardState.eventLocation = '';
     wizardState.eventMaxAttendees = null;
     wizardState.editingId = null;
+    wizardState.openedFromDraft = false;
     wizardState.coverPath = null;
     wizardState.coverUrl = null;
     var coverImg = document.getElementById('cover-preview');
@@ -1681,22 +1704,25 @@ async function scheduleMsg() {
 
     try {
         if (wizardState.editingId) {
-            // Edit existing message via PUT
+            // Edit existing message via PUT. When the wizard was opened from a draft
+            // row, promote the row back to 'scheduled' on successful schedule.
+            var putBody = {
+                text: finalText,
+                message_type: wizardState.type || 'custom',
+                scheduled_date: wizardState.date,
+                scheduled_time: wizardState.time || '18:00',
+                channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
+                recurrence: wizardState.recurrence || null,
+                auto_pin: wizardState.autoPin,
+                cover_path: wizardState.coverPath,
+                poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
+                poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
+            };
+            if (wizardState.openedFromDraft) putBody.status = 'scheduled';
             await fetch('/api/calendar/' + wizardState.editingId, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    text: finalText,
-                    message_type: wizardState.type || 'custom',
-                    scheduled_date: wizardState.date,
-                    scheduled_time: wizardState.time || '18:00',
-                    channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
-                    recurrence: wizardState.recurrence || null,
-                    auto_pin: wizardState.autoPin,
-                    cover_path: wizardState.coverPath,
-                    poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
-                    poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
-                })
+                body: JSON.stringify(putBody)
             });
             showToast('עודכן');
         } else {
@@ -1719,6 +1745,98 @@ async function scheduleMsg() {
         calendar.refetchEvents();
         closeDrawer();
     } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+// ─── Save as draft from anywhere in the wizard ───
+async function saveAsDraft() {
+    var text = wizardState.text.trim();
+    if (!text) { showToast('כתוב הודעה לשמירה כטיוטה', 'error'); return; }
+
+    var finalText = text;
+    if (wizardState.type === 'event') {
+        if (wizardState.eventLocation) finalText += '\n📍 ' + wizardState.eventLocation;
+        if (wizardState.eventMaxAttendees) finalText += '\n👥 עד ' + wizardState.eventMaxAttendees + ' משתתפים';
+    }
+
+    var body = {
+        text: finalText,
+        message_type: wizardState.type || 'custom',
+        scheduled_date: wizardState.date,
+        scheduled_time: wizardState.time || '18:00',
+        channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
+        recurrence: wizardState.recurrence || null,
+        auto_pin: wizardState.autoPin,
+        cover_path: wizardState.coverPath,
+        poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
+        poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
+    };
+
+    try {
+        if (wizardState.editingId) {
+            body.status = 'draft';
+            await fetch('/api/calendar/' + wizardState.editingId, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+        } else {
+            // Create with default status='scheduled', then flip to draft.
+            body.target_group = 'main';
+            var res = await fetch('/api/calendar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            var data = await res.json();
+            var newId = data.id;
+            if (!newId) throw new Error('no id in create response');
+            await fetch('/api/calendar/' + newId, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({status: 'draft'})
+            });
+        }
+        showToast('נשמר כטיוטה');
+        closeDrawer();
+        // Reload so the server-rendered drafts panel shows the new row.
+        setTimeout(function() { location.reload(); }, 250);
+    } catch (e) { showToast('שגיאה', 'error'); }
+}
+
+// ─── Pull a draft back into the wizard ───
+function editDraft(id) {
+    var all = window.DRAFTS_DATA || [];
+    var d = null;
+    for (var i = 0; i < all.length; i++) {
+        if (all[i].id === id) { d = all[i]; break; }
+    }
+    if (!d) { showToast('טיוטה לא נמצאה', 'error'); return; }
+
+    var pollOpts = [];
+    if (d.poll_options) {
+        try {
+            pollOpts = typeof d.poll_options === 'string' ? JSON.parse(d.poll_options) : d.poll_options;
+            if (!Array.isArray(pollOpts)) pollOpts = [];
+        } catch (e) { pollOpts = []; }
+    }
+
+    var props = {
+        messageType: d.message_type || 'custom',
+        fullText: d.text || '',
+        channelTopicId: d.channel_topic_id || null,
+        recurrence: d.recurrence || null,
+        coverPath: d.cover_path || null,
+        pollOptions: pollOpts,
+        pollDuration: d.poll_duration || 24,
+    };
+
+    var dateStr = d.scheduled_date || '{{ now_date }}';
+    var timeStr = (d.scheduled_time || '18:00').substring(0, 5);
+    var start = new Date(dateStr + 'T' + timeStr + ':00');
+
+    openEditDrawer(id, props, start);
+    // Mark the session so clicking תזמן later promotes the draft to 'scheduled'.
+    wizardState.openedFromDraft = true;
 }
 
 async function deleteEvent() {
@@ -1874,6 +1992,21 @@ document.addEventListener('DOMContentLoaded', function() {
             var startDate = info.event.start;
             var dateStr = startDate ? startDate.toISOString().split('T')[0] : '';
             var timeStr = startDate ? startDate.toTimeString().substring(0,5) : '';
+
+            // AI-generated draft → simple approve / edit / delete prompt first
+            if (props.status === 'draft' && (props.createdBy || '').indexOf('ai-fill-today') === 0) {
+                var preview = (props.fullText || '').slice(0, 120);
+                var choice = window.prompt(
+                    'טיוטת AI בשעה ' + timeStr + ':\n\n' + preview + '\n\n' +
+                    'הקלד:\n  a = לאשר ושלוח בזמן המתוזמן\n  e = לערוך\n  d = למחוק\n  (ריק = בטל)',
+                    ''
+                );
+                if (!choice) return;
+                choice = choice.trim().toLowerCase();
+                if (choice === 'a' || choice === 'א') { approveDraft(info.event.id); return; }
+                if (choice === 'd' || choice === 'ד') { dismissDraft(info.event.id); return; }
+                // 'e' or anything else → fall through to the edit flow below
+            }
 
             // For morning/evening/discussion → open the rich shared modal
             if (['morning', 'evening', 'discussion'].indexOf(msgType) !== -1 && typeof openPromptModal === 'function') {
@@ -2053,10 +2186,10 @@ async function dismissDraft(draftId) {
 async function aiFillToday() {
     var btn = document.getElementById('ai-fill-today-btn');
     if (!btn) return;
-    if (!confirm('לייצר תוכן AI לסלוטים הריקים של היום + תזכורות לאירועים של היום?')) return;
+    if (!confirm('לייצר טיוטות AI להיום? (לא ישלח עד אישור ידני)')) return;
 
     var origText = btn.innerHTML;
-    btn.innerHTML = '⏳ ממלא היום...';
+    btn.innerHTML = '⏳ מנתח את היום...';
     btn.disabled = true;
 
     try {
@@ -2065,21 +2198,20 @@ async function aiFillToday() {
         if (data.skipped_holiday) {
             showToast('היום חג חסום אוטומטית — לא נוצר תוכן', 'error');
         } else {
-            var n = data.created || 0;
+            var rem = (data.reminders || []).length;
+            var slots = (data.regular_slots || []).length;
+            var total = rem + slots;
             var errs = (data.errors && data.errors.length) || 0;
-            var evCount = (data.events_today && data.events_today.length) || 0;
-            var msg = 'נוצרו ' + n + ' טיוטות להיום';
-            if (evCount > 0) msg += ' (כולל ' + evCount + ' אירוע' + (evCount > 1 ? 'ים' : '') + ')';
-            if (data.trivia && data.trivia.generated > 0) {
-                msg += ' · +' + data.trivia.generated + ' שאלות טריוויה';
-            }
-            if (data.emoji && data.emoji.generated > 0) {
-                msg += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
-            }
-            if (errs > 0) msg += ' — ' + errs + ' שגיאות';
+            var msg = 'נוצרו ' + total + ' טיוטות להיום';
+            if (data.trivia && data.trivia.generated > 0) msg += ' · +' + data.trivia.generated + ' שאלות טריוויה';
+            if (data.emoji && data.emoji.generated > 0) msg += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
+            if (total > 0) msg += ' — לבדיקה ואישור בלוח השנה';
+            if (errs > 0) msg += ' (' + errs + ' שגיאות)';
             showToast(msg, errs > 0 ? 'error' : 'success');
+            if (data.notes_for_admin) console.log('[ai-fill-today] notes:', data.notes_for_admin);
         }
         calendar.refetchEvents();
+        refreshTodaySummary();
     } catch (e) {
         showToast('שגיאה: ' + (e && e.message || e), 'error');
     } finally {
@@ -2087,6 +2219,65 @@ async function aiFillToday() {
         btn.disabled = false;
     }
 }
+
+async function refreshTodaySummary() {
+    try {
+        var r = await fetch('/api/weekplan/today-summary');
+        if (!r.ok) return;
+        var data = await r.json();
+        var bar = document.getElementById('today-summary');
+        var drafts = data.drafts || 0, trivia = data.trivia_added_today || 0, emoji = data.emoji_added_today || 0;
+        if (drafts + trivia + emoji === 0) { bar.classList.add('hidden'); return; }
+        bar.classList.remove('hidden');
+        document.getElementById('today-summary-drafts').textContent =
+            drafts > 0 ? drafts + ' טיוטות ממתינות לאישור' : '';
+        var triviaEl = document.getElementById('today-summary-trivia');
+        triviaEl.textContent = trivia > 0 ? '· ' + trivia + ' שאלות טריוויה חדשות' : '';
+        triviaEl.style.display = trivia > 0 ? 'inline' : 'none';
+        var emojiEl = document.getElementById('today-summary-emoji');
+        emojiEl.textContent = emoji > 0 ? '· ' + emoji + ' חידות אמוג\'י חדשות' : '';
+        emojiEl.style.display = emoji > 0 ? 'inline' : 'none';
+        var approveBtn = document.getElementById('approve-all-today-btn');
+        approveBtn.classList.toggle('hidden', drafts === 0);
+    } catch (e) { /* silent */ }
+}
+
+async function approveAllToday() {
+    if (!confirm('לאשר את כל הטיוטות של היום לשליחה?')) return;
+    var btn = document.getElementById('approve-all-today-btn');
+    var orig = btn.innerHTML;
+    btn.innerHTML = '⏳ מאשר...';
+    btn.disabled = true;
+    try {
+        var r = await fetch('/api/weekplan/approve-today-drafts', {method: 'POST'});
+        var data = await r.json();
+        showToast('אושרו ' + (data.approved || 0) + ' טיוטות');
+        calendar.refetchEvents();
+        refreshTodaySummary();
+    } catch (e) {
+        showToast('שגיאה: ' + (e && e.message || e), 'error');
+    } finally {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+    }
+}
+
+async function approveDraft(msgId) {
+    try {
+        var r = await fetch('/api/calendar/' + msgId + '/approve', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        showToast('אושר');
+        calendar.refetchEvents();
+        refreshTodaySummary();
+    } catch (e) {
+        showToast('שגיאה: ' + (e && e.message || e), 'error');
+    }
+}
+
+// Poll the summary on page load
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
+});
 
 async function aiFillAllVisible() {
     var btn = document.getElementById('ai-fill-all-btn');

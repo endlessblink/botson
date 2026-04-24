@@ -2850,6 +2850,332 @@ def _build_emoji_puzzle_prompt(count: int, theme: str | None, context_block: str
     )
 
 
+# ── AI fill today: digest call (smart dedup, real event times, actionable drafts) ──
+
+DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ'ילדפרי (ללא ילדים מבחירה) בטלגרם.
+קיבלת את כל ההקשר על היום — אירועים, הודעות מתוזמנות, לוח הזמנים, תכנים שכבר קיימים. תפקידך: להחליט באופן חכם מה לייצר לקהילה היום, ולקרוא לכלי today_plan עם ההחלטות.
+
+חוקי החלטה מחייבים:
+
+1. מזג אירועים כפולים. רשומות events שמתארות את אותה פעילות (topic זהה, כותרות חופפות, או רשומה מאוחרת שמעדכנת את הקודמת) — מוזגות לאירוע קנוני אחד. כל ה-ids המכוסים חוזרים ב-covered_event_ids.
+
+2. זמן אירוע אמיתי מהטקסט. עמודת event_time ב-DB לא אמינה — היא לפעמים זמן הפוסט של ההודעה, לא זמן האירוע. קרא כל description ו-text. "זז ל-HH:MM" / "עבר ל-HH:MM" / "moved to HH:MM" / הודעה שאומרת "היום ב-HH:MM" — הזמן הזה מנצח. הזכרה האחרונה והחד-משמעית ביותר היא המחייבת.
+
+3. זמן התזכורת. reminder_scheduled_time = actual_event_time − event_reminder_lead_minutes. תגביל: לא לפני now+5 דקות, לא אחרי event-5 דקות. אם האירוע כבר עבר או קרוב מדי — אל תפיק תזכורת.
+
+4. בטיחות טופיקים. topic_id בכל פלט חייב להיות מתוך verified_topic_ids. אירוע עם topic_id=null → השתמש ב-events_publish_fallback_topic. אם אתה לא בטוח — אל תנחש, השאר את השורה החוצה ורשום ב-notes.
+
+5. כבד schedule.days. אם hebrew_day_num לא ב-schedule.<section>.days — החזר array ריק לאותו section ורשום סיבה ב-skipped (למשל "not_in_schedule_days").
+
+6. אל תכפיל מול existing_drafts_today. אם covered_event_ids שלך חופף ל-covered_event_ids של טיוטה קיימת — דלג, רשום ב-skipped.reminders "already_drafted".
+
+7. אל תחזור על נושאים ש-this_week_previews כבר מכסים. regular_slots חייבים להיות בזווית חדשה.
+
+8. Trivia dedup. אל תייצר שאלה זהה או כמעט זהה ל-existing_trivia_samples. אל תייצר batch עבור category שכבר יש בה ≥3 שאלות ב-existing_trivia_categories.
+
+9. Emoji dedup. אל תייצר חידה שהתשובה בעברית/אנגלית שלה כבר ב-existing_emoji_answers_sample.
+
+10. דו-משמעות → needs_review=true. אם יש זמנים סותרים ללא "זז ל-X" ברור — אל תנחש. החזר את התזכורת עם needs_review=true והסבר ב-notes.
+
+11. טקסט משתמש — עברית בלבד. ללא markdown, ללא backticks, ללא IDs פנימיים, ללא אנגלית טכנית. notes_for_admin הוא השדה היחיד שיכול להיות מעורב.
+
+חשוב: השתמש אך ורק בכלי today_plan. אל תחזיר טקסט חופשי."""
+
+
+def _today_plan_tool_schema() -> dict:
+    """JSON-schema for the tool the AI must call. Guarantees parseable typed output."""
+    return {
+        "name": "today_plan",
+        "description": "Submit the structured plan for today — reminders for canonical events, scheduled regular slots, new trivia/emoji pool entries, and skipped-section reasons.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "notes_for_admin": {"type": "string", "description": "Free-form admin-facing summary of the decisions. May mix Hebrew/English."},
+                "reminders": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "covered_event_ids": {"type": "array", "items": {"type": "integer"}, "description": "All events.id rows that merged into this canonical event."},
+                            "canonical_title": {"type": "string"},
+                            "actual_event_time": {"type": "string", "description": "HH:MM — the REAL event start time per the text."},
+                            "reminder_scheduled_time": {"type": "string", "description": "HH:MM — when the reminder posts (event_time − lead minutes, clamped)."},
+                            "topic_id": {"type": "integer", "description": "Must be in verified_topic_ids."},
+                            "text": {"type": "string", "description": "Hebrew reminder text, 1-2 lines, opens with emoji."},
+                            "needs_review": {"type": "boolean"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["covered_event_ids", "canonical_title", "actual_event_time", "reminder_scheduled_time", "topic_id", "text", "needs_review"],
+                    },
+                },
+                "regular_slots": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "enum": ["morning", "evening", "discussion"]},
+                            "scheduled_time": {"type": "string", "description": "HH:MM from schedule config."},
+                            "topic_id": {"type": "integer"},
+                            "text": {"type": "string", "description": "Hebrew. Morning/evening = 1-2 lines with emoji. Discussion = 1 question."},
+                            "category": {"type": "string", "description": "Discussion category key (e.g., 'movies') — empty string for morning/evening."},
+                        },
+                        "required": ["type", "scheduled_time", "topic_id", "text"],
+                    },
+                },
+                "trivia_questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "options": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
+                            "correct": {"type": "integer", "minimum": 0, "maximum": 3},
+                            "category": {"type": "string"},
+                        },
+                        "required": ["text", "options", "correct", "category"],
+                    },
+                },
+                "emoji_puzzles": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "emoji_prompt": {"type": "string", "description": "3-6 emoji representing the answer."},
+                            "answer_he": {"type": "string"},
+                            "answer_en": {"type": "string"},
+                            "aliases": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["emoji_prompt", "answer_he", "answer_en"],
+                    },
+                },
+                "skipped": {
+                    "type": "object",
+                    "properties": {
+                        "reminders": {"type": ["string", "null"]},
+                        "morning": {"type": ["string", "null"]},
+                        "evening": {"type": ["string", "null"]},
+                        "discussion": {"type": ["string", "null"]},
+                        "trivia": {"type": ["string", "null"]},
+                        "emoji": {"type": ["string", "null"]},
+                    },
+                },
+            },
+            "required": ["notes_for_admin", "reminders", "regular_slots", "trivia_questions", "emoji_puzzles", "skipped"],
+        },
+    }
+
+
+async def _build_today_bundle(db: Database, today, sunday, saturday, settings: dict) -> dict:
+    """Assemble the 11-source context for the digest. Only includes what's
+    actually available in the DB (no chat history capture exists)."""
+    today_iso = today.isoformat()
+    hebrew_day = (today.weekday() + 1) % 7
+
+    # Events today (full records — title AND description are needed for rescheduling clues)
+    all_upcoming = await db.get_upcoming_events(50)
+    events_today_raw = [e for e in all_upcoming if e.get("event_date") == today_iso]
+    events_today = [
+        {
+            "id": e.get("id"),
+            "title": (e.get("title") or "").strip(),
+            "description": (e.get("description") or "").strip(),
+            "event_time": e.get("event_time"),
+            "topic_id": e.get("topic_id"),
+            "active": bool(e.get("active", 1)),
+        }
+        for e in events_today_raw
+    ]
+
+    # All scheduled_messages today (non-cancelled) — full text because reschedule clues live there
+    all_scheduled_week = await db.get_scheduled_messages(sunday.isoformat(), saturday.isoformat())
+    scheduled_today = [
+        {
+            "id": m.get("id"),
+            "text": (m.get("text") or "").strip(),
+            "message_type": m.get("message_type"),
+            "scheduled_time": (m.get("scheduled_time") or "")[:5],
+            "topic_id": m.get("channel_topic_id"),
+            "created_by": m.get("created_by"),
+            "status": m.get("status"),
+        }
+        for m in all_scheduled_week
+        if m.get("scheduled_date") == today_iso and m.get("status") != "cancelled"
+    ]
+
+    # This week's other-days scheduled messages (previews only — for thematic dedup)
+    this_week_previews = []
+    for m in all_scheduled_week:
+        if m.get("status") == "cancelled" or m.get("scheduled_date") == today_iso:
+            continue
+        preview = (m.get("text") or "").strip().replace("\n", " ")[:80]
+        this_week_previews.append({
+            "date": m.get("scheduled_date"),
+            "type": m.get("message_type"),
+            "topic_id": m.get("channel_topic_id"),
+            "preview": preview,
+        })
+
+    # Existing today drafts (idempotence signal)
+    existing_drafts_today = [
+        {
+            "id": m.get("id"),
+            "created_by": m.get("created_by"),
+            "message_type": m.get("message_type"),
+            "scheduled_time": (m.get("scheduled_time") or "")[:5],
+            "text_preview": (m.get("text") or "").strip()[:60],
+        }
+        for m in scheduled_today
+        if (m.get("created_by") or "").startswith("ai-fill-today")
+    ]
+
+    # Verified topics map (id → hebrew name)
+    verified_rows = await db.get_verified_forum_topics()
+    verified_topic_ids = []
+    verified_topic_names = {}
+    for v in verified_rows:
+        try:
+            tid = int(v.get("topic_id"))
+        except (TypeError, ValueError):
+            continue
+        name = str(v.get("verified_name") or "").strip()
+        if tid > 0 and name:
+            verified_topic_ids.append(tid)
+            verified_topic_names[tid] = name
+
+    # Events-publish fallback topic
+    events_fallback = None
+    try:
+        rt = await db.get_handler_routing("events_publish")
+        if rt:
+            events_fallback = rt.get("play_topic_id")
+    except Exception:
+        events_fallback = None
+
+    # Existing trivia categories + samples
+    try:
+        trivia_pool = (load_yaml("trivia.yaml") or {}).get("questions") or []
+    except Exception:
+        trivia_pool = []
+    categories_count: dict[str, int] = {}
+    samples_by_category: dict[str, str] = {}
+    for q in trivia_pool:
+        cat = (q.get("category") or "").strip()
+        if not cat:
+            continue
+        categories_count[cat] = categories_count.get(cat, 0) + 1
+        if cat not in samples_by_category:
+            samples_by_category[cat] = (q.get("text") or "")[:80]
+    existing_trivia = [
+        {"category": cat, "count": cnt, "sample": samples_by_category.get(cat, "")}
+        for cat, cnt in sorted(categories_count.items(), key=lambda x: -x[1])
+    ]
+
+    # Existing emoji answers
+    try:
+        existing_puzzles = await db.list_emoji_puzzles()
+        existing_emoji_answers = [
+            {"he": p.get("answer_he"), "en": p.get("answer_en")}
+            for p in existing_puzzles[-40:]  # last 40 most recent
+        ]
+    except Exception:
+        existing_emoji_answers = []
+
+    # Schedule config snapshot
+    schedule = settings.get("schedule", {})
+    schedule_snapshot = {
+        key: schedule.get(key, {})
+        for key in ("morning_prompt", "evening_prompt", "discussion_prompt", "trivia", "emoji_puzzle")
+    }
+
+    # Discussion categories available today
+    topics_discussions = settings.get("topics", {}).get("discussions", {})
+    try:
+        discussions_pool = load_yaml("discussions.yaml") or {}
+    except Exception:
+        discussions_pool = {}
+    active_discussion_categories = [
+        {"key": c, "topic_id": topics_discussions.get(c)}
+        for c in discussions_pool if c in topics_discussions and topics_discussions[c]
+    ]
+
+    # Holiday context (even non-blocking holidays are informative)
+    holiday = get_holiday_blackout(today_iso)
+
+    return {
+        "today": today_iso,
+        "hebrew_day_name": _HEBREW_DAY_NAMES[hebrew_day],
+        "hebrew_day_num": hebrew_day,
+        "event_reminder_lead_minutes": int(settings.get("event_reminder_lead_minutes", 10) or 10),
+        "holiday": holiday,  # null when no holiday
+        "events_today": events_today,
+        "scheduled_messages_today": scheduled_today,
+        "existing_drafts_today": existing_drafts_today,
+        "this_week_previews": this_week_previews,
+        "verified_topic_ids": verified_topic_ids,
+        "verified_topic_names": {str(k): v for k, v in verified_topic_names.items()},
+        "events_publish_fallback_topic": events_fallback,
+        "existing_trivia_categories": existing_trivia[:30],
+        "existing_emoji_answers_sample": existing_emoji_answers,
+        "schedule": schedule_snapshot,
+        "active_discussion_categories": active_discussion_categories,
+        "goals_topic_id": settings.get("topics", {}).get("goals"),
+    }
+
+
+async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
+    """Call Anthropic Messages API with tool-use + prompt caching.
+    Returns (parsed_plan, usage_stats). Raises on transport/protocol error."""
+    import httpx
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set — digest call requires direct API")
+
+    user_content = (
+        "קונטקסט היום בפורמט JSON:\n```json\n"
+        f"{json.dumps(bundle, ensure_ascii=False, indent=2)}\n```\n\n"
+        "קרא את כל הקונטקסט והחלט. קרא לכלי today_plan עם ההחלטות."
+    )
+
+    payload = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 8192,
+        "system": [
+            {"type": "text", "text": DIGEST_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
+        ],
+        "tools": [_today_plan_tool_schema()],
+        "tool_choice": {"type": "tool", "name": "today_plan"},
+        "messages": [{"role": "user", "content": user_content}],
+    }
+
+    async with httpx.AsyncClient(timeout=300) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+                "anthropic-beta": "prompt-caching-2024-07-31",
+            },
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    usage = data.get("usage") or {}
+    usage_stats = {
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+    }
+
+    for block in data.get("content") or []:
+        if block.get("type") == "tool_use" and block.get("name") == "today_plan":
+            return block.get("input") or {}, usage_stats
+
+    raise RuntimeError(f"No today_plan tool_use in response: stop_reason={data.get('stop_reason')}")
+
+
 @app.post("/api/weekplan/ai-fill-today")
 async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     """Fill only today's empty slots + one reminder per event today, with
@@ -2859,290 +3185,285 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
-    from datetime import date, datetime, timedelta
+    from datetime import date, timedelta
     today = date.today()
     today_iso = today.isoformat()
-    weekday_py = today.weekday()
-    hebrew_day = (weekday_py + 1) % 7
+    hebrew_day = (today.weekday() + 1) % 7
     sunday = today - timedelta(days=hebrew_day)
     saturday = sunday + timedelta(days=6)
 
     settings = get_settings()
-    schedule = settings.get("schedule", {})
-    topic_ids = settings.get("topics", {}).get("discussions", {})
-    goals_topic = settings.get("topics", {}).get("goals")
 
+    # Holiday short-circuit — block_auto=true means "manual content only today"
     if is_auto_blocked_on(today):
-        holiday = get_holiday_blackout(today_iso)
         return {
-            "created": 0, "skipped_holiday": True, "holiday": holiday,
-            "errors": [], "events_today": [],
+            "skipped_holiday": True,
+            "holiday": get_holiday_blackout(today_iso),
+            "reminders": [], "regular_slots": [], "trivia": {"generated": 0, "skipped": "holiday"},
+            "emoji": {"generated": 0, "skipped": "holiday"},
+            "notes_for_admin": "", "errors": [],
         }
-    holiday = get_holiday_blackout(today_iso)
 
-    week_committed = await db.get_scheduled_messages(sunday.isoformat(), saturday.isoformat())
-    today_committed_keys: set[tuple[str, str, str]] = set()
-    today_reminder_event_ids: set[int] = set()
-    for row in week_committed:
-        if row.get("status") == "cancelled":
-            continue
-        if row.get("scheduled_date") == today_iso:
-            today_committed_keys.add((
-                today_iso,
-                (row.get("scheduled_time") or "")[:5],
-                row.get("message_type", "") or "",
-            ))
-            cb = row.get("created_by", "") or ""
-            if cb.startswith("ai-fill-today:event:"):
-                try:
-                    today_reminder_event_ids.add(int(cb.split(":")[-1]))
-                except (ValueError, IndexError):
-                    pass
-
-    all_upcoming = await db.get_upcoming_events(50)
-    events_today = [e for e in all_upcoming if e.get("event_date") == today_iso]
-
-    verified_rows = await db.get_verified_forum_topics()
-    id_to_name: dict[int, str] = {}
-    for vrow in verified_rows:
-        try:
-            tid = int(vrow.get("topic_id"))
-        except (TypeError, ValueError):
-            continue
-        vname = str(vrow.get("verified_name") or "").strip()
-        if tid > 0 and vname:
-            id_to_name[tid] = vname
-
-    context_block = _render_today_context(today, holiday, events_today, week_committed, id_to_name)
-
-    try:
-        discussions_pool = load_yaml("discussions.yaml") or {}
-    except Exception:
-        discussions_pool = {}
-    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
-
-    def _slot_specs_for_today(mtype: str):
-        if mtype == "morning":
-            cfg = schedule.get("morning_prompt", {})
-            if hebrew_day not in cfg.get("days", []):
-                return []
-            return [(cfg.get("time", "09:00"), goals_topic, None)]
-        if mtype == "evening":
-            cfg = schedule.get("evening_prompt", {})
-            if hebrew_day not in cfg.get("days", []):
-                return []
-            return [(cfg.get("time", "21:00"), goals_topic, None)]
-        if mtype == "discussion":
-            cfg = schedule.get("discussion_prompt", {})
-            if hebrew_day not in cfg.get("days", []):
-                return []
-            if not active_categories:
-                return []
-            cat = active_categories[hebrew_day % len(active_categories)]
-            topic = topic_ids.get(cat)
-            return [(t, topic, cat) for t in cfg.get("times", ["18:00"])]
-        return []
-
-    created = 0
+    # Assemble the full context bundle and run the digest
+    bundle = await _build_today_bundle(db, today, sunday, saturday, settings)
     errors: list[str] = []
-
-    for mtype in ("morning", "evening", "discussion"):
-        for t, topic, cat in _slot_specs_for_today(mtype):
-            if (today_iso, t, mtype) in today_committed_keys:
-                continue
-            prompt = _build_today_regular_prompt(mtype, cat, context_block)
-            try:
-                content = await _generate_via_cli(prompt)
-            except Exception:
-                try:
-                    content = await _generate_via_api(prompt)
-                except Exception as e:
-                    errors.append(f"{mtype}: {e}")
-                    continue
-            content = content.strip().replace('"', '').replace("'", "")
-            lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
-            content = lines[0] if lines else content
-            try:
-                new_id = await db.create_scheduled_message(
-                    text=content,
-                    message_type=mtype,
-                    channel_topic_id=int(topic) if topic else None,
-                    target_group="main",
-                    scheduled_date=today_iso,
-                    scheduled_time=t,
-                    created_by="ai-fill-today",
-                )
-                created += 1
-                logger.info("[ai-fill-today] created %s id=%d at %s %s: %r",
-                            mtype, new_id, today_iso, t, content[:60])
-            except Exception as e:
-                errors.append(f"{mtype} insert: {e}")
-
-    now_hhmm = datetime.now().strftime("%H:%M")
-    events_fallback_topic = None
     try:
-        rt = await db.get_handler_routing("events_publish")
-        if rt:
-            events_fallback_topic = rt.get("play_topic_id")
-    except Exception:
-        events_fallback_topic = None
+        plan, usage = await _generate_today_plan(bundle)
+        logger.info(
+            "[ai-fill-today] digest OK | cache_create=%d cache_read=%d in=%d out=%d",
+            usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"],
+            usage["input_tokens"], usage["output_tokens"],
+        )
+    except Exception as e:
+        logger.exception("[ai-fill-today] digest failed")
+        errors.append(f"digest: {e}")
+        return {
+            "skipped_holiday": False,
+            "reminders": [], "regular_slots": [], "trivia": {"generated": 0, "skipped": "digest_failed"},
+            "emoji": {"generated": 0, "skipped": "digest_failed"},
+            "notes_for_admin": "", "errors": errors,
+        }
 
-    for ev in events_today:
-        ev_id = ev.get("id")
-        if ev_id is None or ev_id in today_reminder_event_ids:
-            continue
-        ev_time = (ev.get("event_time") or "").strip()[:5]
-        if not ev_time:
-            continue
-        reminder_time = _compute_reminder_time(ev_time, now_hhmm)
-        if reminder_time is None:
-            continue
-        if (today_iso, reminder_time, "custom") in today_committed_keys:
-            continue
-        topic = ev.get("topic_id") or events_fallback_topic
-        topic_name = id_to_name.get(int(topic)) if topic else None
-        prompt = _build_event_reminder_prompt(ev, topic_name, context_block)
-        try:
-            content = await _generate_via_cli(prompt)
-        except Exception:
+    # ── Server-side validation + persistence ────────────────────────────────
+    verified_topic_ids = set(bundle["verified_topic_ids"])
+    existing_today_event_sets: list[set[int]] = []
+    for d in bundle["existing_drafts_today"]:
+        cb = d.get("created_by", "") or ""
+        # Parse "ai-fill-today:events:9,10,11" → {9, 10, 11}
+        if cb.startswith("ai-fill-today:events:"):
             try:
-                content = await _generate_via_api(prompt)
-            except Exception as e:
-                errors.append(f"event {ev_id} reminder: {e}")
-                continue
-        content = content.strip().replace('"', '').replace("'", "")
-        lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
-        content = lines[0] if lines else content
+                existing_today_event_sets.append({int(x) for x in cb.split(":", 2)[2].split(",") if x.strip()})
+            except (ValueError, IndexError):
+                pass
+
+    def _valid_hhmm(s: str) -> bool:
+        try:
+            h, m = s.split(":")
+            return 0 <= int(h) <= 23 and 0 <= int(m) <= 59
+        except (ValueError, AttributeError):
+            return False
+
+    reminders_out: list[dict] = []
+    regular_out: list[dict] = []
+    trivia_added = 0
+    emoji_added = 0
+
+    # ── Reminders ──────────────────────────────────────────────────────────
+    for rem in plan.get("reminders") or []:
+        covered = sorted({int(x) for x in (rem.get("covered_event_ids") or []) if isinstance(x, int)})
+        rem_time = (rem.get("reminder_scheduled_time") or "").strip()
+        topic = rem.get("topic_id")
+        text = (rem.get("text") or "").strip()
+        if not covered or not _valid_hhmm(rem_time) or not text:
+            errors.append(f"reminder rejected (incomplete): {rem}")
+            continue
+        if topic not in verified_topic_ids:
+            errors.append(f"reminder rejected (unverified topic_id={topic}): {rem.get('canonical_title')}")
+            continue
+        # Idempotence: skip if any existing draft already covers overlapping events
+        covered_set = set(covered)
+        if any(covered_set & existing for existing in existing_today_event_sets):
+            continue
+        marker = "ai-fill-today:events:" + ",".join(str(x) for x in covered)
         try:
             new_id = await db.create_scheduled_message(
-                text=content,
-                message_type="custom",
-                channel_topic_id=int(topic) if topic else None,
+                text=text, message_type="custom",
+                channel_topic_id=int(topic),
                 target_group="main",
-                scheduled_date=today_iso,
-                scheduled_time=reminder_time,
-                created_by=f"ai-fill-today:event:{ev_id}",
+                scheduled_date=today_iso, scheduled_time=rem_time,
+                created_by=marker, status="draft",
             )
-            created += 1
-            logger.info("[ai-fill-today] reminder id=%d event=%d at %s: %r",
-                        new_id, ev_id, reminder_time, content[:60])
+            existing_today_event_sets.append(covered_set)
+            reminders_out.append({
+                "id": new_id, "covered_event_ids": covered,
+                "canonical_title": rem.get("canonical_title"),
+                "actual_event_time": rem.get("actual_event_time"),
+                "reminder_scheduled_time": rem_time,
+                "topic_id": int(topic),
+                "needs_review": bool(rem.get("needs_review")),
+                "notes": rem.get("notes") or "",
+            })
+            logger.info("[ai-fill-today] draft reminder id=%d covers=%s at %s", new_id, covered, rem_time)
         except Exception as e:
-            errors.append(f"event {ev_id} insert: {e}")
+            errors.append(f"reminder insert {covered}: {e}")
 
-    # ── C. Trivia pool (context-themed, scheduled days only) ────────────────
-    trivia_result: dict = {"generated": 0}
-    trivia_sched = schedule.get("trivia") or {"days": [2, 5], "time": "20:00"}
-    if hebrew_day not in (trivia_sched.get("days") or []):
-        trivia_result["skipped"] = "not_scheduled_today"
-    else:
-        # Derive today's theme: event title → holiday name → None
-        theme: str | None = None
-        if events_today:
-            theme = (events_today[0].get("title") or "").strip() or None
-        elif holiday and (holiday.get("name") or "").strip():
-            theme = holiday.get("name").strip()
-        if not theme:
-            trivia_result["skipped"] = "no_theme_today"
-        else:
-            existing_trivia = (load_yaml("trivia.yaml") or {}).get("questions") or []
-            already_themed = any(
-                (q.get("category") or "").strip() == theme for q in existing_trivia
+    # ── Regular slots (morning/evening/discussion) ─────────────────────────
+    existing_slot_keys = {
+        (d.get("scheduled_time"), d.get("message_type"))
+        for d in bundle["existing_drafts_today"]
+    }
+    for slot in plan.get("regular_slots") or []:
+        mtype = (slot.get("type") or "").strip()
+        stime = (slot.get("scheduled_time") or "").strip()
+        topic = slot.get("topic_id")
+        text = (slot.get("text") or "").strip()
+        if mtype not in ("morning", "evening", "discussion"):
+            errors.append(f"slot rejected (bad type): {slot}")
+            continue
+        if not _valid_hhmm(stime) or not text:
+            errors.append(f"slot rejected (incomplete): {slot}")
+            continue
+        if topic not in verified_topic_ids:
+            errors.append(f"slot rejected (unverified topic_id={topic}): {mtype}")
+            continue
+        if (stime, mtype) in existing_slot_keys:
+            continue
+        try:
+            new_id = await db.create_scheduled_message(
+                text=text, message_type=mtype,
+                channel_topic_id=int(topic),
+                target_group="main",
+                scheduled_date=today_iso, scheduled_time=stime,
+                created_by="ai-fill-today", status="draft",
             )
-            if already_themed:
-                trivia_result.update({"skipped": "theme_already_in_pool", "theme": theme})
-            else:
-                base_prompt = build_generation_prompt(
-                    field="trivia", mode="append", existing="",
-                    category=theme, instructions=theme,
-                )
-                trivia_prompt = f"{context_block}\n\n{base_prompt}"
-                try:
-                    raw = await _generate_via_cli(trivia_prompt)
-                except Exception:
-                    try:
-                        raw = await _generate_via_api(trivia_prompt)
-                    except Exception as e:
-                        errors.append(f"trivia generate: {e}")
-                        raw = ""
-                parsed_q, invalid_blocks = _parse_trivia_blocks(raw)
-                trivia_result.update({"theme": theme, "invalid_blocks": invalid_blocks})
-                if parsed_q:
-                    try:
-                        merged = existing_trivia + parsed_q
-                        save_and_verify_trivia_questions(CONFIG_DIR / "trivia.yaml", merged)
-                        trivia_result["generated"] = len(parsed_q)
-                        logger.info("[ai-fill-today] trivia appended %d question(s) for theme=%r",
-                                    len(parsed_q), theme)
-                    except TriviaVerificationError as e:
-                        errors.append(f"trivia save: {e}")
-                else:
-                    trivia_result["skipped"] = "no_valid_questions_parsed"
+            existing_slot_keys.add((stime, mtype))
+            regular_out.append({"id": new_id, "type": mtype, "scheduled_time": stime, "topic_id": int(topic)})
+            logger.info("[ai-fill-today] draft %s id=%d at %s", mtype, new_id, stime)
+        except Exception as e:
+            errors.append(f"{mtype} insert: {e}")
 
-    # ── D. Emoji puzzle pool (context-themed, scheduled days only) ──────────
-    emoji_result: dict = {"generated": 0}
-    emoji_sched = schedule.get("emoji_puzzle") or {}
-    if hebrew_day not in (emoji_sched.get("days") or []):
-        emoji_result["skipped"] = "not_scheduled_today"
-    else:
-        target_count = int(emoji_sched.get("puzzle_count", 5) or 5)
-        # Daily cap via date(created_at) — no schema change
-        async with db._db.execute(
-            "SELECT COUNT(*) FROM emoji_puzzles WHERE date(created_at) = ?",
-            (today_iso,),
-        ) as cur:
-            row = await cur.fetchone()
-            already_today = int(row[0]) if row else 0
-        to_generate = max(0, target_count - already_today)
-        if to_generate == 0:
-            emoji_result["skipped"] = "daily_cap_reached"
-            emoji_result["already_today"] = already_today
-        else:
-            emoji_theme: str | None = None
-            if events_today:
-                emoji_theme = (events_today[0].get("title") or "").strip() or None
-            elif holiday and (holiday.get("name") or "").strip():
-                emoji_theme = holiday.get("name").strip()
-            emoji_prompt = _build_emoji_puzzle_prompt(to_generate, emoji_theme, context_block)
-            try:
-                raw = await _generate_via_cli(emoji_prompt)
-            except Exception:
-                try:
-                    raw = await _generate_via_api(emoji_prompt)
-                except Exception as e:
-                    errors.append(f"emoji generate: {e}")
-                    raw = ""
-            parsed_p, invalid_p = _parse_emoji_blocks(raw)
-            emoji_result.update({"theme": emoji_theme, "invalid_blocks": invalid_p})
-            inserted = 0
-            for p in parsed_p[:to_generate]:   # respect the daily cap even if AI overshoots
-                try:
-                    new_id = await db.create_emoji_puzzle(
-                        emoji_prompt=p["emoji_prompt"],
-                        answer_he=p["answer_he"],
-                        answer_en=p["answer_en"],
-                        aliases=json.dumps(p["aliases"], ensure_ascii=False),
-                        difficulty=2,
-                        media_type="movie",
-                    )
-                    inserted += 1
-                    logger.info("[ai-fill-today] emoji puzzle id=%d: %s -> %s",
-                                new_id, p["emoji_prompt"], p["answer_he"])
-                except Exception as e:
-                    errors.append(f"emoji insert '{p.get('answer_he', '?')}': {e}")
-            emoji_result["generated"] = inserted
-            if inserted == 0 and not errors:
-                emoji_result["skipped"] = "no_valid_puzzles_parsed"
+    # ── Trivia (append to trivia.yaml) ─────────────────────────────────────
+    trivia_questions = plan.get("trivia_questions") or []
+    if trivia_questions:
+        try:
+            existing_trivia = (load_yaml("trivia.yaml") or {}).get("questions") or []
+            # Basic sanity check per question before merging
+            valid_q = []
+            for q in trivia_questions:
+                opts = q.get("options") or []
+                correct = q.get("correct")
+                if (isinstance(opts, list) and len(opts) == 4
+                        and all(isinstance(o, str) and o.strip() for o in opts)
+                        and isinstance(correct, int) and 0 <= correct <= 3
+                        and (q.get("text") or "").strip()):
+                    valid_q.append({
+                        "text": q["text"].strip(),
+                        "options": [o.strip() for o in opts],
+                        "correct": correct,
+                        "category": (q.get("category") or "כללי").strip() or "כללי",
+                    })
+                else:
+                    errors.append(f"trivia question rejected: {q}")
+            if valid_q:
+                merged = existing_trivia + valid_q
+                save_and_verify_trivia_questions(CONFIG_DIR / "trivia.yaml", merged)
+                trivia_added = len(valid_q)
+                logger.info("[ai-fill-today] trivia appended %d question(s)", trivia_added)
+        except TriviaVerificationError as e:
+            errors.append(f"trivia save: {e}")
+        except Exception as e:
+            errors.append(f"trivia: {e}")
+
+    # ── Emoji puzzles (insert into emoji_puzzles table) ────────────────────
+    for p in plan.get("emoji_puzzles") or []:
+        emoji_prompt_val = (p.get("emoji_prompt") or "").strip()
+        answer_he = (p.get("answer_he") or "").strip()
+        answer_en = (p.get("answer_en") or "").strip()
+        aliases = p.get("aliases") or []
+        if not emoji_prompt_val or not answer_he or not answer_en:
+            errors.append(f"emoji rejected (incomplete): {p}")
+            continue
+        try:
+            new_id = await db.create_emoji_puzzle(
+                emoji_prompt=emoji_prompt_val,
+                answer_he=answer_he,
+                answer_en=answer_en,
+                aliases=json.dumps([a for a in aliases if isinstance(a, str) and a.strip()], ensure_ascii=False),
+                difficulty=2,
+                media_type="movie",
+            )
+            emoji_added += 1
+            logger.info("[ai-fill-today] emoji puzzle id=%d: %s -> %s", new_id, emoji_prompt_val, answer_he)
+        except Exception as e:
+            errors.append(f"emoji insert '{answer_he}': {e}")
+
+    skipped = plan.get("skipped") or {}
+    return {
+        "skipped_holiday": False,
+        "reminders": reminders_out,
+        "regular_slots": regular_out,
+        "trivia": {"generated": trivia_added, "skipped": skipped.get("trivia")},
+        "emoji": {"generated": emoji_added, "skipped": skipped.get("emoji")},
+        "skipped": skipped,
+        "notes_for_admin": plan.get("notes_for_admin") or "",
+        "errors": errors,
+    }
+
+
+@app.post("/api/calendar/{msg_id}/approve")
+async def approve_calendar_message(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Promote a single draft row to status='scheduled'."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    await db.update_scheduled_message(msg_id, status="scheduled")
+    logger.info("[approve] msg_id=%d → status=scheduled", msg_id)
+    return {"status": "ok", "id": msg_id}
+
+
+@app.post("/api/weekplan/approve-today-drafts")
+async def approve_today_drafts(request: Request, db: Database = Depends(get_db)):
+    """Promote every ai-fill-today draft for today to status='scheduled' in one shot."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from datetime import date
+    today_iso = date.today().isoformat()
+    async with db._db.execute(
+        """UPDATE scheduled_messages
+           SET status = 'scheduled'
+           WHERE scheduled_date = ? AND status = 'draft'
+             AND created_by LIKE 'ai-fill-today%'""",
+        (today_iso,),
+    ) as cur:
+        await db._db.commit()
+        approved = cur.rowcount
+    logger.info("[approve-today] %d draft(s) promoted for %s", approved, today_iso)
+    return {"status": "ok", "approved": approved}
+
+
+@app.get("/api/weekplan/today-summary")
+async def today_summary(request: Request, db: Database = Depends(get_db)):
+    """Counts for the planner banner: today's AI drafts + today-added trivia/emoji."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from datetime import date
+    today_iso = date.today().isoformat()
+
+    async with db._db.execute(
+        """SELECT COUNT(*) FROM scheduled_messages
+           WHERE scheduled_date = ? AND status = 'draft'
+             AND created_by LIKE 'ai-fill-today%'""",
+        (today_iso,),
+    ) as cur:
+        row = await cur.fetchone()
+        draft_count = int(row[0]) if row else 0
+
+    async with db._db.execute(
+        "SELECT COUNT(*) FROM emoji_puzzles WHERE date(created_at) = ?",
+        (today_iso,),
+    ) as cur:
+        row = await cur.fetchone()
+        emoji_today = int(row[0]) if row else 0
+
+    # Trivia: the ✨ button's additions carry the event title as category, and
+    # those categories won't exist in the pre-existing pool. Count any category
+    # whose member count is >= 1 but didn't exist before today is hard without
+    # a timestamp on yaml entries — use a cheap heuristic: look at the current
+    # event titles for today, count matching categories in the pool.
+    try:
+        events = await db.get_upcoming_events(50)
+        today_event_titles = {(e.get("title") or "").strip() for e in events if e.get("event_date") == today_iso}
+        pool = (load_yaml("trivia.yaml") or {}).get("questions") or []
+        trivia_today = sum(
+            1 for q in pool if (q.get("category") or "").strip() in today_event_titles
+        )
+    except Exception:
+        trivia_today = 0
 
     return {
-        "created": created,
-        "errors": errors,
-        "skipped_holiday": False,
-        "events_today": [
-            {"id": e.get("id"), "title": e.get("title"), "event_time": e.get("event_time")}
-            for e in events_today
-        ],
-        "trivia": trivia_result,
-        "emoji": emoji_result,
+        "date": today_iso,
+        "drafts": draft_count,
+        "trivia_added_today": trivia_today,
+        "emoji_added_today": emoji_today,
     }
 
 
@@ -4472,11 +4793,23 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     except Exception:
         pass
 
+    drafts_client_keys = (
+        "id", "message_type", "text", "channel_topic_id",
+        "scheduled_date", "scheduled_time", "recurrence",
+        "cover_path", "poll_options", "poll_duration",
+    )
+    drafts_json = _json.dumps(
+        [{k: d.get(k) for k in drafts_client_keys} for d in drafts],
+        ensure_ascii=False,
+        default=str,
+    )
+
     return templates.TemplateResponse(request, name="planner.html", context={
         "now_date": now.strftime("%Y-%m-%d"),
         "forum_topics": forum_topics,
         "topic_names": topic_names,
         "drafts": drafts,
+        "drafts_json": drafts_json,
         "schedule_pattern": schedule_pattern,
         "holiday_blackouts": _json.dumps(settings_obj.get("holiday_blackouts", []), ensure_ascii=False),
         "discussion_channels": discussion_channels,

@@ -768,17 +768,23 @@ class Database:
                                         created_by: str = "dashboard",
                                         cover_path: str | None = None,
                                         poll_options: str | None = None,
-                                        poll_duration: int | None = None) -> int:
-        """Create a new scheduled message. Returns ID."""
+                                        poll_duration: int | None = None,
+                                        status: str = "scheduled") -> int:
+        """Create a new scheduled message. Returns ID.
+
+        status defaults to 'scheduled' (sends at scheduled_time). Pass 'draft'
+        to hold for admin review — get_due_messages filters status='scheduled'
+        so drafts never auto-send.
+        """
         async with self._db.execute(
             """INSERT INTO scheduled_messages
                (text, message_type, channel_topic_id, target_group,
                 scheduled_date, scheduled_time, recurrence, recurrence_days,
-                auto_pin, created_by, cover_path, poll_options, poll_duration)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                auto_pin, created_by, cover_path, poll_options, poll_duration, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (text, message_type, channel_topic_id, target_group,
              scheduled_date, scheduled_time, recurrence, recurrence_days,
-             auto_pin, created_by, cover_path, poll_options, poll_duration),
+             auto_pin, created_by, cover_path, poll_options, poll_duration, status),
         ) as cursor:
             msg_id = cursor.lastrowid
         await self._db.commit()
