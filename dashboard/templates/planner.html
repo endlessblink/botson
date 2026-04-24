@@ -2316,9 +2316,32 @@ async function approveAllToday() {
     btn.innerHTML = '⏳ מאשר...';
     btn.disabled = true;
     try {
-        var r = await fetch('/api/weekplan/approve-today-drafts', {method: 'POST'});
+        var r = await fetch('/api/weekplan/approve-today-drafts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
         var data = await r.json();
-        showToast('אושרו ' + (data.approved || 0) + ' טיוטות');
+        var approved = data.approved || 0;
+        var skipped = (data.skipped_past_due || []).length;
+        if (skipped > 0) {
+            var forceIt = confirm(
+                skipped + ' טיוטות מתוזמנות לזמנים שכבר עברו או קרוב מדי (פחות מ-2 דקות).\n' +
+                'אישור עם force=true ישלח אותן מיד לקבוצה האמיתית.\n\nלהמשיך?'
+            );
+            if (forceIt) {
+                var r2 = await fetch('/api/weekplan/approve-today-drafts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({force: true})
+                });
+                var data2 = await r2.json();
+                approved += (data2.approved || 0);
+            }
+        }
+        var msg = 'אושרו ' + approved + ' טיוטות';
+        if (skipped > 0 && approved === (data.approved || 0)) msg += ' (' + skipped + ' דולגו — כבר בעבר)';
+        showToast(msg);
         calendar.refetchEvents();
         refreshTodaySummary();
     } catch (e) {
@@ -2331,8 +2354,28 @@ async function approveAllToday() {
 
 async function approveDraft(msgId) {
     try {
-        var r = await fetch('/api/calendar/' + msgId + '/approve', {method: 'POST'});
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var r = await fetch('/api/calendar/' + msgId + '/approve', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        if (r.status === 409) {
+            var body = await r.json().catch(function() { return {}; });
+            var detail = (body && body.detail) || {};
+            var prompt = (detail.message || 'הסלוט מתוזמן בעבר.') +
+                '\n\nלשלוח בכל זאת (יישלח מיד לקבוצה)?';
+            if (!confirm(prompt)) { showToast('בוטל'); return; }
+            r = await fetch('/api/calendar/' + msgId + '/approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({force: true})
+            });
+        }
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            var emsg = (err && (err.detail && err.detail.message || err.detail || err.message)) || ('HTTP ' + r.status);
+            throw new Error(emsg);
+        }
         showToast('אושר');
         calendar.refetchEvents();
         refreshTodaySummary();

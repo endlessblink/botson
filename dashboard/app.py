@@ -3624,32 +3624,111 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
 
 @app.post("/api/calendar/{msg_id}/approve")
 async def approve_calendar_message(msg_id: int, request: Request, db: Database = Depends(get_db)):
-    """Promote a single draft row to status='scheduled'."""
+    """Promote a single draft row to status='scheduled'.
+
+    Safety: if the row's scheduled_time is already in the past (or within the
+    next 2 minutes), refuse unless body has `force: true`. The bot's
+    calendar_checker runs every 60s, so a past-time promotion sends
+    immediately to the real group — always surface this to the admin.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    force = bool(body.get("force", False))
+
+    async with db._db.execute(
+        "SELECT scheduled_date, scheduled_time, status FROM scheduled_messages WHERE id = ?",
+        (msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="message not found")
+
+    from datetime import datetime
+    now = datetime.now()
+    try:
+        target = datetime.strptime(f"{row['scheduled_date']} {(row['scheduled_time'] or '00:00')[:5]}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        target = None
+    if target is not None and not force:
+        delta = (target - now).total_seconds()
+        if delta < 120:  # already past or < 2 min away
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "past_due",
+                    "message": "סלוט זה מתוזמן בעבר או ממש קרוב — אישור ישלח אותו מיד. הוסף force=true כדי להמשיך",
+                    "scheduled_for": target.isoformat(),
+                    "seconds_from_now": int(delta),
+                },
+            )
+
     await db.update_scheduled_message(msg_id, status="scheduled")
-    logger.info("[approve] msg_id=%d → status=scheduled", msg_id)
+    logger.info("[approve] msg_id=%d → status=scheduled (force=%s)", msg_id, force)
     return {"status": "ok", "id": msg_id}
 
 
 @app.post("/api/weekplan/approve-today-drafts")
 async def approve_today_drafts(request: Request, db: Database = Depends(get_db)):
-    """Promote every ai-fill-today draft for today to status='scheduled' in one shot."""
+    """Bulk-promote today's ai-fill-today drafts to status='scheduled'.
+
+    Safety: by default, SKIPS any draft whose scheduled_time is in the past or
+    less than 2 minutes away — those would auto-send immediately via the bot's
+    60s calendar_checker tick. To include them, POST {force: true}.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    from datetime import date
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    force = bool(body.get("force", False))
+
+    from datetime import date, datetime
     today_iso = date.today().isoformat()
+    now = datetime.now()
+
     async with db._db.execute(
-        """UPDATE scheduled_messages
-           SET status = 'scheduled'
+        """SELECT id, scheduled_time FROM scheduled_messages
            WHERE scheduled_date = ? AND status = 'draft'
              AND created_by LIKE 'ai-fill-today%'""",
         (today_iso,),
     ) as cur:
-        await db._db.commit()
-        approved = cur.rowcount
-    logger.info("[approve-today] %d draft(s) promoted for %s", approved, today_iso)
-    return {"status": "ok", "approved": approved}
+        rows = await cur.fetchall()
+
+    eligible_ids: list[int] = []
+    skipped_past: list[dict] = []
+    for r in rows:
+        tstr = (r["scheduled_time"] or "00:00")[:5]
+        try:
+            target = datetime.strptime(f"{today_iso} {tstr}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            target = None
+        if force or target is None or (target - now).total_seconds() >= 120:
+            eligible_ids.append(r["id"])
+        else:
+            skipped_past.append({"id": r["id"], "scheduled_time": tstr, "seconds_from_now": int((target - now).total_seconds())})
+
+    approved = 0
+    if eligible_ids:
+        placeholders = ",".join("?" * len(eligible_ids))
+        async with db._db.execute(
+            f"UPDATE scheduled_messages SET status = 'scheduled' WHERE id IN ({placeholders})",
+            eligible_ids,
+        ) as cur:
+            await db._db.commit()
+            approved = cur.rowcount
+
+    logger.info(
+        "[approve-today] %d promoted, %d skipped (past-due) for %s (force=%s)",
+        approved, len(skipped_past), today_iso, force,
+    )
+    return {"status": "ok", "approved": approved, "skipped_past_due": skipped_past}
 
 
 @app.get("/api/weekplan/today-summary")
