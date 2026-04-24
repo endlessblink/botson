@@ -2883,18 +2883,23 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 
 
 def _today_plan_tool_schema() -> dict:
-    """JSON-schema for the tool the AI must call. Guarantees parseable typed output."""
+    """JSON-schema for the tool the AI must call. Guarantees parseable typed
+    output. `additionalProperties: false` + full `required` arrays are needed
+    by OpenAI structured outputs (codex --output-schema); Anthropic tool_use
+    also accepts this shape."""
     return {
         "name": "today_plan",
         "description": "Submit the structured plan for today — reminders for canonical events, scheduled regular slots, new trivia/emoji pool entries, and skipped-section reasons.",
         "input_schema": {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "notes_for_admin": {"type": "string", "description": "Free-form admin-facing summary of the decisions. May mix Hebrew/English."},
                 "reminders": {
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
                             "covered_event_ids": {"type": "array", "items": {"type": "integer"}, "description": "All events.id rows that merged into this canonical event."},
                             "canonical_title": {"type": "string"},
@@ -2905,13 +2910,14 @@ def _today_plan_tool_schema() -> dict:
                             "needs_review": {"type": "boolean"},
                             "notes": {"type": "string"},
                         },
-                        "required": ["covered_event_ids", "canonical_title", "actual_event_time", "reminder_scheduled_time", "topic_id", "text", "needs_review"],
+                        "required": ["covered_event_ids", "canonical_title", "actual_event_time", "reminder_scheduled_time", "topic_id", "text", "needs_review", "notes"],
                     },
                 },
                 "regular_slots": {
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
                             "type": {"type": "string", "enum": ["morning", "evening", "discussion"]},
                             "scheduled_time": {"type": "string", "description": "HH:MM from schedule config."},
@@ -2919,13 +2925,14 @@ def _today_plan_tool_schema() -> dict:
                             "text": {"type": "string", "description": "Hebrew. Morning/evening = 1-2 lines with emoji. Discussion = 1 question."},
                             "category": {"type": "string", "description": "Discussion category key (e.g., 'movies') — empty string for morning/evening."},
                         },
-                        "required": ["type", "scheduled_time", "topic_id", "text"],
+                        "required": ["type", "scheduled_time", "topic_id", "text", "category"],
                     },
                 },
                 "trivia_questions": {
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
                             "text": {"type": "string"},
                             "options": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
@@ -2939,17 +2946,19 @@ def _today_plan_tool_schema() -> dict:
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
                             "emoji_prompt": {"type": "string", "description": "3-6 emoji representing the answer."},
                             "answer_he": {"type": "string"},
                             "answer_en": {"type": "string"},
                             "aliases": {"type": "array", "items": {"type": "string"}},
                         },
-                        "required": ["emoji_prompt", "answer_he", "answer_en"],
+                        "required": ["emoji_prompt", "answer_he", "answer_en", "aliases"],
                     },
                 },
                 "skipped": {
                     "type": "object",
+                    "additionalProperties": False,
                     "properties": {
                         "reminders": {"type": ["string", "null"]},
                         "morning": {"type": ["string", "null"]},
@@ -2958,6 +2967,7 @@ def _today_plan_tool_schema() -> dict:
                         "trivia": {"type": ["string", "null"]},
                         "emoji": {"type": ["string", "null"]},
                     },
+                    "required": ["reminders", "morning", "evening", "discussion", "trivia", "emoji"],
                 },
             },
             "required": ["notes_for_admin", "reminders", "regular_slots", "trivia_questions", "emoji_puzzles", "skipped"],
@@ -3213,39 +3223,114 @@ async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]
     return _parse_digest_json(stdout, "claude-cli"), {"transport": "claude-cli"}
 
 
-async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
-    """Fallback: Codex CLI (`codex exec PROMPT`). Requires `codex` binary on
-    PATH + a prior `codex login`. Gracefully errors if absent (e.g. VPS)."""
+def _codex_binary_path() -> str | None:
+    """Resolve the codex binary, preferring the botson user's npm-global install
+    on VPS (/opt/robotnik/.npm-global/bin/codex) before falling back to PATH."""
     import shutil
     import pwd as _pwd
-
-    codex_bin = shutil.which("codex")
-    if not codex_bin:
-        raise RuntimeError("codex CLI not installed on this host")
-
-    prompt = _build_cli_digest_prompt(bundle)
-    logger.info("[ai-fill-today] digest via codex CLI: prompt_chars=%d", len(prompt))
-
     try:
         real_home = _pwd.getpwuid(os.geteuid()).pw_dir
     except Exception:
         real_home = os.path.expanduser("~")
-    env = {**os.environ, "HOME": real_home}
+    candidate = os.path.join(real_home, ".npm-global", "bin", "codex")
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return shutil.which("codex")
 
-    proc = await asyncio.create_subprocess_exec(
-        codex_bin, "exec", prompt,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
+
+async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
+    """Fallback: Codex CLI (`codex exec --output-schema SCHEMA PROMPT`).
+    Requires `codex` binary + a prior `codex login` (device-auth or browser).
+
+    Uses `--output-schema` to constrain output to valid JSON at the model
+    layer — no fence stripping needed for the happy path. Still falls back
+    to regex rescue for edge cases (network hiccups, warnings leaking into
+    stdout).
+    """
+    import pwd as _pwd
+    import tempfile
+
+    codex_bin = _codex_binary_path()
+    if not codex_bin:
+        raise RuntimeError("codex CLI not installed on this host")
+
+    prompt = _build_cli_digest_prompt(bundle)
+    try:
+        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
+    except Exception:
+        real_home = os.path.expanduser("~")
+
+    logger.info(
+        "[ai-fill-today] digest via codex CLI: bin=%s HOME=%s prompt_chars=%d",
+        codex_bin, real_home, len(prompt),
     )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+
+    # Write the schema to a temp file — codex --output-schema reads from disk
+    schema_fd, schema_path = tempfile.mkstemp(suffix=".json", prefix="today-plan-schema-")
+    try:
+        with os.fdopen(schema_fd, "w", encoding="utf-8") as f:
+            json.dump(_today_plan_tool_schema()["input_schema"], f, ensure_ascii=False)
+
+        env = {**os.environ, "HOME": real_home}
+        # Pass long Hebrew prompts via stdin (`-`) to avoid ARG_MAX issues;
+        # codex reads stdin when the prompt arg is `-` or missing.
+        proc = await asyncio.create_subprocess_exec(
+            codex_bin, "exec",
+            "--skip-git-repo-check",           # runs fine outside a git repo
+            "--ignore-user-config",            # avoid AGENTS.md permission errors
+            "--ignore-rules",                  # same
+            "--output-schema", schema_path,    # constrain output to our JSON schema
+            "-",                               # read prompt from stdin
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(input=prompt.encode("utf-8")),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise RuntimeError("codex CLI timed out after 300s")
+    finally:
+        try:
+            os.unlink(schema_path)
+        except OSError:
+            pass
+
+    stdout = stdout_b.decode(errors="replace").strip()
+    stderr = stderr_b.decode(errors="replace").strip()
+    logger.info(
+        "[ai-fill-today] codex CLI rc=%d stdout_chars=%d stderr_chars=%d",
+        proc.returncode, len(stdout), len(stderr),
+    )
+
     if proc.returncode != 0:
-        raise RuntimeError(f"codex CLI rc={proc.returncode} stderr={stderr.decode()[:300]}")
-    raw = stdout.decode().strip()
-    if not raw:
-        raise RuntimeError(f"codex CLI empty output, stderr={stderr.decode()[:200]}")
-    logger.info("[ai-fill-today] codex CLI returned chars=%d", len(raw))
-    return _parse_digest_json(raw, "codex-cli"), {"transport": "codex-cli"}
+        raise RuntimeError(
+            f"codex CLI rc={proc.returncode} "
+            f"stdout={stdout[:400]!r} stderr={stderr[:400]!r}"
+        )
+    if not stdout:
+        raise RuntimeError(f"codex CLI empty stdout, stderr={stderr[:400]!r}")
+
+    # Codex transcript wraps the JSON with session/user/codex blocks; grab the
+    # last standalone JSON object (which is duplicated after "tokens used").
+    import re
+    matches = re.findall(r"(\{(?:[^{}]|(?:\{[^{}]*\}))*\})", stdout)
+    candidates = []
+    for m in matches:
+        try:
+            candidates.append(json.loads(m))
+        except json.JSONDecodeError:
+            pass
+    # Pick the largest parseable dict — that's the real payload, not a
+    # fragment from some session header.
+    if not candidates:
+        raise RuntimeError(f"codex CLI: no parseable JSON in output (first 400 chars): {stdout[:400]}")
+    candidates.sort(key=lambda d: len(json.dumps(d)), reverse=True)
+    return candidates[0], {"transport": "codex-cli"}
 
 
 async def _generate_today_plan_via_ollama(bundle: dict) -> tuple[dict, dict]:
