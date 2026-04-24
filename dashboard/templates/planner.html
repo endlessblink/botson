@@ -177,6 +177,30 @@
         line-height: 1.6;
     }
 
+    /* Telegram-style photo card (cover + caption) */
+    .preview-tg-card {
+        background: #1a2234; border-radius: 12px; border-top-right-radius: 0;
+        overflow: hidden; direction: rtl;
+    }
+    .preview-cover {
+        display: block; width: 100%; max-height: 260px;
+        object-fit: cover; background: #0a0a0a;
+    }
+    .preview-caption {
+        padding: 12px 16px; font-size: 14px; color: #ffffff;
+        min-height: 48px; white-space: pre-line; line-height: 1.6;
+    }
+    /* RSVP button row (inline keyboard) */
+    .preview-rsvp-row {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+        margin-top: 6px;
+    }
+    .preview-rsvp-btn {
+        background: #1a2234; border: none; color: #6ab5f0;
+        padding: 10px 12px; border-radius: 8px; font-size: 13px;
+        cursor: default; text-align: center;
+    }
+
     /* Poll option preview */
     .preview-poll-btn {
         display: block; width: 100%; text-align: right; direction: rtl;
@@ -640,8 +664,15 @@
         <div id="wizard-step-3" class="wizard-step px-5 py-4 hidden">
             <p class="text-xs text-[#71717a] mb-3">תצוגה מקדימה</p>
             <div id="preview-channel-tag" class="hidden text-[11px] text-[#a1a1aa] mb-1.5 px-1"></div>
-            <div id="create-preview" dir="rtl" class="tg-bubble">
-                <span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>
+            <div class="preview-tg-card" dir="rtl">
+                <img id="preview-cover" class="hidden preview-cover" alt="">
+                <div id="create-preview" class="preview-caption">
+                    <span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>
+                </div>
+            </div>
+            <div id="preview-rsvp" class="hidden preview-rsvp-row" dir="rtl">
+                <button type="button" class="preview-rsvp-btn">✅ מגיע/ה (0)</button>
+                <button type="button" class="preview-rsvp-btn">🤔 אולי (0)</button>
             </div>
             <div id="preview-poll-options" class="hidden mt-2 space-y-1.5"></div>
             <div id="preview-event-info" class="hidden mt-2 text-xs text-[#71717a]"></div>
@@ -1338,6 +1369,8 @@ function renderPreview() {
     var pollContainer = document.getElementById('preview-poll-options');
     var eventInfo = document.getElementById('preview-event-info');
     var timeEl = document.getElementById('preview-time');
+    var coverImg = document.getElementById('preview-cover');
+    var rsvpRow = document.getElementById('preview-rsvp');
 
     // Channel tag
     if (wizardState.channelTopicId && TOPIC_NAMES[wizardState.channelTopicId]) {
@@ -1347,11 +1380,27 @@ function renderPreview() {
         channelTag.classList.add('hidden');
     }
 
+    // Cover image
+    if (wizardState.coverUrl) {
+        coverImg.src = wizardState.coverUrl;
+        coverImg.classList.remove('hidden');
+    } else {
+        coverImg.classList.add('hidden');
+        coverImg.src = '';
+    }
+
     // Message bubble
     if (text) {
         previewEl.textContent = text;
     } else {
         previewEl.innerHTML = '<span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>';
+    }
+
+    // RSVP buttons (event only)
+    if (wizardState.type === 'event') {
+        rsvpRow.classList.remove('hidden');
+    } else {
+        rsvpRow.classList.add('hidden');
     }
 
     // Poll options
