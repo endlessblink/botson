@@ -2924,51 +2924,24 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
      - חייב להציע משהו לעשות עכשיו/הערב/השבוע: "מי בעניין של משחק רוקטליג ב-22:00?", "ערב סדרה ביחד? מה רואים?", "פיצ'ר את ה-3 משחקי קופסה האהובים עליכם — נבחר משחק להפעיל".
      - שאלות רפלקטיביות מותרות רק לסלוט morning, ובלבד שהן פותחות את היום ולא סוגרות אותו.
 
-   - **השתמש בערוצים כהיק לתוכן ספציפי וחד**: שאלות discussion חייבות להתחבר לערוץ ולתחום באופן שמייצר תשובות מעניינות, לא generic. **אסור שאלות-תבנית** כמו "איזה X אהבתם?", "איזה Y חזרתם עליו?", "מה הX האהוב?" — זה ייצר תגובות חד-מילתיות בלי שיחה.
-
-     במקום זה, השתמש בהיקים חזקים — אחד מהפורמטים הבאים:
-
-     - **Hot take / opinion חצי-פרובוקטיבי**: "סרט שהיו בו 10 דקות מצוינות והשאר זמן מבוזבז — איזה?", "משחק קופסה שכולם משבחים אבל בעיניכם הוא overrated?"
-     - **Specific scenario**: "אתם נכנסים לחדר עם 4 זרים. איזה משחק קופסה תרימו ראשון כדי לשבור את הקרח?"
-     - **Compare / choose**: "פרסי הסרטים: צפייה ראשונה אונליין או חיכיתם לראות לבד? למה?"
-     - **Behind-the-scenes / process**: "אומנים בקבוצה — מה הסטיוויט הכי לא נוח שאתם עובדים בו ועדיין אוהבים?"
-     - **Mini-list**: "3 הסדרות שלא עניינו אתכם בעונה הראשונה אבל נכנסתם להן רק בעונה 2-3 — מי?"
-     - **Niche/specific reference**: התחבר לאירוע אקטואלי, סדרה שיצאה השבוע, משחק שעלה לאחרונה. בקש מהקהילה לחלוק חוויה ספציפית, לא דעה כללית.
-
-     **המבחן**: אם אתה יכול להחליף את שם הערוץ בערוץ אחר ולא להפסיד שום דבר — זו שאלה generic. תקן.
-
-     **דוגמאות לתיקון** (מה לא לעשות → מה כן):
-     - ❌ "סדרה שאתם מריצים ברקע שוב ושוב" → ✅ "Yellowstone, Suits, Friends — איזו סדרה הכי 'background friendly' אצלכם, ולמה דווקא היא?"
-     - ❌ "איזה משחק תפס אתכם השבוע" → ✅ "מצב: סוף שבוע, פרק זמן 90 דקות, רוצים משחק חדש בלי לפתוח חוברת. איזה משחק עונה?"
-     - ❌ "איזה אומן השפיע עליכם" → ✅ "אמן/אמנית שגיליתם השבוע באינסטגרם וכבר עוקבים אחריהם — מי?"
+   - **שאלות discussion חייבות להיות חדות וחיביתיות** — אסור שאלות-תבנית ("איזה X אהבתם?", "מה הY האהוב?"). אם אפשר להחליף את שם הערוץ ולא להפסיד דבר — זה generic, תקן.
+     פורמטים מומלצים: hot take פרובוקטיבי, scenario ספציפי, השוואה/בחירה, mini-list של 3, התייחסות לאירוע/סדרה אקטואליים. דוגמה: ❌ "סדרה שאתם מריצים שוב ושוב" → ✅ "Yellowstone/Suits/Friends — איזו הכי 'background friendly' ולמה?"
 
    - **למד מ-recent_sent_samples_by_type**: זה הסגנון של הקהילה. שכפל את הקצב, את האמוג'ים שעובדים, את אורך המשפט. אל תיצור משהו שלא יושב על הטון הזה.
 
    - **הצעות פעילות — חובה לפחות אחת ביום, לא רק שאלות.** שאלה רפלקטיבית = passive. הקהילה זקוקה גם לליווי אקטיבי:
-     אסור לסיים את היום ללא לפחות סלוט אחד שהוא **הזמנה קונקרטית לפעולה** (not a question), משלושת הסוגים הבאים:
+     אסור לסיים את היום ללא לפחות סלוט אחד שהוא **הזמנה קונקרטית לפעולה** (not a question). פורמטים:
 
-     a. **הזמנה למשחק/פעילות הערב או מחר** — שים ב-regular_slots עם type="discussion", category="gaming" אם רלוונטי. דוגמאות (אסור להעתיק, רק כדוגמה לסגנון):
-        - "🎲 מי בא לשחק Among Us ב-22:30 בדיסקורד? צריכים מינימום 4. עיגול ✋ אם בא לכם."
-        - "🃏 משחק קלפים אונליין הערב ב-23:00 — Skull, Coup, או Codenames? תגיבו עם הבחירה ואתם בפנים."
-        - "🍿 watch party הערב ב-22:00 — צופים [סדרה/סרט]. מי מצטרף?"
-        - **🧠 סיבוב טריוויה הערב ב-22:00 על [נושא הקשור לאירוע/יום] — 10 שאלות מהירות. מי בעניין?** —
-          הזמנה זו מומלצת אם today יש אירוע או נושא חזק שמתאים. בנוסף, חובה גם לאכלס את trivia_questions ב-5-10 שאלות באותה קטגוריה כדי שיהיה ממה לשחק.
-          רשום ב-notes_for_admin תחת "הזמנות אקטיביות": "לפתיחת הסיבוב: עבור ל-/trivia → לחץ 'התחל סיבוב' עם הקטגוריה X".
+     a. **משחק/פעילות הערב** (regular_slots, type="discussion", category הקרוב):
+        "🎲 מי בא לשחק [משחק] ב-[שעה] בדיסקורד?" / "🍿 watch party ב-[שעה]" / "🧠 סיבוב טריוויה הערב ב-[שעה] על [נושא]" / "🎭 ערב חידות אמוג'י ב-[שעה]". כשמציע סיבוב טריוויה — חובה גם לאכלס trivia_questions באותה קטגוריה (5-10 שאלות). אותו דבר לאמוג'י (3-5 חידות).
 
-        - **🎭 ערב חידות אמוג'י ב-22:30 — 5 חידות סרטים/סדרות. מי שמתחיל!** —
-          הזמנה למשחק אמוג'י-פאזל. אם today מתאים (אווירת בילוי, ערב, סוף שבוע), בנוסף אכלס את emoji_puzzles ב-3-5 חידות חדשות שיהיו זמינות לסשן.
-          רשום ב-notes_for_admin תחת "הזמנות אקטיביות": "לפתיחת הסשן: עבור ל-/puzzles → לחץ 'הפעל עכשיו'".
+     b. **הצעה לאירוע השבוע**: "מתכננים מפגש [סוג] — מתי הכי טוב? תצביעו".
 
-     **חשוב לגבי trivia/emoji games**: גם בימים שבהם schedule.trivia.days או schedule.emoji_puzzle.days הם [], מותר ומומלץ להציע **הזמנה אקטיבית** לסיבוב טריוויה / חידות אמוג'י כפעילות מיוחדת (one-off). הסעיף trivia_questions / emoji_puzzles בכלל 5 כבוי כשהפיצ'ר disabled — אבל הזמנה ב-regular_slots עם custom text היא דבר אחר ומותרת.
+     c. **פולס מהיר** עם 2-4 אופציות בטקסט.
 
-     b. **הצעה לאירוע השבוע** — שתשפיע על תכנון:
-        - "מתכננים מפגש משחקי קופסה בסוף שבוע הבא — שישי ערב או שבת ערב? תצביעו 🍕"
-        - "פתחו אישתאלון: יום בשבוע + שעה הכי טובים למפגש קבוע. ניצור פולס בערב."
+     **חובה ב-notes_for_admin** תחת **"הזמנות אקטיביות:"** רשימת ההזמנות שהוצעו, עם הערה: "הזמן/פרטים הם הצעה ראשונית". אם זה סיבוב טריוויה: "לפתיחה: /trivia → התחל סיבוב". אם אמוג'י: "לפתיחה: /puzzles → הפעל עכשיו".
 
-     c. **פולס מהיר עם 2-4 אופציות** — שים ב-regular_slots עם type="discussion" (יוצג כפולס בצד הבוט בערוץ הנכון):
-        - "טוב או רע: ההחלטה של נטפליקס לעשות עוד עונה לסטריינג'ר ת'ינגס? 1) טוב 2) רע 3) לא אכפת לי"
-
-     **חובה לסמן** הזמנה אקטיבית בשדה notes_for_admin תחת "**הזמנות אקטיביות:**" עם הערה שהזמן והפרטים הם הצעה ראשונית — על המנהל לתקן/לאשר לפני שליחה.
+     **גם אם schedule.trivia.days=[] או emoji_puzzle.days=[]** — הזמנה ב-regular_slots לסיבוב חד-פעמי מותרת (days=[] רק מכבה auto-pool, לא הזמנות special-event).
 
    - **לאירועים**: תזכורת לא חייבת להיות "האירוע מתחיל בעוד X דקות". יכולה להיות "🍿 הכינו פופקורן, X דקות מהמפגש" או "מי כבר בחדר ההמתנה?".
 
@@ -3151,26 +3124,26 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         })
 
     # Recent SENT messages — gives the AI a feel for the community's actual
-    # voice and which content types/topics resonate. Last 21 days, capped at
-    # 25 per type-bucket so trivia/digest spam doesn't crowd out morning/evening.
+    # voice. Capped tight (3 per type, 100 chars each) to keep total prompt
+    # under ~15k chars. Earlier 8-per-type at 140 chars pushed the digest
+    # past 28k and blew out claude CLI's 240s timeout.
     recent_sent_by_type: dict[str, list[dict]] = {}
     try:
         from datetime import timedelta as _td
-        twenty_one_days_ago = (today - _td(days=21)).isoformat()
+        fourteen_days_ago = (today - _td(days=14)).isoformat()
         async with db._db.execute(
-            """SELECT id, scheduled_date, scheduled_time, message_type,
-                      channel_topic_id, text
+            """SELECT scheduled_date, message_type, channel_topic_id, text
                FROM scheduled_messages
                WHERE status = 'sent'
                  AND scheduled_date >= ? AND scheduled_date < ?
                ORDER BY scheduled_date DESC, scheduled_time DESC
-               LIMIT 200""",
-            (twenty_one_days_ago, today_iso),
+               LIMIT 80""",
+            (fourteen_days_ago, today_iso),
         ) as cur:
             for row in await cur.fetchall():
                 mt = (row["message_type"] or "custom") or "custom"
                 bucket = recent_sent_by_type.setdefault(mt, [])
-                if len(bucket) >= 8:  # at most 8 examples per message_type
+                if len(bucket) >= 3:  # at most 3 examples per message_type
                     continue
                 txt = (row["text"] or "").strip().replace("\n", " ")
                 if not txt:
@@ -3178,7 +3151,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
                 bucket.append({
                     "date": row["scheduled_date"],
                     "topic_id": row["channel_topic_id"],
-                    "text": txt[:140],
+                    "text": txt[:100],
                 })
     except Exception as e:
         logger.warning("[ai-fill-today] failed to load recent sent samples: %s", e)
@@ -3245,12 +3218,12 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         for cat, cnt in sorted(categories_count.items(), key=lambda x: -x[1])
     ]
 
-    # Existing emoji answers
+    # Existing emoji answers — kept tight to bound prompt size
     try:
         existing_puzzles = await db.list_emoji_puzzles()
         existing_emoji_answers = [
             {"he": p.get("answer_he"), "en": p.get("answer_en")}
-            for p in existing_puzzles[-40:]  # last 40 most recent
+            for p in existing_puzzles[-20:]  # last 20 most recent
         ]
     except Exception:
         existing_emoji_answers = []
@@ -3296,7 +3269,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         "verified_topic_ids": verified_topic_ids,
         "verified_topic_names": {str(k): v for k, v in verified_topic_names.items()},
         "events_publish_fallback_topic": events_fallback,
-        "existing_trivia_categories": existing_trivia[:30],
+        "existing_trivia_categories": existing_trivia[:15],
         "existing_emoji_answers_sample": existing_emoji_answers,
         "schedule": schedule_snapshot,
         "active_discussion_categories": active_discussion_categories,
