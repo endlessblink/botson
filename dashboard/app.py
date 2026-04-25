@@ -4959,6 +4959,71 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/calendar/{msg_id}/schedule")
+async def schedule_calendar_item(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Set a draft row to status='scheduled' so the bot's calendar_checker
+    delivers it at the scheduled_time. Optionally update scheduled_time first
+    (body: {scheduled_time: 'HH:MM'}).
+
+    Refuses if the resulting scheduled datetime is in the past or within the
+    next 2 minutes — the bot's 60s tick would fire it almost immediately,
+    bypassing the 'review then schedule' intent. Pass force=true to override.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    new_time = (body.get("scheduled_time") or "").strip() or None
+    force = bool(body.get("force", False))
+
+    async with db._db.execute(
+        "SELECT scheduled_date, scheduled_time, status FROM scheduled_messages WHERE id = ?",
+        (msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="message not found")
+
+    target_time_str = new_time or (row["scheduled_time"] or "")[:5]
+    from datetime import datetime
+    now = datetime.now()
+    try:
+        target_dt = datetime.strptime(
+            f"{row['scheduled_date']} {target_time_str}", "%Y-%m-%d %H:%M"
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid time {target_time_str!r}")
+
+    if not force:
+        delta = (target_dt - now).total_seconds()
+        if delta < 120:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "past_due",
+                    "message": (
+                        "הסלוט מתוזמן בעבר או פחות מ-2 דקות בעתיד. "
+                        "הוסף force=true או 'שלח עכשיו' אם זה מה שרצית."
+                    ),
+                    "scheduled_for": target_dt.isoformat(),
+                    "seconds_from_now": int(delta),
+                },
+            )
+
+    update_fields: dict = {"status": "scheduled"}
+    if new_time and new_time != (row["scheduled_time"] or "")[:5]:
+        update_fields["scheduled_time"] = new_time
+    await db.update_scheduled_message(msg_id, **update_fields)
+    logger.info(
+        "[schedule] msg_id=%d → status=scheduled at %s (force=%s)",
+        msg_id, target_dt.isoformat(), force,
+    )
+    return {"status": "ok", "id": msg_id, "scheduled_for": target_dt.isoformat()}
+
+
 @app.post("/api/weekplan/send-today-drafts-now")
 async def send_today_drafts_now(request: Request, db: Database = Depends(get_db)):
     """Post every ai-fill-today draft for today immediately. No scheduler hop.

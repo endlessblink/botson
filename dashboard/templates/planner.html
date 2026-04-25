@@ -2546,8 +2546,9 @@ function renderDraftCard(draft) {
             '</div>' +
             '<textarea class="review-text w-full bg-[#0a0a0a] border border-[#272727] rounded text-sm text-[#fafafa] p-2 min-h-[70px] leading-relaxed" rows="3">' + escapeHtml(fullText) + '</textarea>' +
             '<div class="mt-2 flex items-center gap-1.5 flex-wrap">' +
+                '<button class="review-schedule-btn text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded cursor-pointer">⏰ קבע לזמן הזה</button>' +
                 '<button class="review-send-btn text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 hover:border-sky-500/60 px-3 py-1 rounded cursor-pointer">📤 שלח עכשיו</button>' +
-                '<button class="review-save-btn hidden text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded cursor-pointer">💾 שמור</button>' +
+                '<button class="review-save-btn hidden text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1 rounded cursor-pointer">💾 שמור שינויים</button>' +
                 '<button class="review-edit-btn text-xs text-[#a1a1aa] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1 rounded cursor-pointer">✎ ערוך מורחב</button>' +
                 '<button class="review-delete-btn text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1 rounded cursor-pointer ml-auto">🗑 מחק</button>' +
             '</div>' +
@@ -2583,6 +2584,48 @@ function _wireCard(card) {
     textEl.addEventListener('input', checkDirty);
     timeEl.addEventListener('change', checkDirty);
     topicEl.addEventListener('change', checkDirty);
+
+    card.querySelector('.review-schedule-btn').addEventListener('click', async function() {
+        var btn = this;
+        var orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳';
+        async function doRequest(force) {
+            return await fetch('/api/calendar/' + id + '/schedule', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({scheduled_time: timeEl.value, force: force})
+            });
+        }
+        try {
+            var r = await doRequest(false);
+            if (r.status === 409) {
+                var b = await r.json().catch(function() { return {}; });
+                var detail = (b && b.detail) || {};
+                var ok = confirm((detail.message || 'הסלוט בעבר.') +
+                    '\n\nהמשך עם force? (ייפול לבוט בתוך כדקה).');
+                if (!ok) {
+                    btn.disabled = false;
+                    btn.innerHTML = orig;
+                    return;
+                }
+                r = await doRequest(true);
+            }
+            if (!r.ok) {
+                var err = await r.json().catch(function() { return {}; });
+                throw new Error((err && (err.detail || err.message)) || ('HTTP ' + r.status));
+            }
+            var data = await r.json();
+            showToast('נקבע ל-' + (data.scheduled_for || timeEl.value).slice(11, 16));
+            card.remove();
+            _checkEmptyState();
+            calendar.refetchEvents();
+        } catch (e) {
+            showToast('שגיאה: ' + (e && e.message || e), 'error');
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    });
 
     card.querySelector('.review-send-btn').addEventListener('click', async function() {
         if (card.querySelector('.review-dirty').classList.contains('hidden') === false) {
