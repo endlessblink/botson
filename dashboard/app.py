@@ -3066,7 +3066,8 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
     # 25 per type-bucket so trivia/digest spam doesn't crowd out morning/evening.
     recent_sent_by_type: dict[str, list[dict]] = {}
     try:
-        twenty_one_days_ago = (today - timedelta(days=21)).isoformat()
+        from datetime import timedelta as _td
+        twenty_one_days_ago = (today - _td(days=21)).isoformat()
         async with db._db.execute(
             """SELECT id, scheduled_date, scheduled_time, message_type,
                       channel_topic_id, text
