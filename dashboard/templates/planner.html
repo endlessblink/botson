@@ -2353,58 +2353,27 @@ async function refreshTodaySummary() {
         var data = await r.json();
         var bar = document.getElementById('today-summary');
         var drafts = data.drafts || 0;
-        var trivia = data.trivia_added_today || 0;
-        var emoji = data.emoji_added_today || 0;
-        if (drafts + trivia + emoji === 0) { bar.classList.add('hidden'); return; }
+
+        // Banner shows ONLY when there are pending drafts (actionable items).
+        // Trivia/emoji pool additions are confirmed via toast at click time
+        // and visible on /trivia and /puzzles — no need to persist them here.
+        if (drafts === 0) {
+            bar.classList.add('hidden');
+            return;
+        }
         bar.classList.remove('hidden');
 
-        // Drafts
-        var draftsEl = document.getElementById('today-summary-drafts');
-        draftsEl.textContent = drafts > 0 ? drafts + ' טיוטות ממתינות — לחץ כדי לשלוח' : '';
+        document.getElementById('today-summary-drafts').textContent =
+            drafts + ' טיוטות ממתינות — לחץ כדי לשלוח';
 
-        // Trivia: "+N שאלות טריוויה" + "בקטגוריה X" / "ב-M קטגוריות (X, Y, Z)"
-        var triviaWrap = document.getElementById('today-summary-trivia-wrap');
-        var triviaLink = document.getElementById('today-summary-trivia');
-        var triviaCats = document.getElementById('today-summary-trivia-cats');
-        if (trivia > 0) {
-            triviaWrap.classList.remove('hidden');
-            triviaLink.textContent = '+' + trivia + ' שאלות טריוויה';
-            var cats = data.trivia_categories || [];
-            if (cats.length === 1) {
-                triviaCats.textContent = 'בקטגוריה "' + cats[0].category + '"';
-            } else if (cats.length > 1) {
-                var names = cats.slice(0, 3).map(function(c) { return '"' + c.category + '"'; }).join(', ');
-                var more = cats.length > 3 ? ' ועוד ' + (cats.length - 3) : '';
-                triviaCats.textContent = 'ב-' + cats.length + ' קטגוריות: ' + names + more;
-            } else {
-                triviaCats.textContent = '';
-            }
-        } else {
-            triviaWrap.classList.add('hidden');
-        }
+        // Hide the trivia/emoji wraps (kept in DOM for backward compat in case
+        // they're referenced elsewhere, but never shown in the persistent bar)
+        var tw = document.getElementById('today-summary-trivia-wrap');
+        var ew = document.getElementById('today-summary-emoji-wrap');
+        if (tw) tw.classList.add('hidden');
+        if (ew) ew.classList.add('hidden');
 
-        // Emoji: "+N חידות אמוג'י" + first 3 answer previews
-        var emojiWrap = document.getElementById('today-summary-emoji-wrap');
-        var emojiLink = document.getElementById('today-summary-emoji');
-        var emojiPreview = document.getElementById('today-summary-emoji-preview');
-        if (emoji > 0) {
-            emojiWrap.classList.remove('hidden');
-            emojiLink.textContent = '+' + emoji + ' חידות אמוג\'י';
-            var samples = data.emoji_samples || [];
-            if (samples.length > 0) {
-                var previews = samples.slice(0, 3).map(function(s) {
-                    return (s.emoji_prompt || '') + ' ' + (s.answer_he || '');
-                }).join(' · ');
-                var extra = emoji > samples.length ? ' ועוד...' : (emoji > 3 ? ' ועוד ' + (emoji - 3) : '');
-                emojiPreview.textContent = '(' + previews + extra + ')';
-            } else {
-                emojiPreview.textContent = '';
-            }
-        } else {
-            emojiWrap.classList.add('hidden');
-        }
-
-        document.getElementById('review-drafts-launcher-btn').classList.toggle('hidden', drafts === 0);
+        document.getElementById('review-drafts-launcher-btn').classList.remove('hidden');
     } catch (e) { /* silent */ }
 }
 
