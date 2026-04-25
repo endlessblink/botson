@@ -217,6 +217,22 @@
         animation: conflictFadeIn 0.3s ease;
     }
     @keyframes conflictFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    /* Indeterminate progress bar — shown while AI digest runs (50-120s) */
+    .ai-progress-bar {
+        position: fixed; top: 0; left: 0; right: 0; height: 2px;
+        background: rgba(245, 158, 11, 0.12);
+        z-index: 60; overflow: hidden;
+        pointer-events: none;
+    }
+    .ai-progress-bar::before {
+        content: ''; display: block; height: 100%; width: 40%;
+        background: linear-gradient(90deg, transparent, #f59e0b, transparent);
+        animation: aiProgressSlide 1.4s ease-in-out infinite;
+    }
+    @keyframes aiProgressSlide {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(350%); }
+    }
     /* Schedule pattern dots */
     .schedule-dots {
         display: flex; justify-content: center; gap: 3px;
@@ -2231,8 +2247,26 @@ async function aiFillToday() {
     if (!confirm('לייצר טיוטות AI להיום? (לא ישלח עד אישור ידני)')) return;
 
     var origText = btn.innerHTML;
-    btn.innerHTML = '⏳ מנתח את היום...';
     btn.disabled = true;
+
+    // Show indeterminate progress bar at top of page
+    var bar = document.createElement('div');
+    bar.className = 'ai-progress-bar';
+    bar.id = 'ai-fill-progress-bar';
+    document.body.appendChild(bar);
+
+    // Tick elapsed-time counter on the button so it's visibly alive
+    var startedAt = Date.now();
+    function fmtElapsed() {
+        var s = Math.floor((Date.now() - startedAt) / 1000);
+        var m = Math.floor(s / 60);
+        return (m > 0 ? m + ':' + String(s % 60).padStart(2, '0') : s + 's');
+    }
+    function tick() {
+        btn.innerHTML = '⏳ מנתח את היום... (' + fmtElapsed() + ')';
+    }
+    tick();
+    var tickHandle = setInterval(tick, 1000);
 
     try {
         var resp = await fetch('/api/weekplan/ai-fill-today', {method: 'POST'});
@@ -2265,9 +2299,18 @@ async function aiFillToday() {
             if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
             if (data.notes_for_admin) console.log('[ai-fill-today] notes:', data.notes_for_admin);
 
-            // Auto-open the review modal whenever drafts were produced.
-            if (total > 0) {
-                openReviewDraftsModal({autoOpen: true, notes: data.notes_for_admin || ''});
+            // Auto-open the review modal whenever ANY content was generated.
+            // Trivia and emoji additions live in their own stores (trivia.yaml,
+            // emoji_puzzles table) — the modal surfaces those counts in the
+            // header so the admin sees a single confirmation surface.
+            var triviaN = (data.trivia && data.trivia.generated) || 0;
+            var emojiN = (data.emoji && data.emoji.generated) || 0;
+            if (total + triviaN + emojiN > 0) {
+                openReviewDraftsModal({
+                    autoOpen: true,
+                    notes: data.notes_for_admin || '',
+                    extraStats: {trivia: triviaN, emoji: emojiN},
+                });
             }
         }
         calendar.refetchEvents();
@@ -2275,6 +2318,9 @@ async function aiFillToday() {
     } catch (e) {
         showToast('שגיאה: ' + (e && e.message || e), 'error');
     } finally {
+        clearInterval(tickHandle);
+        var b = document.getElementById('ai-fill-progress-bar');
+        if (b) b.remove();
         btn.innerHTML = origText;
         btn.disabled = false;
     }
@@ -2607,14 +2653,31 @@ async function openReviewDraftsModal(opts) {
 
     try {
         var drafts = await fetchTodayDrafts();
+        var extra = opts.extraStats || {};
+        var triviaN = extra.trivia || 0;
+        var emojiN = extra.emoji || 0;
+
+        // Build extra-content summary line (trivia/emoji additions).
+        var extraHtml = '';
+        if (triviaN > 0 || emojiN > 0) {
+            var parts = [];
+            if (triviaN > 0) parts.push('<a href="/trivia" class="underline underline-offset-2 hover:text-amber-400">+' + triviaN + ' שאלות טריוויה</a>');
+            if (emojiN > 0) parts.push('<a href="/puzzles" class="underline underline-offset-2 hover:text-amber-400">+' + emojiN + ' חידות אמוג\'י</a>');
+            extraHtml = '<div class="text-xs text-[#a1a1aa] mt-1">נוספו לפול: ' + parts.join(' · ') + '</div>';
+        }
+
         if (drafts.length === 0) {
-            list.innerHTML = '<div class="text-center text-sm text-[#71717a] py-8">אין טיוטות AI להיום</div>';
+            var emptyMsg = (triviaN + emojiN > 0)
+                ? '<div class="text-center text-sm text-[#a1a1aa] py-6">לא נוצרו טיוטות חדשות לסלוטים/אירועים היום.</div>' + extraHtml
+                : '<div class="text-center text-sm text-[#71717a] py-8">אין טיוטות AI להיום</div>';
+            list.innerHTML = emptyMsg;
             document.getElementById('review-drafts-send-all-btn').classList.add('hidden');
-            document.getElementById('review-drafts-subtitle').textContent = '';
+            document.getElementById('review-drafts-subtitle').textContent =
+                (triviaN + emojiN > 0) ? 'AI הוסיף תכנים לפולים אך לא יצר טיוטות שליחה' : '';
             return;
         }
-        document.getElementById('review-drafts-subtitle').textContent =
-            drafts.length + ' טיוטות ממתינות לאישור · יש לאשר כל אחת לפני שתישלח';
+        document.getElementById('review-drafts-subtitle').innerHTML =
+            drafts.length + ' טיוטות ממתינות לאישור · יש לאשר כל אחת לפני שתישלח' + extraHtml;
         document.getElementById('review-drafts-send-all-btn').classList.remove('hidden');
 
         // AI notes (passed via opts.notes when called from aiFillToday)
