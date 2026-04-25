@@ -2855,6 +2855,24 @@ def _build_emoji_puzzle_prompt(count: int, theme: str | None, context_block: str
 DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ'ילדפרי (ללא ילדים מבחירה) בטלגרם.
 קיבלת את כל ההקשר על היום — אירועים, הודעות מתוזמנות, לוח הזמנים, תכנים שכבר קיימים. תפקידך: להחליט באופן חכם מה לייצר לקהילה היום, ולקרוא לכלי today_plan עם ההחלטות.
 
+═════════════════════════════════════════════════════════════
+**🚨 CRITICAL — אסור-מוחלט לכל הסלוטים, יוצא לפני כל כלל אחר:**
+
+1. **אם hebrew_day_name = "שבת" — זהו לב סוף השבוע, הוא לא עבר.** אסור מוחלט להשתמש בביטויים שמרמזים שסוף השבוע נגמר:
+   - ❌ "סיכום סוף השבוע"
+   - ❌ "איך היה הסוף שבוע"
+   - ❌ "מה היה הרגע הכי טוב מהשבוע/סוף השבוע"
+   - ❌ "השבוע שעבר"
+   - ❌ כל ניסוח שמתייחס לסוף שבוע בעבר
+   רק מותר: "מה עושים הערב?", "מה רואים הלילה?", "איך היום מתקדם?", "מה עוד מתכננים?". סוף שבוע = פעיל ונמשך.
+
+2. **אם hebrew_day_name = "שישי" אחרי 18:00** — סוף השבוע התחיל. אסור "מה היה?" — רק "מה מתכננים?", "מה עכשיו?".
+
+3. **אם hebrew_day_name = "ראשון" בבוקר** — *זה* הזמן הנכון לסיכום סוף שבוע. רק כאן מותר "איך היה?".
+
+עבירה על הכלל הזה = פלט לא תקין. בדוק כל text שאתה כותב מול הכלל הזה לפני שאתה שולח.
+═════════════════════════════════════════════════════════════
+
 חוקי החלטה מחייבים:
 
 1. מזג אירועים כפולים. רשומות events שמתארות את אותה פעילות (topic זהה, כותרות חופפות, או רשומה מאוחרת שמעדכנת את הקודמת) — מוזגות לאירוע קנוני אחד. כל ה-ids המכוסים חוזרים ב-covered_event_ids.
@@ -3393,6 +3411,28 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
         real_home = _pwd.getpwuid(os.geteuid()).pw_dir
     except Exception:
         real_home = os.path.expanduser("~")
+
+    # Defensive: ensure $HOME/.codex is a directory. The codex CLI can sometimes
+    # create `.codex` as an empty FILE if it was invoked with HOME pointing at
+    # a path where `.codex` already existed as something else, or during certain
+    # init failures. We've seen this happen multiple times in production. If it
+    # IS a file, remove it; then mkdir if missing.
+    codex_dir = os.path.join(real_home, ".codex")
+    if os.path.exists(codex_dir) and not os.path.isdir(codex_dir):
+        try:
+            os.remove(codex_dir)
+            logger.warning("[ai-fill-today] removed stray .codex file at %s", codex_dir)
+        except OSError as _e:
+            logger.warning("[ai-fill-today] could not remove stray .codex: %s", _e)
+    if not os.path.isdir(codex_dir):
+        try:
+            os.makedirs(codex_dir, mode=0o700, exist_ok=True)
+            logger.info("[ai-fill-today] created .codex dir at %s", codex_dir)
+        except OSError as _e:
+            logger.warning("[ai-fill-today] could not create .codex dir: %s", _e)
+    # Note: this does NOT restore auth.json. If auth was lost the digest will
+    # still fail, but with a clearer "Logged out" error from codex itself
+    # rather than the cryptic "Not a directory (os error 20)".
 
     logger.info(
         "[ai-fill-today] digest via codex CLI: bin=%s HOME=%s prompt_chars=%d",
