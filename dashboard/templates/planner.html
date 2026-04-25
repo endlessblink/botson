@@ -362,8 +362,8 @@
                 <span id="today-summary-emoji-preview" class="text-[#a1a1aa]"></span>
             </span>
         </div>
-        <button id="send-all-today-btn" onclick="sendAllTodayNow()" class="hidden text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 hover:border-sky-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
-            📤 שלח את כל הטיוטות עכשיו
+        <button id="review-drafts-launcher-btn" onclick="openReviewDraftsModal()" class="hidden text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
+            👁 סקור טיוטות
         </button>
     </div>
 </div>
@@ -774,6 +774,39 @@
 </div>
 
 {% include "_prompt_modal.html" %}
+
+<!-- Review-drafts modal — opens after ✨ click + via banner -->
+<div id="review-drafts-modal" class="hidden fixed inset-0 z-[55] flex items-center justify-center p-4" dir="rtl">
+    <div class="absolute inset-0 bg-black/70" onclick="closeReviewDraftsModal()"></div>
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[760px] max-h-[90vh] flex flex-col overflow-hidden">
+        <!-- Header -->
+        <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between flex-shrink-0">
+            <div>
+                <h3 class="text-base font-medium text-[#fafafa]">סקירת טיוטות AI להיום</h3>
+                <p id="review-drafts-subtitle" class="text-xs text-[#71717a] mt-0.5"></p>
+            </div>
+            <button onclick="closeReviewDraftsModal()" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer text-xl leading-none">&times;</button>
+        </div>
+        <!-- AI notes (collapsible) -->
+        <div id="review-drafts-notes" class="hidden px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] text-xs text-[#a1a1aa] flex-shrink-0">
+            <div class="font-medium text-[#d4d4d8] mb-1">הערות מה-AI:</div>
+            <div id="review-drafts-notes-text" class="leading-relaxed"></div>
+        </div>
+        <!-- Cards -->
+        <div id="review-drafts-list" class="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-[#0a0a0a]">
+            <!-- card template lives in JS; populated dynamically -->
+        </div>
+        <!-- Footer -->
+        <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between flex-shrink-0">
+            <button id="review-drafts-send-all-btn" onclick="sendAllTodayNow({fromModal: true})" class="text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 hover:border-sky-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                📤 שלח את כל הטיוטות עכשיו
+            </button>
+            <button onclick="closeReviewDraftsModal()" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                סגור
+            </button>
+        </div>
+    </div>
+</div>
 
 {% endblock %}
 
@@ -2010,21 +2043,11 @@ document.addEventListener('DOMContentLoaded', function() {
             var dateStr = startDate ? startDate.toISOString().split('T')[0] : '';
             var timeStr = startDate ? startDate.toTimeString().substring(0,5) : '';
 
-            // AI-generated draft → send-now / edit / delete prompt first.
-            // NOTE: "s" sends IMMEDIATELY to the real group (no scheduler hop).
-            // Drafts never auto-promote to status='scheduled' — explicit send only.
+            // AI-generated draft → open the review modal scrolled to this draft.
+            // (Drafts never auto-promote — explicit send-now only, see modal.)
             if (props.status === 'draft' && (props.createdBy || '').indexOf('ai-fill-today') === 0) {
-                var preview = (props.fullText || '').slice(0, 120);
-                var choice = window.prompt(
-                    'טיוטת AI בשעה ' + timeStr + ':\n\n' + preview + '\n\n' +
-                    'הקלד:\n  s = לשלוח עכשיו לקבוצה (ישלח מיד)\n  e = לערוך\n  d = למחוק\n  (ריק = בטל)',
-                    ''
-                );
-                if (!choice) return;
-                choice = choice.trim().toLowerCase();
-                if (choice === 's' || choice === 'ש') { sendDraftNow(info.event.id); return; }
-                if (choice === 'd' || choice === 'ד') { dismissDraft(info.event.id); return; }
-                // 'e' or anything else → fall through to the edit flow below
+                openReviewDraftsModal({focusId: info.event.id});
+                return;
             }
 
             // For morning/evening/discussion → open the rich shared modal
@@ -2221,23 +2244,31 @@ async function aiFillToday() {
             var slots = (data.regular_slots || []).length;
             var total = rem + slots;
             var errs = (data.errors || []);
-            var msg;
             if (total === 0 && errs.length > 0) {
-                // Pure failure — show the first error message verbatim
-                msg = 'נכשל: ' + errs[0];
+                var msg = 'נכשל: ' + errs[0];
                 if (errs.length > 1) msg += ' (ועוד ' + (errs.length - 1) + ' שגיאות)';
                 showToast(msg, 'error');
+            } else if (total === 0) {
+                var trivia = data.trivia && data.trivia.generated || 0;
+                var emoji = data.emoji && data.emoji.generated || 0;
+                if (trivia + emoji > 0) {
+                    showToast('לא נוצרו טיוטות, אבל הוספו ' + trivia + ' שאלות טריוויה ו-' + emoji + ' חידות אמוג\'י');
+                } else {
+                    showToast('לא נוצרו טיוטות להיום (לא בלו"ז)');
+                }
             } else {
-                msg = 'נוצרו ' + total + ' טיוטות להיום';
-                if (data.trivia && data.trivia.generated > 0) msg += ' · +' + data.trivia.generated + ' שאלות טריוויה';
-                if (data.emoji && data.emoji.generated > 0) msg += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
-                if (total > 0) msg += ' — לבדיקה ואישור בלוח השנה';
-                if (errs.length > 0) msg += ' (' + errs.length + ' שגיאות)';
-                showToast(msg, errs.length > 0 ? 'error' : 'success');
+                var summary = total + ' טיוטות נוצרו';
+                if (data.trivia && data.trivia.generated > 0) summary += ' · +' + data.trivia.generated + ' שאלות טריוויה';
+                if (data.emoji && data.emoji.generated > 0) summary += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
+                showToast(summary);
             }
-            // Log full error list + AI notes so they're visible in devtools
             if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
             if (data.notes_for_admin) console.log('[ai-fill-today] notes:', data.notes_for_admin);
+
+            // Auto-open the review modal whenever drafts were produced.
+            if (total > 0) {
+                openReviewDraftsModal({autoOpen: true, notes: data.notes_for_admin || ''});
+            }
         }
         calendar.refetchEvents();
         refreshTodaySummary();
@@ -2307,16 +2338,18 @@ async function refreshTodaySummary() {
             emojiWrap.classList.add('hidden');
         }
 
-        document.getElementById('send-all-today-btn').classList.toggle('hidden', drafts === 0);
+        document.getElementById('review-drafts-launcher-btn').classList.toggle('hidden', drafts === 0);
     } catch (e) { /* silent */ }
 }
 
-async function sendAllTodayNow() {
+async function sendAllTodayNow(opts) {
+    opts = opts || {};
     if (!confirm('לשלוח את כל הטיוטות של היום לקבוצה עכשיו?\n\nהן יישלחו מיד — לא יישמרו לשליחה מתוזמנת.')) return;
-    var btn = document.getElementById('send-all-today-btn');
-    var orig = btn.innerHTML;
-    btn.innerHTML = '⏳ שולח...';
-    btn.disabled = true;
+    var btn = opts.fromModal
+        ? document.getElementById('review-drafts-send-all-btn')
+        : document.getElementById('review-drafts-launcher-btn');
+    var orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.innerHTML = '⏳ שולח...'; btn.disabled = true; }
     try {
         var r = await fetch('/api/weekplan/send-today-drafts-now', {
             method: 'POST',
@@ -2334,11 +2367,17 @@ async function sendAllTodayNow() {
         showToast(msg, failed > 0 ? 'error' : 'success');
         calendar.refetchEvents();
         refreshTodaySummary();
+        // If called from inside the modal, refresh card list so empty state shows
+        if (opts.fromModal) {
+            var modal = document.getElementById('review-drafts-modal');
+            if (!modal.classList.contains('hidden')) {
+                openReviewDraftsModal();
+            }
+        }
     } catch (e) {
         showToast('שגיאה: ' + (e && e.message || e), 'error');
     } finally {
-        btn.innerHTML = orig;
-        btn.disabled = false;
+        if (btn) { btn.innerHTML = orig; btn.disabled = false; }
     }
 }
 
@@ -2360,6 +2399,256 @@ async function sendDraftNow(msgId) {
     } catch (e) {
         showToast('שליחה נכשלה: ' + (e && e.message || e), 'error');
     }
+}
+
+// ─── Review-drafts modal ───────────────────────────────────────
+// Single control surface for ai-fill-today drafts. Opens automatically
+// after ✨ when there are drafts to review; also opens via banner click
+// or by clicking a draft event on the calendar.
+
+// Forum topics (id → name) for the topic dropdown — reuses Jinja data
+// already rendered for the channel-chip palette.
+var REVIEW_TOPICS = (function() {
+    var out = [];
+    {% for t in forum_topics %}
+    out.push({id: {{ t.topic_id }}, name: "{{ t.name | replace('"', '\\"') }}"});
+    {% endfor %}
+    return out;
+})();
+
+var TYPE_EMOJI = {
+    morning: '🌅', evening: '🌙', discussion: '💬',
+    event: '🎮', poll: '📊', custom: '⚡'
+};
+
+async function fetchTodayDrafts() {
+    var today = new Date();
+    var iso = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+    // Calendar endpoint expects start/end as ISO date strings
+    var url = '/api/calendar?start=' + iso + 'T00:00:00&end=' + iso + 'T23:59:59';
+    var r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var rows = await r.json();
+    var drafts = rows.filter(function(e) {
+        var props = e.extendedProps || {};
+        var status = props.status;
+        var by = props.createdBy || '';
+        return status === 'draft' && by.indexOf('ai-fill-today') === 0;
+    });
+    drafts.sort(function(a, b) {
+        var ta = (a.start || '').slice(11, 16);
+        var tb = (b.start || '').slice(11, 16);
+        return ta.localeCompare(tb);
+    });
+    return drafts;
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderDraftCard(draft) {
+    var props = draft.extendedProps || {};
+    var id = draft.id;
+    var time = (draft.start || '').slice(11, 16);
+    var mtype = props.messageType || 'custom';
+    var topicId = props.channelTopicId ? String(props.channelTopicId) : '';
+    var fullText = props.fullText || '';
+    var emoji = TYPE_EMOJI[mtype] || '📌';
+
+    var topicOptions = '<option value="">(ללא ערוץ)</option>';
+    for (var i = 0; i < REVIEW_TOPICS.length; i++) {
+        var t = REVIEW_TOPICS[i];
+        var sel = (String(t.id) === topicId) ? ' selected' : '';
+        topicOptions += '<option value="' + t.id + '"' + sel + '>' + escapeHtml(t.name) + '</option>';
+    }
+
+    return (
+        '<div class="review-draft-card border border-[#272727] rounded-lg p-3 bg-[#111318] transition" data-id="' + id + '" data-original-text="' + escapeHtml(fullText) + '" data-original-time="' + time + '" data-original-topic="' + topicId + '" data-mtype="' + mtype + '">' +
+            '<div class="flex items-center gap-2 mb-2">' +
+                '<span class="text-base">' + emoji + '</span>' +
+                '<input type="time" value="' + time + '" class="review-time bg-transparent border border-[#272727] rounded h-7 px-2 text-xs text-[#fafafa] w-[90px]">' +
+                '<select class="review-topic bg-[#0a0a0a] border border-[#272727] rounded h-7 px-2 text-xs text-[#fafafa] flex-1 max-w-[220px]">' + topicOptions + '</select>' +
+                '<span class="review-dirty text-amber-400 text-xs hidden">● לא נשמר</span>' +
+            '</div>' +
+            '<textarea class="review-text w-full bg-[#0a0a0a] border border-[#272727] rounded text-sm text-[#fafafa] p-2 min-h-[70px] leading-relaxed" rows="3">' + escapeHtml(fullText) + '</textarea>' +
+            '<div class="mt-2 flex items-center gap-1.5 flex-wrap">' +
+                '<button class="review-send-btn text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 hover:border-sky-500/60 px-3 py-1 rounded cursor-pointer">📤 שלח עכשיו</button>' +
+                '<button class="review-save-btn hidden text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded cursor-pointer">💾 שמור</button>' +
+                '<button class="review-edit-btn text-xs text-[#a1a1aa] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1 rounded cursor-pointer">✎ ערוך מורחב</button>' +
+                '<button class="review-delete-btn text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1 rounded cursor-pointer ml-auto">🗑 מחק</button>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
+function _markCardDirty(card) {
+    var dirty = card.querySelector('.review-dirty');
+    var save = card.querySelector('.review-save-btn');
+    if (dirty) dirty.classList.remove('hidden');
+    if (save) save.classList.remove('hidden');
+}
+
+function _wireCard(card) {
+    var id = card.getAttribute('data-id');
+    var textEl = card.querySelector('.review-text');
+    var timeEl = card.querySelector('.review-time');
+    var topicEl = card.querySelector('.review-topic');
+
+    function checkDirty() {
+        var dirty = (
+            textEl.value !== card.getAttribute('data-original-text') ||
+            timeEl.value !== card.getAttribute('data-original-time') ||
+            topicEl.value !== card.getAttribute('data-original-topic')
+        );
+        var d = card.querySelector('.review-dirty');
+        var s = card.querySelector('.review-save-btn');
+        if (dirty) { d.classList.remove('hidden'); s.classList.remove('hidden'); }
+        else { d.classList.add('hidden'); s.classList.add('hidden'); }
+    }
+
+    textEl.addEventListener('input', checkDirty);
+    timeEl.addEventListener('change', checkDirty);
+    topicEl.addEventListener('change', checkDirty);
+
+    card.querySelector('.review-send-btn').addEventListener('click', async function() {
+        if (card.querySelector('.review-dirty').classList.contains('hidden') === false) {
+            if (!confirm('יש שינויים שלא נשמרו. לשלוח את הגרסה השמורה (לפני השינויים)?')) return;
+        }
+        var btn = this; btn.disabled = true; btn.innerHTML = '⏳ שולח...';
+        try {
+            await sendDraftNow(id);
+            card.remove();
+            _checkEmptyState();
+        } catch (e) {
+            btn.disabled = false; btn.innerHTML = '📤 שלח עכשיו';
+        }
+    });
+
+    card.querySelector('.review-save-btn').addEventListener('click', async function() {
+        var btn = this; btn.disabled = true; btn.innerHTML = '⏳';
+        try {
+            var payload = {
+                text: textEl.value.trim(),
+                scheduled_time: timeEl.value,
+                channel_topic_id: topicEl.value ? parseInt(topicEl.value) : null,
+            };
+            var r = await fetch('/api/calendar/' + id, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            // Update originals so dirty indicator clears
+            card.setAttribute('data-original-text', textEl.value);
+            card.setAttribute('data-original-time', timeEl.value);
+            card.setAttribute('data-original-topic', topicEl.value);
+            checkDirty();
+            showToast('נשמר');
+            calendar.refetchEvents();
+        } catch (e) {
+            showToast('שגיאה: ' + (e && e.message || e), 'error');
+        } finally {
+            btn.disabled = false; btn.innerHTML = '💾 שמור';
+        }
+    });
+
+    card.querySelector('.review-edit-btn').addEventListener('click', function() {
+        // Open the existing edit drawer with hydrated state, close the modal.
+        var props = {
+            messageType: card.getAttribute('data-mtype') || 'custom',
+            fullText: textEl.value,
+            channelTopicId: topicEl.value ? parseInt(topicEl.value) : null,
+            recurrence: null,
+            status: 'draft',
+            createdBy: 'ai-fill-today',
+        };
+        var startDate = new Date();
+        var hm = (timeEl.value || '00:00').split(':');
+        startDate.setHours(parseInt(hm[0] || '0'), parseInt(hm[1] || '0'), 0, 0);
+        closeReviewDraftsModal();
+        if (typeof openEditDrawer === 'function') openEditDrawer(parseInt(id), props, startDate);
+    });
+
+    card.querySelector('.review-delete-btn').addEventListener('click', async function() {
+        if (!confirm('למחוק טיוטה זו?')) return;
+        try {
+            await fetch('/api/calendar/' + id, {method: 'DELETE'});
+            card.remove();
+            _checkEmptyState();
+            showToast('נמחק');
+            calendar.refetchEvents();
+            refreshTodaySummary();
+        } catch (e) {
+            showToast('שגיאה: ' + (e && e.message || e), 'error');
+        }
+    });
+}
+
+function _checkEmptyState() {
+    var list = document.getElementById('review-drafts-list');
+    if (!list.querySelector('.review-draft-card')) {
+        list.innerHTML = '<div class="text-center text-sm text-[#71717a] py-8">אין יותר טיוטות להיום ✓</div>';
+        document.getElementById('review-drafts-send-all-btn').classList.add('hidden');
+    }
+    refreshTodaySummary();
+}
+
+async function openReviewDraftsModal(opts) {
+    opts = opts || {};
+    var modal = document.getElementById('review-drafts-modal');
+    var list = document.getElementById('review-drafts-list');
+    list.innerHTML = '<div class="text-center text-sm text-[#71717a] py-6">⏳ טוען טיוטות...</div>';
+    modal.classList.remove('hidden');
+
+    try {
+        var drafts = await fetchTodayDrafts();
+        if (drafts.length === 0) {
+            list.innerHTML = '<div class="text-center text-sm text-[#71717a] py-8">אין טיוטות AI להיום</div>';
+            document.getElementById('review-drafts-send-all-btn').classList.add('hidden');
+            document.getElementById('review-drafts-subtitle').textContent = '';
+            return;
+        }
+        document.getElementById('review-drafts-subtitle').textContent =
+            drafts.length + ' טיוטות ממתינות לאישור · יש לאשר כל אחת לפני שתישלח';
+        document.getElementById('review-drafts-send-all-btn').classList.remove('hidden');
+
+        // AI notes (passed via opts.notes when called from aiFillToday)
+        var notesEl = document.getElementById('review-drafts-notes');
+        var notesText = document.getElementById('review-drafts-notes-text');
+        if (opts.notes && opts.notes.trim()) {
+            notesText.textContent = opts.notes;
+            notesEl.classList.remove('hidden');
+        } else {
+            notesEl.classList.add('hidden');
+        }
+
+        list.innerHTML = drafts.map(renderDraftCard).join('');
+        // Wire up listeners
+        list.querySelectorAll('.review-draft-card').forEach(_wireCard);
+
+        // Focus a specific draft if requested
+        if (opts.focusId) {
+            var target = list.querySelector('.review-draft-card[data-id="' + opts.focusId + '"]');
+            if (target) {
+                target.scrollIntoView({behavior: 'smooth', block: 'center'});
+                target.classList.add('ring-2', 'ring-amber-500/60');
+                setTimeout(function() {
+                    target.classList.remove('ring-2', 'ring-amber-500/60');
+                }, 1500);
+            }
+        }
+    } catch (e) {
+        list.innerHTML = '<div class="text-center text-sm text-red-400 py-6">שגיאה בטעינה: ' + escapeHtml(e.message || e) + '</div>';
+    }
+}
+
+function closeReviewDraftsModal() {
+    document.getElementById('review-drafts-modal').classList.add('hidden');
 }
 
 // Poll the summary on page load
