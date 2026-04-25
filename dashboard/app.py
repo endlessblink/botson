@@ -2899,7 +2899,12 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
    - **trivia ו-emoji** — אם הסקציה לא ריקה, הצע batch אחד ביום (גם בימים מחוץ ללו"ז). idempotence נשמר ע"י הקטגוריות הקיימות.
    - יוצא מן הכלל יחיד: **חג עם block_auto:true** — דלג כל הסקציות, כבר מכוסה ע"י short-circuit במשתנה holiday.
 
-6. אל תכפיל מול existing_drafts_today. אם covered_event_ids שלך חופף ל-covered_event_ids של טיוטה קיימת — דלג, רשום ב-skipped.reminders "already_drafted".
+6. **אל תכפיל מול existing_drafts_today.** הרשימה כוללת ai-fill-today rows מכל סטטוס (draft, scheduled, sent) — לא רק drafts ממתינים. הכלל:
+   - אם רשומה קיימת עם `status='draft'` — האדמין עוד מתכוון לעבוד עליה. דלג והוסף ב-notes_for_admin: "כבר קיימת טיוטה ממתינה ל-X".
+   - אם רשומה קיימת עם `status='scheduled'` — האדמין כבר אישר את הסלוט. **אסור לחלוטין** להציע סלוט נוסף לאותו (scheduled_time, message_type, topic_id) או לאותו covered_event_ids. אם הצעת — האדמין יקבל כפיל. רשום ב-skipped: "כבר תוזמן ע"י המנהל".
+   - אם רשומה קיימת עם `status='sent'` — כבר נשלח לקהילה. אסור להציע משהו דומה לאותה שעה/טופיק.
+   - אם תזכורת: covered_event_ids שלך חופף לסט קיים → דלג ב-skipped.reminders "already_drafted".
+   - **לסלוטים custom (הזמנות אקטיביות)**: בדוק לפי (scheduled_time, topic_id) — לא רק לפי message_type, כי custom יכול להיות בכל שעה. אם יש כבר ai-fill-today custom באותה שעה+טופיק (כל סטטוס) — דלג.
 
 7. אל תחזור על נושאים ש-this_week_previews כבר מכסים. regular_slots חייבים להיות בזווית חדשה.
 
@@ -3170,13 +3175,19 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         logger.warning("[ai-fill-today] failed to load recent sent samples: %s", e)
         recent_sent_by_type = {}
 
-    # Existing today drafts (idempotence signal)
+    # Existing ai-fill-today rows for today (idempotence signal). Includes ALL
+    # non-cancelled statuses — draft, scheduled, sent — so the AI doesn't
+    # re-propose a slot the admin has already promoted (status='scheduled')
+    # or the bot has already sent (status='sent'). Each row carries its
+    # status so the AI can describe state in notes_for_admin.
     existing_drafts_today = [
         {
             "id": m.get("id"),
             "created_by": m.get("created_by"),
+            "status": m.get("status"),  # draft | scheduled | sent | failed
             "message_type": m.get("message_type"),
             "scheduled_time": (m.get("scheduled_time") or "")[:5],
+            "topic_id": m.get("topic_id"),
             "text_preview": (m.get("text") or "").strip()[:60],
         }
         for m in scheduled_today
@@ -3691,8 +3702,12 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
             errors.append(f"reminder insert {covered}: {e}")
 
     # ── Regular slots (morning/evening/discussion) ─────────────────────────
+    # Dedup key includes topic_id so two discussions at the same time in
+    # different channels are NOT collapsed (legitimate case). Considers ALL
+    # ai-fill-today rows for today (draft / scheduled / sent) — so once
+    # admin promotes or sends a slot, AI can't re-propose the same slot.
     existing_slot_keys = {
-        (d.get("scheduled_time"), d.get("message_type"))
+        (d.get("scheduled_time"), d.get("message_type"), d.get("topic_id"))
         for d in bundle["existing_drafts_today"]
     }
     for slot in plan.get("regular_slots") or []:
@@ -3709,7 +3724,8 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         if topic not in verified_topic_ids:
             errors.append(f"slot rejected (unverified topic_id={topic}): {mtype}")
             continue
-        if (stime, mtype) in existing_slot_keys:
+        if (stime, mtype, topic) in existing_slot_keys:
+            logger.info("[ai-fill-today] slot deduped: time=%s type=%s topic=%s already exists", stime, mtype, topic)
             continue
         try:
             new_id = await db.create_scheduled_message(
@@ -3719,7 +3735,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
                 scheduled_date=today_iso, scheduled_time=stime,
                 created_by="ai-fill-today", status="draft",
             )
-            existing_slot_keys.add((stime, mtype))
+            existing_slot_keys.add((stime, mtype, int(topic)))
             regular_out.append({"id": new_id, "type": mtype, "scheduled_time": stime, "topic_id": int(topic)})
             logger.info("[ai-fill-today] draft %s id=%d at %s", mtype, new_id, stime)
         except Exception as e:
