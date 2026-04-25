@@ -2489,6 +2489,37 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Tiny safe markdown renderer for notes_for_admin. Supports:
+//   **bold**, lines starting with `- ` or `* ` → <ul><li>, blank line → paragraph,
+//   mixed paragraphs (header line followed by bullets handled correctly).
+function renderMarkdown(raw) {
+    function applyInline(s) {
+        var esc = escapeHtml(s);
+        return esc.replace(/\*\*(.+?)\*\*/g, '<strong class="text-[#fafafa]">$1</strong>');
+    }
+    var paragraphs = String(raw || '').split(/\n{2,}/);
+    return paragraphs.map(function(p) {
+        var lines = p.split('\n');
+        var out = [];
+        var bullets = [];
+        function flushBullets() {
+            if (bullets.length) {
+                out.push('<ul class="list-disc pr-5 space-y-1 my-1">' +
+                    bullets.map(function(b) { return '<li>' + applyInline(b) + '</li>'; }).join('') +
+                    '</ul>');
+                bullets = [];
+            }
+        }
+        lines.forEach(function(l) {
+            var bm = l.match(/^\s*[-*]\s+(.*)$/);
+            if (bm) { bullets.push(bm[1]); }
+            else if (l.trim()) { flushBullets(); out.push('<div class="leading-relaxed">' + applyInline(l) + '</div>'); }
+        });
+        flushBullets();
+        return '<div class="mb-2">' + out.join('') + '</div>';
+    }).join('');
+}
+
 function renderDraftCard(draft) {
     var props = draft.extendedProps || {};
     var id = draft.id;
@@ -2672,11 +2703,12 @@ async function openReviewDraftsModal(opts) {
             drafts.length + ' טיוטות ממתינות לאישור · יש לאשר כל אחת לפני שתישלח' + extraHtml;
         document.getElementById('review-drafts-send-all-btn').classList.remove('hidden');
 
-        // AI notes (passed via opts.notes when called from aiFillToday)
+        // AI notes (passed via opts.notes when called from aiFillToday).
+        // Rendered as Markdown — bullets, bold, paragraphs.
         var notesEl = document.getElementById('review-drafts-notes');
         var notesText = document.getElementById('review-drafts-notes-text');
         if (opts.notes && opts.notes.trim()) {
-            notesText.textContent = opts.notes;
+            notesText.innerHTML = renderMarkdown(opts.notes);
             notesEl.classList.remove('hidden');
         } else {
             notesEl.classList.add('hidden');
