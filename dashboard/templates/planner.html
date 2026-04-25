@@ -2282,6 +2282,14 @@ async function aiFillToday() {
     var tickHandle = setInterval(tick, 1000);
 
     _aiFillTodayController = new AbortController();
+    // Hard client-side cap: 5 minutes. If the server doesn't respond by then,
+    // abort and show an error rather than letting the elapsed counter run
+    // forever (e.g., when a deploy kills the in-flight fetch). The backend
+    // claude-cli timeout is 240s, codex+ollama add ~30s, so 300s is a safe
+    // upper bound that's still well below "user thinks it's stuck".
+    var hardTimeoutHandle = setTimeout(function() {
+        if (_aiFillTodayController) _aiFillTodayController.abort('client_timeout');
+    }, 300000);
     try {
         var resp = await fetch('/api/weekplan/ai-fill-today', {method: 'POST', signal: _aiFillTodayController.signal});
         var data = await resp.json();
@@ -2331,11 +2339,19 @@ async function aiFillToday() {
         refreshTodaySummary();
     } catch (e) {
         if (e && e.name === 'AbortError') {
-            showToast('בוטל');
+            // Distinguish manual cancel vs hard timeout
+            var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+            if (elapsed >= 295) {
+                showToast('פסק זמן (5 דקות) — הקריאה נעצרה. בדוק את הלוגים בשרת.', 'error');
+                console.error('[ai-fill-today] client-side timeout after', elapsed, 'seconds');
+            } else {
+                showToast('בוטל');
+            }
         } else {
             showToast('שגיאה: ' + (e && e.message || e), 'error');
         }
     } finally {
+        clearTimeout(hardTimeoutHandle);
         clearInterval(tickHandle);
         var b = document.getElementById('ai-fill-progress-bar');
         if (b) b.remove();
