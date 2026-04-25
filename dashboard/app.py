@@ -3273,10 +3273,10 @@ async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]
         env=env,
     )
     try:
-        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=120)
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=240)
     except asyncio.TimeoutError:
         proc.kill()
-        raise RuntimeError("claude CLI timed out after 120s")
+        raise RuntimeError("claude CLI timed out after 240s")
 
     stdout = stdout_b.decode(errors="replace").strip()
     stderr = stderr_b.decode(errors="replace").strip()
