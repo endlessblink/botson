@@ -5013,7 +5013,14 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     now = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
     forum_topics = await db.get_forum_topics() if hasattr(db, 'get_forum_topics') else []
-    drafts = await db.get_draft_messages() if hasattr(db, 'get_draft_messages') else []
+    drafts_all = await db.get_draft_messages() if hasattr(db, 'get_draft_messages') else []
+    # ai-fill-today drafts are reviewed in the dedicated modal — exclude them
+    # from the legacy top-of-page inline pending list to avoid double-rendering
+    # (the inline section's "אשר" button calls a removed endpoint).
+    drafts = [
+        d for d in drafts_all
+        if not (d.get("created_by") or "").startswith("ai-fill-today")
+    ]
 
     import json as _json
     for d in drafts:

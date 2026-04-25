@@ -404,6 +404,9 @@
         <button id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✨ מלא את היום ב-AI
         </button>
+        <button id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+            ✕ בטל
+        </button>
         <button id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✨ מלא טיוטות ב-AI
         </button>
@@ -794,7 +797,7 @@
 <!-- Review-drafts modal — opens after ✨ click + via banner -->
 <div id="review-drafts-modal" class="hidden fixed inset-0 z-[55] flex items-center justify-center p-4" dir="rtl">
     <div class="absolute inset-0 bg-black/70" onclick="closeReviewDraftsModal()"></div>
-    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[760px] max-h-[90vh] flex flex-col overflow-hidden">
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1200px] max-h-[90vh] flex flex-col overflow-hidden">
         <!-- Header -->
         <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between flex-shrink-0">
             <div>
@@ -2241,13 +2244,23 @@ async function dismissDraft(draftId) {
     } catch (e) { showToast('שגיאה', 'error'); }
 }
 
+var _aiFillTodayController = null;
+
+function cancelAiFillToday() {
+    if (_aiFillTodayController) {
+        _aiFillTodayController.abort();
+    }
+}
+
 async function aiFillToday() {
     var btn = document.getElementById('ai-fill-today-btn');
+    var cancelBtn = document.getElementById('ai-fill-today-cancel-btn');
     if (!btn) return;
     if (!confirm('לייצר טיוטות AI להיום? (לא ישלח עד אישור ידני)')) return;
 
     var origText = btn.innerHTML;
     btn.disabled = true;
+    if (cancelBtn) cancelBtn.classList.remove('hidden');
 
     // Show indeterminate progress bar at top of page
     var bar = document.createElement('div');
@@ -2268,8 +2281,9 @@ async function aiFillToday() {
     tick();
     var tickHandle = setInterval(tick, 1000);
 
+    _aiFillTodayController = new AbortController();
     try {
-        var resp = await fetch('/api/weekplan/ai-fill-today', {method: 'POST'});
+        var resp = await fetch('/api/weekplan/ai-fill-today', {method: 'POST', signal: _aiFillTodayController.signal});
         var data = await resp.json();
         if (data.skipped_holiday) {
             showToast('היום חג חסום אוטומטית — לא נוצר תוכן', 'error');
@@ -2316,13 +2330,19 @@ async function aiFillToday() {
         calendar.refetchEvents();
         refreshTodaySummary();
     } catch (e) {
-        showToast('שגיאה: ' + (e && e.message || e), 'error');
+        if (e && e.name === 'AbortError') {
+            showToast('בוטל');
+        } else {
+            showToast('שגיאה: ' + (e && e.message || e), 'error');
+        }
     } finally {
         clearInterval(tickHandle);
         var b = document.getElementById('ai-fill-progress-bar');
         if (b) b.remove();
         btn.innerHTML = origText;
         btn.disabled = false;
+        if (cancelBtn) cancelBtn.classList.add('hidden');
+        _aiFillTodayController = null;
     }
 }
 
@@ -2472,8 +2492,11 @@ async function fetchTodayDrafts() {
     var iso = today.getFullYear() + '-' +
         String(today.getMonth() + 1).padStart(2, '0') + '-' +
         String(today.getDate()).padStart(2, '0');
-    // Calendar endpoint expects start/end as ISO date strings
-    var url = '/api/calendar?start=' + iso + 'T00:00:00&end=' + iso + 'T23:59:59';
+    // /api/calendar passes start/end straight to SQL `scheduled_date >= ? AND
+    // scheduled_date <= ?`. The column stores YYYY-MM-DD strings; sending a
+    // datetime with 'T' breaks the lexicographic comparison and excludes
+    // today's rows. Use plain YYYY-MM-DD.
+    var url = '/api/calendar?start=' + iso + '&end=' + iso;
     var r = await fetch(url);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     var rows = await r.json();
@@ -2714,9 +2737,19 @@ function closeReviewDraftsModal() {
     document.getElementById('review-drafts-modal').classList.add('hidden');
 }
 
-// Poll the summary on page load
-document.addEventListener('DOMContentLoaded', function() {
+// Poll the summary on page load. If there are pending ai-fill-today drafts,
+// auto-open the review modal so the admin sees the control surface immediately
+// (no hunting for "סקור טיוטות" button after a refresh).
+document.addEventListener('DOMContentLoaded', async function() {
     if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
+    try {
+        var r = await fetch('/api/weekplan/today-summary');
+        if (!r.ok) return;
+        var data = await r.json();
+        if ((data.drafts || 0) > 0) {
+            openReviewDraftsModal({autoOpen: true});
+        }
+    } catch (e) { /* silent */ }
 });
 
 async function aiFillAllVisible() {
