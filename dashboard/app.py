@@ -2876,6 +2876,17 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 
 7. אל תחזור על נושאים ש-this_week_previews כבר מכסים. regular_slots חייבים להיות בזווית חדשה.
 
+7a. **איכות תוכן — לא generic. חובה.** הקהילה היא "אלהוריים וזה" — מבוגרים צ'יילדפרי בעברית, בני 30-50, עם ערוצים על gaming, סרטים, אומנות, פוליטיקה, גיקים, בישול וכד'. הימנע מתבניות חלולות כמו "מה היה היום?" או "ספרו דבר טוב". במקום זאת:
+   - **שלב את היום בשבוע ואת המצב רוח שלו**: שישי = קצב יורד, סוף שבוע מתחיל; שבת = הריקאוורי, מנוחה, מה ראיתם/שיחקתם; ראשון = חזרה לשגרה ישראלית; וכו'.
+   - **השתמש בערוצים כהיק לתוכן**: שאלות discussion חייבות להתחבר לערוץ הספציפי (גיימינג → "איזה משחק תפס אתכם השבוע?", סרטים → "סדרה שיצא לכם לחזור עליה?"). אסור שאלה כללית לערוץ נישתי.
+   - **למד מ-recent_sent_samples_by_type**: זה הסגנון של הקהילה. שכפל את הקצב, את האמוג'ים שעובדים, את אורך המשפט. אל תיצור משהו שלא יושב על הטון הזה.
+   - **חידושים מותרים**: אם morning/evening/discussion לא מספיקים, אתה רשאי להציע message_type='custom' — פוסט שאלה־של־ה־יום, "השבוע הזה...", "מה אתם...", פולס קצר. שים אותם ב-regular_slots עם type="discussion" (קטגוריה הקרובה ביותר) או רשום ב-skipped + ב-notes_for_admin תחת "הצעות יוזמה".
+   - **לאירועים**: תזכורת לא חייבת להיות "האירוע מתחיל בעוד X דקות". יכולה להיות "🍿 הכינו פופקורן, X דקות מהמפגש" או "מי כבר בחדר ההמתנה?".
+
+7b. **טריוויה צריכה להיות רלוונטית.** אם יש אירוע היום על משחקי לוח — שאלות trivia מאותו עולם מועדפות. אם זה שבת ושטחנו עם מוזיקה — שאלות על אלבומים. הקטגוריה חייבת להתחבר ליום, לא להיות סתם "כללי".
+
+7c. **אמוג'י puzzles צריכות לתפוס סרטים/סדרות שהקהילה מכירה ובסבירות גבוהה זוכרת.** עדיף להישאר עם סרטים מ-90s/2000s מוכרים, סדרות נטפליקס פופולריות, מאשר נישות אינדי.
+
 8. Trivia dedup. אל תייצר שאלה זהה או כמעט זהה ל-existing_trivia_samples. אל תייצר batch עבור category שכבר יש בה ≥3 שאלות ב-existing_trivia_categories.
 
 9. Emoji dedup. אל תייצר חידה שהתשובה בעברית/אנגלית שלה כבר ב-existing_emoji_answers_sample.
@@ -3050,6 +3061,39 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
             "preview": preview,
         })
 
+    # Recent SENT messages — gives the AI a feel for the community's actual
+    # voice and which content types/topics resonate. Last 21 days, capped at
+    # 25 per type-bucket so trivia/digest spam doesn't crowd out morning/evening.
+    recent_sent_by_type: dict[str, list[dict]] = {}
+    try:
+        twenty_one_days_ago = (today - timedelta(days=21)).isoformat()
+        async with db._db.execute(
+            """SELECT id, scheduled_date, scheduled_time, message_type,
+                      channel_topic_id, text
+               FROM scheduled_messages
+               WHERE status = 'sent'
+                 AND scheduled_date >= ? AND scheduled_date < ?
+               ORDER BY scheduled_date DESC, scheduled_time DESC
+               LIMIT 200""",
+            (twenty_one_days_ago, today_iso),
+        ) as cur:
+            for row in await cur.fetchall():
+                mt = (row["message_type"] or "custom") or "custom"
+                bucket = recent_sent_by_type.setdefault(mt, [])
+                if len(bucket) >= 8:  # at most 8 examples per message_type
+                    continue
+                txt = (row["text"] or "").strip().replace("\n", " ")
+                if not txt:
+                    continue
+                bucket.append({
+                    "date": row["scheduled_date"],
+                    "topic_id": row["channel_topic_id"],
+                    "text": txt[:140],
+                })
+    except Exception as e:
+        logger.warning("[ai-fill-today] failed to load recent sent samples: %s", e)
+        recent_sent_by_type = {}
+
     # Existing today drafts (idempotence signal)
     existing_drafts_today = [
         {
@@ -3146,6 +3190,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         "scheduled_messages_today": scheduled_today,
         "existing_drafts_today": existing_drafts_today,
         "this_week_previews": this_week_previews,
+        "recent_sent_samples_by_type": recent_sent_by_type,
         "verified_topic_ids": verified_topic_ids,
         "verified_topic_names": {str(k): v for k, v in verified_topic_names.items()},
         "events_publish_fallback_topic": events_fallback,
