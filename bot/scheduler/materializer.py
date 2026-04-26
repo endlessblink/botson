@@ -25,6 +25,7 @@ def compute_week_previews(
     sunday_iso: str,
     committed_index: dict,
     used_discussion_texts: set[str] | None = None,
+    skipped_slots: set[tuple[str, str, str]] | None = None,
 ) -> list[dict]:
     """Compute preview rows for a single week starting at sunday_iso (YYYY-MM-DD).
 
@@ -37,10 +38,14 @@ def compute_week_previews(
     Morning/evening pools rotate deterministically and are unaffected — the
     user wants those recurring.
 
+    skipped_slots: optional set of (date_iso, "HH:MM", type) keys that the user
+    has explicitly cleared via the skip-slot UI. Those slots produce no preview.
+
     Returns list of dicts: {date, time, type, text, topic_id, category}.
     """
     sunday = date.fromisoformat(sunday_iso)
     used_discussion_texts = used_discussion_texts or set()
+    skipped_slots = skipped_slots or set()
 
     settings = get_settings()
     schedule = settings.get("schedule", {})
@@ -76,7 +81,10 @@ def compute_week_previews(
         # Morning
         if (not auto_blocked) and i in schedule.get("morning_prompt", {}).get("days", []):
             m_time = schedule["morning_prompt"].get("time", "09:00")
-            if (day_iso, m_time, "morning") not in committed_index and morning_queue:
+            slot_key = (day_iso, m_time, "morning")
+            if (slot_key not in committed_index
+                    and slot_key not in skipped_slots
+                    and morning_queue):
                 text = morning_queue[day_ord % len(morning_queue)]
                 previews.append({
                     "date": day_iso, "time": m_time, "type": "morning",
@@ -87,7 +95,8 @@ def compute_week_previews(
         if (not auto_blocked) and i in schedule.get("discussion_prompt", {}).get("days", []):
             times = schedule["discussion_prompt"].get("times", ["18:00"])
             for time_idx, t in enumerate(times):
-                if (day_iso, t, "discussion") in committed_index:
+                slot_key = (day_iso, t, "discussion")
+                if slot_key in committed_index or slot_key in skipped_slots:
                     continue
                 if not active_categories or not discussions_pool:
                     continue
@@ -119,7 +128,10 @@ def compute_week_previews(
         # accidental alignment even if both queues happen to be same length.
         if (not auto_blocked) and i in schedule.get("evening_prompt", {}).get("days", []):
             e_time = schedule["evening_prompt"].get("time", "21:00")
-            if (day_iso, e_time, "evening") not in committed_index and evening_queue:
+            slot_key = (day_iso, e_time, "evening")
+            if (slot_key not in committed_index
+                    and slot_key not in skipped_slots
+                    and evening_queue):
                 text = evening_queue[(day_ord + 3) % len(evening_queue)]
                 previews.append({
                     "date": day_iso, "time": e_time, "type": "evening",

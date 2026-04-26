@@ -4753,7 +4753,9 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     date_from = request.query_params.get("start", now.strftime("%Y-%m-%d"))
     date_to = request.query_params.get("end", (now + timedelta(days=42)).strftime("%Y-%m-%d"))
 
-    messages = await db.get_scheduled_messages(date_from, date_to)
+    # Include cancelled rows so we can build a skipped_slots set for previews.
+    # The visible-events loop below filters cancelled out before rendering.
+    messages = await db.get_scheduled_messages(date_from, date_to, include_cancelled=True)
 
     # Channel color map
     channel_colors = {
@@ -4813,15 +4815,19 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     # Build committed_index from real events to skip duplicates in previews.
     # Anything not cancelled is "committed" — including sent/failed — otherwise
     # already-sent slots would get a ghost preview on top.
-    committed_index = {}
+    # skipped_slots: cancelled rows act as "skip markers" so the user can clear
+    # a pool entry for a specific day and the preview won't regenerate it.
+    committed_index: dict[tuple[str, str, str], dict] = {}
+    skipped_slots: set[tuple[str, str, str]] = set()
     for m in messages:
-        if m.get("status") == "cancelled":
-            continue
         mtype = m.get("message_type", "")
         if mtype not in ("morning", "evening", "discussion"):
             continue
         dkey = m.get("scheduled_date", "")
         tkey = (m.get("scheduled_time") or "")[:5]
+        if m.get("status") == "cancelled":
+            skipped_slots.add((dkey, tkey, mtype))
+            continue
         committed_index[(dkey, tkey, mtype)] = m
 
     # Compute preview events for each week in range
@@ -4841,7 +4847,8 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     current_sunday = first_sunday
     while current_sunday <= end_date:
         week_previews = compute_week_previews(
-            current_sunday.isoformat(), committed_index, used_discussion_texts
+            current_sunday.isoformat(), committed_index, used_discussion_texts,
+            skipped_slots=skipped_slots,
         )
         for p in week_previews:
             p_date = date.fromisoformat(p["date"])
