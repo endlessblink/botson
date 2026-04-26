@@ -87,16 +87,17 @@
                      {% if cell.is_today %}ring-2 ring-blue-500/70{% else %}border border-zinc-800{% endif %}
                      {% if cell.is_past %}opacity-50{% endif %}
                      {% if cell.chips %}hover:bg-zinc-800/80{% endif %}">
-              <div class="flex items-center justify-between gap-1 mb-1 min-h-[24px]">
+              <div class="flex justify-end mb-1 min-h-[24px]">
                 {% if cell.holiday_block %}
-                <div class="holiday-badge flex-1 min-w-0">{{ cell.holiday_block.name or 'חסימה אוטומטית' }}</div>
+                <div class="holiday-badge inline-flex items-center gap-1 max-w-full">
+                  <span class="font-bold text-[10px] opacity-100 shrink-0">{{ cell.day }}</span>
+                  <span class="opacity-50 shrink-0">·</span>
+                  <span class="opacity-95 truncate">{{ cell.holiday_block.name or 'חסימה' }}</span>
+                </div>
+                {% elif cell.is_today %}
+                <span class="bg-blue-500 text-white font-bold rounded-full w-6 h-6 flex items-center justify-center text-xs">{{ cell.day }}</span>
                 {% else %}
-                <div class="flex-1"></div>
-                {% endif %}
-                {% if cell.is_today %}
-                <span class="bg-blue-500 text-white font-bold rounded-full w-6 h-6 flex items-center justify-center text-xs shrink-0">{{ cell.day }}</span>
-                {% else %}
-                <span class="text-xs font-medium text-zinc-300 px-0.5 shrink-0">{{ cell.day }}</span>
+                <span class="text-xs font-medium text-zinc-300 px-0.5">{{ cell.day }}</span>
                 {% endif %}
               </div>
               {% for chip in cell.chips[:4] %}
