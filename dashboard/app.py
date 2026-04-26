@@ -4028,21 +4028,25 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     # Build committed-row index: (date_iso, "HH:MM", type) -> row
     # Only status='scheduled' rows count as committed; cancelled/failed/sent fall back to preview
     committed_index: dict[tuple[str, str, str], dict] = {}
+    skipped_slots: set[tuple[str, str, str]] = set()
     try:
         _raw_committed = await db.get_scheduled_messages(
-            sunday.isoformat(), (sunday + timedelta(days=6)).isoformat()
+            sunday.isoformat(), (sunday + timedelta(days=6)).isoformat(),
+            include_cancelled=True,
         )
         for row in _raw_committed:
-            if row.get("status") == "cancelled":
-                continue
             mtype = row.get("message_type", "")
             if mtype not in ("morning", "evening", "discussion"):
                 continue
             dkey = row.get("scheduled_date", "")
             tkey = (row.get("scheduled_time") or "")[:5]
+            if row.get("status") == "cancelled":
+                # User explicitly cleared this slot — don't fall back to the pool.
+                skipped_slots.add((dkey, tkey, mtype))
+                continue
             committed_index[(dkey, tkey, mtype)] = row
-        logger.info("[weekplan.render] committed_index has %d entries: %s",
-                    len(committed_index), list(committed_index.keys()))
+        logger.info("[weekplan.render] committed=%d skipped=%d",
+                    len(committed_index), len(skipped_slots))
     except Exception as e:
         logger.warning("[weekplan.render] failed to load committed_index: %s", e)
 
@@ -4058,8 +4062,11 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             enabled = _is_feature_enabled_simple(features, "morning_prompt")
             m_time = schedule["morning_prompt"].get("time", "09:00")
             goals_topic = settings.get("topics", {}).get("goals")
-            committed_row = committed_index.get((day_date.isoformat(), m_time, "morning"))
-            if committed_row:
+            slot_key = (day_date.isoformat(), m_time, "morning")
+            committed_row = committed_index.get(slot_key)
+            if slot_key in skipped_slots and not committed_row:
+                pass  # user cleared this slot — render nothing, don't fall back to pool
+            elif committed_row:
                 full_text = committed_row.get("text", "")
                 preview = _truncate(full_text)
                 committed_topic = committed_row.get("channel_topic_id") or goals_topic or ""
@@ -4101,7 +4108,14 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             enabled = _is_feature_enabled_simple(features, "discussions")
             times = schedule["discussion_prompt"].get("times", ["18:00"])
             for t in times:
-                committed_row = committed_index.get((day_date.isoformat(), t, "discussion"))
+                slot_key = (day_date.isoformat(), t, "discussion")
+                committed_row = committed_index.get(slot_key)
+                if slot_key in skipped_slots and not committed_row:
+                    # advance discussion_idx so the rotation doesn't reuse the
+                    # same category on the next slot when this one was skipped
+                    if active_categories:
+                        discussion_idx += 1
+                    continue
                 if committed_row:
                     full_text = committed_row.get("text", "")
                     preview = _truncate(full_text)
@@ -4165,8 +4179,11 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             enabled = _is_feature_enabled_simple(features, "evening_prompt")
             e_time = schedule["evening_prompt"].get("time", "21:00")
             goals_topic = settings.get("topics", {}).get("goals")
-            committed_row = committed_index.get((day_date.isoformat(), e_time, "evening"))
-            if committed_row:
+            slot_key = (day_date.isoformat(), e_time, "evening")
+            committed_row = committed_index.get(slot_key)
+            if slot_key in skipped_slots and not committed_row:
+                pass  # user cleared this slot — render nothing
+            elif committed_row:
                 full_text = committed_row.get("text", "")
                 preview = _truncate(full_text)
                 committed_topic = committed_row.get("channel_topic_id") or goals_topic or ""
@@ -4892,6 +4909,42 @@ async def delete_calendar_item(msg_id: int, request: Request, db: Database = Dep
 
     await db.delete_scheduled_message(msg_id)
     return {"status": "ok"}
+
+
+@app.post("/api/weekplan/skip-slot")
+async def skip_weekplan_slot(request: Request, db: Database = Depends(get_db)):
+    """Mark a planner slot as skipped so the pool fallback won't fill it.
+
+    Body: {date, time, type}
+    Creates a scheduled_messages row with empty text and status='cancelled' which
+    the planner reads as a 'skip marker' for that slot.
+    Returns: {status, id}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    date_str = (data.get("date") or "").strip()
+    time_str = (data.get("time") or "").strip()
+    mtype = (data.get("type") or "").strip()
+
+    if not date_str or not time_str:
+        raise HTTPException(status_code=400, detail="Missing date or time")
+    if mtype not in ("morning", "evening", "discussion"):
+        raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
+
+    new_id = await db.create_scheduled_message(
+        text="",
+        message_type=mtype,
+        channel_topic_id=None,
+        target_group="main",
+        scheduled_date=date_str,
+        scheduled_time=time_str,
+        created_by="weekplan-skip",
+    )
+    await db.delete_scheduled_message(new_id)  # immediately mark cancelled
+    logger.info("[weekplan.skip-slot] date=%s time=%s type=%s id=%d", date_str, time_str, mtype, new_id)
+    return {"status": "ok", "id": new_id}
 
 
 async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:

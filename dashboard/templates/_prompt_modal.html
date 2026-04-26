@@ -180,15 +180,10 @@ function openPromptModal(el) {
     var timeEl = el.querySelector('[dir="ltr"]');
     document.getElementById('modalTime').value = (timeEl && timeEl.textContent.trim()) || '09:00';
 
-    // Show delete button only for committed scheduled messages with a valid id
+    // Always show the delete button. For committed rows it deletes the row;
+    // for pool entries it inserts a "skip marker" so the slot stays empty.
     var deleteBtn = document.getElementById('modalDeleteBtn');
-    if (deleteBtn) {
-        if (committed && scheduledId) {
-            deleteBtn.classList.remove('hidden');
-        } else {
-            deleteBtn.classList.add('hidden');
-        }
-    }
+    if (deleteBtn) deleteBtn.classList.remove('hidden');
 
     var modal = document.getElementById('promptModal');
     modal.classList.remove('hidden');
@@ -419,8 +414,10 @@ async function scheduleOneOff() {
 }
 
 async function deleteScheduled() {
-    if (!_modalState.scheduledId) return;
-    if (!confirm('למחוק את ההודעה המתוזמנת?\n\nהפעולה לא הפיכה.')) return;
+    var msg = _modalState.scheduledId
+        ? 'למחוק את ההודעה המתוזמנת?'
+        : 'לדלג על המשבצת הזו ביום הזה?\n\nהבוט לא יציע בה תוכן.';
+    if (!confirm(msg)) return;
 
     var btn = document.getElementById('modalDeleteBtn');
     var origHtml = btn.innerHTML;
@@ -428,7 +425,21 @@ async function deleteScheduled() {
     btn.innerHTML = '...';
 
     try {
-        var resp = await fetch('/api/calendar/' + encodeURIComponent(_modalState.scheduledId), {method: 'DELETE'});
+        var resp;
+        if (_modalState.scheduledId) {
+            resp = await fetch('/api/calendar/' + encodeURIComponent(_modalState.scheduledId), {method: 'DELETE'});
+        } else {
+            // Pool entry — insert a skip marker so the slot stays empty for this day
+            resp = await fetch('/api/weekplan/skip-slot', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    date: _modalState.date,
+                    time: _modalState.time,
+                    type: _modalState.type,
+                }),
+            });
+        }
         if (resp.ok) {
             closePromptModal();
             window.location.reload();

@@ -734,19 +734,27 @@ class Database:
 
     # ── Scheduled Messages (Content Calendar) ────────────────
 
-    async def get_scheduled_messages(self, date_from: str, date_to: str) -> list[dict]:
+    async def get_scheduled_messages(
+        self, date_from: str, date_to: str, include_cancelled: bool = False
+    ) -> list[dict]:
         """Get scheduled messages for a date range.
 
-        Cancelled rows are excluded — delete_scheduled_message marks status='cancelled',
-        and the calendar/planner views must not show them as still-pending content.
+        By default cancelled rows are excluded — delete_scheduled_message marks
+        status='cancelled' and the calendar/public views must not show them as
+        still-pending content. The planner passes include_cancelled=True so it
+        can treat cancelled rows as "skip markers" and suppress the pool fallback
+        for those slots.
         """
-        async with self._db.execute(
-            """SELECT * FROM scheduled_messages
-               WHERE scheduled_date >= ? AND scheduled_date <= ?
-                 AND status != 'cancelled'
-               ORDER BY scheduled_date, scheduled_time""",
-            (date_from, date_to),
-        ) as cursor:
+        if include_cancelled:
+            sql = """SELECT * FROM scheduled_messages
+                     WHERE scheduled_date >= ? AND scheduled_date <= ?
+                     ORDER BY scheduled_date, scheduled_time"""
+        else:
+            sql = """SELECT * FROM scheduled_messages
+                     WHERE scheduled_date >= ? AND scheduled_date <= ?
+                       AND status != 'cancelled'
+                     ORDER BY scheduled_date, scheduled_time"""
+        async with self._db.execute(sql, (date_from, date_to)) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
