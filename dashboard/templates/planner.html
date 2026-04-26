@@ -290,21 +290,30 @@
     }
     .planner-holiday-badge {
         position: absolute;
-        right: 6px;
+        left: 6px;
         top: 6px;
-        max-width: calc(100% - 50px);
-        font-size: 9px;
+        max-width: calc(100% - 40px);
+        font-size: 10px;
         line-height: 1.2;
         color: #fde68a;
-        background: rgba(245, 158, 11, 0.14);
-        border: 1px solid rgba(245, 158, 11, 0.22);
+        background: rgba(245, 158, 11, 0.18);
+        border: 1px solid rgba(245, 158, 11, 0.30);
         border-radius: 999px;
-        padding: 2px 7px;
+        padding: 2px 8px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         pointer-events: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
     }
+    .planner-holiday-badge .day-num { font-weight: 700; opacity: 1; }
+    .planner-holiday-badge .sep { opacity: 0.5; }
+    .planner-holiday-badge .name { opacity: 0.95; }
+    /* When the holiday badge contains the day number, hide FC's own day-number
+       element to prevent the visual overlap with the badge or the +button. */
+    .fc-daygrid-day.planner-holiday-block .fc-daygrid-day-number { visibility: hidden; }
 </style>
 
 <div class="flex items-center justify-between mb-4">
@@ -2135,7 +2144,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (frameEl && !frameEl.querySelector('.planner-holiday-badge')) {
                     var badge = document.createElement('div');
                     badge.className = 'planner-holiday-badge';
-                    badge.textContent = holidayBlock.name || 'חסימה';
+                    var dayNumEl = document.createElement('span');
+                    dayNumEl.className = 'day-num';
+                    dayNumEl.textContent = String(arg.date.getDate());
+                    var sepEl = document.createElement('span');
+                    sepEl.className = 'sep';
+                    sepEl.textContent = '·';
+                    var nameEl = document.createElement('span');
+                    nameEl.className = 'name';
+                    nameEl.textContent = holidayBlock.name || 'חסימה';
+                    badge.appendChild(dayNumEl);
+                    badge.appendChild(sepEl);
+                    badge.appendChild(nameEl);
                     frameEl.appendChild(badge);
                 }
             }
