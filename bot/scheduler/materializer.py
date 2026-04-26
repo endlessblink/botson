@@ -149,24 +149,33 @@ def _feature_for_type(message_type: str) -> str:
     }.get(message_type, message_type)
 
 
-async def _build_committed_index(db: Database, date_from: str, date_to: str) -> dict:
+async def _build_committed_index(
+    db: Database, date_from: str, date_to: str
+) -> tuple[dict, set[tuple[str, str, str]]]:
     """Build the (date, HH:MM, type) -> row index from existing scheduled_messages.
 
-    Cancelled rows are excluded so materializer will refill their slot.
+    Returns (committed_index, skipped_slots).
+
+    Cancelled rows go into skipped_slots — they represent slots the user
+    explicitly cleared (via skip-slot UI). The materializer must NOT refill
+    them; otherwise the slot keeps coming back from the pool.
+
     Sent rows still count — we don't want to re-materialize an already-sent slot.
     """
-    rows = await db.get_scheduled_messages(date_from, date_to)
+    rows = await db.get_scheduled_messages(date_from, date_to, include_cancelled=True)
     index: dict = {}
+    skipped: set[tuple[str, str, str]] = set()
     for r in rows:
-        if r.get("status") == "cancelled":
-            continue
         key = (
             r.get("scheduled_date"),
             (r.get("scheduled_time") or "")[:5],
             r.get("message_type"),
         )
+        if r.get("status") == "cancelled":
+            skipped.add(key)
+            continue
         index[key] = r
-    return index
+    return index, skipped
 
 
 async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
@@ -200,7 +209,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
         last_sunday += timedelta(days=7)
     index_end = last_sunday + timedelta(days=6)
 
-    committed_index = await _build_committed_index(
+    committed_index, skipped_slots = await _build_committed_index(
         db, first_sunday.isoformat(), index_end.isoformat()
     )
 
@@ -215,6 +224,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
             current_sunday.isoformat(),
             committed_index,
             used_discussion_texts,
+            skipped_slots=skipped_slots,
         )
         for p in previews:
             slot_date = _date.fromisoformat(p["date"])
