@@ -839,14 +839,20 @@ class Database:
             return [dict(r) for r in rows]
 
     async def get_used_discussion_texts(self) -> set[str]:
-        """Return the set of discussion texts that have been sent or are still
-        in the queue (scheduled). Used by the materializer to avoid re-picking
-        the same question. Cancelled/failed rows are ignored so a pool
-        question that never actually went out can be picked again later.
+        """Return the set of discussion texts that have ever appeared in the
+        scheduled_messages table — including cancelled rows. Used by the
+        materializer to dedupe pool picks: once a question has been proposed
+        in any form (preview that became a row, manual save, AI-fill), it is
+        considered used and won't be re-picked from the pool.
+
+        The user's expectation is "questions should never repeat" — even
+        cancelled rows count as "previously seen". Empty text rows (skip
+        markers from the skip-slot UI) are excluded so they don't become
+        false positives.
         """
         async with self._db.execute(
             "SELECT DISTINCT text FROM scheduled_messages "
-            "WHERE message_type = 'discussion' AND status IN ('sent', 'scheduled')"
+            "WHERE message_type = 'discussion' AND text != '' AND text IS NOT NULL"
         ) as cursor:
             rows = await cursor.fetchall()
             return {r[0] for r in rows if r[0]}
