@@ -27,8 +27,9 @@ features:
     - test
   discussions: true
   emoji_puzzle:
-    enabled: false
-    groups: []
+    enabled: true
+    groups:
+    - main
   evening_prompt:
     enabled: true
     groups:
@@ -59,8 +60,9 @@ features:
     groups:
     - test
   trivia:
-    enabled: false
+    enabled: true
     groups:
+    - main
     - test
   welcome:
     enabled: true
