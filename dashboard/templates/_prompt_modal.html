@@ -84,7 +84,13 @@
         </div>
 
         <div class="flex items-center justify-between px-5 py-3 border-t border-[#1f1f1f] sticky bottom-0 bg-[#0a0a0a]">
-            <button onclick="closePromptModal()" class="px-3 py-1.5 text-xs text-[#71717a] hover:text-[#fafafa] transition-colors">ביטול</button>
+            <div class="flex items-center gap-2">
+                <button onclick="closePromptModal()" class="px-3 py-1.5 text-xs text-[#71717a] hover:text-[#fafafa] transition-colors">ביטול</button>
+                <button id="modalDeleteBtn" onclick="deleteScheduled()" class="hidden px-3 py-1.5 text-xs font-medium border border-red-500/30 rounded-md text-red-400 hover:bg-red-500/10 transition-colors inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    מחק
+                </button>
+            </div>
             <button id="modalSaveBtn" onclick="savePrompt()" class="px-4 py-1.5 text-xs font-medium bg-[#fafafa] text-[#09090b] rounded-md hover:bg-[#e4e4e7] transition-colors">שמירה במאגר</button>
         </div>
     </div>
@@ -92,7 +98,16 @@
 
 <script>
 // Edit prompt modal — v3 per-day scheduled_messages + AI fill
-console.log('[prompt-modal] script loaded — modal v3 (per-day commits)');
+var _promptModalDebug = false;
+try {
+    _promptModalDebug = window.localStorage && window.localStorage.getItem('promptModalDebug') === '1';
+} catch (e) {}
+function promptModalLog() {
+    if (_promptModalDebug) console.log.apply(console, arguments);
+}
+function promptModalWarn() {
+    if (_promptModalDebug) console.warn.apply(console, arguments);
+}
 var _modalState = {pool: '', idx: -1, type: '', category: '', topicId: '', date: '', scheduledId: '', committed: false, time: ''};
 
 function openPromptModal(el) {
@@ -111,11 +126,11 @@ function openPromptModal(el) {
     var timeEl = el.querySelector('[dir="ltr"]');
     var time = (timeEl && timeEl.textContent.trim()) || '';
 
-    console.log('[modal.open] type=%s date=%s time=%s topicId=%s committed=%s scheduledId=%s textLen=%d',
+    promptModalLog('[modal.open] type=%s date=%s time=%s topicId=%s committed=%s scheduledId=%s textLen=%d',
                 type, date, time, topicId, committed, scheduledId, fullText.length);
 
     if (!type || !date || !time) {
-        console.warn('[modal.open] REJECTED: missing type/date/time');
+        promptModalWarn('[modal.open] REJECTED: missing type/date/time');
         return;
     }
 
@@ -165,6 +180,16 @@ function openPromptModal(el) {
     var timeEl = el.querySelector('[dir="ltr"]');
     document.getElementById('modalTime').value = (timeEl && timeEl.textContent.trim()) || '09:00';
 
+    // Show delete button only for committed scheduled messages with a valid id
+    var deleteBtn = document.getElementById('modalDeleteBtn');
+    if (deleteBtn) {
+        if (committed && scheduledId) {
+            deleteBtn.classList.remove('hidden');
+        } else {
+            deleteBtn.classList.add('hidden');
+        }
+    }
+
     var modal = document.getElementById('promptModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -186,7 +211,7 @@ async function onChannelChange(sel) {
 
     if (!newKey) return;
 
-    console.log('[modal.channelChange] switching to category=%s', newKey);
+    promptModalLog('[modal.channelChange] switching to category=%s', newKey);
 
     _modalState.category = newKey;
     _modalState.topicId = newTopicId;
@@ -200,7 +225,7 @@ async function onChannelChange(sel) {
             if (data.text) {
                 document.getElementById('modalText').value = data.text;
                 _modalState.idx = data.idx;
-                console.log('[modal.channelChange] loaded %s[%d]', newKey, data.idx);
+                promptModalLog('[modal.channelChange] loaded %s[%d]', newKey, data.idx);
             }
         }
     } catch(e) {
@@ -280,7 +305,7 @@ async function regeneratePrompt(which) {
 
 async function savePrompt() {
     var text = document.getElementById('modalText').value.trim();
-    console.log('[modal.save] type=%s date=%s time=%s scheduledId=%s textLen=%d',
+    promptModalLog('[modal.save] type=%s date=%s time=%s scheduledId=%s textLen=%d',
                 _modalState.type, _modalState.date, _modalState.time, _modalState.scheduledId, text.length);
 
     if (!text) {
@@ -289,7 +314,7 @@ async function savePrompt() {
     }
     if (!_modalState.type || !_modalState.date || !_modalState.time) {
         alert('חסרים פרטי יום/שעה/סוג');
-        console.warn('[modal.save] REJECTED: state=', _modalState);
+        promptModalWarn('[modal.save] REJECTED: state=', _modalState);
         return;
     }
 
@@ -317,16 +342,16 @@ async function savePrompt() {
     btn.disabled = true;
 
     try {
-        console.log('[modal.save] POST /api/weekplan/save-day', body);
+        promptModalLog('[modal.save] POST /api/weekplan/save-day', body);
         var resp = await fetch('/api/weekplan/save-day', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
         });
-        console.log('[modal.save] response status:', resp.status);
+        promptModalLog('[modal.save] response status:', resp.status);
         if (resp.ok) {
             var data = await resp.json();
-            console.log('[modal.save] saved:', data);
+            promptModalLog('[modal.save] saved:', data);
             closePromptModal();
             window.location.reload();
         } else {
@@ -390,6 +415,32 @@ async function scheduleOneOff() {
     } finally {
         btn.textContent = origText;
         btn.disabled = false;
+    }
+}
+
+async function deleteScheduled() {
+    if (!_modalState.scheduledId) return;
+    if (!confirm('למחוק את ההודעה המתוזמנת?\n\nהפעולה לא הפיכה.')) return;
+
+    var btn = document.getElementById('modalDeleteBtn');
+    var origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '...';
+
+    try {
+        var resp = await fetch('/api/calendar/' + encodeURIComponent(_modalState.scheduledId), {method: 'DELETE'});
+        if (resp.ok) {
+            closePromptModal();
+            window.location.reload();
+        } else {
+            var err = await resp.json().catch(function() { return {}; });
+            alert('שגיאה במחיקה: ' + (err.detail || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('שגיאה במחיקה: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
     }
 }
 
