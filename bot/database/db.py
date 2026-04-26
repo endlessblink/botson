@@ -735,10 +735,15 @@ class Database:
     # ── Scheduled Messages (Content Calendar) ────────────────
 
     async def get_scheduled_messages(self, date_from: str, date_to: str) -> list[dict]:
-        """Get scheduled messages for a date range."""
+        """Get scheduled messages for a date range.
+
+        Cancelled rows are excluded — delete_scheduled_message marks status='cancelled',
+        and the calendar/planner views must not show them as still-pending content.
+        """
         async with self._db.execute(
             """SELECT * FROM scheduled_messages
                WHERE scheduled_date >= ? AND scheduled_date <= ?
+                 AND status != 'cancelled'
                ORDER BY scheduled_date, scheduled_time""",
             (date_from, date_to),
         ) as cursor:
