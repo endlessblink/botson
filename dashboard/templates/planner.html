@@ -404,6 +404,9 @@
         <button id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✨ מלא את היום ב-AI
         </button>
+        <button id="ai-fill-day-btn" onclick="aiFillSpecificDay()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+            ✨ מלא יום ספציפי
+        </button>
         <button id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✕ בטל
         </button>
@@ -2252,11 +2255,30 @@ function cancelAiFillToday() {
     }
 }
 
-async function aiFillToday() {
+function aiFillSpecificDay() {
+    // Default to today's date in the prompt
+    var today = new Date();
+    var defaultIso = today.getFullYear() + '-' +
+                     String(today.getMonth() + 1).padStart(2, '0') + '-' +
+                     String(today.getDate()).padStart(2, '0');
+    var iso = prompt('תאריך לייצור (YYYY-MM-DD):', defaultIso);
+    if (!iso) return;
+    iso = iso.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        alert('תאריך לא תקין. השתמש בפורמט YYYY-MM-DD');
+        return;
+    }
+    aiFillToday(iso);
+}
+
+async function aiFillToday(targetDate) {
     var btn = document.getElementById('ai-fill-today-btn');
     var cancelBtn = document.getElementById('ai-fill-today-cancel-btn');
     if (!btn) return;
-    if (!confirm('לייצר טיוטות AI להיום? (לא ישלח עד אישור ידני)')) return;
+    var promptMsg = targetDate
+        ? ('לייצר טיוטות AI לתאריך ' + targetDate + '? (לא ישלח עד אישור ידני)')
+        : 'לייצר טיוטות AI להיום? (לא ישלח עד אישור ידני)';
+    if (!confirm(promptMsg)) return;
 
     var origText = btn.innerHTML;
     btn.disabled = true;
@@ -2291,7 +2313,12 @@ async function aiFillToday() {
         if (_aiFillTodayController) _aiFillTodayController.abort('client_timeout');
     }, 300000);
     try {
-        var resp = await fetch('/api/weekplan/ai-fill-today', {method: 'POST', signal: _aiFillTodayController.signal});
+        var fetchOpts = {method: 'POST', signal: _aiFillTodayController.signal};
+        if (targetDate) {
+            fetchOpts.headers = {'Content-Type': 'application/json'};
+            fetchOpts.body = JSON.stringify({target_date: targetDate});
+        }
+        var resp = await fetch('/api/weekplan/ai-fill-today', fetchOpts);
         var data = await resp.json();
         if (data.skipped_holiday) {
             showToast('היום חג חסום אוטומטית — לא נוצר תוכן', 'error');

@@ -3576,15 +3576,31 @@ async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
 
 @app.post("/api/weekplan/ai-fill-today")
 async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
-    """Fill only today's empty slots + one reminder per event today, with
+    """Fill empty slots + one reminder per event for a target day, with
     group-wide context (events, holiday, week's committed messages) in the
     prompt. Idempotent via created_by tagging.
+
+    Body (all optional): {target_date: "YYYY-MM-DD"} — defaults to today.
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import date, datetime, timedelta
+
+    target_date_str = ""
+    try:
+        body = await request.json()
+        target_date_str = (body.get("target_date") or "").strip() if isinstance(body, dict) else ""
+    except Exception:
+        target_date_str = ""
+
+    if target_date_str:
+        try:
+            today = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date_str}")
+    else:
+        today = date.today()
     today_iso = today.isoformat()
     hebrew_day = (today.weekday() + 1) % 7
     sunday = today - timedelta(days=hebrew_day)
