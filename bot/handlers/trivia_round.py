@@ -61,11 +61,31 @@ def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> lis
     if not pool:
         return []
     strict = preferred_categories is not None
-    categories = preferred_categories if strict else PREFERRED_CATEGORIES
 
+    if not strict:
+        # General round — pull n random questions from the entire pool, no
+        # category bias. This is what plays when the announcement is just
+        # "סיבוב טריוויה" with no theme word.
+        copy = list(pool)
+        random.shuffle(copy)
+        seen_texts: set[str] = set()
+        picked: list[dict] = []
+        for q in copy:
+            txt = q.get("text") or ""
+            if txt in seen_texts:
+                continue
+            picked.append(q)
+            seen_texts.add(txt)
+            if len(picked) >= n:
+                break
+        return picked
+
+    # Strict mode — themed round. Only questions tagged with the announced
+    # category are eligible. If the pool has fewer than n, return what we
+    # have; never top up with off-theme questions.
     def _matches(q: dict) -> bool:
         cat = str(q.get("category") or "").strip().lower()
-        return any(cat == str(c).strip().lower() for c in categories)
+        return any(cat == str(c).strip().lower() for c in preferred_categories)
 
     matching = [q for q in pool if _matches(q)]
     random.shuffle(matching)
@@ -79,22 +99,6 @@ def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> lis
         seen_texts.add(q.get("text", ""))
         if len(picked) >= n:
             break
-
-    if strict:
-        # Never mix unrelated categories into a themed round. If the filter
-        # produced fewer than N, return what we have; the caller logs + skips.
-        return picked
-
-    # Default (legacy) behaviour: top up with non-matching when user didn't
-    # specify a theme.
-    if len(picked) < n:
-        rest = [q for q in pool if not _matches(q) and q.get("text") not in seen_texts]
-        random.shuffle(rest)
-        for q in rest:
-            picked.append(q)
-            seen_texts.add(q.get("text", ""))
-            if len(picked) >= n:
-                break
     return picked
 
 
@@ -252,7 +256,9 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
         logger.info("trivia_round: round already active in chat %s", chat_id)
         return
 
-    preferred_categories = preferred_categories or PREFERRED_CATEGORIES
+    # No fallback to a fixed legacy category. If the announcement specified a
+    # theme, strict mode kicks in. Otherwise (preferred_categories=None) the
+    # picker pulls from the entire pool — that's what "general" means.
     theme_label = theme_label or THEME_LABEL
     question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
 
@@ -263,7 +269,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
         logger.error(
             "trivia_round: not enough questions matching categories=%s (found=%d, requested=%d). "
             "Check that the questions saved in trivia.yaml have exactly one of these category tags.",
-            sorted(preferred_categories or PREFERRED_CATEGORIES),
+            sorted(preferred_categories) if preferred_categories else ["(general — full pool)"],
             len(questions),
             question_count,
         )

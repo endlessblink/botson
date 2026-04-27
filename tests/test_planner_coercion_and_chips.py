@@ -139,6 +139,23 @@ class TestQuestionPickerStrictMode(unittest.TestCase):
         picked = _pick_questions(5, {"__no_such_category__"})
         self.assertEqual(picked, [])
 
+    def test_general_round_pulls_from_full_pool(self):
+        """A general round (preferred_categories=None) must NOT be biased to
+        a hard-coded fallback like movies/TV. It samples randomly from the
+        whole pool. Sanity check: with multiple draws we should see more
+        than one distinct category appear over enough rounds."""
+        seen_categories: set[str] = set()
+        for _ in range(20):
+            picked = _pick_questions(5, None)
+            for q in picked:
+                cat = str(q.get("category") or "").strip()
+                if cat:
+                    seen_categories.add(cat)
+        self.assertGreater(
+            len(seen_categories), 1,
+            f"general round looks biased — only saw categories: {seen_categories}",
+        )
+
 
 class TestChannelChipPaletteRoute(unittest.IsolatedAsyncioTestCase):
     """Verify grouped_channels (the chip-palette source) includes welcome + botson_corner."""
