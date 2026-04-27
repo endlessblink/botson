@@ -6,6 +6,8 @@
 
 | ID | Phase | Task | Status | Priority | Deps |
 |----|-------|------|--------|----------|------|
+| T-111 | 18 | Trivia/emoji rounds: auto-start when scheduled_messages row of type=trivia_round/emoji_puzzle fires (no manual /trivia needed) | TODO | P1 | T-023, T-026 |
+| T-112 | 18 | Pre-flight admin DM 5min before trivia/emoji round announcements ("round at HH:MM in botson's corner — /trivia to start") | TODO | P1 | — |
 | T-001 | 0 | Project scaffolding & git init | DONE | P0 | — |
 | T-002 | 0 | Database layer (SQLite + aiosqlite) | DONE | P0 | T-001 |
 | T-003 | 0 | Config system (YAML loader + settings) | DONE | P0 | T-001 |
