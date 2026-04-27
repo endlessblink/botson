@@ -5239,6 +5239,26 @@ async def skip_weekplan_slot(request: Request, db: Database = Depends(get_db)):
     return {"status": "ok", "id": new_id}
 
 
+@app.post("/api/weekplan/cancel-auto-future")
+async def cancel_auto_future_rows(request: Request, db: Database = Depends(get_db)):
+    """Bulk-cancel all future auto-materialized scheduled rows.
+
+    Used to purge AI/auto-generated content that pre-dates a quality-rules
+    change so the next ai-fill regenerates everything under the new rules.
+    Leaves user-committed rows (created_by != 'auto') untouched.
+
+    Returns: {status, cancelled, from_date}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    from datetime import date
+    today_iso = date.today().isoformat()
+    cancelled = await db.cancel_future_auto_scheduled_messages(today_iso)
+    logger.info("[weekplan.cancel-auto-future] from=%s cancelled=%d", today_iso, cancelled)
+    return {"status": "ok", "cancelled": cancelled, "from_date": today_iso}
+
+
 async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     """Send one scheduled_messages row to Telegram immediately.
 

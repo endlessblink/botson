@@ -90,6 +90,10 @@
             ערב
         </button>
         <span id="ai-fill-status" class="text-[11px] text-[#52525b]"></span>
+        <button onclick="purgeAutoFuture()" id="purge-auto-btn" class="px-3 py-1.5 text-xs font-medium bg-[#171717] border border-red-500/20 rounded-md text-red-400 hover:bg-red-500/10 transition-colors inline-flex items-center gap-1.5 ml-auto" title="מבטל את כל השורות העתידיות שנוצרו אוטומטית — שימושי כדי לרענן תוכן AI אחרי שינוי חוקי איכות">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            ביטול שורות auto עתידיות
+        </button>
     </div>
 
     <!-- Week grid: workdays -->
@@ -381,6 +385,38 @@ async function aiFill(type) {
         statusEl.textContent = '❌ ' + e.message;
         console.error('[ai-fill] exception:', e);
         allBtns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+    }
+}
+
+// Bulk-cancel future auto-scheduled rows. Used to purge AI-generated
+// content that pre-dates the current quality rules so a fresh ai-fill
+// regenerates everything under the new constraints.
+async function purgeAutoFuture() {
+    if (!confirm('לבטל את כל השורות העתידיות שנוצרו אוטומטית? פעולה זו תסמן אותן cancelled — שורות שנוצרו ידנית יישארו. אפשר אחר כך להריץ "מילוי AI" כדי ליצור תוכן חדש עם החוקים העדכניים.')) {
+        return;
+    }
+    var btn = document.getElementById('purge-auto-btn');
+    var statusEl = document.getElementById('ai-fill-status');
+    btn.disabled = true; btn.style.opacity = '0.5';
+    statusEl.textContent = '⏳ מבטל...';
+    try {
+        var resp = await fetch('/api/weekplan/cancel-auto-future', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}'
+        });
+        if (resp.ok) {
+            var data = await resp.json();
+            statusEl.textContent = '✓ בוטלו ' + data.cancelled + ' שורות (מ-' + data.from_date + ')';
+            setTimeout(function() { window.location.reload(); }, 1000);
+        } else {
+            var err = await resp.json().catch(function() { return {}; });
+            statusEl.textContent = '❌ שגיאה: ' + (err.detail || 'Unknown');
+            btn.disabled = false; btn.style.opacity = '';
+        }
+    } catch(e) {
+        statusEl.textContent = '❌ ' + e.message;
+        btn.disabled = false; btn.style.opacity = '';
     }
 }
 </script>

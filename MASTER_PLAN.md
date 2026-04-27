@@ -115,6 +115,8 @@
 | T-114 | 19 | Handler Routing UI: teaser_topic_ids multi-select on Settings | TODO | P2 | — |
 | T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | TODO | P1 | — |
 | T-116 | 20 | Events: stop overwriting user content with date/time line | TODO | P1 | — |
+| T-117 | 21 | Bulk-cancel future auto-scheduled rows endpoint + dashboard button (purge AI-generated content created before quality-rules wiring) | DONE | P1 | — |
+| T-118 | 21 | Audit + rewrite 7 flagged questions in config/discussions.yaml (English jargon: ironic/autocorrect/overrated/underrated/red flag/green flag; 1 stacked question in cute) | DONE | P2 | — |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
