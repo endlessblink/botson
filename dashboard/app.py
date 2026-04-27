@@ -2185,7 +2185,84 @@ COMMUNITY_CONTEXT = """קהילת "אלהוריים וזה" — קהילת צ'י
 הקהילה היא חמה, תומכת ומהנה. השפה עברית. התוכן רלוונטי לאורח חיים של מבוגרים, צמיחה אישית, וחיזוק הקשר הקהילתי."""
 
 
-def build_generation_prompt(field: str, mode: str, existing: str, category: str, instructions: str = "") -> str:
+_QUALITY_RULES_PATH = Path(__file__).parent.parent / "config" / "question_quality.md"
+_QUALITY_RULES_CACHE: str | None = None
+
+
+def _load_quality_rules() -> str:
+    """Lazy-load the canonical question-quality rules from config/question_quality.md.
+    Cached after first read. Falls back to empty string if file missing so a
+    misplaced rules file never breaks generation outright.
+    """
+    global _QUALITY_RULES_CACHE
+    if _QUALITY_RULES_CACHE is not None:
+        return _QUALITY_RULES_CACHE
+    try:
+        _QUALITY_RULES_CACHE = _QUALITY_RULES_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("[generate] could not load quality rules from %s: %s", _QUALITY_RULES_PATH, e)
+        _QUALITY_RULES_CACHE = ""
+    return _QUALITY_RULES_CACHE
+
+
+async def _fetch_recent_sent_for_dedup(
+    db: "Database", message_type: str, *, category_topic_id: int | None = None, limit: int = 60
+) -> list[str]:
+    """Return up to `limit` distinct recent texts of a given message_type.
+    Optionally scoped to a single channel_topic_id (preferred for discussion
+    dedup so cross-channel content variety isn't penalized). Used as a
+    "DO NOT REPEAT" block in build_generation_prompt.
+    Includes both 'sent' and 'scheduled' rows so questions queued but not yet
+    fired also count as "already proposed" — matches the existing
+    get_used_discussion_texts() spirit.
+    """
+    sql = (
+        "SELECT DISTINCT text FROM scheduled_messages "
+        "WHERE message_type = ? AND text IS NOT NULL AND text != '' "
+        "AND status IN ('sent', 'scheduled') "
+    )
+    params: list = [message_type]
+    if category_topic_id is not None:
+        sql += "AND channel_topic_id = ? "
+        params.append(category_topic_id)
+    sql += "ORDER BY scheduled_date DESC, scheduled_time DESC LIMIT ?"
+    params.append(limit)
+    out: list[str] = []
+    try:
+        async with db._db.execute(sql, params) as cursor:
+            async for row in cursor:
+                txt = (row[0] or "").strip()
+                if txt and txt not in out:
+                    out.append(txt)
+    except Exception as e:
+        logger.warning("[generate] recent-sent dedup query failed: %s", e)
+    return out
+
+
+def _format_dedup_block(recent_sent: list[str] | None) -> str:
+    """Render the 'do not repeat' block in Hebrew. Returns '' if nothing to dedupe."""
+    if not recent_sent:
+        return ""
+    # Cap each line to keep prompt size sane; trim list to 60 items max.
+    items = [(t.replace("\n", " ").strip()[:140]) for t in recent_sent[:60] if t and t.strip()]
+    if not items:
+        return ""
+    body = "\n".join(f"- {t}" for t in items)
+    return (
+        "\n\nאסור לחזור על השאלות הבאות, גם לא לפראפרז שלהן (ניסוח שונה לאותו רעיון נחשב חזרה):\n"
+        f"{body}\n"
+        "אם השאלה החדשה שלך מזכירה אחת מהן ברעיון המרכזי או בפועל המפתח — נסח שאלה אחרת."
+    )
+
+
+def build_generation_prompt(
+    field: str,
+    mode: str,
+    existing: str,
+    category: str,
+    instructions: str = "",
+    recent_sent: list[str] | None = None,
+) -> str:
     # Single-item rewrite mode — used by the weekplan modal
     if mode == "rewrite":
         type_he = {"morning": "הודעת בוקר", "evening": "הודעת ערב", "discussion": "שאלה לדיון"}.get(field, "הודעה")
@@ -2289,6 +2366,23 @@ def build_generation_prompt(field: str, mode: str, existing: str, category: str,
         # (narrow themes otherwise keep landing on Check Point / NSO / Waze).
         base += f"\n\nהנה התוכן הקיים (אל תחזור עליו, צור תוכן חדש ושונה):\n{existing}"
 
+    # Append "DO NOT REPEAT THESE" block from recent sent/scheduled history.
+    # Trivia uses a separate dedup mechanism (category exact-match + question
+    # text dedup inside _pick_questions) — skip recent_sent injection there.
+    if field != "trivia":
+        base += _format_dedup_block(recent_sent)
+
+    # Prepend the canonical quality rules at the TOP of the prompt so the
+    # model sees them before the task. This is the contract enforced by
+    # config/question_quality.md (single source of truth).
+    rules = _load_quality_rules()
+    if rules:
+        base = (
+            "להלן חוקים קשיחים ליצירת שאלות / הודעות עבור הבוט. אסור לעבור עליהם:\n\n"
+            f"{rules}\n\n"
+            "──────────\n"
+            f"{base}"
+        )
     return base
 
 
@@ -2348,7 +2442,7 @@ async def _generate_via_api(prompt: str) -> str:
 
 
 @app.post("/api/generate")
-async def generate_content(request: Request):
+async def generate_content(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
@@ -2359,7 +2453,12 @@ async def generate_content(request: Request):
     category = data.get("category", "")
     instructions = (data.get("instructions") or "").strip()
 
-    prompt = build_generation_prompt(field, mode, existing, category, instructions)
+    # Fetch dedup history (skipped for trivia — that has its own dedup).
+    recent_sent: list[str] = []
+    if field in ("morning", "evening", "discussion"):
+        recent_sent = await _fetch_recent_sent_for_dedup(db, field, limit=60)
+
+    prompt = build_generation_prompt(field, mode, existing, category, instructions, recent_sent=recent_sent)
 
     # Try Claude Code CLI first, fall back to Anthropic API
     cli_err = None
@@ -2652,6 +2751,10 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
         discussions_pool = {}
     active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
 
+    # Fetch dedup history once per type so the model never paraphrases a
+    # recent send. For discussion we additionally scope per-channel below.
+    recent_sent_for_type = await _fetch_recent_sent_for_dedup(db, mtype, limit=60)
+
     created = 0
     skipped = 0
     errors: list[str] = []
@@ -2671,18 +2774,30 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
 
             # Generate content
             if mtype == "morning":
-                prompt = build_generation_prompt("morning", "single", "", "")
+                prompt = build_generation_prompt(
+                    "morning", "single", "", "", recent_sent=recent_sent_for_type
+                )
                 topic = goals_topic
             elif mtype == "evening":
-                prompt = build_generation_prompt("evening", "single", "", "")
+                prompt = build_generation_prompt(
+                    "evening", "single", "", "", recent_sent=recent_sent_for_type
+                )
                 topic = goals_topic
             else:  # discussion
                 if not active_categories:
                     errors.append(f"no active discussion categories for day {i}")
                     continue
                 cat = active_categories[i % len(active_categories)]
-                prompt = build_generation_prompt("discussion", "single", "", cat)
                 topic = topic_ids.get(cat)
+                # Per-channel dedup is more relevant for discussions: avoid
+                # paraphrasing what was sent IN THIS CHANNEL specifically.
+                channel_topic_id = int(topic) if topic else None
+                recent_for_channel = await _fetch_recent_sent_for_dedup(
+                    db, "discussion", category_topic_id=channel_topic_id, limit=60
+                )
+                prompt = build_generation_prompt(
+                    "discussion", "single", "", cat, recent_sent=recent_for_channel
+                )
 
             try:
                 content = await _generate_via_cli(prompt)
@@ -4017,7 +4132,7 @@ async def today_summary(request: Request, db: Database = Depends(get_db)):
 
 
 @app.post("/api/generate-content")
-async def generate_content(request: Request):
+async def generate_content(request: Request, db: Database = Depends(get_db)):
     """Generate a single message via Claude for the create-drawer textarea.
 
     Body: {type: morning|evening|discussion, category?: str, existing?: str}
@@ -4037,7 +4152,8 @@ async def generate_content(request: Request):
         raise HTTPException(status_code=400, detail="Discussion requires category")
 
     mode = "rewrite" if existing else "single"
-    prompt = build_generation_prompt(mtype, mode, existing, category)
+    recent_sent = await _fetch_recent_sent_for_dedup(db, mtype, limit=60)
+    prompt = build_generation_prompt(mtype, mode, existing, category, recent_sent=recent_sent)
 
     try:
         content = await _generate_via_cli(prompt)
