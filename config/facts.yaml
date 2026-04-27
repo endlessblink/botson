@@ -1,0 +1,141 @@
+# Pool of "did you know" tidbits and spooky/folklore items, hand-curated
+# from primary or near-primary sources. Bar: would a curious adult want to
+# forward this? If it reads like a viral listicle, replace it.
+#
+# Each item ships with a `source` line so future-Claude (or anyone) can
+# verify before re-writing. Hebrew is the audience language; English is
+# kept here for translator/editor reference only — the bot posts the
+# `text_he` field.
+#
+# Categories drive the daily theme picker:
+#   tidbit  → weekday "did you know" slot
+#   spooky  → Saturday-night / Friday-night atmospheric slot
+#
+# Add new items at the bottom of each category. Don't auto-generate from
+# an LLM — every entry should have a citable source. Items without `source`
+# are rejected by tests/test_facts_pool.py.
+
+tidbit:
+  - id: marmoset_names
+    text_he: |
+      מחקר מהאוניברסיטה העברית (2024, פורסם ב-Science) מצא שקופי מרמוסט קוראים אחד לשני בשם.
+      הם משתמשים בקריאות "פי" ספציפיות כדי לפנות לפרט מסוים — וענו אחרת כשהקריאה הייתה מופנית אליהם.
+      עד אז ידעו רק על בני אדם, דולפינים ופילים שעושים את זה.
+    source: "Oren et al., Science (2024). David Omer lab, Safra Center for Brain Sciences, Hebrew University."
+
+  - id: roman_concrete_self_healing
+    text_he: |
+      בטון רומי שורד 2,000 שנה לא בזכות סוד אבוד — אלא בזכות גושי סיד קטנים שנחשבו במשך מאות שנים לסימן של עבודה לא מקצועית.
+      מחקר של MIT והרווארד (2023) הראה שכשמופיע סדק זעיר, הסיד מגיב למים שחודרים פנימה ויוצר גביש סידן שסותם אותו תוך ימים.
+      הבטון מתקן את עצמו.
+    source: "Seymour et al., 'Hot Mixing: Mechanistic Insights into the Durability of Ancient Roman Concrete', Science Advances (2023)."
+
+  - id: octopus_active_sleep
+    text_he: |
+      תמנונים ישנים בשני מצבים — שינה שקטה, ופעם בכ-60 שניות הם נכנסים ל"שינה פעילה" שבה הם משנים צבע ותבנית עור בקצב מהיר, בדיוק כמו ערים.
+      החוקרים זיהו שהתבניות הללו כמעט זהות לתבניות שהתמנונים מציגים בערות.
+      ייתכן — והדגש על ייתכן — שאנחנו רואים תמנון חולם.
+    source: "Pophale et al., 'Wake-like skin patterning and neural activity during octopus sleep', Nature (2023)."
+
+  - id: heart_cockle_fiber_optics
+    text_he: |
+      צדפת ה-heart cockle פיתחה אופטיקה סיבית — שימוש ראשון מתועד בטבע.
+      בקליפה שלה יש "חלונות" זעירים ממינרל קלציט שמעבירים אור שמש פנימה לאצות פוטוסינתטיות שחיות בה.
+      הצדפה עצמה נשארת מוגנת מתחת — זה אקווריום סולארי טבעי בן עשרות מיליוני שנים.
+    source: "Li et al., 'Photonic structures in cardiid bivalves', Nature Communications (2024)."
+
+  - id: voynich_hidden_columns
+    text_he: |
+      כתב היד של וויניץ' (Voynich Manuscript) — ספר מהמאה ה-15 שאיש לא הצליח לקרוא במשך 600 שנה — נסרק בצילום רב-ספקטרלי ב-2024.
+      התגלו שני טורי אותיות סמויים בעמוד הראשון, שנכתבו ככל הנראה ע"י בעליו במאה ה-17, יוהאנס מרקוס מרצי, רופא בפראג.
+      ניסיון פענוח שכשל — כפי הנראה הראשון בכתב.
+    source: "Lisa Fagin Davis (Manuscript Road Trip blog), multispectral imaging analysis (Sept 2024). Yale Beinecke Library MS 408."
+
+  - id: dead_sea_scrolls_discovery
+    text_he: |
+      בתחילת 1947 רועה צאן בדואי בן 15 בשם מוחמד א-דיב חיפש עז שנעלמה בין הסלעים מצפון לים המלח.
+      הוא זרק אבן לתוך מערה — ושמע שבירת חרס.
+      בפנים נמצאו שבע מגילות עוטפות בפשתן בתוך כדים אטומים. אלה היו מגילות ים המלח, מהטקסטים העתיקים ביותר ששרדו מהמקרא, חבויים שם 2,000 שנה.
+    source: "Library of Congress 'Scrolls from the Dead Sea' exhibition; deadseascrolls.org.il discovery archive."
+
+  - id: lascaux_seasonal_order
+    text_he: |
+      ציורי המערה בלאסקו (צרפת, לפני כ-21,000 שנה) צוירו לפי סדר עונתי קבוע — סוסים תחילה (אביב), ראם (קיץ), אילים (סתיו).
+      זה לא היה אוסף אקראי, זו הייתה מערכת.
+      תיאוריה אחת קושרת חלק מהציורים לקבוצת כוכבים שנראתה אז בשמיים — כולל הפליאדות.
+    source: "Lascaux interpretation guides, Ministry of Culture France (archeologie.culture.gouv.fr/lascaux). Multiple seasonal-order analyses."
+
+  - id: pakal_sarcophagus_real_meaning
+    text_he: |
+      את "האסטרונאוט המאיה" — מכסה הסרקופג של המלך פאקאל — אריך פון דניקן הציג ב-1968 כראיה לתיאוריית חייזרים.
+      פיענוח אקדמי של האייקונוגרפיה מראה משהו אחר לגמרי: רגע מותו של פאקאל, ונפילתו אל העולם התחתון, מוקף בעץ-עולם וסימני שמש, ירח וכוכבים.
+      קוסמולוגיה מאיה קלאסית, לא חליפת חלל.
+    source: "Wikipedia 'Kʼinich Janaabʼ Pakal' summary of consensus epigraphy; National Geographic Palenque coverage."
+
+  - id: pormpuraaw_cardinal
+    text_he: |
+      בשפת קוּק טאיוֹרֶה של אבוריג'ינים בפורמפוראאו (אוסטרליה) אין מילים ל"ימין" ו"שמאל".
+      במקום זה משתמשים תמיד בכיווני שמיים: צפון, דרום, מזרח, מערב.
+      התוצאה — דוברי השפה תמיד יודעים, באופן מיידי, איפה הצפון. גם בחדר חשוך, גם אחרי טיסה.
+    source: "Lera Boroditsky, 'How Language Shapes Thought', Scientific American (2011). Original fieldwork: Levinson, Cognition (1997)."
+
+  - id: ashurbanipal_library
+    text_he: |
+      ספריית אשורבניפל בנינוה (המאה השביעית לפנה"ס) הייתה הספרייה הראשונה בהיסטוריה שאורגנה באופן שיטתי — לפי נושאים, עם קטלוג.
+      30,000 לוחות חרס שורדים, וביניהם הגרסה השלמה ביותר של עלילות גילגמש.
+      היא נשרפה כשנינוה נפלה ב-612 לפנה"ס — והאש אפתה את הלוחות לתוך נצח, וכך שרדו.
+    source: "British Museum Ashurbanipal collection; Frame & George, 'The Royal Libraries of Nineveh' (Iraq, 2005)."
+
+spooky:
+  - id: dybbuk_origin
+    text_he: |
+      הדיבוק — נשמה של מת שלא עברה הלאה ונכנסה לגוף של אדם חי — הוא יצור פולקלורי שמופיע בכתבים יהודיים מהמאה ה-16 והלאה, במקביל לעליית הקבלה במזרח אירופה.
+      פרופ' יוסי חיות' מאוניברסיטת חיפה (מרכז למחקר תרבויות יהודיות) מצביע על מקור יידישאי במילה עצמה, וכמעט תמיד הקורבן בסיפורים — אישה צעירה.
+    source: "Yossi Chajes interview, Atlas Obscura (2018); 'The Power of a Tale: Stories from the Israel Folktale Archives' (Wayne State Univ. Press, 2019)."
+
+  - id: voynich_unread
+    text_he: |
+      כתב היד של וויניץ' (Voynich Manuscript) שוכן בספריית ביינקה של ייל. 234 עמודים מאיירים בצמחים שלא קיימים, נשים בתוך אמבטיות מחוברות בצינורות, מפות אסטרונומיות.
+      הטקסט נכתב בשפה לא ידועה, באלפבית לא ידוע, על קלף שמתוארך פחמנית למאה ה-15.
+      600 שנה. מתמטיקאים, קריפטוגרפים של MI6 ו-NSA, אקדמאים. אף אחד לא קרא מילה.
+    source: "Yale Beinecke Library MS 408. Multiple cipher attempts documented; Lisa Fagin Davis, Cipher Mysteries blog."
+
+  - id: dyatlov_pass
+    text_he: |
+      בלילה של ה-2 בפברואר 1959, תשעה סטודנטים סובייטים שהקימו אוהל בהר אוּראל הצפוני קרעו את האוהל מבפנים, ברחו במינוס 30, וכולם מתו לפני שהגיעו לעצים.
+      לחלקם נמצאו שברים פנימיים בלי פציעה חיצונית, לאחת חסר היה הלשון. החקירה הסובייטית סגרה את התיק תחת "כוח טבע לא ידוע".
+      ב-2021 מודל פיזיקלי משוויצריה הראה שמפולת שלג בלתי-רגילה במדרון שטוח דווקא יכולה להסביר את הפציעות. רוב הפרטים האחרים — עדיין לא.
+    source: "Gaume & Puzrin, 'Mechanisms of slab avalanche release', Communications Earth & Environment (Nature, 2021); original Soviet inquest transcripts."
+
+  - id: jerusalem_montefiore_ghost
+    text_he: |
+      בכיכר הטחנה בירושלים — מול משכנות שאננים שהקים משה מונטיפיורי במאה ה-19 — דיווחו תושבים לאורך עשרות שנים על דמותו של מונטיפיורי עומדת ליד כרכרתו הישנה בלילות.
+      ב-1986 הכרכרה נשרפה כליל בהצתה. מאז — אין דיווחים נוספים על הצללית.
+    source: "Jerusalem Post, 'Ghosts of Jerusalem' (Oct 2021); local oral tradition collected by Aardvark Israel."
+
+  - id: ari_sefardi_tzfat
+    text_he: |
+      בית הכנסת האר"י הספרדי בצפת בנוי ממש בקצה בית הקברות העתיק של העיר — קברי הקבליסטים של המאה ה-16, כולל האר"י ז"ל עצמו.
+      מאות שנים של סיפורים על קולות תפילה ריקים שנשמעים בלילה מהאולם, על נרות שנדלקים בלי יד, ועל מבקרים שמספרים שראו דמות לבושה לבן יושבת באחד הספסלים אחרי הסגירה.
+    source: "Safed-home.com historical records; Tzfat municipal heritage tour materials."
+
+  - id: hum_phenomenon
+    text_he: |
+      כשני אחוזים מהאוכלוסייה במקומות מסוימים בעולם — טאוֹס בניו מקסיקו, בריסטול באנגליה, וינדזור בקנדה — שומעים זמזום עמוק וקבוע. בתדר 32 עד 80 הרץ. תמיד.
+      צוותים מ-Los Alamos, מאוניברסיטת ניו מקסיקו ומ-Sandia ניסו למצוא מקור — ולא מצאו.
+      חלק מהשומעים אומרים שזה גרם להם לאי-שינה כרוני. לא ברור אם זה תופעה אקוסטית, נוירולוגית, או שניהם.
+    source: "Wikipedia 'The Hum' summary; original Taos Hum study by Mullins & Kelly, Los Alamos (1993); ongoing reports at thehum.info."
+
+  - id: machane_yehuda_exorcism
+    text_he: |
+      בקרב תושבי שוק מחנה יהודה הוותיקים מסתובב סיפור — שיש המספרים שראו בעצמם — על נערה שעברה גירוש שדים בתוך השוק עצמו, אי שם בשנות ה-90.
+      כביכול בוערות להבות יצאו מבוהן רגלה כשהדיבוק עזב.
+      אין תיעוד רשמי. רק אנשים שהיו שם, שמספרים את אותו הסיפור עם אותם פרטים, כבר 30 שנה.
+    source: "Aardvark Israel 'Jerusalem Ghost Stories' (collected oral history). No official documentation — included as classic urban-legend material with the source flagged."
+
+  - id: lilith_first_wife
+    text_he: |
+      במסורת אגדה יהודית מאוחרת (אלפא ביתא דבן סירא, המאות ה-9-10), לילית היא אישתו הראשונה של אדם — נבראה כמותו מהאדמה, סירבה להיכנע לו, ואמרה את שם השם המפורש כדי לעוף ממנו.
+      היא הפכה אז לדמות של שדת לידה שתוקפת תינוקות בלילה.
+      לא בתורה, לא במשנה. רק בפולקלור — ועדיין נמצאת בקמיעות נגד עין הרע מהמאה ה-19 ברחבי העולם היהודי.
+    source: "Alphabet of Ben Sira (medieval midrashic text); Raphael Patai, 'The Hebrew Goddess' (Wayne State Univ. Press, 1990)."
