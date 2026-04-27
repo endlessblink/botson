@@ -543,6 +543,70 @@ async def end_trivia_round_command(update: Update, context: ContextTypes.DEFAULT
     await update.message.reply_text("מפסיק את הסיבוב…")
 
 
+def _parse_scheduled_payload(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: dict) -> None:
+    """Launch a trivia round from a scheduled_messages row without sending plain text."""
+    db: Database = context.bot_data.get("db")
+    if not db:
+        raise RuntimeError("trivia_round: no db in bot_data")
+
+    chat_id = int(msg.get("_resolved_chat_id") or 0)
+    if not chat_id:
+        raise RuntimeError("trivia_round: scheduled row has no resolved chat_id")
+
+    payload = _parse_scheduled_payload(msg.get("poll_options"))
+    thread_id = msg.get("channel_topic_id")
+    thread_id = int(thread_id) if thread_id else None
+    teaser_topic_id = payload.get("teaser_topic_id")
+    teaser_topic_id = int(teaser_topic_id) if teaser_topic_id else None
+    teaser_text_raw = payload.get("teaser_text")
+    teaser_text = str(teaser_text_raw).strip() if teaser_text_raw else None
+    pre_roll_s = int(payload.get("pre_roll_s", 30) or 30)
+    theme_label = str(payload.get("theme_label") or "").strip() or None
+    question_count = int(payload.get("question_count") or QUESTION_COUNT)
+    raw_categories = payload.get("categories") or []
+    if isinstance(raw_categories, str):
+        raw_categories = [raw_categories]
+    preferred_categories = {
+        str(cat).strip() for cat in raw_categories
+        if str(cat).strip()
+    } or None
+
+    logger.info(
+        "trivia_round: scheduled row %s launching chat=%s thread=%s pre_roll=%ss theme=%s categories=%s count=%s",
+        msg.get("id"),
+        chat_id,
+        thread_id,
+        pre_roll_s,
+        theme_label or THEME_LABEL,
+        sorted(preferred_categories or PREFERRED_CATEGORIES),
+        question_count,
+    )
+    asyncio.create_task(
+        _run_round(
+            context.bot,
+            db,
+            chat_id,
+            thread_id,
+            pre_roll_s,
+            preferred_categories=preferred_categories,
+            theme_label=theme_label,
+            question_count=question_count,
+            teaser_topic_id=teaser_topic_id,
+            teaser_text=teaser_text,
+        )
+    )
+
+
 async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
     """Runs every ~10s. Looks for data/trivia_round_trigger.json, launches a round.
 

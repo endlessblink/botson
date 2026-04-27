@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import re
 import secrets
 import signal
 import time
@@ -917,9 +918,65 @@ _CAL_TYPE_STYLE = {
     "evening":    {"emoji": "🌙", "label": "ערב",   "css": "bg-indigo-500/20 text-indigo-200 border-indigo-500/40"},
     "discussion": {"emoji": "💬", "label": "שיחה",  "css": "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"},
     "trivia":     {"emoji": "🧠", "label": "טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
+    "trivia_round": {"emoji": "🧠", "label": "סיבוב טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
+    "emoji_puzzle": {"emoji": "🎬", "label": "Emoji Night", "css": "bg-pink-500/20 text-pink-200 border-pink-500/40"},
     "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
     "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
 }
+
+
+def _infer_trivia_categories(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    candidates = [
+        ("מוזיק", "מוזיקה"),
+        ("סרט", "סרטים"),
+        ("סדרה", "סרטים"),
+        ("גיימ", "גיימינג"),
+        ("ישראל", "ישראל"),
+        ("מדע", "מדע"),
+        ("היסטור", "היסטוריה"),
+        ("גאוגר", "גאוגרפיה"),
+    ]
+    seen: list[str] = []
+    for needle, category in candidates:
+        if needle in lowered and category not in seen:
+            seen.append(category)
+    return seen
+
+
+def _infer_question_count(text: str, default: int = 5) -> int:
+    match = re.search(r"(\d{1,2})\s*(?:שאל|חיד)", text or "")
+    if not match:
+        return default
+    return max(1, min(20, int(match.group(1))))
+
+
+def _coerce_game_message_fields(message_type: str, text: str, poll_options=None, teaser_topic_id: int | None = None) -> tuple[str, str | None]:
+    """Turn natural-language game calendar items into executable launch rows."""
+    mtype = (message_type or "custom").strip() or "custom"
+    if mtype in {"trivia_round", "emoji_puzzle"}:
+        return mtype, json.dumps(poll_options, ensure_ascii=False) if isinstance(poll_options, dict) else poll_options
+    if mtype not in {"discussion", "custom", "trivia"}:
+        return mtype, json.dumps(poll_options, ensure_ascii=False) if isinstance(poll_options, dict) else poll_options
+
+    body = (text or "").strip()
+    compact = body.lower()
+    if "סיבוב טריוויה" in compact or compact.startswith("🧠 טריוויה") or "trivia round" in compact:
+        categories = _infer_trivia_categories(body)
+        payload = {
+            "pre_roll_s": 30,
+            "theme_label": categories[0] if categories else "כללי",
+            "categories": categories,
+            "question_count": _infer_question_count(body),
+        }
+        if teaser_topic_id:
+            payload["teaser_topic_id"] = int(teaser_topic_id)
+        return "trivia_round", json.dumps(payload, ensure_ascii=False)
+
+    if "emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact:
+        return "emoji_puzzle", None
+
+    return mtype, json.dumps(poll_options, ensure_ascii=False) if isinstance(poll_options, dict) else poll_options
 
 # One-off Independence Day (יום העצמאות 5786) live trivia round — matches
 # _TRIVIA_DEMO_STATE["starts_at"] and the pending review id below. Surfaced
@@ -3777,16 +3834,27 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
             logger.info("[ai-fill-today] slot deduped: time=%s type=%s topic=%s already exists", stime, mtype, topic)
             continue
         try:
+            message_type, poll_options = _coerce_game_message_fields(mtype, text, teaser_topic_id=int(topic))
+            channel_topic_id = int(topic)
+            if message_type == "trivia_round" and mtype != "trivia_round":
+                routing = await db.get_handler_routing("trivia_round")
+                if routing and routing.get("play_topic_id") is not None:
+                    channel_topic_id = int(routing["play_topic_id"])
+            elif message_type == "emoji_puzzle" and mtype != "emoji_puzzle":
+                routing = await db.get_handler_routing("emoji_puzzle")
+                if routing and routing.get("play_topic_id") is not None:
+                    channel_topic_id = int(routing["play_topic_id"])
             new_id = await db.create_scheduled_message(
-                text=text, message_type=mtype,
-                channel_topic_id=int(topic),
+                text=text, message_type=message_type,
+                channel_topic_id=channel_topic_id,
                 target_group="main",
                 scheduled_date=today_iso, scheduled_time=stime,
+                poll_options=poll_options,
                 created_by="ai-fill-today", status="draft",
             )
             existing_slot_keys.add((stime, mtype, int(topic)))
-            regular_out.append({"id": new_id, "type": mtype, "scheduled_time": stime, "topic_id": int(topic)})
-            logger.info("[ai-fill-today] draft %s id=%d at %s", mtype, new_id, stime)
+            regular_out.append({"id": new_id, "type": message_type, "scheduled_time": stime, "topic_id": channel_topic_id})
+            logger.info("[ai-fill-today] draft %s id=%d at %s", message_type, new_id, stime)
         except Exception as e:
             errors.append(f"{mtype} insert: {e}")
 
@@ -4933,10 +5001,20 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
 
     data = await request.json()
     poll_options = data.get("poll_options")
+    raw_type = data.get("message_type", "custom")
+    raw_topic = data.get("channel_topic_id")
+    message_type, poll_options = _coerce_game_message_fields(raw_type, data["text"], poll_options, raw_topic)
+    channel_topic_id = raw_topic
+    if message_type == "trivia_round" and raw_type != "trivia_round":
+        routing = await db.get_handler_routing("trivia_round")
+        channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
+    elif message_type == "emoji_puzzle" and raw_type != "emoji_puzzle":
+        routing = await db.get_handler_routing("emoji_puzzle")
+        channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
     msg_id = await db.create_scheduled_message(
         text=data["text"],
-        message_type=data.get("message_type", "custom"),
-        channel_topic_id=data.get("channel_topic_id"),
+        message_type=message_type,
+        channel_topic_id=channel_topic_id,
         target_group=data.get("target_group", "main"),
         scheduled_date=data["scheduled_date"],
         scheduled_time=data["scheduled_time"],
@@ -4961,6 +5039,26 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
                "recurrence", "recurrence_days", "status", "auto_pin", "message_type", "cover_path",
                "poll_options", "poll_duration"}
     fields = {k: v for k, v in data.items() if k in allowed}
+    if "text" in fields or "message_type" in fields:
+        raw_type = fields.get("message_type", data.get("message_type", "custom"))
+        raw_topic = fields.get("channel_topic_id", data.get("channel_topic_id"))
+        coerced_type, coerced_poll_options = _coerce_game_message_fields(
+            raw_type,
+            fields.get("text", data.get("text", "")),
+            fields.get("poll_options"),
+            raw_topic,
+        )
+        fields["message_type"] = coerced_type
+        if coerced_poll_options is not None:
+            fields["poll_options"] = coerced_poll_options
+        if coerced_type == "trivia_round" and raw_type != "trivia_round":
+            routing = await db.get_handler_routing("trivia_round")
+            if routing and routing.get("play_topic_id") is not None:
+                fields["channel_topic_id"] = routing["play_topic_id"]
+        elif coerced_type == "emoji_puzzle" and raw_type != "emoji_puzzle":
+            routing = await db.get_handler_routing("emoji_puzzle")
+            if routing and routing.get("play_topic_id") is not None:
+                fields["channel_topic_id"] = routing["play_topic_id"]
     if "recurrence_days" in fields and isinstance(fields["recurrence_days"], list):
         fields["recurrence_days"] = json.dumps(fields["recurrence_days"])
     if "poll_options" in fields and isinstance(fields["poll_options"], list):

@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import re
+from types import SimpleNamespace
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,13 +12,80 @@ from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes
 
 from ..database.db import Database
-from .emoji_puzzle import send_scheduled_emoji_message
+from .emoji_puzzle import send_scheduled_emoji_message, start_emoji_night
+from .trivia_round import start_scheduled_trivia_round
 from ..utils.config import should_skip_scheduled_message
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
+
+
+def _infer_trivia_categories(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    candidates = [
+        ("מוזיק", "מוזיקה"),
+        ("סרט", "סרטים"),
+        ("סדרה", "סרטים"),
+        ("גיימ", "גיימינג"),
+        ("ישראל", "ישראל"),
+        ("מדע", "מדע"),
+        ("היסטור", "היסטוריה"),
+        ("גאוגר", "גאוגרפיה"),
+    ]
+    categories: list[str] = []
+    for needle, category in candidates:
+        if needle in lowered and category not in categories:
+            categories.append(category)
+    return categories
+
+
+def _infer_question_count(text: str, default: int = 5) -> int:
+    match = re.search(r"(\d{1,2})\s*(?:שאל|חיד)", text or "")
+    if not match:
+        return default
+    return max(1, min(20, int(match.group(1))))
+
+
+async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
+    """Treat natural-language scheduled game rows as executable game launches."""
+    message_type = msg.get("message_type") or "custom"
+    if message_type in {"trivia_round", "emoji_puzzle"}:
+        return msg
+    if message_type not in {"discussion", "custom", "trivia"}:
+        return msg
+
+    text = msg.get("text") or ""
+    compact = text.lower()
+    coerced = dict(msg)
+    if "סיבוב טריוויה" in compact or compact.startswith("🧠 טריוויה") or "trivia round" in compact:
+        original_topic = coerced.get("channel_topic_id")
+        categories = _infer_trivia_categories(text)
+        payload = {
+            "pre_roll_s": 30,
+            "theme_label": categories[0] if categories else "כללי",
+            "categories": categories,
+            "question_count": _infer_question_count(text),
+        }
+        routing = await db.get_handler_routing("trivia_round")
+        play_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else original_topic
+        if target == "test":
+            coerced["channel_topic_id"] = None
+        else:
+            coerced["channel_topic_id"] = play_topic_id
+            if original_topic and original_topic != play_topic_id:
+                payload["teaser_topic_id"] = int(original_topic)
+        coerced["message_type"] = "trivia_round"
+        coerced["poll_options"] = json.dumps(payload, ensure_ascii=False)
+    elif "emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact:
+        routing = await db.get_handler_routing("emoji_puzzle")
+        if target == "test":
+            coerced["channel_topic_id"] = None
+        elif routing and routing.get("play_topic_id") is not None:
+            coerced["channel_topic_id"] = routing["play_topic_id"]
+        coerced["message_type"] = "emoji_puzzle"
+    return coerced
 
 
 def _media_dir() -> Path:
@@ -236,11 +305,21 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             await db.mark_message_failed(msg["id"], f"No group ID for target '{target}'")
             continue
 
+        msg = await _coerce_due_game_row(db, msg, target)
+
         try:
             bot = Bot(bot_token)
             msg["_resolved_chat_id"] = group_id
             event_id_for_rsvp: int | None = None
-            if msg.get("message_type", "").startswith("emoji_puzzle_"):
+            if msg.get("message_type") == "trivia_round":
+                await start_scheduled_trivia_round(context, msg)
+                sent = SimpleNamespace(message_id=0)
+            elif msg.get("message_type") == "emoji_puzzle":
+                session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
+                if session_id is None:
+                    raise RuntimeError("Emoji Night did not start")
+                sent = SimpleNamespace(message_id=0)
+            elif msg.get("message_type", "").startswith("emoji_puzzle_"):
                 sent = await send_scheduled_emoji_message(bot, db, msg)
             elif msg.get("message_type") == "event":
                 event_id_for_rsvp = await _create_event_row_from_scheduled(db, msg)
@@ -297,7 +376,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     )
 
             # Auto-pin if requested
-            if msg.get("auto_pin"):
+            if msg.get("auto_pin") and sent.message_id:
                 try:
                     await bot.pin_chat_message(
                         chat_id=group_id,

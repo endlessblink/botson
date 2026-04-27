@@ -6,7 +6,7 @@
 
 | ID | Phase | Task | Status | Priority | Deps |
 |----|-------|------|--------|----------|------|
-| T-111 | 18 | Trivia/emoji rounds: auto-start when scheduled_messages row of type=trivia_round/emoji_puzzle fires (no manual /trivia needed) | TODO | P1 | T-023, T-026 |
+| T-111 | 18 | Auto-start trivia/emoji scheduled game rows | DONE | P1 | T-023, T-026 |
 | T-112 | 18 | Pre-flight admin DM 5min before trivia/emoji round announcements ("round at HH:MM in botson's corner — /trivia to start") | TODO | P1 | — |
 | T-001 | 0 | Project scaffolding & git init | DONE | P0 | — |
 | T-002 | 0 | Database layer (SQLite + aiosqlite) | DONE | P0 | T-001 |
@@ -970,20 +970,20 @@ Template `dashboard/templates/puzzles.html`. Style-mirror `trivia.html`.
 
 ---
 
-#### T-111: Trivia — end-to-end real Telegram launch verification
-**Phase:** 18 — Trivia polish | **Priority:** P1 | **Status:** TODO
+#### T-111: Auto-start trivia/emoji scheduled game rows
+**Phase:** 18 — Trivia polish | **Priority:** P1 | **Status:** DONE
 
-All the pipeline fixes from 2026-04-22 to 2026-04-23 (strict category filter, auto-save, preflight check, teaser message, category-driven AI, test-group strip) have been verified with unit tests + curl smoke tests but **never by actually launching a real round into Telegram and watching the bot post**. This task is the human-in-the-loop verification.
+Scheduled game rows now start gameplay instead of posting only announcement text:
 
-**How to test:**
-1. Dashboard → `/planner` → new message → **🧠 טריוויה**.
-2. Target: `Sherlocks Den (בדיקה)`. Categories: `ישראל`. Count: 3. Pre-roll: 15.
-3. Click `התחל סיבוב`.
-4. Within ~15s: bot posts 3 Israel-themed questions to Sherlocks Den.
-5. Answer one, confirm scoring works, round ends with leaderboard.
-6. Repeat with target=main + teaser selected, verify teaser lands in the teaser channel first and round plays in `הפינה של בוטסון`.
+- `scheduled_messages.message_type='trivia_round'` launches `bot.handlers.trivia_round.start_scheduled_trivia_round()` from the calendar dispatcher.
+- `scheduled_messages.message_type='emoji_puzzle'` launches `start_emoji_night()` from the calendar dispatcher.
+- Existing natural-language rows like `discussion` text containing "סיבוב טריוויה" are coerced at send time into trivia launch rows, so already-saved calendar items don't need manual DB surgery.
+- Existing `emoji_puzzle_*` internal rows still use `send_scheduled_emoji_message()`.
+- Calendar rows are marked consumed with `sent_message_id=0` because the launch flow sends multiple Telegram messages rather than one canonical scheduled message.
 
-**Pass criteria:** questions that play match `trivia.yaml` content; correct category; teaser (when set) references the teaser channel by name; round ends cleanly.
+**Files:** `bot/handlers/calendar.py`, `bot/handlers/trivia_round.py`, `dashboard/app.py`, `tests/test_calendar_scheduled_games.py`.
+
+**Verified:** `./.venv/bin/python -m pytest tests`.
 
 ---
 
