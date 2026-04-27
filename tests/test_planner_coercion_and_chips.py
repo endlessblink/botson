@@ -10,8 +10,11 @@ Covers the issues that bit us on 2026-04-27:
   to `mapped_ids` but never rendered in any chip group. Botson_corner (4037)
   must also be in the `other` group when present in verified_forum_topics.
 """
+import json
 import unittest
 
+from bot.handlers import calendar as bot_calendar
+from bot.handlers.trivia_round import _pick_questions
 from dashboard.app import _coerce_game_message_fields, _looks_like_trivia_launch
 
 
@@ -50,6 +53,91 @@ class TestTriviaCoercion(unittest.TestCase):
         self.assertFalse(_looks_like_trivia_launch("בעוד 10 דקות סיבוב טריוויה"))
         self.assertFalse(_looks_like_trivia_launch("תזכורת — סיבוב טריוויה"))
         self.assertFalse(_looks_like_trivia_launch("מתחממים? סיבוב טריוויה!"))
+
+    def test_music_payload_is_strictly_music(self):
+        """Regression: 2026-04-27 round fired with mixed categories.
+        The payload built from a music-themed announcement must carry
+        categories=["מוזיקה"] only — no movies/TV bleed-through."""
+        _, payload = _coerce_game_message_fields(
+            "discussion",
+            "🧠 הערב ב-22:00 — סיבוב טריוויה מוזיקה! 5 שאלות על אמנים",
+        )
+        decoded = json.loads(payload)
+        self.assertEqual(decoded["categories"], ["מוזיקה"])
+        self.assertEqual(decoded["theme_label"], "מוזיקה")
+        self.assertEqual(decoded["question_count"], 5)
+
+    def test_inference_does_not_bleed_through_unrelated_keywords(self):
+        """The exact bug from 2026-04-27: the music announcement contained
+        the word "ההיסטוריה" inside the description, which was matching
+        the "היסטור" needle and producing a mixed music+history round.
+        The fix: only the word right after "סיבוב טריוויה" counts."""
+        for text in (
+            "🧠 סיבוב טריוויה מוזיקה — שירים מהיסטוריה של הרוק",
+            "🧠 סיבוב טריוויה מוזיקה: הסרטים שעיצבו את המוזיקה הישראלית",
+            "🧠 סיבוב טריוויה מוזיקה — אמנים, אלבומים ולהיטים",
+        ):
+            _, payload = _coerce_game_message_fields("discussion", text)
+            self.assertIsNotNone(payload, f"no payload for: {text}")
+            decoded = json.loads(payload)
+            self.assertEqual(
+                decoded["categories"], ["מוזיקה"],
+                f"category bled through for: {text} → {decoded['categories']}",
+            )
+
+    def test_default_question_count_is_in_user_range(self):
+        """User wants trivia rounds to default to 7-10 questions, not 5."""
+        from dashboard.app import _infer_question_count
+        # No explicit count in the text — falls back to the default.
+        default = _infer_question_count("🧠 סיבוב טריוויה מוזיקה!")
+        self.assertGreaterEqual(default, 7)
+        self.assertLessEqual(default, 10)
+
+    def test_bot_and_dashboard_category_inference_agree(self):
+        """Both sides infer the same categories — drift here means the bot
+        could fire with different filtering than the dashboard intended."""
+        for text in (
+            "🧠 סיבוב טריוויה מוזיקה!",
+            "🧠 סיבוב טריוויה סרטים — 5 שאלות",
+            "🧠 סיבוב טריוויה גיימינג",
+            "🧠 סיבוב טריוויה היסטוריה ומדע",
+        ):
+            self.assertEqual(
+                bot_calendar._infer_trivia_categories(text),
+                _DASHBOARD_INFER_CATEGORIES(text),
+                f"calendar.py and dashboard/app.py disagree on: {text}",
+            )
+
+
+# Pull dashboard-side inference into a helper for the agreement check above.
+def _DASHBOARD_INFER_CATEGORIES(text: str):
+    from dashboard.app import _infer_trivia_categories as _f
+    return _f(text)
+
+
+class TestQuestionPickerStrictMode(unittest.TestCase):
+    """The bot must NOT fall back to other categories when a themed round is
+    launched. Regression from 2026-04-22 (tech round played film questions)
+    and 2026-04-27 (music round played mixed)."""
+
+    def test_strict_returns_only_matching_category(self):
+        # _pick_questions reads trivia.yaml at module level. Trust the live
+        # config and just check the picker's output is filtered to the asked
+        # category. If the pool has fewer than n music questions the picker
+        # returns what it has — never tops up with non-matching.
+        picked = _pick_questions(20, {"מוזיקה"})
+        self.assertTrue(picked, "expected at least one music question in pool")
+        for q in picked:
+            self.assertEqual(
+                str(q.get("category", "")).strip(), "מוזיקה",
+                f"non-music question leaked into music round: {q.get('text')}",
+            )
+
+    def test_strict_does_not_topup_with_unrelated(self):
+        # Asking for a category that doesn't exist must yield zero, not a
+        # silently-mixed fallback (the failure mode that hit production).
+        picked = _pick_questions(5, {"__no_such_category__"})
+        self.assertEqual(picked, [])
 
 
 class TestChannelChipPaletteRoute(unittest.IsolatedAsyncioTestCase):

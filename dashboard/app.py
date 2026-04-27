@@ -925,26 +925,37 @@ _CAL_TYPE_STYLE = {
 }
 
 
+_TRIVIA_CATEGORY_NEEDLES = (
+    ("מוזיק", "מוזיקה"),
+    ("סרט", "סרטים"),
+    ("סדרה", "סרטים"),
+    ("גיימ", "גיימינג"),
+    ("ישראל", "ישראל"),
+    ("מדע", "מדע"),
+    ("היסטור", "היסטוריה"),
+    ("גאוגר", "גאוגרפיה"),
+)
+
+
 def _infer_trivia_categories(text: str) -> list[str]:
+    """Return the round's explicit theme as a single-element category list.
+
+    Mirrors bot/handlers/calendar.py:_infer_trivia_categories — the same
+    text must produce the same categories on both sides.
+    """
     lowered = (text or "").lower()
-    candidates = [
-        ("מוזיק", "מוזיקה"),
-        ("סרט", "סרטים"),
-        ("סדרה", "סרטים"),
-        ("גיימ", "גיימינג"),
-        ("ישראל", "ישראל"),
-        ("מדע", "מדע"),
-        ("היסטור", "היסטוריה"),
-        ("גאוגר", "גאוגרפיה"),
-    ]
-    seen: list[str] = []
-    for needle, category in candidates:
-        if needle in lowered and category not in seen:
-            seen.append(category)
-    return seen
+    if not lowered:
+        return []
+    anchor = "סיבוב טריוויה"
+    idx = lowered.find(anchor)
+    window = lowered[idx + len(anchor):] if idx != -1 else lowered
+    for needle, category in _TRIVIA_CATEGORY_NEEDLES:
+        if needle in window:
+            return [category]
+    return []
 
 
-def _infer_question_count(text: str, default: int = 5) -> int:
+def _infer_question_count(text: str, default: int = 8) -> int:
     match = re.search(r"(\d{1,2})\s*(?:שאל|חיד)", text or "")
     if not match:
         return default
