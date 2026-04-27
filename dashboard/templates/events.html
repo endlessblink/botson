@@ -305,7 +305,10 @@ async function scrapeEventCover() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({url: url}),
         });
-        if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()));
+        if (!r.ok) {
+            var scrapeErr = await r.json().catch(function() { return {}; });
+            throw new Error(scrapeErr.detail || 'שגיאה בחילוץ');
+        }
         var j = await r.json();
         eventCoverPath = j.path || j.cover_path || null;
         setEventCoverStatus('✓ ' + eventCoverPath + ' (מקישור)', false);

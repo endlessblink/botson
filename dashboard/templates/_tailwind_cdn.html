@@ -1,0 +1,19 @@
+<script>
+(function() {
+  var originalWarn = console.warn;
+  var warningText = 'cdn.tailwindcss.com should not be used in production';
+  console.warn = function() {
+    var first = arguments.length ? String(arguments[0]) : '';
+    if (first.indexOf(warningText) !== -1) return;
+    return originalWarn.apply(console, arguments);
+  };
+  window.__restoreTailwindWarn = function() {
+    console.warn = originalWarn;
+    delete window.__restoreTailwindWarn;
+  };
+  window.setTimeout(function() {
+    if (window.__restoreTailwindWarn) window.__restoreTailwindWarn();
+  }, 2000);
+})();
+</script>
+<script src="https://cdn.tailwindcss.com" onload="window.__restoreTailwindWarn && window.__restoreTailwindWarn()" onerror="window.__restoreTailwindWarn && window.__restoreTailwindWarn()"></script>

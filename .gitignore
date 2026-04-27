@@ -26,3 +26,4 @@ media/showcase/.cache/
 .playwright-mcp/
 backups/
 media/covers/
+.omx/
