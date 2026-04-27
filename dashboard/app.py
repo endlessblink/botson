@@ -951,6 +951,15 @@ def _infer_question_count(text: str, default: int = 5) -> int:
     return max(1, min(20, int(match.group(1))))
 
 
+def _looks_like_trivia_launch(text: str) -> bool:
+    compact = (text or "").lower()
+    if not ("סיבוב טריוויה" in compact or compact.startswith("🧠 טריוויה") or "trivia round" in compact):
+        return False
+    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact:
+        return False
+    return True
+
+
 def _coerce_game_message_fields(message_type: str, text: str, poll_options=None, teaser_topic_id: int | None = None) -> tuple[str, str | None]:
     """Turn natural-language game calendar items into executable launch rows."""
     mtype = (message_type or "custom").strip() or "custom"
@@ -961,7 +970,7 @@ def _coerce_game_message_fields(message_type: str, text: str, poll_options=None,
 
     body = (text or "").strip()
     compact = body.lower()
-    if "סיבוב טריוויה" in compact or compact.startswith("🧠 טריוויה") or "trivia round" in compact:
+    if _looks_like_trivia_launch(body):
         categories = _infer_trivia_categories(body)
         payload = {
             "pre_roll_s": 30,

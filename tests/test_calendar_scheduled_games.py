@@ -120,6 +120,26 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.sent, [(123, 0)])
         self.assertEqual(db.failed, [])
 
+    async def test_trivia_reminder_text_stays_plain_message(self):
+        row = _base_row("discussion")
+        row["text"] = "🧠 בעוד 10 דקות — סיבוב טריוויה מוזיקה! מתחממים?"
+        row["channel_topic_id"] = 4037
+        row["target_group"] = "main"
+        db = FakeScheduledDb(row)
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+        sent = SimpleNamespace(message_id=789)
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock()) as start_trivia, \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        start_trivia.assert_not_awaited()
+        send_text.assert_awaited_once()
+        self.assertEqual(db.sent, [(123, 789)])
+        self.assertEqual(db.failed, [])
+
 
 if __name__ == "__main__":
     unittest.main()

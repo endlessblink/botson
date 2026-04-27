@@ -48,6 +48,15 @@ def _infer_question_count(text: str, default: int = 5) -> int:
     return max(1, min(20, int(match.group(1))))
 
 
+def _looks_like_trivia_launch(text: str) -> bool:
+    compact = (text or "").lower()
+    if not ("סיבוב טריוויה" in compact or compact.startswith("🧠 טריוויה") or "trivia round" in compact):
+        return False
+    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact:
+        return False
+    return True
+
+
 async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
     """Treat natural-language scheduled game rows as executable game launches."""
     message_type = msg.get("message_type") or "custom"
@@ -59,7 +68,7 @@ async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
     text = msg.get("text") or ""
     compact = text.lower()
     coerced = dict(msg)
-    if "סיבוב טריוויה" in compact or compact.startswith("🧠 טריוויה") or "trivia round" in compact:
+    if _looks_like_trivia_launch(text):
         original_topic = coerced.get("channel_topic_id")
         categories = _infer_trivia_categories(text)
         payload = {
