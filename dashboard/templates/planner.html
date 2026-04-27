@@ -492,6 +492,11 @@
 
         <!-- Step 2: Content Panel -->
         <div id="wizard-step-2" class="wizard-step px-5 py-4 hidden">
+            <!-- Type indicator + "change" link (visible during edit) -->
+            <div id="edit-type-indicator" class="hidden mb-3 flex items-center justify-between text-xs bg-[#111318] border border-[#272727] rounded-md px-3 py-2">
+                <span class="text-[#a1a1aa]">סוג: <span id="edit-type-label" class="text-[#fafafa]"></span></span>
+                <button type="button" onclick="wizardGo(1)" class="text-amber-400/90 hover:text-amber-300 cursor-pointer">שנה סוג ↺</button>
+            </div>
             <div class="space-y-4" id="non-trivia-fields">
                 <!-- Text area -->
                 <div>
@@ -745,12 +750,12 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-xs text-[#71717a] mb-1 block">תאריך</label>
-                        <input type="date" id="create-date" onchange="wizardState.date=this.value;checkConflicts()"
+                        <input type="date" id="create-date" oninput="wizardState.date=this.value" onchange="wizardState.date=this.value;checkConflicts()"
                             class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                     </div>
                     <div>
                         <label class="text-xs text-[#71717a] mb-1 block">שעה</label>
-                        <input type="time" id="create-time" onchange="wizardState.time=this.value"
+                        <input type="time" id="create-time" oninput="wizardState.time=this.value" onchange="wizardState.time=this.value"
                             class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                     </div>
                 </div>
@@ -1684,7 +1689,17 @@ function openEditDrawer(id, props, start) {
     var mobileOverlay = document.getElementById('mobile-overlay');
     if (mobileOverlay) mobileOverlay.classList.add('hidden');
 
-    // Skip to step 2 (content) since we already know the type
+    // Skip to step 2 (content) since we already know the type, but expose a
+    // "change type" hint at the top so users can navigate back to step 1.
+    var typeLabels = {morning:'🌅 הודעת בוקר', evening:'🌙 הודעת ערב', discussion:'💬 שאלה לדיון',
+                       poll:'📊 סקר', event:'🎮 אירוע', digest:'🔁 סיכום שבועי',
+                       custom:'⚡ הודעה חופשית', trivia:'🧠 טריוויה', trivia_round:'🧠 סיבוב טריוויה'};
+    var indicator = document.getElementById('edit-type-indicator');
+    var label = document.getElementById('edit-type-label');
+    if (indicator && label) {
+        label.textContent = typeLabels[wizardState.type] || wizardState.type || 'לא ידוע';
+        indicator.classList.remove('hidden');
+    }
     wizardGo(2);
     document.getElementById('create-drawer').classList.remove('translate-x-full');
 }
@@ -1722,6 +1737,9 @@ function resetWizard() {
 
     // Hide delete button
     document.getElementById('edit-delete-btn').classList.add('hidden');
+    // Hide edit-mode type indicator
+    var indicator = document.getElementById('edit-type-indicator');
+    if (indicator) indicator.classList.add('hidden');
 
     // Reset UI
     document.querySelectorAll('.type-card').forEach(function(c) { c.classList.remove('selected'); });
@@ -1783,6 +1801,13 @@ async function scheduleMsg() {
         if (wizardState.eventMaxAttendees) finalText += '\n👥 עד ' + wizardState.eventMaxAttendees + ' משתתפים';
     }
 
+    // Read date/time from the DOM as the source of truth — onchange may not have
+    // fired yet if the user typed and clicked save while the input still had focus.
+    var domDate = (document.getElementById('create-date') || {}).value || wizardState.date;
+    var domTime = (document.getElementById('create-time') || {}).value || wizardState.time || '18:00';
+    wizardState.date = domDate;
+    wizardState.time = domTime;
+
     try {
         if (wizardState.editingId) {
             // Edit existing message via PUT. When the wizard was opened from a draft
@@ -1790,8 +1815,8 @@ async function scheduleMsg() {
             var putBody = {
                 text: finalText,
                 message_type: wizardState.type || 'custom',
-                scheduled_date: wizardState.date,
-                scheduled_time: wizardState.time || '18:00',
+                scheduled_date: domDate,
+                scheduled_time: domTime,
                 channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
                 recurrence: wizardState.recurrence || null,
                 auto_pin: wizardState.autoPin,
@@ -1811,8 +1836,8 @@ async function scheduleMsg() {
             await apiCall('/api/calendar', {
                 text: finalText,
                 message_type: wizardState.type || 'custom',
-                scheduled_date: wizardState.date,
-                scheduled_time: wizardState.time || '18:00',
+                scheduled_date: domDate,
+                scheduled_time: domTime,
                 channel_topic_id: wizardState.channelTopicId || null,
                 recurrence: wizardState.recurrence || null,
                 auto_pin: wizardState.autoPin,

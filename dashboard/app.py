@@ -5667,6 +5667,11 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     welcome_id = topics_cfg.get("welcome")
     mapped_ids = set(topic_ids_dict.values()) | {goals_id, welcome_id}
     mapped_ids.discard(None)
+    daily_chips = []
+    if goals_id and goals_id in verified_by_id:
+        daily_chips.append({"topic_id": goals_id, "name": verified_by_id[goals_id]["verified_name"]})
+    if welcome_id and welcome_id in verified_by_id:
+        daily_chips.append({"topic_id": welcome_id, "name": verified_by_id[welcome_id]["verified_name"]})
     grouped_channels = {
         "discussions": [
             {"topic_id": tid,
@@ -5675,10 +5680,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
             for cat, tid in topic_ids_dict.items()
             if tid and tid in verified_by_id
         ],
-        "daily": (
-            [{"topic_id": goals_id, "name": verified_by_id[goals_id]["verified_name"]}]
-            if goals_id and goals_id in verified_by_id else []
-        ),
+        "daily": daily_chips,
         "other": [
             {"topic_id": v["topic_id"], "name": v["verified_name"]}
             for v in verified_topics
