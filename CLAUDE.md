@@ -41,6 +41,15 @@ The dashboard is the primary control interface. Users should never need to use T
 - Bot health monitoring
 - Config reload / bot restart
 
+## Trivia Round Scheduling
+
+When scheduling a trivia game, follow these rules — they exist because the calendar listing must be honest about what will fire.
+
+- **Every trivia game gets its own row** with `message_type='trivia_round'` and a `poll_options` payload like `{"pre_roll_s":30, "theme_label":"<תיוג>", "categories":["<קטגוריה>"], "question_count":5}`. Never hide a game inside a `discussion`-typed announcement and rely on the text-coercion fallback in `bot/handlers/calendar.py:_coerce_due_game_row` / `dashboard/app.py:_coerce_game_message_fields` — coercion is a safety net, not the convention.
+- **Warm-up announcement runs at least 30 minutes before kickoff** (35 min is the default). Anything closer is too late. Warm-up text should contain `בעוד` or `מתחממים` so it stays a `discussion` and is not mistaken for a launcher.
+- **No theme channel? Both rows live in `botson_corner` (topic 4037).** Only set a teaser in a different topic when a theme channel actually matches (e.g., movies trivia → teaser in topic 54). For music there is no dedicated channel today, so warm-up + game both stay in botson_corner.
+- **Edit prod via the dashboard, never via SSH+SQL.** Calendar API is `GET/POST/PUT/DELETE /api/calendar`. To check the live schedule without SSH, fetch `GET /api/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD` (currently requires session auth; a read-only token is on the TODO list).
+
 ## Schedule & Content Rules
 
 - When updating the bot's schedule or weekly plan, **always update `pages/week-plan.html`** to reflect the changes.
