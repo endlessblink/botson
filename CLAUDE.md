@@ -124,7 +124,6 @@ After any file change on VPS (manual edit, deploy, etc.), always: `chown -R bots
 | 335 | כל מה שחמוד | cute | 2026-04-22 via dot |
 | 341 | מצטרפים חדשים + עדכונים | welcome | 2026-04-22 via dot |
 | 347 | ערוץ אומנות ויצירה | art | 2026-04-22 via dot |
-| 442 | אנימה / קומיקס וכל הדברים הגיקיים | geek | 2026-04-22 via dot |
 | 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics | 2026-04-22 via dot |
 | 1517 | גיימינג + משחקי לוח | gaming | 2026-04-22 via dot |
 | 2184 | יום יום | goals | 2026-04-22 via dot |

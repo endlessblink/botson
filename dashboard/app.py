@@ -2926,7 +2926,7 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 
    - **שאלות discussion חייבות להיות חדות וחיביתיות** — אסור שאלות-תבנית ("איזה X אהבתם?", "מה הY האהוב?"). אם אפשר להחליף את שם הערוץ ולא להפסיד דבר — זה generic, תקן.
 
-     **מבחן ה"swap":** קח את השאלה. החלף את שם הערוץ במשהו אחר (gaming → cooking, geek → vegan, movies → politics). אם השאלה עדיין הגיונית והאיכות לא נפגעה — היא generic. תכתוב מחדש.
+     **מבחן ה"swap":** קח את השאלה. החלף את שם הערוץ במשהו אחר (gaming → cooking, movies → politics, art → vegan). אם השאלה עדיין הגיונית והאיכות לא נפגעה — היא generic. תכתוב מחדש.
 
      **15 פורמטים מומלצים** (בחר אחד שמתאים לערוץ ולשעה — אל תחזור על אותו פורמט פעמיים באותו יום):
 
@@ -2938,7 +2938,7 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
      f. **Specific memory / nostalgia anchor** — "הסרט הראשון שראיתם בקולנוע — זוכרים?", "אנימה ראשונה שהשתקעתם בה — איזו?"
      g. **Show-and-tell (image cue)** — "התמונה האחרונה במצלמה.", "צלם את הספר שעל השולחן עכשיו."
      h. **Insider knowledge / hack** — "טיפ של 5 שנים בגיימינג שכל מתחיל היה צריך לדעת?"
-     i. **Fill-in-the-blank** — "ערב מושלם של גיק = ___ + ___ + ___."
+     i. **Fill-in-the-blank** — "ערב סוף שבוע מושלם = ___ + ___ + ___."
      j. **Web rabbit-hole** — "ירדתם השבוע ל-rabbit hole? איזה?", "wikipedia article אחת ששלחתם לחבר השבוע?"
      k. **Niche self-expression** — "על איזה נושא תוכלו להעביר הרצאת TED של 20 דקות בלי הכנה?"
      l. **Would-you-rather (dilemma)** — "תעדיפו לקרוא את כל הספרים שלא קראתם או לראות את כל הסרטים — בלי לישון?"
@@ -4781,7 +4781,6 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     # Channel color map
     channel_colors = {
         1517: "#6366f1",  # gaming - indigo
-        442: "#6366f1",   # geek/anime - indigo
         54: "#ef4444",    # movies - red
         347: "#a855f7",   # art - purple
         1431: "#f59e0b",  # politics - amber

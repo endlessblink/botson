@@ -3,7 +3,7 @@
 ## 1. Group Overview
 The bot serves "אלהוריים וזה", a childfree community with 81 members in a forum-style Telegram group with topic channels. All user-facing messages should be in Hebrew.
 
-**Existing topic channels:** כל מה שאין לו ערוץ (General), מצטרפים חדשים + עדכונים (New members + updates), אנימה / קומיקס וכל הדברים הגיקיים, גיימינג + משחקי לוח, כל מה שחמוד, סרטים סדרות וכו, אל הוריים/יות פנויים פנויות, מצחיק / מגניב, אל הוריים טבעונים וצמחוניים, ערוץ אומנות ויצירה, פוליטיקה / גיאו-פוליטיקה וכל היתר.
+**Existing topic channels:** כל מה שאין לו ערוץ (General), מצטרפים חדשים + עדכונים (New members + updates), גיימינג + משחקי לוח, כל מה שחמוד, סרטים סדרות וכו, אל הוריים/יות פנויים פנויות, מצחיק / מגניב, אל הוריים טבעונים וצמחוניים, ערוץ אומנות ויצירה, פוליטיקה / גיאו-פוליטיקה וכל היתר.
 
 **New channel to create:** הישגים ומטרות 🌟
 
