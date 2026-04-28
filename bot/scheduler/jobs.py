@@ -58,7 +58,6 @@ def setup_jobs(app: Application) -> None:
     from ..handlers.levels import send_weekly_leaderboard
     from ..handlers.roundup import send_weekly_roundup
     from ..handlers.events import send_event_reminder
-    from ..handlers.trivia import send_scheduled_trivia
     from ..handlers.emoji_puzzle import reveal_unsolved_rounds_job, send_scheduled_emoji_night
     from ..handlers.free_games import send_free_games
 
@@ -113,21 +112,8 @@ def setup_jobs(app: Application) -> None:
         name="event_reminder",
     )
 
-    # ── Scheduled trivia — Wednesday and Saturday evenings ──
-    trivia_sched = schedule.get("trivia", {"time": "20:00", "days": [2, 5]})
-    if isinstance(trivia_sched, dict):
-        trivia_time = _parse_time(trivia_sched.get("time", "20:00"))
-        trivia_days = trivia_sched.get("days", [2, 5])
-    else:
-        trivia_time = time(hour=20, minute=0, tzinfo=_tz)
-        trivia_days = [2, 5]
-    for day in _hebrew_to_python_days(trivia_days):
-        jq.run_daily(
-            send_scheduled_trivia,
-            time=trivia_time,
-            days=(day,),
-            name=f"trivia_day_{day}",
-        )
+    # Trivia must come from direct approval paths only: admin command,
+    # dashboard trigger, or approved scheduled_messages rows.
 
     # ── Emoji Night — dashboard-configured weekly session ──
     emoji_sched = schedule.get("emoji_puzzle", {"time": "22:00", "days": []})

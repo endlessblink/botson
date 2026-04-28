@@ -1410,39 +1410,6 @@ async def calendar_mini_app(request: Request, month: str | None = None,
             "topic_name": _topic_name(tid),
         })
 
-    # ── Synthesize trivia chips ──────────────────────────────────────
-    # Trivia is scheduled as a live APScheduler job (see bot/scheduler/jobs.py)
-    # and never written to scheduled_messages or events, so it was invisible
-    # on the calendar. Mirror that schedule here from config.
-    if _is_feature_enabled("trivia"):
-        trivia_meta = _CAL_TYPE_STYLE["trivia"]
-        trivia_sched = settings.get("schedule", {}).get("trivia", {"time": "20:00", "days": [2, 5]}) or {}
-        trivia_time = (trivia_sched.get("time", "20:00") or "20:00")[:5]
-        # Hebrew days: 0=Sunday..6=Saturday. Python date.weekday(): 0=Monday..6=Sunday.
-        heb_days = set(trivia_sched.get("days", [2, 5]) or [])
-        d = _date.fromisoformat(month_start)
-        end = _date.fromisoformat(month_end)
-        while d <= end:
-            heb_dow = (d.weekday() + 1) % 7
-            if heb_dow in heb_days:
-                iso = d.isoformat()
-                # Skip past days and today's already-passed slots.
-                if d < today or (d == today and trivia_time <= current_hhmm):
-                    d += _timedelta(days=1)
-                    continue
-                by_day[iso].append({
-                    "emoji": trivia_meta["emoji"],
-                    "css": trivia_meta["css"],
-                    "label": trivia_meta["label"],
-                    "time": trivia_time,
-                    "type": "trivia",
-                    "text": "שאלת טריוויה אוטומטית — הבוט בוחר שאלה מ-trivia.yaml בזמן השליחה.",
-                    "short": "שאלת טריוויה אוטומטית",
-                    "topic_id": None,
-                    "topic_name": None,
-                })
-            d += _timedelta(days=1)
-
     # One-off: Independence Day 5786 live trivia round at 15:00 (in-memory
     # demo state lives at _TRIVIA_DEMO_STATE). Show it on the day itself so
     # users see the actual slot, not just the 12:00 announcement row.
@@ -1462,8 +1429,7 @@ async def calendar_mini_app(request: Request, month: str | None = None,
                 "topic_name": None,
             })
 
-    # Keep each day ordered by time — synthesized trivia rows were appended
-    # after the DB rows, so a plain sort restores chronological order.
+    # Keep each day ordered by time.
     for iso, items in by_day.items():
         items.sort(key=lambda it: it.get("time") or "")
 
