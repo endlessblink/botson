@@ -738,7 +738,7 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-xs text-[#71717a] mb-1 block">מספר שאלות</label>
-                        <input id="trivia-count" type="number" min="1" max="20" value="5"
+                        <input id="trivia-count" type="number" min="1" max="20" value="10"
                             class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                     </div>
                     <div>
@@ -1173,7 +1173,7 @@ function refreshTeaserPreview() {
     teaserWrap.classList.remove('hidden');
     if (teaserBox.dataset.userEdited) return;  // respect manual edit
     var theme = document.getElementById('trivia-theme').value.trim();
-    var count = parseInt(document.getElementById('trivia-count').value) || 5;
+    var count = parseInt(document.getElementById('trivia-count').value) || 10;
     var playSel = document.getElementById('trivia-play-topic');
     var playLabel = _stripCatSuffix((playSel.options[playSel.selectedIndex] || {}).text);
     var teaserLabel = _stripCatSuffix((teaserSel.options[teaserSel.selectedIndex] || {}).text);
@@ -1293,7 +1293,7 @@ async function startTriviaRound() {
     var theme = document.getElementById('trivia-theme').value.trim();
     var catsRaw = document.getElementById('trivia-categories').value;
     var categories = catsRaw.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-    var count = parseInt(document.getElementById('trivia-count').value) || 5;
+    var count = parseInt(document.getElementById('trivia-count').value) || 10;
     var preroll = parseInt(document.getElementById('trivia-preroll').value) || 30;
 
     var body = {

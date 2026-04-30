@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Scoring constants (per user spec)
 POINTS_CORRECT = 12
 POINTS_FIRST_PLACE_BONUS = 20
-QUESTION_COUNT = 8
+QUESTION_COUNT = 10
 QUESTION_TIMEOUT_S = 15
 
 # Round theme — filter the question pool.

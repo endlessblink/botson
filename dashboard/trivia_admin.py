@@ -2,12 +2,81 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import re
 
 import yaml
 
 
 class TriviaVerificationError(ValueError):
     pass
+
+
+_GENERIC_TRIVIA_PATTERNS = (
+    "מה הצבע",
+    "מה המספר",
+    "מה השם",
+    "מה נכון",
+    "איזה מהבאים נכון",
+)
+
+
+def _norm_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def review_trivia_questions(
+    questions: list[dict[str, Any]],
+    *,
+    allowed_categories: list[str] | None = None,
+    existing_questions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Deterministic trivia reviewer for AI-generated questions.
+
+    This is intentionally conservative and cheap: it validates structure,
+    duplicate risk, category fit, and obvious low-quality/generic patterns
+    before generated questions can be saved or shown as acceptable output.
+    """
+    allowed = {str(c).strip() for c in (allowed_categories or []) if str(c).strip()}
+    existing_texts = {
+        _norm_text(q.get("text") or "")
+        for q in (existing_questions or [])
+        if isinstance(q, dict) and (q.get("text") or "").strip()
+    }
+    seen_texts: set[str] = set()
+    issues: list[str] = []
+
+    for i, raw in enumerate(questions, start=1):
+        try:
+            q = _normalize_question(raw, index=i)
+        except TriviaVerificationError as e:
+            issues.append(str(e))
+            continue
+
+        text = q["text"]
+        norm = _norm_text(text)
+        if norm in seen_texts or norm in existing_texts:
+            issues.append(f"Question {i} duplicates an existing/generated question")
+        seen_texts.add(norm)
+
+        if allowed and q["category"] not in allowed:
+            issues.append(
+                f"Question {i} category '{q['category']}' is outside requested subject(s): {sorted(allowed)}"
+            )
+        if len(text) < 12:
+            issues.append(f"Question {i} is too short to be meaningful")
+        if len(text) > 180:
+            issues.append(f"Question {i} is too long for live trivia")
+        if any(pattern in text for pattern in _GENERIC_TRIVIA_PATTERNS):
+            issues.append(f"Question {i} looks too generic: {text[:80]}")
+        if len(set(q["options"])) != 4:
+            issues.append(f"Question {i} has duplicate answer options")
+        correct_answer = q["options"][q["correct"]]
+        if correct_answer.lower() in {"כולם", "כל התשובות", "אף אחד", "אף תשובה"}:
+            issues.append(f"Question {i} uses a weak catch-all correct answer")
+
+    if issues:
+        raise TriviaVerificationError("Trivia reviewer rejected output: " + "; ".join(issues[:8]))
+    return {"reviewed_count": len(questions), "reviewer": "deterministic-trivia-reviewer-v1"}
 
 
 def _normalize_question(question: dict[str, Any], *, index: int) -> dict[str, Any]:

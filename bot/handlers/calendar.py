@@ -58,7 +58,7 @@ def _infer_trivia_categories(text: str) -> list[str]:
     return []
 
 
-def _infer_question_count(text: str, default: int = 8) -> int:
+def _infer_question_count(text: str, default: int = 10) -> int:
     match = re.search(r"(\d{1,2})\s*(?:שאל|חיד)", text or "")
     if not match:
         return default

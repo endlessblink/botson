@@ -31,7 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.levels import get_level, get_progress
-from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, save_and_verify_trivia_questions
+from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
     VerifiedTopicError,
     merge_observed_and_verified_topics,
@@ -958,7 +958,7 @@ def _infer_trivia_categories(text: str) -> list[str]:
     return []
 
 
-def _infer_question_count(text: str, default: int = 8) -> int:
+def _infer_question_count(text: str, default: int = 10) -> int:
     match = re.search(r"(\d{1,2})\s*(?:שאל|חיד)", text or "")
     if not match:
         return default
@@ -1016,7 +1016,7 @@ def _parse_game_payload(raw) -> dict:
 
 def _format_trivia_announcement_draft(*, game_time: str, payload: dict) -> str:
     theme = str(payload.get("theme_label") or "גיימינג").strip() or "גיימינג"
-    question_count = int(payload.get("question_count") or 5)
+    question_count = int(payload.get("question_count") or 10)
     return (
         f"🎮 מתחממים לטריוויה הערב\n"
         f"בעוד 4 שעות, ב-{game_time}, נפתח סיבוב טריוויה {theme} בפינה של בוטסון.\n"
@@ -2138,7 +2138,7 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
         categories = [part.strip() for part in raw_categories.split(",") if part.strip()]
     else:
         categories = [str(part).strip() for part in raw_categories if str(part).strip()]
-    question_count = int(data.get("question_count") or 5)
+    question_count = int(data.get("question_count") or 10)
 
     main_group = int(os.getenv("GROUP_ID", "0"))
     test_group = int(os.getenv("TEST_GROUP_ID", "0"))
@@ -2392,7 +2392,7 @@ def build_generation_prompt(
             )
         else:
             topic_line = "נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל."
-        base = f"""צור {count} שאלות טריוויה בעברית עבור {COMMUNITY_CONTEXT}
+        base = f"""צור 10 שאלות טריוויה בעברית עבור {COMMUNITY_CONTEXT}
 
 כל שאלה צריכה להיות בפורמט הבא (4 שורות לכל שאלה, מופרדות בשורה ריקה):
 שאלה: [טקסט השאלה]
@@ -2521,7 +2521,23 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
                 detail=f"Generation failed: CLI={cli_err}; API={api_err}",
             )
 
-    return {"content": content}
+    review = None
+    if field == "trivia":
+        questions, invalid = _parse_trivia_blocks(content)
+        if invalid:
+            raise HTTPException(status_code=422, detail="Trivia reviewer rejected malformed output: " + "; ".join(invalid[:5]))
+        allowed_categories = [part.strip() for part in (category or "").split(",") if part.strip()]
+        try:
+            existing_pool = (load_yaml("trivia.yaml") or {}).get("questions") or []
+            review = review_trivia_questions(
+                questions,
+                allowed_categories=allowed_categories or None,
+                existing_questions=existing_pool,
+            )
+        except TriviaVerificationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    return {"content": content, "review": review}
 
 
 # ── Analytics API ────────────────────────────────────────
@@ -3330,7 +3346,7 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
         - אסור: "מי בעניין?", "מי מצטרף?", "כמה מגיעים?".
         - מותר: "🧠 הערב ב-22:00 — סיבוב טריוויה על מוזיקת 80s. 10 שאלות מהירות בערוץ הפינה." (פוסט ראשי, regular_slots, type="discussion", category הקרוב, scheduled_time=שעת הסיבוב).
         - **בנוסף — חובה תזכורת**: הוסף שורה שניה ב-regular_slots לאותו סיבוב, scheduled_time=שעה-10min, type="discussion", text="🧠 בעוד 10 דקות — סיבוב טריוויה!" (קצרה, מזכירה). דמה ל-event reminders אבל ב-regular_slots כי זה לא event ב-events table.
-        - חובה גם לאכלס trivia_questions ב-5-10 שאלות באותה קטגוריה (אמוג'י: 3-5 חידות).
+        - חובה גם לאכלס trivia_questions ב-10 שאלות באותה קטגוריה אלא אם האדמין ביקש מספר אחר (אמוג'י: 3-5 חידות).
         - חובה ב-notes_for_admin תחת **"סיבובי משחק שתוזמנו:"** רשימת הסיבובים, עם הערה: "לפתיחה ידנית בשעה הנכונה: /trivia → התחל סיבוב" (או /puzzles).
         - **חובה גם להוסיף ב-notes_for_admin** את האזהרה הבאה (מילה במילה, כדי שהמנהל יראה אותה בכל פעם):
           **"⚠️ שים לב: התזכורת היא הודעה רגילה ב-scheduled_messages — היא תישלח לקבוצה בזמן שלה גם אם לא הפעלת את הסיבוב בפועל. אם החלטת שהסיבוב לא קורה — מחק את שתי השורות (ההכרזה והתזכורת) לפני הזמן."**
