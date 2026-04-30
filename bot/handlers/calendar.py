@@ -15,6 +15,7 @@ from ..database.db import Database
 from .emoji_puzzle import send_scheduled_emoji_message, start_emoji_night
 from .trivia_round import start_scheduled_trivia_round
 from .free_games import send_free_games
+from .facts import send_scheduled_fact
 from .levels import send_weekly_leaderboard
 from .roundup import send_weekly_roundup
 from ..utils.config import should_skip_scheduled_message
@@ -346,10 +347,22 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     raise RuntimeError("Emoji Night did not start")
                 sent = SimpleNamespace(message_id=0)
             elif msg.get("message_type") == "free_games":
-                await send_free_games(context)
+                await send_free_games(context, force=True)
+                sent = SimpleNamespace(message_id=0)
+            elif msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
+                pool = msg.get("message_type", "").removeprefix("facts_")
+                sent_ok = await send_scheduled_fact(
+                    bot,
+                    db,
+                    pool=pool,
+                    chat_id=group_id,
+                    thread_id=msg.get("channel_topic_id"),
+                )
+                if not sent_ok:
+                    raise RuntimeError(f"facts {pool} did not send")
                 sent = SimpleNamespace(message_id=0)
             elif msg.get("message_type") == "weekly_roundup":
-                await send_weekly_roundup(context)
+                await send_weekly_roundup(context, force=True)
                 sent = SimpleNamespace(message_id=0)
             elif msg.get("message_type") == "weekly_leaderboard":
                 await send_weekly_leaderboard(context)

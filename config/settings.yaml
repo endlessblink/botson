@@ -124,6 +124,12 @@ schedule:
     - 6
     feed_url: https://gg.deals/eu/news/feed/
     time: '10:00'
+  facts_tidbit:
+    days: []
+    time: '12:00'
+  facts_spooky:
+    days: []
+    time: '22:00'
   morning_prompt:
     days:
     - 0
@@ -146,10 +152,12 @@ topics:
   discussions:
     art: 347
     cute: 335
+    funny: 153
     gaming: 1517
     movies: 54
     politics: 1431
     singles: 59
+    vegan: 7
   general: null
   goals: 2184
   welcome: 341

@@ -11,11 +11,14 @@ Covers the issues that bit us on 2026-04-27:
   must also be in the `other` group when present in verified_forum_topics.
 """
 import json
+import asyncio
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from bot.handlers import calendar as bot_calendar
 from bot.handlers.trivia_round import _pick_questions
-from dashboard.app import _coerce_game_message_fields, _looks_like_trivia_launch
+from dashboard import app as dashboard_app
+from dashboard.app import _CAL_TYPE_STYLE, _coerce_game_message_fields, _looks_like_trivia_launch
 
 
 class TestTriviaCoercion(unittest.TestCase):
@@ -107,6 +110,166 @@ class TestTriviaCoercion(unittest.TestCase):
                 _DASHBOARD_INFER_CATEGORIES(text),
                 f"calendar.py and dashboard/app.py disagree on: {text}",
             )
+
+
+class FakeCalendarRequest:
+    session = {"authenticated": True}
+
+    def __init__(self, body):
+        self._body = body
+
+    async def json(self):
+        return self._body
+
+
+class FakeCalendarDb:
+    def __init__(self):
+        self.created = []
+
+    async def get_handler_routing(self, handler):
+        return {"handler": handler, "play_topic_id": 4037, "teaser_topic_ids": []}
+
+    async def create_scheduled_message(self, **kwargs):
+        self.created.append(kwargs)
+        return len(self.created)
+
+
+class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
+    async def test_executable_types_without_topic_resolve_to_handler_routing(self):
+        for message_type in (
+            "trivia_round",
+            "emoji_puzzle",
+            "free_games",
+            "facts_tidbit",
+            "facts_spooky",
+            "weekly_roundup",
+            "weekly_leaderboard",
+        ):
+            with self.subTest(message_type=message_type):
+                db = FakeCalendarDb()
+                body = {
+                    "text": "scheduled activity",
+                    "message_type": message_type,
+                    "channel_topic_id": None,
+                    "target_group": "main",
+                    "scheduled_date": "2099-01-01",
+                    "scheduled_time": "18:00",
+                }
+                with patch.object(
+                    dashboard_app,
+                    "_ensure_trivia_announcement_draft",
+                    new=AsyncMock(return_value=None),
+                ):
+                    res = await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
+
+                self.assertEqual(res["status"], "ok")
+                self.assertEqual(db.created[0]["message_type"], message_type)
+                self.assertEqual(db.created[0]["channel_topic_id"], 4037)
+
+    async def test_plain_text_types_keep_selected_topic(self):
+        db = FakeCalendarDb()
+        body = {
+            "text": "hello",
+            "message_type": "custom",
+            "channel_topic_id": 54,
+            "target_group": "main",
+            "scheduled_date": "2099-01-01",
+            "scheduled_time": "18:00",
+        }
+        await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
+        self.assertEqual(db.created[0]["message_type"], "custom")
+        self.assertEqual(db.created[0]["channel_topic_id"], 54)
+
+
+class TestPlannerTemplateExposure(unittest.TestCase):
+    def test_calendar_styles_include_executable_activity_types(self):
+        for message_type in (
+            "trivia_round",
+            "emoji_puzzle",
+            "free_games",
+            "facts_tidbit",
+            "facts_spooky",
+            "weekly_roundup",
+            "weekly_leaderboard",
+        ):
+            with self.subTest(message_type=message_type):
+                self.assertIn(message_type, _CAL_TYPE_STYLE)
+
+    def test_ai_fill_schema_allows_executable_activity_types(self):
+        schema = dashboard_app._today_plan_tool_schema()["input_schema"]
+        regular_slot = schema["properties"]["regular_slots"]["items"]
+        allowed = set(regular_slot["properties"]["type"]["enum"])
+
+        self.assertEqual(allowed, set(dashboard_app.AI_REGULAR_SLOT_TYPES))
+
+    def test_planner_drawer_exposes_supported_types_and_ai_allowlist(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        for message_type in (
+            "evening",
+            "trivia_round",
+            "emoji_puzzle",
+            "free_games",
+            "facts_tidbit",
+            "facts_spooky",
+            "weekly_roundup",
+            "weekly_leaderboard",
+        ):
+            with self.subTest(message_type=message_type):
+                self.assertIn(f'data-type="{message_type}"', planner_html)
+
+        self.assertIn("'custom','poll'", planner_html)
+
+    def test_content_inventory_scheduler_types_are_exposed(self):
+        class FakeDb:
+            async def list_emoji_puzzles(self):
+                return []
+
+            async def get_all_events(self):
+                return []
+
+            async def recent_free_games(self, limit):
+                return []
+
+            async def get_handler_routing(self, handler):
+                return {"handler": handler, "play_topic_id": 4037, "teaser_topic_ids": []}
+
+        context = asyncio.run(dashboard_app._build_activities_context(FakeDb()))
+        inventory_types = {
+            scheduler_type
+            for activity in context["activities"]
+            for scheduler_type in activity.get("scheduler_types", [])
+        }
+
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        ai_types = set(dashboard_app.AI_REGULAR_SLOT_TYPES)
+        manual_types = {
+            "poll",
+            "event",
+            "custom",
+            "trivia",
+            *ai_types,
+        }
+
+        self.assertGreaterEqual(manual_types, inventory_types)
+        for scheduler_type in inventory_types:
+            with self.subTest(scheduler_type=scheduler_type):
+                self.assertIn(f'data-type="{scheduler_type}"', planner_html)
+                if scheduler_type not in {"event"}:
+                    self.assertIn(scheduler_type, manual_types)
+
+        ai_expected = inventory_types - {"event"}
+        self.assertGreaterEqual(ai_types, ai_expected)
+
+    def test_all_safe_discussion_pools_are_mapped_for_ai_populate(self):
+        settings = dashboard_app.get_settings()
+        discussions = dashboard_app.load_yaml("discussions.yaml") or {}
+        mapped = settings.get("topics", {}).get("discussions", {}) or {}
+
+        # Telegram General/root is deliberately not used by this bot.
+        expected = set(discussions) - {"general"}
+        self.assertGreaterEqual(set(mapped), expected)
+        for category in expected:
+            self.assertTrue(mapped.get(category), f"{category} must have a topic id")
 
 
 # Pull dashboard-side inference into a helper for the agreement check above.

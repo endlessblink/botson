@@ -921,11 +921,32 @@ _CAL_TYPE_STYLE = {
     "trivia_round": {"emoji": "🧠", "label": "סיבוב טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
     "emoji_puzzle": {"emoji": "🎬", "label": "Emoji Night", "css": "bg-pink-500/20 text-pink-200 border-pink-500/40"},
     "free_games": {"emoji": "🎮", "label": "משחקים חינם", "css": "bg-sky-500/20 text-sky-200 border-sky-500/40"},
+    "facts_tidbit": {"emoji": "🔎", "label": "עובדה מעניינת", "css": "bg-cyan-500/20 text-cyan-200 border-cyan-500/40"},
+    "facts_spooky": {"emoji": "🕯️", "label": "סיפור מסתורי", "css": "bg-purple-500/20 text-purple-200 border-purple-500/40"},
     "weekly_roundup": {"emoji": "📊", "label": "סיכום שבועי", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
     "weekly_leaderboard": {"emoji": "🏆", "label": "טבלת רמות", "css": "bg-yellow-500/20 text-yellow-200 border-yellow-500/40"},
     "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
     "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
 }
+
+
+EXECUTABLE_SCHEDULER_TYPES = (
+    "trivia_round",
+    "emoji_puzzle",
+    "free_games",
+    "facts_tidbit",
+    "facts_spooky",
+    "weekly_roundup",
+    "weekly_leaderboard",
+)
+
+AI_REGULAR_SLOT_TYPES = (
+    "morning",
+    "evening",
+    "discussion",
+    "custom",
+    *EXECUTABLE_SCHEDULER_TYPES,
+)
 
 
 _TRIVIA_CATEGORY_NEEDLES = (
@@ -2712,7 +2733,7 @@ async def _build_activities_context(db: Database) -> dict:
 
     routing_names = {}
     for handler in (
-        "trivia_round", "emoji_puzzle", "free_games", "weekly_roundup",
+        "trivia_round", "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky", "weekly_roundup",
         "weekly_leaderboard", "events_publish", "events_reminder",
     ):
         try:
@@ -2731,7 +2752,7 @@ async def _build_activities_context(db: Database) -> dict:
         names = {"main": "ראשית", "test": "טסט"}
         return ", ".join(names.get(g, g) for g in groups)
 
-    def item(title, emoji, key, category, summary, href, count=None, schedule_key=None, routing_key=None, detail=None):
+    def item(title, emoji, key, category, summary, href, count=None, schedule_key=None, routing_key=None, detail=None, scheduler_types=None):
         state = feature(key) if key else {"enabled": False, "groups": []}
         return {
             "title": title,
@@ -2747,19 +2768,20 @@ async def _build_activities_context(db: Database) -> dict:
             "groups": groups_label(key) if key else "—",
             "schedule": _activity_schedule_label(settings, schedule_key or key) if (schedule_key or key) else "ללא תזמון",
             "routing": routing_names.get(routing_key) if routing_key else None,
+            "scheduler_types": scheduler_types or [],
         }
 
     activities = [
-        item("שאלות בוקר", "🌅", "morning_prompt", "שיחות ופרומפטים", "פתיחת יום קבועה לקהילה", "/prompts", count=len(prompts.get("morning", []) or [])),
-        item("שאלות ערב", "🌙", "evening_prompt", "שיחות ופרומפטים", "סגירת יום ושיתוף התקדמות", "/prompts", count=len(prompts.get("evening", []) or [])),
-        item("שאלות לדיון", "💬", "discussions", "שיחות ופרומפטים", "מאגר שאלות לפי ערוצים ונושאים", "/prompts", count=_count_pool_items(discussions), schedule_key="discussion_prompt"),
-        item("טריוויה", "🧠", "trivia", "משחקים", "סיבובי טריוויה, שאלות וניקוד", "/planner", count=len(trivia.get("questions", []) or []), routing_key="trivia_round", detail="ניהול ההרצה נמצא במגירת התכנון"),
-        item("חידות אימוג'י", "🎬", "emoji_puzzle", "משחקים", "Emoji Night וסבבי חידות", "/puzzles", count=len(emoji_puzzles), routing_key="emoji_puzzle"),
-        item("משחקים חינם", "🎮", "free_games", "משחקים", "RSS של מבצעי משחקים חינמיים", "/free-games", count=len(recent_free_games), routing_key="free_games"),
-        item("עובדות מעניינות", "🔎", None, "תוכן מעניין", "מאגר tidbit ו-spooky מתוך facts.yaml", "/settings", count=_count_pool_items(facts), detail="עדיין אין מסך ניהול מלא; המאגר קיים בקובץ config/facts.yaml"),
-        item("סיכום שבועי", "📊", "roundup", "תוכן מעניין", "סיכום פעילות ותוכן סוף שבוע", "/planner", schedule_key="weekly_roundup", routing_key="weekly_roundup"),
-        item("טבלת רמות שבועית", "🏆", "levels", "תוכן מעניין", "פרסום leaderboard קבוע", "/levels", schedule_key="weekly_leaderboard", routing_key="weekly_leaderboard"),
-        item("אירועים", "🎉", "events", "אירועים", "יצירה, פרסום ו-RSVP", "/events", count=len(events), routing_key="events_publish"),
+        item("שאלות בוקר", "🌅", "morning_prompt", "שיחות ופרומפטים", "פתיחת יום קבועה לקהילה", "/prompts", count=len(prompts.get("morning", []) or []), scheduler_types=["morning"]),
+        item("שאלות ערב", "🌙", "evening_prompt", "שיחות ופרומפטים", "סגירת יום ושיתוף התקדמות", "/prompts", count=len(prompts.get("evening", []) or []), scheduler_types=["evening"]),
+        item("שאלות לדיון", "💬", "discussions", "שיחות ופרומפטים", "מאגר שאלות לפי ערוצים ונושאים", "/prompts", count=_count_pool_items(discussions), schedule_key="discussion_prompt", scheduler_types=["discussion"]),
+        item("טריוויה", "🧠", "trivia", "משחקים", "סיבובי טריוויה, שאלות וניקוד", "/planner", count=len(trivia.get("questions", []) or []), routing_key="trivia_round", detail="ניהול ההרצה נמצא במגירת התכנון", scheduler_types=["trivia_round"]),
+        item("חידות אימוג'י", "🎬", "emoji_puzzle", "משחקים", "Emoji Night וסבבי חידות", "/puzzles", count=len(emoji_puzzles), routing_key="emoji_puzzle", scheduler_types=["emoji_puzzle"]),
+        item("משחקים חינם", "🎮", "free_games", "משחקים", "RSS של מבצעי משחקים חינמיים", "/free-games", count=len(recent_free_games), routing_key="free_games", scheduler_types=["free_games"]),
+        item("עובדות מעניינות", "🔎", None, "תוכן מעניין", "מאגר tidbit ו-spooky מתוך facts.yaml", "/planner", count=_count_pool_items(facts), routing_key="facts_tidbit", detail="זמין לתזמון ידני ולמילוי AI כעובדה או סיפור מסתורי", scheduler_types=["facts_tidbit", "facts_spooky"]),
+        item("סיכום שבועי", "📊", "roundup", "תוכן מעניין", "סיכום פעילות ותוכן סוף שבוע", "/planner", schedule_key="weekly_roundup", routing_key="weekly_roundup", scheduler_types=["weekly_roundup"]),
+        item("טבלת רמות שבועית", "🏆", "levels", "תוכן מעניין", "פרסום leaderboard קבוע", "/levels", schedule_key="weekly_leaderboard", routing_key="weekly_leaderboard", scheduler_types=["weekly_leaderboard"]),
+        item("אירועים", "🎉", "events", "אירועים", "יצירה, פרסום ו-RSVP", "/events", count=len(events), routing_key="events_publish", scheduler_types=["event"]),
         item("ברוכים הבאים", "👋", "welcome", "אירועים", "קליטת מצטרפים והודעות פתיחה", "/settings", detail="כולל batch window ו-topic קבלה"),
     ]
 
@@ -3257,7 +3279,7 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
    - **אם hebrew_day_num ברשימה** — הפק תוכן רגיל.
    - **אם hebrew_day_num לא ברשימה אבל הרשימה לא ריקה — חובה להציע תוכן בכל זאת**, אלא אם events_today או scheduled_messages_today כבר מכסים אותו slot של היום באותו טופיק. אל תשתמש ב"הימים לא כוללים את היום" כתירוץ לא להפיק. סמן needs_review=true ורשום ב-notes_for_admin תחת **"הצעות יוזמה"**.
    - **morning, evening, discussion** — הקהילה פעילה כל יום בשבוע, כולל שבת. אם הסקציה לא ריקה — חייב להציע (מינימום אחד מהשניים: morning או evening, ועדיף שניהם בימים שאינם בלו"ז כדי לכסות את היום).
-    - **trivia, emoji, free_games, weekly_roundup, weekly_leaderboard** — אם הסקציה לא ריקה, מותר להציע סלוט ביצוע ישיר עם type מתאים מתוך הסכמה. idempotence נשמר ע"י existing_drafts_today.
+    - **trivia, emoji, free_games, facts_tidbit, facts_spooky, weekly_roundup, weekly_leaderboard** — אם הסקציה לא ריקה, מותר להציע סלוט ביצוע ישיר עם type מתאים מתוך הסכמה. idempotence נשמר ע"י existing_drafts_today.
    - יוצא מן הכלל יחיד: **חג עם block_auto:true** — דלג כל הסקציות, כבר מכוסה ע"י short-circuit במשתנה holiday.
 
 6. **אל תכפיל מול existing_drafts_today.** הרשימה כוללת ai-fill-today rows מכל סטטוס (draft, scheduled, sent) — לא רק drafts ממתינים. הכלל:
@@ -3429,7 +3451,7 @@ def _today_plan_tool_schema() -> dict:
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "type": {"type": "string", "enum": ["morning", "evening", "discussion", "custom", "trivia_round", "emoji_puzzle", "free_games", "weekly_roundup", "weekly_leaderboard"]},
+                            "type": {"type": "string", "enum": list(AI_REGULAR_SLOT_TYPES)},
                             "scheduled_time": {"type": "string", "description": "HH:MM from schedule config."},
                             "topic_id": {"type": "integer"},
                             "text": {"type": "string", "description": "Hebrew. Morning/evening = 1-2 lines with emoji. Discussion = 1 question."},
@@ -3644,7 +3666,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
     schedule = settings.get("schedule", {})
     schedule_snapshot = {
         key: schedule.get(key, {})
-        for key in ("morning_prompt", "evening_prompt", "discussion_prompt", "trivia", "emoji_puzzle", "free_games", "weekly_roundup", "weekly_leaderboard")
+        for key in ("morning_prompt", "evening_prompt", "discussion_prompt", "trivia", "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard")
     }
 
     # Discussion categories available today
@@ -4125,7 +4147,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         stime = (slot.get("scheduled_time") or "").strip()
         topic = slot.get("topic_id")
         text = (slot.get("text") or "").strip()
-        if mtype not in ("morning", "evening", "discussion", "custom", "trivia_round", "emoji_puzzle", "free_games", "weekly_roundup", "weekly_leaderboard"):
+        if mtype not in AI_REGULAR_SLOT_TYPES:
             errors.append(f"slot rejected (bad type): {slot}")
             continue
         if not _valid_hhmm(stime) or not text:
@@ -5321,7 +5343,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     elif message_type == "emoji_puzzle" and (raw_type != "emoji_puzzle" or not raw_topic):
         routing = await db.get_handler_routing("emoji_puzzle")
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
-    elif message_type in {"free_games", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
+    elif message_type in {"free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
         routing = await db.get_handler_routing(message_type)
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
     msg_id = await db.create_scheduled_message(
@@ -5375,7 +5397,7 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
             routing = await db.get_handler_routing("emoji_puzzle")
             if routing and routing.get("play_topic_id") is not None:
                 fields["channel_topic_id"] = routing["play_topic_id"]
-        elif coerced_type in {"free_games", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
+        elif coerced_type in {"free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
             routing = await db.get_handler_routing(coerced_type)
             if routing and routing.get("play_topic_id") is not None:
                 fields["channel_topic_id"] = routing["play_topic_id"]
@@ -5480,6 +5502,7 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         _parse_poll_options,
     )
     from bot.handlers.emoji_puzzle import start_emoji_night
+    from bot.handlers.facts import send_scheduled_fact
     from bot.handlers.free_games import send_free_games
     from bot.handlers.levels import send_weekly_leaderboard
     from bot.handlers.roundup import send_weekly_roundup
@@ -5503,12 +5526,26 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
             await db.mark_message_sent(msg["id"], 0)
         return 0
     if msg.get("message_type") == "free_games":
-        await send_free_games(context)
+        await send_free_games(context, force=True)
+        if target != "test":
+            await db.mark_message_sent(msg["id"], 0)
+        return 0
+    if msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
+        pool = msg.get("message_type", "").removeprefix("facts_")
+        sent_ok = await send_scheduled_fact(
+            bot,
+            db,
+            pool=pool,
+            chat_id=group_id,
+            thread_id=msg.get("channel_topic_id"),
+        )
+        if not sent_ok:
+            raise RuntimeError(f"facts {pool} did not send")
         if target != "test":
             await db.mark_message_sent(msg["id"], 0)
         return 0
     if msg.get("message_type") == "weekly_roundup":
-        await send_weekly_roundup(context)
+        await send_weekly_roundup(context, force=True)
         if target != "test":
             await db.mark_message_sent(msg["id"], 0)
         return 0

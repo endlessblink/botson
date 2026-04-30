@@ -81,6 +81,8 @@ class Database:
             ("trivia_scheduled", 4037),
             ("emoji_puzzle", 4037),
             ("free_games", 4037),
+            ("facts_tidbit", 4037),
+            ("facts_spooky", 4037),
             ("weekly_roundup", 4037),
             ("weekly_leaderboard", 4037),
             ("events_publish", 341),

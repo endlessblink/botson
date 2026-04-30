@@ -13,9 +13,9 @@ from ..utils.topic_guard import UnverifiedTopicError, safe_send
 logger = logging.getLogger(__name__)
 
 
-async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE):
+async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE, *, force: bool = False):
     """Scheduled job: send weekly roundup to general channel every Friday."""
-    if not is_feature_enabled("roundup"):
+    if not force and not is_feature_enabled("roundup"):
         return
     if is_auto_blocked_on(datetime.now().date()):
         logger.info("roundup: blackout date, skipping automatic post")

@@ -226,13 +226,13 @@ async def fetch_and_post_once(bot, db: Database, group_id: int,
     return summary
 
 
-async def send_free_games(context):
+async def send_free_games(context, *, force: bool = False):
     """Scheduler entrypoint — called by JobQueue.run_daily."""
     if is_auto_blocked_on(date.today()):
         logger.info("free_games: blackout date, skipping automatic post")
         return
 
-    target_gid = _resolve_target_group()
+    target_gid = GROUP_ID if force else _resolve_target_group()
     if not target_gid:
         logger.info("free_games: disabled for all groups, skipping tick")
         return

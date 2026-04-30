@@ -96,6 +96,73 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.sent, [(123, 456)])
         self.assertEqual(db.failed, [])
 
+    async def test_free_games_row_runs_existing_handler_without_plain_send(self):
+        db = FakeScheduledDb(_base_row("free_games"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_free_games", new=AsyncMock()) as send_free_games, \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        send_free_games.assert_awaited_once_with(context, force=True)
+        send_text.assert_not_awaited()
+        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.failed, [])
+
+    async def test_fact_rows_pick_pool_without_plain_send(self):
+        for message_type, pool in (("facts_tidbit", "tidbit"), ("facts_spooky", "spooky")):
+            with self.subTest(message_type=message_type):
+                row = _base_row(message_type)
+                row["channel_topic_id"] = 4037
+                db = FakeScheduledDb(row)
+                context = SimpleNamespace(bot_data={"db": db}, bot=object())
+                bot = object()
+
+                with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+                     patch("telegram.Bot", return_value=bot), \
+                     patch.object(calendar, "send_scheduled_fact", new=AsyncMock(return_value=True)) as send_fact, \
+                     patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
+                    await calendar.check_and_send_due_messages(context)
+
+                send_fact.assert_awaited_once_with(
+                    bot, db, pool=pool, chat_id=-1002, thread_id=4037
+                )
+                send_text.assert_not_awaited()
+                self.assertEqual(db.sent, [(123, 0)])
+                self.assertEqual(db.failed, [])
+
+    async def test_weekly_roundup_row_runs_existing_handler_without_plain_send(self):
+        db = FakeScheduledDb(_base_row("weekly_roundup"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_weekly_roundup", new=AsyncMock()) as send_roundup, \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        send_roundup.assert_awaited_once_with(context, force=True)
+        send_text.assert_not_awaited()
+        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.failed, [])
+
+    async def test_weekly_leaderboard_row_runs_existing_handler_without_plain_send(self):
+        db = FakeScheduledDb(_base_row("weekly_leaderboard"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_weekly_leaderboard", new=AsyncMock()) as send_leaderboard, \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        send_leaderboard.assert_awaited_once_with(context)
+        send_text.assert_not_awaited()
+        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.failed, [])
+
     async def test_trivia_discussion_text_is_coerced_to_game_launch(self):
         row = _base_row("discussion")
         row["text"] = "🧠 הערב ב-22:00 — סיבוב טריוויה מוזיקלי! 5 שאלות"

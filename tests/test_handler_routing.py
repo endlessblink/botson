@@ -10,6 +10,8 @@ SEEDED_HANDLERS = {
     "trivia_scheduled",
     "emoji_puzzle",
     "free_games",
+    "facts_tidbit",
+    "facts_spooky",
     "weekly_roundup",
     "weekly_leaderboard",
     "events_publish",
