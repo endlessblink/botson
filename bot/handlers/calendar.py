@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
 
 
+def _require_message_id(value, activity: str) -> int:
+    message_id = int(value or 0)
+    if message_id <= 0:
+        raise RuntimeError(f"{activity} did not return a Telegram message_id")
+    return message_id
+
+
 _TRIVIA_CATEGORY_NEEDLES = (
     ("מוזיק", "מוזיקה"),
     ("סרט", "סרטים"),
@@ -339,16 +346,22 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             msg["_resolved_chat_id"] = group_id
             event_id_for_rsvp: int | None = None
             if msg.get("message_type") == "trivia_round":
-                await start_scheduled_trivia_round(context, msg)
-                sent = SimpleNamespace(message_id=0)
+                sent = SimpleNamespace(
+                    message_id=_require_message_id(
+                        await start_scheduled_trivia_round(context, msg),
+                        "trivia_round",
+                    )
+                )
             elif msg.get("message_type") == "emoji_puzzle":
                 session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
                 if session_id is None:
                     raise RuntimeError("Emoji Night did not start")
-                sent = SimpleNamespace(message_id=0)
+                sent = SimpleNamespace(message_id=session_id)
             elif msg.get("message_type") == "free_games":
-                await send_free_games(context, force=True)
-                sent = SimpleNamespace(message_id=0)
+                summary = await send_free_games(context, force=True)
+                if not summary or int(summary.get("posted") or 0) <= 0:
+                    raise RuntimeError(f"free_games did not post: {summary}")
+                sent = SimpleNamespace(message_id=1)
             elif msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
                 pool = msg.get("message_type", "").removeprefix("facts_")
                 sent_ok = await send_scheduled_fact(
@@ -360,13 +373,21 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 )
                 if not sent_ok:
                     raise RuntimeError(f"facts {pool} did not send")
-                sent = SimpleNamespace(message_id=0)
+                sent = SimpleNamespace(message_id=1)
             elif msg.get("message_type") == "weekly_roundup":
-                await send_weekly_roundup(context, force=True)
-                sent = SimpleNamespace(message_id=0)
+                sent = SimpleNamespace(
+                    message_id=_require_message_id(
+                        await send_weekly_roundup(context, force=True),
+                        "weekly_roundup",
+                    )
+                )
             elif msg.get("message_type") == "weekly_leaderboard":
-                await send_weekly_leaderboard(context)
-                sent = SimpleNamespace(message_id=0)
+                sent = SimpleNamespace(
+                    message_id=_require_message_id(
+                        await send_weekly_leaderboard(context),
+                        "weekly_leaderboard",
+                    )
+                )
             elif msg.get("message_type", "").startswith("emoji_puzzle_"):
                 sent = await send_scheduled_emoji_message(bot, db, msg)
             elif msg.get("message_type") == "event":

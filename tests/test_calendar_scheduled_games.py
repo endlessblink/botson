@@ -1,4 +1,5 @@
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -55,7 +56,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock()) as start_trivia, \
+             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock(return_value=456)) as start_trivia, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
@@ -63,7 +64,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         sent_msg = start_trivia.await_args.args[1]
         self.assertEqual(sent_msg["_resolved_chat_id"], -1002)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.sent, [(123, 456)])
         self.assertEqual(db.failed, [])
 
     async def test_emoji_puzzle_row_starts_session_without_plain_send(self):
@@ -78,7 +79,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         start_emoji.assert_awaited_once_with(context, -1002, None, force=True)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.sent, [(123, 77)])
         self.assertEqual(db.failed, [])
 
     async def test_emoji_puzzle_internal_row_keeps_existing_dispatch_path(self):
@@ -102,13 +103,13 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_free_games", new=AsyncMock()) as send_free_games, \
+             patch.object(calendar, "send_free_games", new=AsyncMock(return_value={"posted": 1})) as send_free_games, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
         send_free_games.assert_awaited_once_with(context, force=True)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.sent, [(123, 1)])
         self.assertEqual(db.failed, [])
 
     async def test_fact_rows_pick_pool_without_plain_send(self):
@@ -130,7 +131,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
                     bot, db, pool=pool, chat_id=-1002, thread_id=4037
                 )
                 send_text.assert_not_awaited()
-                self.assertEqual(db.sent, [(123, 0)])
+                self.assertEqual(db.sent, [(123, 1)])
                 self.assertEqual(db.failed, [])
 
     async def test_weekly_roundup_row_runs_existing_handler_without_plain_send(self):
@@ -139,13 +140,13 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_weekly_roundup", new=AsyncMock()) as send_roundup, \
+             patch.object(calendar, "send_weekly_roundup", new=AsyncMock(return_value=555)) as send_roundup, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
         send_roundup.assert_awaited_once_with(context, force=True)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.sent, [(123, 555)])
         self.assertEqual(db.failed, [])
 
     async def test_weekly_leaderboard_row_runs_existing_handler_without_plain_send(self):
@@ -154,13 +155,13 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_weekly_leaderboard", new=AsyncMock()) as send_leaderboard, \
+             patch.object(calendar, "send_weekly_leaderboard", new=AsyncMock(return_value=666)) as send_leaderboard, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
         send_leaderboard.assert_awaited_once_with(context)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.sent, [(123, 666)])
         self.assertEqual(db.failed, [])
 
     async def test_trivia_discussion_text_is_coerced_to_game_launch(self):
@@ -173,7 +174,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock()) as start_trivia, \
+             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock(return_value=456)) as start_trivia, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
@@ -184,7 +185,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"מוזיקה"', sent_msg["poll_options"])
         self.assertIn('"teaser_topic_id": 54', sent_msg["poll_options"])
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 0)])
+        self.assertEqual(db.sent, [(123, 456)])
         self.assertEqual(db.failed, [])
 
     async def test_trivia_reminder_text_stays_plain_message(self):
@@ -206,6 +207,66 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         send_text.assert_awaited_once()
         self.assertEqual(db.sent, [(123, 789)])
         self.assertEqual(db.failed, [])
+
+    async def test_trivia_launch_failure_marks_failed_not_sent(self):
+        db = FakeScheduledDb(_base_row("trivia_round"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock(side_effect=RuntimeError("not enough questions"))):
+            await calendar.check_and_send_due_messages(context)
+
+        self.assertEqual(db.sent, [])
+        self.assertEqual(len(db.failed), 1)
+        self.assertEqual(db.failed[0][0], 123)
+        self.assertIn("not enough questions", db.failed[0][1])
+
+    async def test_scheduled_trivia_with_too_few_questions_fails_before_background_task(self):
+        row = _base_row("trivia_round")
+        row["_resolved_chat_id"] = -1002
+        row["poll_options"] = json.dumps({
+            "pre_roll_s": 30,
+            "theme_label": "גיימינג",
+            "categories": ["גיימינג"],
+            "question_count": 10,
+        }, ensure_ascii=False)
+        db = FakeScheduledDb(row)
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        from bot.handlers import trivia_round
+        with patch.object(trivia_round, "_pick_questions", return_value=[{"text": "q", "options": ["a", "b"], "correct": 0}]), \
+             patch.object(trivia_round.asyncio, "create_task") as create_task:
+            with self.assertRaisesRegex(RuntimeError, "not enough questions"):
+                await trivia_round.start_scheduled_trivia_round(context, row)
+
+        create_task.assert_not_called()
+
+    async def test_free_games_without_post_marks_failed_not_sent(self):
+        db = FakeScheduledDb(_base_row("free_games"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_free_games", new=AsyncMock(return_value={"posted": 0, "error": "no candidates"})):
+            await calendar.check_and_send_due_messages(context)
+
+        self.assertEqual(db.sent, [])
+        self.assertEqual(len(db.failed), 1)
+        self.assertIn("free_games did not post", db.failed[0][1])
+
+    async def test_weekly_roundup_without_message_id_marks_failed_not_sent(self):
+        db = FakeScheduledDb(_base_row("weekly_roundup"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_weekly_roundup", new=AsyncMock(return_value=None)):
+            await calendar.check_and_send_due_messages(context)
+
+        self.assertEqual(db.sent, [])
+        self.assertEqual(len(db.failed), 1)
+        self.assertIn("weekly_roundup did not return", db.failed[0][1])
 
 
 if __name__ == "__main__":

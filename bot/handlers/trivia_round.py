@@ -254,7 +254,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
     """Drive a single round start → finish. Safe to cancel via STOP_FILE."""
     if chat_id in _active_rounds:
         logger.info("trivia_round: round already active in chat %s", chat_id)
-        return
+        raise RuntimeError(f"trivia_round: round already active in chat {chat_id}")
 
     # No fallback to a fixed legacy category. If the announcement specified a
     # theme, strict mode kicks in. Otherwise (preferred_categories=None) the
@@ -266,16 +266,42 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
     for q in questions:
         q["_round_question_count"] = question_count
     if len(questions) < question_count:
-        logger.error(
-            "trivia_round: not enough questions matching categories=%s (found=%d, requested=%d). "
-            "Check that the questions saved in trivia.yaml have exactly one of these category tags.",
-            sorted(preferred_categories) if preferred_categories else ["(general — full pool)"],
-            len(questions),
-            question_count,
+        raise RuntimeError(
+            "trivia_round: not enough questions matching categories="
+            f"{sorted(preferred_categories) if preferred_categories else ['(general — full pool)']} "
+            f"(found={len(questions)}, requested={question_count}). "
+            "Check that the questions saved in trivia.yaml have exactly one of these category tags."
         )
-        return
 
-    round_state: dict = {
+    round_state = _create_round_state(questions, question_count)
+    _active_rounds[chat_id] = round_state
+
+    try:
+        await _send_round_teaser_and_announcement(
+            bot,
+            db,
+            chat_id,
+            thread_id,
+            pre_roll_s=pre_roll_s,
+            theme_label=theme_label,
+            question_count=question_count,
+            teaser_topic_id=teaser_topic_id,
+            teaser_text=teaser_text,
+        )
+        await _continue_round_after_announcement(
+            bot,
+            db,
+            chat_id,
+            thread_id,
+            pre_roll_s=pre_roll_s,
+            round_state=round_state,
+        )
+    finally:
+        _active_rounds.pop(chat_id, None)
+
+
+def _create_round_state(questions: list[dict], question_count: int) -> dict:
+    return {
         "questions": questions,
         "question_count": question_count,
         "q_index": -1,
@@ -284,50 +310,56 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
         "answers_this_q": {},  # user_id → answer_idx (for current question only)
         "aborted": False,
     }
-    _active_rounds[chat_id] = round_state
 
-    try:
-        # Optional teaser in a theme-matched topic, fired BEFORE the main
-        # announcement so the linked audience has time to jump over.
-        if teaser_topic_id is not None and teaser_topic_id != thread_id:
-            if teaser_text:
-                teaser_body = teaser_text
-            else:
-                teaser_body = (
-                    f"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון — "
-                    f"{question_count} שאלות. בואו לשחק!"
-                )
-            try:
-                await safe_send(
-                    bot,
-                    db,
-                    "send_message",
-                    chat_id=chat_id,
-                    text=teaser_body,
-                    message_thread_id=teaser_topic_id,
-                )
-            except UnverifiedTopicError as e:
-                logger.warning("trivia_round: teaser refused by guard: %s", e)
-            except Exception as e:
-                logger.warning("trivia_round: teaser send failed: %s", e)
 
-        # Announcement
+async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, thread_id: int | None,
+                                              *, pre_roll_s: int, theme_label: str,
+                                              question_count: int,
+                                              teaser_topic_id: int | None = None,
+                                              teaser_text: str | None = None) -> int:
+    # Optional teaser in a theme-matched topic, fired BEFORE the main
+    # announcement so the linked audience has time to jump over.
+    if teaser_topic_id is not None and teaser_topic_id != thread_id:
+        if teaser_text:
+            teaser_body = teaser_text
+        else:
+            teaser_body = (
+                f"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון — "
+                f"{question_count} שאלות. בואו לשחק!"
+            )
         try:
             await safe_send(
                 bot,
                 db,
                 "send_message",
                 chat_id=chat_id,
-                text=_format_announcement(pre_roll_s, theme_label=theme_label, question_count=question_count),
-                message_thread_id=thread_id,
+                text=teaser_body,
+                message_thread_id=teaser_topic_id,
             )
         except UnverifiedTopicError as e:
-            logger.error("trivia_round: announcement refused by guard: %s", e)
-            return
+            logger.warning("trivia_round: teaser refused by guard: %s", e)
         except Exception as e:
-            logger.error("trivia_round: announcement failed: %s", e)
-            return
+            logger.warning("trivia_round: teaser send failed: %s", e)
 
+    try:
+        announcement = await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=chat_id,
+            text=_format_announcement(pre_roll_s, theme_label=theme_label, question_count=question_count),
+            message_thread_id=thread_id,
+        )
+    except UnverifiedTopicError as e:
+        raise RuntimeError(f"trivia_round: announcement refused by guard: {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"trivia_round: announcement failed: {e}") from e
+    return int(getattr(announcement, "message_id", 0) or 0)
+
+
+async def _continue_round_after_announcement(bot, db: Database, chat_id: int, thread_id: int | None,
+                                             *, pre_roll_s: int, round_state: dict) -> None:
+    try:
         # Pre-roll sleep until the last 5 seconds, then send a kickoff message.
         kickoff_gap = 5
         bulk_sleep = max(0, pre_roll_s - kickoff_gap)
@@ -369,6 +401,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
         tick_marks = [(5, 10), (10, 5), (13, 2)]
 
         # Questions loop
+        questions = round_state["questions"]
         for q_index, q in enumerate(questions):
             if _should_abort(chat_id):
                 return
@@ -436,9 +469,12 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
 
         await db.log_activity("trivia_round", f"סיום סיבוב טריוויה ({len(scores)} משתתפים)")
 
+    except Exception:
+        logger.exception("trivia_round: background round failed after verified start")
     finally:
         _active_rounds.pop(chat_id, None)
 
+    return
 
 def _should_abort(chat_id: int) -> bool:
     state = _active_rounds.get(chat_id)
@@ -559,8 +595,13 @@ def _parse_scheduled_payload(raw: str | None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: dict) -> None:
-    """Launch a trivia round from a scheduled_messages row without sending plain text."""
+async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: dict) -> int:
+    """Launch a scheduled trivia round and return the announcement message_id.
+
+    The scheduled row may only be marked sent after this function returns an
+    actual Telegram message id. Pool/routing/send failures raise, so the
+    scheduler marks the row failed instead of creating a false positive.
+    """
     db: Database = context.bot_data.get("db")
     if not db:
         raise RuntimeError("trivia_round: no db in bot_data")
@@ -597,20 +638,51 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
         sorted(preferred_categories or PREFERRED_CATEGORIES),
         question_count,
     )
-    asyncio.create_task(
-        _run_round(
+
+    if chat_id in _active_rounds:
+        raise RuntimeError(f"trivia_round: round already active in chat {chat_id}")
+
+    theme_label = theme_label or THEME_LABEL
+    question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
+    questions = _pick_questions(question_count, preferred_categories)
+    for q in questions:
+        q["_round_question_count"] = question_count
+    if len(questions) < question_count:
+        raise RuntimeError(
+            "trivia_round: not enough questions matching categories="
+            f"{sorted(preferred_categories) if preferred_categories else ['(general — full pool)']} "
+            f"(found={len(questions)}, requested={question_count})"
+        )
+
+    round_state = _create_round_state(questions, question_count)
+    _active_rounds[chat_id] = round_state
+    try:
+        announcement_id = await _send_round_teaser_and_announcement(
             context.bot,
             db,
             chat_id,
             thread_id,
-            pre_roll_s,
-            preferred_categories=preferred_categories,
+            pre_roll_s=pre_roll_s,
             theme_label=theme_label,
             question_count=question_count,
             teaser_topic_id=teaser_topic_id,
             teaser_text=teaser_text,
         )
+    except Exception:
+        _active_rounds.pop(chat_id, None)
+        raise
+
+    asyncio.create_task(
+        _continue_round_after_announcement(
+            context.bot,
+            db,
+            chat_id,
+            thread_id,
+            pre_roll_s=pre_roll_s,
+            round_state=round_state,
+        )
     )
+    return announcement_id
 
 
 async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):

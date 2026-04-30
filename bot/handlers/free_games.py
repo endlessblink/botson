@@ -230,17 +230,17 @@ async def send_free_games(context, *, force: bool = False):
     """Scheduler entrypoint — called by JobQueue.run_daily."""
     if is_auto_blocked_on(date.today()):
         logger.info("free_games: blackout date, skipping automatic post")
-        return
+        return {"fetched": 0, "posted": 0, "skipped": 0, "error": "blackout date"}
 
     target_gid = GROUP_ID if force else _resolve_target_group()
     if not target_gid:
         logger.info("free_games: disabled for all groups, skipping tick")
-        return
+        return {"fetched": 0, "posted": 0, "skipped": 0, "error": "disabled"}
 
     db: Database = context.bot_data.get("db")
     if not db:
         logger.warning("free_games: db not available in bot_data, skipping tick")
-        return
+        return {"fetched": 0, "posted": 0, "skipped": 0, "error": "db unavailable"}
 
     settings = get_settings()
     fg_schedule = settings.get("schedule", {}).get("free_games", {})
@@ -252,7 +252,7 @@ async def send_free_games(context, *, force: bool = False):
         routing = await db.get_handler_routing("free_games")
         if not routing or routing["play_topic_id"] is None:
             logger.warning("free_games: no routing configured for 'free_games'; skipping")
-            return
+            return {"fetched": 0, "posted": 0, "skipped": 0, "error": "no routing"}
         topic_id = routing["play_topic_id"]
 
-    await fetch_and_post_once(context.bot, db, target_gid, topic_id, feed_url)
+    return await fetch_and_post_once(context.bot, db, target_gid, topic_id, feed_url)

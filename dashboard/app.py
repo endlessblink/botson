@@ -5526,22 +5526,26 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     if msg.get("message_type") == "trivia_round":
         msg = dict(msg)
         msg["_resolved_chat_id"] = group_id
-        await start_scheduled_trivia_round(context, msg)
+        message_id = int(await start_scheduled_trivia_round(context, msg) or 0)
+        if message_id <= 0:
+            raise RuntimeError("trivia_round did not return a Telegram message_id")
         if target != "test":
-            await db.mark_message_sent(msg["id"], 0)
-        return 0
+            await db.mark_message_sent(msg["id"], message_id)
+        return message_id
     if msg.get("message_type") == "emoji_puzzle":
         session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
         if session_id is None:
             raise RuntimeError("Emoji Night did not start")
         if target != "test":
-            await db.mark_message_sent(msg["id"], 0)
-        return 0
+            await db.mark_message_sent(msg["id"], session_id)
+        return session_id
     if msg.get("message_type") == "free_games":
-        await send_free_games(context, force=True)
+        summary = await send_free_games(context, force=True)
+        if not summary or int(summary.get("posted") or 0) <= 0:
+            raise RuntimeError(f"free_games did not post: {summary}")
         if target != "test":
-            await db.mark_message_sent(msg["id"], 0)
-        return 0
+            await db.mark_message_sent(msg["id"], 1)
+        return 1
     if msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
         pool = msg.get("message_type", "").removeprefix("facts_")
         sent_ok = await send_scheduled_fact(
@@ -5554,18 +5558,22 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         if not sent_ok:
             raise RuntimeError(f"facts {pool} did not send")
         if target != "test":
-            await db.mark_message_sent(msg["id"], 0)
-        return 0
+            await db.mark_message_sent(msg["id"], 1)
+        return 1
     if msg.get("message_type") == "weekly_roundup":
-        await send_weekly_roundup(context, force=True)
+        message_id = int(await send_weekly_roundup(context, force=True) or 0)
+        if message_id <= 0:
+            raise RuntimeError("weekly_roundup did not return a Telegram message_id")
         if target != "test":
-            await db.mark_message_sent(msg["id"], 0)
-        return 0
+            await db.mark_message_sent(msg["id"], message_id)
+        return message_id
     if msg.get("message_type") == "weekly_leaderboard":
-        await send_weekly_leaderboard(context)
+        message_id = int(await send_weekly_leaderboard(context) or 0)
+        if message_id <= 0:
+            raise RuntimeError("weekly_leaderboard did not return a Telegram message_id")
         if target != "test":
-            await db.mark_message_sent(msg["id"], 0)
-        return 0
+            await db.mark_message_sent(msg["id"], message_id)
+        return message_id
 
     opts = _parse_poll_options(msg.get("poll_options"))
     if msg.get("message_type") == "poll" and len(opts) >= 2:

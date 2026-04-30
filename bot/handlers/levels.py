@@ -129,18 +129,18 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: post weekly level leaderboard to general channel."""
     if is_auto_blocked_on(date.today()):
         logger.info("levels: blackout date, skipping weekly leaderboard")
-        return
+        return None
 
     db: Database = context.bot_data["db"]
     leaders = await db.get_weekly_leaders(10)
 
     if not leaders:
-        return
+        return None
 
     routing = await db.get_handler_routing("weekly_leaderboard")
     if not routing or routing["play_topic_id"] is None:
         logger.warning("levels: no routing configured for 'weekly_leaderboard'; skipping")
-        return
+        return None
     play_id = routing["play_topic_id"]
 
     medals = ["🥇", "🥈", "🥉"]
@@ -151,7 +151,7 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{medal} {lvl['emoji']} {m['display_name']} — {lvl['tag']}")
 
     try:
-        await safe_send(
+        msg = await safe_send(
             context.bot,
             db,
             "send_message",
@@ -160,10 +160,12 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
             message_thread_id=play_id,
         )
         logger.info("Sent weekly leaderboard")
+        return getattr(msg, "message_id", None)
     except UnverifiedTopicError as e:
         logger.warning("levels: guard refused send: %s", e)
     except Exception as e:
         logger.error("Failed to send weekly leaderboard: %s", e)
+    return None
 
 
 def register(app):

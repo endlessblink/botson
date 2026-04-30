@@ -16,17 +16,17 @@ logger = logging.getLogger(__name__)
 async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE, *, force: bool = False):
     """Scheduled job: send weekly roundup to general channel every Friday."""
     if not force and not is_feature_enabled("roundup"):
-        return
+        return None
     if is_auto_blocked_on(datetime.now().date()):
         logger.info("roundup: blackout date, skipping automatic post")
-        return
+        return None
 
     settings = get_settings()
     db: Database = context.bot_data["db"]
     routing = await db.get_handler_routing("weekly_roundup")
     if not routing or routing["play_topic_id"] is None:
         logger.warning("roundup: no routing configured for 'weekly_roundup'; skipping send")
-        return
+        return None
     play_id = routing["play_topic_id"]
 
     week_ago = datetime.now() - timedelta(days=7)
@@ -70,7 +70,7 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE, *, force: bool
     text = "\n".join(lines)
 
     try:
-        await safe_send(
+        msg = await safe_send(
             context.bot,
             db,
             "send_message",
@@ -80,7 +80,9 @@ async def send_weekly_roundup(context: ContextTypes.DEFAULT_TYPE, *, force: bool
         )
         logger.info("Sent weekly roundup")
         await db.log_activity("roundup", "שלח סיכום שבועי")
+        return getattr(msg, "message_id", None)
     except UnverifiedTopicError as e:
         logger.warning("roundup: guard refused send: %s", e)
     except Exception as e:
         logger.error("Failed to send weekly roundup: %s", e)
+    return None
