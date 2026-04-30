@@ -132,17 +132,54 @@
     .wizard-label.active { color: #fafafa; }
 
     /* Type cards */
-    .type-card {
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 6px; height: 80px; cursor: pointer;
-        background: #111318; border: 1px solid #272727; border-radius: 8px;
-        transition: border-color 0.15s, background 0.15s;
+    .type-section {
+        border: 1px solid #1f1f1f;
+        background: rgba(17, 19, 24, 0.45);
+        border-radius: 12px;
+        padding: 12px;
     }
-    .type-card:hover { border-color: #52525b; }
-    .type-card.selected { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.05); }
-    .type-card-emoji { font-size: 22px; line-height: 1; }
-    .type-card-label { font-size: 12px; color: #a1a1aa; }
+    .type-section-title {
+        color: #fafafa;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 3px;
+    }
+    .type-section-note {
+        color: #71717a;
+        font-size: 11px;
+        line-height: 1.45;
+        margin-bottom: 10px;
+    }
+    .type-card {
+        display: flex; align-items: flex-start; gap: 10px;
+        width: 100%; cursor: pointer; text-align: right;
+        background: #0d0f14; border: 1px solid #272727; border-radius: 10px;
+        padding: 11px 12px;
+        transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    }
+    .type-card:hover { border-color: #52525b; background: #12151c; transform: translateY(-1px); }
+    .type-card.selected { border-color: rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.06); }
+    .type-card-emoji {
+        width: 30px; height: 30px; border-radius: 9px;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: #171717; font-size: 17px; line-height: 1; flex-shrink: 0;
+    }
+    .type-card-label { display: block; font-size: 13px; color: #e4e4e7; font-weight: 600; line-height: 1.35; }
+    .type-card-desc { display: block; margin-top: 2px; font-size: 11px; color: #71717a; line-height: 1.35; }
     .type-card.selected .type-card-label { color: #fbbf24; }
+    .type-card.selected .type-card-emoji { background: rgba(245, 158, 11, 0.14); }
+    .type-link-row {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+    }
+    .type-helper-link {
+        border: 1px solid #272727;
+        border-radius: 999px;
+        color: #a1a1aa;
+        font-size: 11px;
+        padding: 5px 9px;
+        transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .type-helper-link:hover { border-color: #52525b; color: #fafafa; background: #171717; }
 
     /* Channel chips */
     .channel-chip {
@@ -410,16 +447,16 @@
         </div>
     </div>
     <div class="flex items-center gap-2">
-        <button id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+        <button type="button" id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✨ מלא את היום ב-AI
         </button>
-        <button id="ai-fill-day-btn" onclick="aiFillSpecificDay()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+        <button type="button" id="ai-fill-day-btn" onclick="aiFillSpecificDay()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✨ מלא יום ספציפי
         </button>
-        <button id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+        <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✕ בטל
         </button>
-        <button id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+        <button type="button" id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
             ✨ מלא טיוטות ב-AI
         </button>
     </div>
@@ -457,36 +494,84 @@
     <div class="flex-1 overflow-y-auto">
         <!-- Step 1: Type Picker -->
         <div id="wizard-step-1" class="wizard-step px-5 py-4">
-            <p class="text-xs text-[#71717a] mb-3">בחר סוג הודעה</p>
-            <div class="grid grid-cols-2 gap-2">
-                <div class="type-card" data-type="morning" onclick="selectType('morning')">
-                    <span class="type-card-emoji">🌅</span>
-                    <span class="type-card-label">הודעת בוקר</span>
-                </div>
-                <div class="type-card" data-type="discussion" onclick="selectType('discussion')">
-                    <span class="type-card-emoji">💬</span>
-                    <span class="type-card-label">שאלה לדיון</span>
-                </div>
-                <div class="type-card" data-type="poll" onclick="selectType('poll')">
-                    <span class="type-card-emoji">📊</span>
-                    <span class="type-card-label">סקר</span>
-                </div>
-                <div class="type-card" data-type="event" onclick="selectType('event')">
-                    <span class="type-card-emoji">🎮</span>
-                    <span class="type-card-label">אירוע</span>
-                </div>
-                <div class="type-card" data-type="digest" onclick="selectType('digest')">
-                    <span class="type-card-emoji">🔁</span>
-                    <span class="type-card-label">סיכום שבועי</span>
-                </div>
-                <div class="type-card" data-type="custom" onclick="selectType('custom')">
-                    <span class="type-card-emoji">⚡</span>
-                    <span class="type-card-label">הודעה חופשית</span>
-                </div>
-                <div class="type-card" data-type="trivia" onclick="selectType('trivia')">
-                    <span class="type-card-emoji">🧠</span>
-                    <span class="type-card-label">טריוויה</span>
-                </div>
+            <p class="text-xs text-[#71717a] mb-3">מה צריך להכניס ללוח?</p>
+            <div class="space-y-3">
+                <section class="type-section">
+                    <div class="type-section-title">תוכן מתוזמן</div>
+                    <p class="type-section-note">לפרסום רגיל או טיוטה בלוח. זה המקום המרכזי לשאלות, סקרים והודעות.</p>
+                    <div class="space-y-2">
+                        <button type="button" class="type-card" data-type="discussion" onclick="selectType('discussion')">
+                            <span class="type-card-emoji">💬</span>
+                            <span>
+                                <span class="type-card-label">שאלה לדיון</span>
+                                <span class="type-card-desc">שאלה חד-פעמית לערוץ או נושא מסוים</span>
+                            </span>
+                        </button>
+                        <button type="button" class="type-card" data-type="poll" onclick="selectType('poll')">
+                            <span class="type-card-emoji">📊</span>
+                            <span>
+                                <span class="type-card-label">סקר</span>
+                                <span class="type-card-desc">שאלה עם אפשרויות הצבעה ומשך פעילות</span>
+                            </span>
+                        </button>
+                        <button type="button" class="type-card" data-type="custom" onclick="selectType('custom')">
+                            <span class="type-card-emoji">⚡</span>
+                            <span>
+                                <span class="type-card-label">הודעה חופשית</span>
+                                <span class="type-card-desc">טקסט, תמונה או הודעה חד-פעמית ללא תבנית</span>
+                            </span>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="type-section">
+                    <div class="type-section-title">סלוטים קבועים</div>
+                    <p class="type-section-note">הוספה מהירה של פריטים שחוזרים בלוח. ניהול התוכן עצמו נשאר בעמודים הייעודיים.</p>
+                    <div class="space-y-2">
+                        <button type="button" class="type-card" data-type="morning" onclick="selectType('morning')">
+                            <span class="type-card-emoji">🌅</span>
+                            <span>
+                                <span class="type-card-label">הודעת בוקר</span>
+                                <span class="type-card-desc">סלוט בוקר חוזר מתוך מאגר ההודעות</span>
+                            </span>
+                        </button>
+                        <button type="button" class="type-card" data-type="digest" onclick="selectType('digest')">
+                            <span class="type-card-emoji">🔁</span>
+                            <span>
+                                <span class="type-card-label">סיכום שבועי</span>
+                                <span class="type-card-desc">סיכום קבוע לסוף השבוע או יום מוגדר</span>
+                            </span>
+                        </button>
+                    </div>
+                    <div class="type-link-row">
+                        <a class="type-helper-link" href="/prompts">ניהול מאגר הודעות</a>
+                        <a class="type-helper-link" href="/weekplan">תוכנית שבועית</a>
+                    </div>
+                </section>
+
+                <section class="type-section">
+                    <div class="type-section-title">פעילויות עם עמוד משלהן</div>
+                    <p class="type-section-note">אפשר לתזמן מכאן, אבל יצירה וניהול מלאים נוחים יותר בעמוד הייעודי.</p>
+                    <div class="space-y-2">
+                        <button type="button" class="type-card" data-type="event" onclick="selectType('event')">
+                            <span class="type-card-emoji">🎮</span>
+                            <span>
+                                <span class="type-card-label">אירוע</span>
+                                <span class="type-card-desc">פרסום אירוע ללוח; ניהול RSVP בעמוד אירועים</span>
+                            </span>
+                        </button>
+                        <button type="button" class="type-card" data-type="trivia" onclick="selectType('trivia')">
+                            <span class="type-card-emoji">🧠</span>
+                            <span>
+                                <span class="type-card-label">טריוויה</span>
+                                <span class="type-card-desc">תזמון או הרצה של סיבוב טריוויה</span>
+                            </span>
+                        </button>
+                    </div>
+                    <div class="type-link-row">
+                        <a class="type-helper-link" href="/events">עמוד אירועים</a>
+                    </div>
+                </section>
             </div>
         </div>
 
@@ -2399,11 +2484,12 @@ async function aiFillToday(targetDate) {
             // header so the admin sees a single confirmation surface.
             var triviaN = (data.trivia && data.trivia.generated) || 0;
             var emojiN = (data.emoji && data.emoji.generated) || 0;
-            if (total + triviaN + emojiN > 0) {
+            if (total + triviaN + emojiN > 0 || (data.notes_for_admin || '').trim()) {
                 openReviewDraftsModal({
                     autoOpen: true,
                     notes: data.notes_for_admin || '',
                     extraStats: {trivia: triviaN, emoji: emojiN},
+                    targetDate: data.date || targetDate || '',
                 });
             }
         }
@@ -2544,11 +2630,14 @@ var TYPE_EMOJI = {
     event: '🎮', poll: '📊', custom: '⚡'
 };
 
-async function fetchTodayDrafts() {
-    var today = new Date();
-    var iso = today.getFullYear() + '-' +
-        String(today.getMonth() + 1).padStart(2, '0') + '-' +
-        String(today.getDate()).padStart(2, '0');
+async function fetchTodayDrafts(targetDate) {
+    var iso = targetDate;
+    if (!iso) {
+        var today = new Date();
+        iso = today.getFullYear() + '-' +
+            String(today.getMonth() + 1).padStart(2, '0') + '-' +
+            String(today.getDate()).padStart(2, '0');
+    }
     // /api/calendar passes start/end straight to SQL `scheduled_date >= ? AND
     // scheduled_date <= ?`. The column stores YYYY-MM-DD strings; sending a
     // datetime with 'T' breaks the lexicographic comparison and excludes
@@ -2806,7 +2895,7 @@ async function openReviewDraftsModal(opts) {
     modal.classList.remove('hidden');
 
     try {
-        var drafts = await fetchTodayDrafts();
+        var drafts = await fetchTodayDrafts(opts.targetDate || '');
         var extra = opts.extraStats || {};
         var triviaN = extra.trivia || 0;
         var emojiN = extra.emoji || 0;
@@ -2818,6 +2907,16 @@ async function openReviewDraftsModal(opts) {
             if (triviaN > 0) parts.push('<a href="/trivia" class="underline underline-offset-2 hover:text-amber-400">+' + triviaN + ' שאלות טריוויה</a>');
             if (emojiN > 0) parts.push('<a href="/puzzles" class="underline underline-offset-2 hover:text-amber-400">+' + emojiN + ' חידות אמוג\'י</a>');
             extraHtml = '<div class="text-xs text-[#a1a1aa] mt-1">נוספו לפול: ' + parts.join(' · ') + '</div>';
+        }
+
+        var notesEl = document.getElementById('review-drafts-notes');
+        var notesText = document.getElementById('review-drafts-notes-text');
+        if (opts.notes && opts.notes.trim()) {
+            notesText.innerHTML = renderMarkdown(opts.notes);
+            notesEl.classList.remove('hidden');
+        } else {
+            notesText.innerHTML = '';
+            notesEl.classList.add('hidden');
         }
 
         if (drafts.length === 0) {
@@ -2833,17 +2932,6 @@ async function openReviewDraftsModal(opts) {
         document.getElementById('review-drafts-subtitle').innerHTML =
             drafts.length + ' טיוטות ממתינות לאישור · יש לאשר כל אחת לפני שתישלח' + extraHtml;
         document.getElementById('review-drafts-send-all-btn').classList.remove('hidden');
-
-        // AI notes (passed via opts.notes when called from aiFillToday).
-        // Rendered as Markdown — bullets, bold, paragraphs.
-        var notesEl = document.getElementById('review-drafts-notes');
-        var notesText = document.getElementById('review-drafts-notes-text');
-        if (opts.notes && opts.notes.trim()) {
-            notesText.innerHTML = renderMarkdown(opts.notes);
-            notesEl.classList.remove('hidden');
-        } else {
-            notesEl.classList.add('hidden');
-        }
 
         list.innerHTML = drafts.map(renderDraftCard).join('');
         // Wire up listeners

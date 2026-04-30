@@ -3226,7 +3226,7 @@ def _today_plan_tool_schema() -> dict:
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "type": {"type": "string", "enum": ["morning", "evening", "discussion"]},
+                            "type": {"type": "string", "enum": ["morning", "evening", "discussion", "custom"]},
                             "scheduled_time": {"type": "string", "description": "HH:MM from schedule config."},
                             "topic_id": {"type": "integer"},
                             "text": {"type": "string", "description": "Hebrew. Morning/evening = 1-2 lines with emoji. Discussion = 1 question."},
@@ -3816,6 +3816,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     # Holiday short-circuit — block_auto=true means "manual content only today"
     if is_auto_blocked_on(today):
         return {
+            "date": today_iso,
             "skipped_holiday": True,
             "holiday": get_holiday_blackout(today_iso),
             "reminders": [], "regular_slots": [], "trivia": {"generated": 0, "skipped": "holiday"},
@@ -3839,6 +3840,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         # Already logged with traceback inside _generate_today_plan
         errors.append(f"digest: {e}")
         return {
+            "date": today_iso,
             "skipped_holiday": False,
             "reminders": [], "regular_slots": [], "trivia": {"generated": 0, "skipped": "digest_failed"},
             "emoji": {"generated": 0, "skipped": "digest_failed"},
@@ -3922,7 +3924,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         stime = (slot.get("scheduled_time") or "").strip()
         topic = slot.get("topic_id")
         text = (slot.get("text") or "").strip()
-        if mtype not in ("morning", "evening", "discussion"):
+        if mtype not in ("morning", "evening", "discussion", "custom"):
             errors.append(f"slot rejected (bad type): {slot}")
             continue
         if not _valid_hhmm(stime) or not text:
@@ -4019,6 +4021,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
 
     skipped = plan.get("skipped") or {}
     return {
+        "date": today_iso,
         "skipped_holiday": False,
         "reminders": reminders_out,
         "regular_slots": regular_out,
