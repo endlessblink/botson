@@ -11,7 +11,7 @@ import secrets
 import signal
 import time
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -997,6 +997,72 @@ def _coerce_game_message_fields(message_type: str, text: str, poll_options=None,
         return "emoji_puzzle", None
 
     return mtype, json.dumps(poll_options, ensure_ascii=False) if isinstance(poll_options, dict) else poll_options
+
+
+def _parse_game_payload(raw) -> dict:
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _format_trivia_announcement_draft(*, game_time: str, payload: dict) -> str:
+    theme = str(payload.get("theme_label") or "גיימינג").strip() or "גיימינג"
+    question_count = int(payload.get("question_count") or 5)
+    return (
+        f"🎮 מתחממים לטריוויה הערב\n"
+        f"בעוד 4 שעות, ב-{game_time}, נפתח סיבוב טריוויה {theme} בפינה של בוטסון.\n"
+        f"{question_count} שאלות קצרות, ניקוד למהירים, ואפס צורך להירשם מראש. פשוט להגיע בזמן."
+    )
+
+
+async def _ensure_trivia_announcement_draft(db: Database, *, game_id: int) -> int | None:
+    """Create one editable 341 announcement draft for a scheduled trivia game.
+
+    The real trivia launcher remains the `trivia_round` row in botson_corner.
+    This companion row is deliberately a draft so admins can edit/reschedule it
+    before it posts.
+    """
+    async with db._db.execute(
+        """SELECT id, scheduled_date, scheduled_time, message_type, status, poll_options
+           FROM scheduled_messages WHERE id = ?""",
+        (game_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or row["message_type"] != "trivia_round" or row["status"] == "cancelled":
+        return None
+
+    marker = f"trivia-announcement-draft:{game_id}"
+    async with db._db.execute(
+        "SELECT id FROM scheduled_messages WHERE created_by = ? AND status != 'cancelled' LIMIT 1",
+        (marker,),
+    ) as cur:
+        existing = await cur.fetchone()
+    if existing:
+        return int(existing["id"])
+
+    game_time = (row["scheduled_time"] or "22:00")[:5]
+    try:
+        game_dt = datetime.strptime(f"{row['scheduled_date']} {game_time}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+    announcement_dt = game_dt - timedelta(hours=4)
+    payload = _parse_game_payload(row["poll_options"])
+    return await db.create_scheduled_message(
+        text=_format_trivia_announcement_draft(game_time=game_time, payload=payload),
+        message_type="custom",
+        channel_topic_id=341,
+        target_group="main",
+        scheduled_date=announcement_dt.date().isoformat(),
+        scheduled_time=announcement_dt.strftime("%H:%M"),
+        created_by=marker,
+        status="draft",
+    )
 
 # One-off Independence Day (יום העצמאות 5786) live trivia round — matches
 # _TRIVIA_DEMO_STATE["starts_at"] and the pending review id below. Surfaced
@@ -5250,7 +5316,10 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         poll_options=json.dumps(poll_options) if isinstance(poll_options, list) else poll_options,
         poll_duration=data.get("poll_duration"),
     )
-    return {"status": "ok", "id": msg_id}
+    announcement_draft_id = None
+    if message_type == "trivia_round":
+        announcement_draft_id = await _ensure_trivia_announcement_draft(db, game_id=msg_id)
+    return {"status": "ok", "id": msg_id, "announcement_draft_id": announcement_draft_id}
 
 
 @app.put("/api/calendar/{msg_id}")
@@ -5290,7 +5359,16 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
         fields["poll_options"] = json.dumps(fields["poll_options"])
 
     await db.update_scheduled_message(msg_id, **fields)
-    return {"status": "ok"}
+    announcement_draft_id = None
+    if fields.get("status") == "scheduled":
+        async with db._db.execute(
+            "SELECT message_type FROM scheduled_messages WHERE id = ?",
+            (msg_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row and row["message_type"] == "trivia_round":
+            announcement_draft_id = await _ensure_trivia_announcement_draft(db, game_id=msg_id)
+    return {"status": "ok", "announcement_draft_id": announcement_draft_id}
 
 
 @app.delete("/api/calendar/{msg_id}")
@@ -5447,7 +5525,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     force = bool(body.get("force", False))
 
     async with db._db.execute(
-        "SELECT scheduled_date, scheduled_time, status FROM scheduled_messages WHERE id = ?",
+        "SELECT scheduled_date, scheduled_time, status, message_type FROM scheduled_messages WHERE id = ?",
         (msg_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -5484,11 +5562,14 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     if new_time and new_time != (row["scheduled_time"] or "")[:5]:
         update_fields["scheduled_time"] = new_time
     await db.update_scheduled_message(msg_id, **update_fields)
+    announcement_draft_id = None
+    if row["message_type"] == "trivia_round":
+        announcement_draft_id = await _ensure_trivia_announcement_draft(db, game_id=msg_id)
     logger.info(
         "[schedule] msg_id=%d → status=scheduled at %s (force=%s)",
         msg_id, target_dt.isoformat(), force,
     )
-    return {"status": "ok", "id": msg_id, "scheduled_for": target_dt.isoformat()}
+    return {"status": "ok", "id": msg_id, "scheduled_for": target_dt.isoformat(), "announcement_draft_id": announcement_draft_id}
 
 
 @app.post("/api/weekplan/send-today-drafts-now")
