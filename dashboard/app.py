@@ -3839,13 +3839,11 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     except Exception as e:
         # Already logged with traceback inside _generate_today_plan
         errors.append(f"digest: {e}")
-        return {
+        raise HTTPException(status_code=503, detail={
             "date": today_iso,
-            "skipped_holiday": False,
-            "reminders": [], "regular_slots": [], "trivia": {"generated": 0, "skipped": "digest_failed"},
-            "emoji": {"generated": 0, "skipped": "digest_failed"},
-            "notes_for_admin": "", "errors": errors,
-        }
+            "message": "AI digest failed on all available transports",
+            "errors": errors,
+        })
 
     # ── Server-side validation + persistence ────────────────────────────────
     verified_topic_ids = set(bundle["verified_topic_ids"])

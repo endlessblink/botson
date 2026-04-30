@@ -2397,7 +2397,14 @@ async function aiFillToday(targetDate) {
             fetchOpts.body = JSON.stringify({target_date: targetDate});
         }
         var resp = await fetch('/api/weekplan/ai-fill-today', fetchOpts);
-        var data = await resp.json();
+        var data = await resp.json().catch(function() { return {}; });
+        if (!resp.ok) {
+            var detail = data.detail || data;
+            var errors = (detail && detail.errors) || [];
+            var errMsg = (detail && detail.message) || ('HTTP ' + resp.status);
+            if (errors.length > 0) errMsg += ': ' + errors[0];
+            throw new Error(errMsg);
+        }
         if (data.skipped_holiday) {
             showToast('היום חג חסום אוטומטית — לא נוצר תוכן', 'error');
         } else {
@@ -2454,7 +2461,9 @@ async function aiFillToday(targetDate) {
                 showToast('בוטל');
             }
         } else {
-            showToast('שגיאה: ' + (e && e.message || e), 'error');
+            var message = 'שגיאה: ' + (e && e.message || e);
+            showToast(message, 'error');
+            alert(message);
         }
     } finally {
         clearTimeout(hardTimeoutHandle);
