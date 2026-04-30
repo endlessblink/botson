@@ -519,6 +519,7 @@
                 <span class="text-[#a1a1aa]">סוג: <span id="edit-type-label" class="text-[#fafafa]"></span></span>
                 <button type="button" onclick="wizardGo(1)" class="text-amber-400/90 hover:text-amber-300 cursor-pointer">שנה סוג ↺</button>
             </div>
+            <div id="game-launcher-details" class="hidden mb-3 text-xs bg-emerald-500/10 border border-emerald-500/30 rounded-md px-3 py-2 text-emerald-100"></div>
             <div class="space-y-4" id="non-trivia-fields">
                 <!-- Text area -->
                 <div>
@@ -1615,6 +1616,27 @@ function openDrawer(date) {
     document.getElementById('create-drawer').classList.remove('translate-x-full');
 }
 
+function renderGameLauncherDetails(props) {
+    var type = props.messageType || '';
+    if (type !== 'trivia_round' && type !== 'emoji_puzzle') return '';
+    var payload = props.gamePayload || {};
+    var topicName = props.channelTopicId && TOPIC_NAMES[props.channelTopicId]
+        ? TOPIC_NAMES[props.channelTopicId]
+        : (props.channelTopicId ? ('topic ' + props.channelTopicId) : 'ללא ערוץ');
+    if (type === 'trivia_round') {
+        var cats = payload.categories || [];
+        if (!Array.isArray(cats)) cats = cats ? [cats] : [];
+        return '<div class="font-medium text-emerald-200 mb-1">זה סיבוב טריוויה חי, לא הודעה רגילה.</div>' +
+            '<div class="space-y-0.5 text-emerald-100/90">' +
+            '<div>בשעה המתוזמנת הבוט מפעיל משחק ושולח שאלות בערוץ: <strong>' + escapeHtml(topicName) + '</strong>.</div>' +
+            '<div>נושא: <strong>' + escapeHtml(payload.theme_label || cats.join(', ') || 'כללי') + '</strong> · שאלות: <strong>' + escapeHtml(payload.question_count || 'ברירת מחדל') + '</strong> · פתיח: <strong>' + escapeHtml(payload.pre_roll_s || 30) + ' שניות</strong></div>' +
+            (payload.teaser_topic_id ? '<div>טיזר קצר בזמן ההפעלה יישלח גם לערוץ: <strong>' + escapeHtml(TOPIC_NAMES[payload.teaser_topic_id] || ('topic ' + payload.teaser_topic_id)) + '</strong>.</div>' : '') +
+            '</div>';
+    }
+    return '<div class="font-medium text-emerald-200 mb-1">זה מפעיל פעילות משחק, לא הודעה רגילה.</div>' +
+        '<div>בשעה המתוזמנת הבוט יריץ את הפעילות בערוץ: <strong>' + escapeHtml(topicName) + '</strong>.</div>';
+}
+
 function closeDrawer() {
     document.getElementById('create-drawer').classList.add('translate-x-full');
     resetWizard();
@@ -1722,6 +1744,13 @@ function openEditDrawer(id, props, start) {
         label.textContent = typeLabels[wizardState.type] || wizardState.type || 'לא ידוע';
         indicator.classList.remove('hidden');
     }
+
+    var launcherDetails = document.getElementById('game-launcher-details');
+    if (launcherDetails) {
+        var detailsHtml = renderGameLauncherDetails(props);
+        launcherDetails.innerHTML = detailsHtml;
+        launcherDetails.classList.toggle('hidden', !detailsHtml);
+    }
     wizardGo(2);
     document.getElementById('create-drawer').classList.remove('translate-x-full');
 }
@@ -1762,6 +1791,8 @@ function resetWizard() {
     // Hide edit-mode type indicator
     var indicator = document.getElementById('edit-type-indicator');
     if (indicator) indicator.classList.add('hidden');
+    var launcherDetails = document.getElementById('game-launcher-details');
+    if (launcherDetails) { launcherDetails.classList.add('hidden'); launcherDetails.innerHTML = ''; }
 
     // Reset UI
     document.querySelectorAll('.type-card').forEach(function(c) { c.classList.remove('selected'); });
@@ -2055,7 +2086,7 @@ document.addEventListener('DOMContentLoaded', function() {
         eventContent: function(arg) {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
-            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡'}[props.messageType] || '📌';
+            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',emoji_puzzle:'🧩'}[props.messageType] || '📌';
             var leadingMark = props.isPreview
                 ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="טיוטה">✎</span>'
                 : '<span class="event-status ' + statusClass + '"></span>';

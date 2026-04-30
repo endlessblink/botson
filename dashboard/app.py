@@ -5116,11 +5116,14 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
 
         poll_options_raw = m.get("poll_options")
         poll_options: list | None = None
+        game_payload: dict | None = None
         if poll_options_raw:
             try:
                 decoded = json.loads(poll_options_raw) if isinstance(poll_options_raw, str) else poll_options_raw
                 if isinstance(decoded, list):
                     poll_options = [str(o) for o in decoded]
+                elif isinstance(decoded, dict):
+                    game_payload = decoded
             except (TypeError, ValueError):
                 poll_options = None
 
@@ -5142,6 +5145,7 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
                 "createdBy": m.get("created_by"),
                 "coverPath": m.get("cover_path"),
                 "pollOptions": poll_options,
+                "gamePayload": game_payload,
                 "pollDuration": m.get("poll_duration"),
             },
         }
