@@ -27,6 +27,26 @@
         --fc-more-link-bg-color: #171717;
         --fc-more-link-text-color: #a1a1aa;
         --fc-non-business-color: rgba(0,0,0,0.2);
+        --planner-sticky-offset: 150px;
+    }
+    .planner-sticky-bar {
+        position: sticky;
+        top: 48px;
+        z-index: 25;
+        margin: -24px -24px 12px;
+        padding: 24px 24px 12px;
+        background: rgba(9, 9, 11, 0.96);
+        border-bottom: 1px solid #1f1f1f;
+        backdrop-filter: blur(10px);
+    }
+    .fc .fc-header-toolbar {
+        position: sticky;
+        top: var(--planner-sticky-offset);
+        z-index: 20;
+        margin: 0 -4px 12px !important;
+        padding: 0 4px 12px;
+        background: #0a0a0a;
+        border-bottom: 1px solid #1f1f1f;
     }
     .fc {
         font-family: 'Inter', system-ui, sans-serif;
@@ -353,10 +373,67 @@
     .fc-daygrid-day.planner-holiday-block .fc-daygrid-day-number { visibility: hidden; }
 </style>
 
-<div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון ושליחה</h1>
-    <div class="flex gap-2">
-        <button onclick="openDrawer(null)" class="text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1.5 rounded-md cursor-pointer transition-colors">+ הודעה חדשה</button>
+<div id="planner-sticky-bar" class="planner-sticky-bar">
+    <div class="flex items-center justify-between mb-4">
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">תכנון ושליחה</h1>
+        <div class="flex gap-2">
+            <button onclick="openDrawer(null)" class="text-sm text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1.5 rounded-md cursor-pointer transition-colors">+ הודעה חדשה</button>
+        </div>
+    </div>
+
+    <!-- Today summary banner — polled on load + after ✨ clicks -->
+    <div id="today-summary" dir="rtl" class="hidden mb-2 px-3 py-2 rounded-md text-xs bg-[#111318] border border-[#272727] text-[#d4d4d8]">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-3 flex-wrap">
+                <span class="text-[#a1a1aa]">היום:</span>
+                <span id="today-summary-drafts"></span>
+                <span id="today-summary-trivia-wrap" class="hidden">
+                    <span class="text-[#71717a]">·</span>
+                    <a href="/trivia" class="underline underline-offset-2 hover:text-amber-400 mr-1" id="today-summary-trivia"></a>
+                    <span id="today-summary-trivia-cats" class="text-[#a1a1aa]"></span>
+                </span>
+                <span id="today-summary-emoji-wrap" class="hidden">
+                    <span class="text-[#71717a]">·</span>
+                    <a href="/puzzles" class="underline underline-offset-2 hover:text-amber-400 mr-1" id="today-summary-emoji"></a>
+                    <span id="today-summary-emoji-preview" class="text-[#a1a1aa]"></span>
+                </span>
+            </div>
+            <button id="review-drafts-launcher-btn" onclick="openReviewDraftsModal()" class="hidden text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
+                👁 סקור טיוטות
+            </button>
+        </div>
+    </div>
+
+    <!-- Calendar legend + actions -->
+    <div class="flex items-center justify-between mb-2 px-1" dir="rtl">
+        <div class="flex items-center gap-4 text-xs text-[#71717a]">
+            <div class="flex items-center gap-1.5">
+                <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#3b82f6;"></span>
+                <span>מחויב</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+                <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:rgba(59,130,246,0.12);border-right:3px solid #3b82f6;"></span>
+                <span>טיוטה (ימולא אוטומטית)</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+                <span class="event-status status-draft" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>
+                <span>טיוטה לאישור</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button type="button" id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                ✨ מלא את היום ב-AI
+            </button>
+            <button type="button" id="ai-fill-day-btn" onclick="aiFillSpecificDay()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                ✨ מלא יום ספציפי
+            </button>
+            <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                ✕ בטל
+            </button>
+            <button type="button" id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                ✨ מלא טיוטות ב-AI
+            </button>
+        </div>
     </div>
 </div>
 
@@ -406,61 +483,6 @@
 </div>
 <script>window.DRAFTS_DATA = {{ drafts_json | safe }};</script>
 {% endif %}
-
-<!-- Today summary banner — polled on load + after ✨ clicks -->
-<div id="today-summary" dir="rtl" class="hidden mb-2 px-3 py-2 rounded-md text-xs bg-[#111318] border border-[#272727] text-[#d4d4d8]">
-    <div class="flex items-center justify-between gap-3 flex-wrap">
-        <div class="flex items-center gap-3 flex-wrap">
-            <span class="text-[#a1a1aa]">היום:</span>
-            <span id="today-summary-drafts"></span>
-            <span id="today-summary-trivia-wrap" class="hidden">
-                <span class="text-[#71717a]">·</span>
-                <a href="/trivia" class="underline underline-offset-2 hover:text-amber-400 mr-1" id="today-summary-trivia"></a>
-                <span id="today-summary-trivia-cats" class="text-[#a1a1aa]"></span>
-            </span>
-            <span id="today-summary-emoji-wrap" class="hidden">
-                <span class="text-[#71717a]">·</span>
-                <a href="/puzzles" class="underline underline-offset-2 hover:text-amber-400 mr-1" id="today-summary-emoji"></a>
-                <span id="today-summary-emoji-preview" class="text-[#a1a1aa]"></span>
-            </span>
-        </div>
-        <button id="review-drafts-launcher-btn" onclick="openReviewDraftsModal()" class="hidden text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1 rounded-md cursor-pointer transition-colors">
-            👁 סקור טיוטות
-        </button>
-    </div>
-</div>
-
-<!-- Calendar legend + actions -->
-<div class="flex items-center justify-between mb-2 px-1" dir="rtl">
-    <div class="flex items-center gap-4 text-xs text-[#71717a]">
-        <div class="flex items-center gap-1.5">
-            <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#3b82f6;"></span>
-            <span>מחויב</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-            <span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:rgba(59,130,246,0.12);border-right:3px solid #3b82f6;"></span>
-            <span>טיוטה (ימולא אוטומטית)</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-            <span class="event-status status-draft" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>
-            <span>טיוטה לאישור</span>
-        </div>
-    </div>
-    <div class="flex items-center gap-2">
-        <button type="button" id="ai-fill-today-btn" onclick="aiFillToday()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
-            ✨ מלא את היום ב-AI
-        </button>
-        <button type="button" id="ai-fill-day-btn" onclick="aiFillSpecificDay()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
-            ✨ מלא יום ספציפי
-        </button>
-        <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
-            ✕ בטל
-        </button>
-        <button type="button" id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
-            ✨ מלא טיוטות ב-AI
-        </button>
-    </div>
-</div>
 
 <!-- Calendar container -->
 <div id="calendar" class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4"></div>
@@ -2073,6 +2095,14 @@ var holidayBlackoutMap = {};
 holidayBlackouts.forEach(function(item) {
     if (item && item.date) holidayBlackoutMap[item.date] = item;
 });
+
+function syncPlannerStickyOffset() {
+    var bar = document.getElementById('planner-sticky-bar');
+    if (!bar) return;
+    var bottom = Math.ceil(bar.getBoundingClientRect().bottom);
+    document.documentElement.style.setProperty('--planner-sticky-offset', (bottom + 12) + 'px');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     var calendarEl = document.getElementById('calendar');
 
@@ -2326,6 +2356,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     calendar.render();
+    syncPlannerStickyOffset();
+    window.addEventListener('resize', syncPlannerStickyOffset);
+    window.addEventListener('scroll', syncPlannerStickyOffset, {passive: true});
 
     // Wire up textarea live updates
     document.getElementById('create-text').addEventListener('input', function() {
@@ -2533,6 +2566,7 @@ async function refreshTodaySummary() {
         // and visible on /trivia and /puzzles — no need to persist them here.
         if (drafts === 0) {
             bar.classList.add('hidden');
+            if (typeof syncPlannerStickyOffset === 'function') syncPlannerStickyOffset();
             return;
         }
         bar.classList.remove('hidden');
@@ -2548,6 +2582,7 @@ async function refreshTodaySummary() {
         if (ew) ew.classList.add('hidden');
 
         document.getElementById('review-drafts-launcher-btn').classList.remove('hidden');
+        if (typeof syncPlannerStickyOffset === 'function') syncPlannerStickyOffset();
     } catch (e) { /* silent */ }
 }
 
