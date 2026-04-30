@@ -485,6 +485,10 @@
                     <span class="type-card-emoji">🌅</span>
                     <span class="type-card-label">הודעת בוקר</span>
                 </div>
+                <div class="type-card" data-type="evening" onclick="selectType('evening')">
+                    <span class="type-card-emoji">🌙</span>
+                    <span class="type-card-label">הודעת ערב</span>
+                </div>
                 <div class="type-card" data-type="discussion" onclick="selectType('discussion')">
                     <span class="type-card-emoji">💬</span>
                     <span class="type-card-label">שאלה לדיון</span>
@@ -508,6 +512,26 @@
                 <div class="type-card" data-type="trivia" onclick="selectType('trivia')">
                     <span class="type-card-emoji">🧠</span>
                     <span class="type-card-label">טריוויה</span>
+                </div>
+                <div class="type-card" data-type="trivia_round" onclick="selectType('trivia_round')">
+                    <span class="type-card-emoji">🧠</span>
+                    <span class="type-card-label">סיבוב טריוויה מתוזמן</span>
+                </div>
+                <div class="type-card" data-type="emoji_puzzle" onclick="selectType('emoji_puzzle')">
+                    <span class="type-card-emoji">🎬</span>
+                    <span class="type-card-label">Emoji Night</span>
+                </div>
+                <div class="type-card" data-type="free_games" onclick="selectType('free_games')">
+                    <span class="type-card-emoji">🎮</span>
+                    <span class="type-card-label">משחקים חינם</span>
+                </div>
+                <div class="type-card" data-type="weekly_roundup" onclick="selectType('weekly_roundup')">
+                    <span class="type-card-emoji">📊</span>
+                    <span class="type-card-label">סיכום שבועי</span>
+                </div>
+                <div class="type-card" data-type="weekly_leaderboard" onclick="selectType('weekly_leaderboard')">
+                    <span class="type-card-emoji">🏆</span>
+                    <span class="type-card-label">טבלת רמות</span>
                 </div>
             </div>
         </div>
@@ -895,20 +919,40 @@ var CHANNEL_COLORS = {
 
 var TYPE_DEFAULTS = {
     morning:    { time: '09:00', days: [0, 2, 4], recurrence: 'custom' },
+    evening:    { time: '21:00', days: [0, 2, 4], recurrence: 'custom' },
     discussion: { time: '18:00' },
     poll:       { time: '18:00' },
     event:      { time: '18:00' },
     digest:     { time: '10:00', days: [5], recurrence: 'custom' },
+    trivia_round: { time: '21:00' },
+    emoji_puzzle: { time: '22:00' },
+    free_games: { time: '10:00' },
+    weekly_roundup: { time: '18:00', days: [5], recurrence: 'custom' },
+    weekly_leaderboard: { time: '18:00', days: [4], recurrence: 'custom' },
     custom:     { time: '18:00' },
 };
 
 var TYPE_PLACEHOLDERS = {
     morning: 'כתוב את הודעת הבוקר...',
+    evening: 'כתוב את הודעת הערב...',
     discussion: 'מה השאלה לדיון?',
     poll: 'שאלת הסקר...',
     event: 'פרטי האירוע...',
     digest: 'סיכום שבועי...',
+    trivia_round: 'תיאור קצר שיופיע בלוח בלבד. בזמן התזמון הבוט יפעיל סיבוב טריוויה.',
+    emoji_puzzle: 'תיאור קצר שיופיע בלוח בלבד. בזמן התזמון הבוט יפעיל Emoji Night.',
+    free_games: 'תיאור קצר שיופיע בלוח בלבד. בזמן התזמון הבוט יבדוק וישלח משחק חינם חדש.',
+    weekly_roundup: 'תיאור קצר שיופיע בלוח בלבד. בזמן התזמון הבוט יפיק סיכום שבועי חי.',
+    weekly_leaderboard: 'תיאור קצר שיופיע בלוח בלבד. בזמן התזמון הבוט יפיק טבלת רמות חיה.',
     custom: 'כתוב את ההודעה...',
+};
+
+var TYPE_DEFAULT_TEXT = {
+    trivia_round: '🧠 סיבוב טריוויה מתוזמן',
+    emoji_puzzle: '🎬 Emoji Night מתוזמן',
+    free_games: '🎮 בדיקת משחקים חינם',
+    weekly_roundup: '📊 סיכום שבועי מתוזמן',
+    weekly_leaderboard: '🏆 טבלת רמות שבועית מתוזמנת',
 };
 
 var TOPIC_NAMES = {
@@ -1009,6 +1053,10 @@ function selectType(type) {
     // Update placeholder
     var textarea = document.getElementById('create-text');
     if (textarea) textarea.placeholder = TYPE_PLACEHOLDERS[type] || TYPE_PLACEHOLDERS.custom;
+    if (textarea && TYPE_DEFAULT_TEXT[type] && !wizardState.text.trim()) {
+        wizardState.text = TYPE_DEFAULT_TEXT[type];
+        textarea.value = wizardState.text;
+    }
 
     // Trivia gets its own panel; hide everything else when trivia is selected
     var isTrivia = (type === 'trivia');
@@ -1022,7 +1070,7 @@ function selectType(type) {
     // Show/hide conditional fields (no-ops when trivia is selected)
     document.getElementById('poll-fields').classList.toggle('hidden', type !== 'poll');
     document.getElementById('event-fields').classList.toggle('hidden', type !== 'event');
-    document.getElementById('days-fields').classList.toggle('hidden', type !== 'morning' && type !== 'digest');
+    document.getElementById('days-fields').classList.toggle('hidden', type !== 'morning' && type !== 'evening' && type !== 'digest' && type !== 'weekly_roundup' && type !== 'weekly_leaderboard');
 
     // Pre-fill day toggles
     document.querySelectorAll('.day-toggle').forEach(function(btn) {
@@ -1317,8 +1365,8 @@ async function aiGenerateContent() {
     var btnText = document.getElementById('ai-gen-btn-text');
     var ta = document.getElementById('create-text');
     var type = wizardState.type;
-    if (!type || ['morning','evening','discussion'].indexOf(type) === -1) {
-        showToast('AI זמין רק לסוגים: בוקר, ערב, דיון', 'error');
+    if (!type || ['morning','evening','discussion','custom','poll'].indexOf(type) === -1) {
+        showToast('AI זמין לסוגי תוכן טקסטואליים בלבד', 'error');
         return;
     }
     if (type === 'discussion' && !wizardState.category) {
@@ -1618,7 +1666,7 @@ function openDrawer(date) {
 
 function renderGameLauncherDetails(props) {
     var type = props.messageType || '';
-    if (type !== 'trivia_round' && type !== 'emoji_puzzle') return '';
+    if (['trivia_round', 'emoji_puzzle', 'free_games', 'weekly_roundup', 'weekly_leaderboard'].indexOf(type) === -1) return '';
     var payload = props.gamePayload || {};
     var topicName = props.channelTopicId && TOPIC_NAMES[props.channelTopicId]
         ? TOPIC_NAMES[props.channelTopicId]
@@ -1632,6 +1680,18 @@ function renderGameLauncherDetails(props) {
             '<div>נושא: <strong>' + escapeHtml(payload.theme_label || cats.join(', ') || 'כללי') + '</strong> · שאלות: <strong>' + escapeHtml(payload.question_count || 'ברירת מחדל') + '</strong> · פתיח: <strong>' + escapeHtml(payload.pre_roll_s || 30) + ' שניות</strong></div>' +
             (payload.teaser_topic_id ? '<div>טיזר קצר בזמן ההפעלה יישלח גם לערוץ: <strong>' + escapeHtml(TOPIC_NAMES[payload.teaser_topic_id] || ('topic ' + payload.teaser_topic_id)) + '</strong>.</div>' : '') +
             '</div>';
+    }
+    if (type === 'free_games') {
+        return '<div class="font-medium text-emerald-200 mb-1">זה מפעיל בדיקת RSS למשחקים חינם, לא שולח את הטקסט הזה.</div>' +
+            '<div>בשעה המתוזמנת הבוט יחפש משחק חינם חדש וישלח אותו לערוץ הניתוב של משחקים חינם.</div>';
+    }
+    if (type === 'weekly_roundup') {
+        return '<div class="font-medium text-emerald-200 mb-1">זה מפיק סיכום שבועי חי, לא שולח את הטקסט הזה.</div>' +
+            '<div>בשעה המתוזמנת הבוט יחשב סטטיסטיקות עדכניות וישלח סיכום לערוץ הניתוב.</div>';
+    }
+    if (type === 'weekly_leaderboard') {
+        return '<div class="font-medium text-emerald-200 mb-1">זה מפיק טבלת רמות חיה, לא שולח את הטקסט הזה.</div>' +
+            '<div>בשעה המתוזמנת הבוט יחשב את מובילי השבוע וישלח לערוץ הניתוב.</div>';
     }
     return '<div class="font-medium text-emerald-200 mb-1">זה מפעיל פעילות משחק, לא הודעה רגילה.</div>' +
         '<div>בשעה המתוזמנת הבוט יריץ את הפעילות בערוץ: <strong>' + escapeHtml(topicName) + '</strong>.</div>';
@@ -1665,7 +1725,7 @@ function openEditDrawer(id, props, start) {
     // Show type-specific fields
     document.getElementById('poll-fields').classList.toggle('hidden', wizardState.type !== 'poll');
     document.getElementById('event-fields').classList.toggle('hidden', wizardState.type !== 'event');
-    document.getElementById('days-fields').classList.toggle('hidden', wizardState.type !== 'morning' && wizardState.type !== 'digest');
+    document.getElementById('days-fields').classList.toggle('hidden', wizardState.type !== 'morning' && wizardState.type !== 'evening' && wizardState.type !== 'digest' && wizardState.type !== 'weekly_roundup' && wizardState.type !== 'weekly_leaderboard');
 
     // Fill text
     var textarea = document.getElementById('create-text');
@@ -1737,7 +1797,9 @@ function openEditDrawer(id, props, start) {
     // "change type" hint at the top so users can navigate back to step 1.
     var typeLabels = {morning:'🌅 הודעת בוקר', evening:'🌙 הודעת ערב', discussion:'💬 שאלה לדיון',
                        poll:'📊 סקר', event:'🎮 אירוע', digest:'🔁 סיכום שבועי',
-                       custom:'⚡ הודעה חופשית', trivia:'🧠 טריוויה', trivia_round:'🧠 סיבוב טריוויה'};
+                       custom:'⚡ הודעה חופשית', trivia:'🧠 טריוויה', trivia_round:'🧠 סיבוב טריוויה',
+                       emoji_puzzle:'🎬 Emoji Night', free_games:'🎮 משחקים חינם',
+                       weekly_roundup:'📊 סיכום שבועי', weekly_leaderboard:'🏆 טבלת רמות'};
     var indicator = document.getElementById('edit-type-indicator');
     var label = document.getElementById('edit-type-label');
     if (indicator && label) {
@@ -2086,7 +2148,7 @@ document.addEventListener('DOMContentLoaded', function() {
         eventContent: function(arg) {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
-            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',emoji_puzzle:'🧩'}[props.messageType] || '📌';
+            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',emoji_puzzle:'🎬',free_games:'🎮',weekly_roundup:'📊',weekly_leaderboard:'🏆'}[props.messageType] || '📌';
             var leadingMark = props.isPreview
                 ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="טיוטה">✎</span>'
                 : '<span class="event-status ' + statusClass + '"></span>';

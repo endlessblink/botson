@@ -920,6 +920,9 @@ _CAL_TYPE_STYLE = {
     "trivia":     {"emoji": "🧠", "label": "טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
     "trivia_round": {"emoji": "🧠", "label": "סיבוב טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
     "emoji_puzzle": {"emoji": "🎬", "label": "Emoji Night", "css": "bg-pink-500/20 text-pink-200 border-pink-500/40"},
+    "free_games": {"emoji": "🎮", "label": "משחקים חינם", "css": "bg-sky-500/20 text-sky-200 border-sky-500/40"},
+    "weekly_roundup": {"emoji": "📊", "label": "סיכום שבועי", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
+    "weekly_leaderboard": {"emoji": "🏆", "label": "טבלת רמות", "css": "bg-yellow-500/20 text-yellow-200 border-yellow-500/40"},
     "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
     "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
 }
@@ -3238,7 +3241,7 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
    - **אם hebrew_day_num ברשימה** — הפק תוכן רגיל.
    - **אם hebrew_day_num לא ברשימה אבל הרשימה לא ריקה — חובה להציע תוכן בכל זאת**, אלא אם events_today או scheduled_messages_today כבר מכסים אותו slot של היום באותו טופיק. אל תשתמש ב"הימים לא כוללים את היום" כתירוץ לא להפיק. סמן needs_review=true ורשום ב-notes_for_admin תחת **"הצעות יוזמה"**.
    - **morning, evening, discussion** — הקהילה פעילה כל יום בשבוע, כולל שבת. אם הסקציה לא ריקה — חייב להציע (מינימום אחד מהשניים: morning או evening, ועדיף שניהם בימים שאינם בלו"ז כדי לכסות את היום).
-   - **trivia ו-emoji** — אם הסקציה לא ריקה, הצע batch אחד ביום (גם בימים מחוץ ללו"ז). idempotence נשמר ע"י הקטגוריות הקיימות.
+    - **trivia, emoji, free_games, weekly_roundup, weekly_leaderboard** — אם הסקציה לא ריקה, מותר להציע סלוט ביצוע ישיר עם type מתאים מתוך הסכמה. idempotence נשמר ע"י existing_drafts_today.
    - יוצא מן הכלל יחיד: **חג עם block_auto:true** — דלג כל הסקציות, כבר מכוסה ע"י short-circuit במשתנה holiday.
 
 6. **אל תכפיל מול existing_drafts_today.** הרשימה כוללת ai-fill-today rows מכל סטטוס (draft, scheduled, sent) — לא רק drafts ממתינים. הכלל:
@@ -3410,7 +3413,7 @@ def _today_plan_tool_schema() -> dict:
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "type": {"type": "string", "enum": ["morning", "evening", "discussion", "custom"]},
+                            "type": {"type": "string", "enum": ["morning", "evening", "discussion", "custom", "trivia_round", "emoji_puzzle", "free_games", "weekly_roundup", "weekly_leaderboard"]},
                             "scheduled_time": {"type": "string", "description": "HH:MM from schedule config."},
                             "topic_id": {"type": "integer"},
                             "text": {"type": "string", "description": "Hebrew. Morning/evening = 1-2 lines with emoji. Discussion = 1 question."},
@@ -3625,7 +3628,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
     schedule = settings.get("schedule", {})
     schedule_snapshot = {
         key: schedule.get(key, {})
-        for key in ("morning_prompt", "evening_prompt", "discussion_prompt", "trivia", "emoji_puzzle")
+        for key in ("morning_prompt", "evening_prompt", "discussion_prompt", "trivia", "emoji_puzzle", "free_games", "weekly_roundup", "weekly_leaderboard")
     }
 
     # Discussion categories available today
@@ -4092,7 +4095,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         except Exception as e:
             errors.append(f"reminder insert {covered}: {e}")
 
-    # ── Regular slots (morning/evening/discussion) ─────────────────────────
+    # ── Regular slots and executable activities ────────────────────────────
     # Dedup key includes topic_id so two discussions at the same time in
     # different channels are NOT collapsed (legitimate case). Considers ALL
     # ai-fill-today rows for today (draft / scheduled / sent) — so once
@@ -4106,7 +4109,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         stime = (slot.get("scheduled_time") or "").strip()
         topic = slot.get("topic_id")
         text = (slot.get("text") or "").strip()
-        if mtype not in ("morning", "evening", "discussion", "custom"):
+        if mtype not in ("morning", "evening", "discussion", "custom", "trivia_round", "emoji_puzzle", "free_games", "weekly_roundup", "weekly_leaderboard"):
             errors.append(f"slot rejected (bad type): {slot}")
             continue
         if not _valid_hhmm(stime) or not text:
@@ -4297,7 +4300,7 @@ async def today_summary(request: Request, db: Database = Depends(get_db)):
 async def generate_content(request: Request, db: Database = Depends(get_db)):
     """Generate a single message via Claude for the create-drawer textarea.
 
-    Body: {type: morning|evening|discussion, category?: str, existing?: str}
+    Body: {type: morning|evening|discussion|custom|poll, category?: str, existing?: str}
     Returns: {text: str}
     """
     if not request.session.get("authenticated"):
@@ -4308,7 +4311,7 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     category = (data.get("category") or "").strip()
     existing = (data.get("existing") or "").strip()
 
-    if mtype not in ("morning", "evening", "discussion"):
+    if mtype not in ("morning", "evening", "discussion", "custom", "poll"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
     if mtype == "discussion" and not category:
         raise HTTPException(status_code=400, detail="Discussion requires category")
@@ -5296,11 +5299,14 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     raw_topic = data.get("channel_topic_id")
     message_type, poll_options = _coerce_game_message_fields(raw_type, data["text"], poll_options, raw_topic)
     channel_topic_id = raw_topic
-    if message_type == "trivia_round" and raw_type != "trivia_round":
+    if message_type == "trivia_round" and (raw_type != "trivia_round" or not raw_topic):
         routing = await db.get_handler_routing("trivia_round")
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
-    elif message_type == "emoji_puzzle" and raw_type != "emoji_puzzle":
+    elif message_type == "emoji_puzzle" and (raw_type != "emoji_puzzle" or not raw_topic):
         routing = await db.get_handler_routing("emoji_puzzle")
+        channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
+    elif message_type in {"free_games", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
+        routing = await db.get_handler_routing(message_type)
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
     msg_id = await db.create_scheduled_message(
         text=data["text"],
@@ -5345,12 +5351,16 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
         fields["message_type"] = coerced_type
         if coerced_poll_options is not None:
             fields["poll_options"] = coerced_poll_options
-        if coerced_type == "trivia_round" and raw_type != "trivia_round":
+        if coerced_type == "trivia_round" and (raw_type != "trivia_round" or not raw_topic):
             routing = await db.get_handler_routing("trivia_round")
             if routing and routing.get("play_topic_id") is not None:
                 fields["channel_topic_id"] = routing["play_topic_id"]
-        elif coerced_type == "emoji_puzzle" and raw_type != "emoji_puzzle":
+        elif coerced_type == "emoji_puzzle" and (raw_type != "emoji_puzzle" or not raw_topic):
             routing = await db.get_handler_routing("emoji_puzzle")
+            if routing and routing.get("play_topic_id") is not None:
+                fields["channel_topic_id"] = routing["play_topic_id"]
+        elif coerced_type in {"free_games", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
+            routing = await db.get_handler_routing(coerced_type)
             if routing and routing.get("play_topic_id") is not None:
                 fields["channel_topic_id"] = routing["play_topic_id"]
     if "recurrence_days" in fields and isinstance(fields["recurrence_days"], list):
@@ -5447,13 +5457,50 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     Returns the sent Telegram message_id. Raises on error.
     """
     from telegram import Bot
+    from types import SimpleNamespace
     from bot.handlers.calendar import (
         send_message_with_optional_cover,
         send_poll_message,
         _parse_poll_options,
     )
+    from bot.handlers.emoji_puzzle import start_emoji_night
+    from bot.handlers.free_games import send_free_games
+    from bot.handlers.levels import send_weekly_leaderboard
+    from bot.handlers.roundup import send_weekly_roundup
+    from bot.handlers.trivia_round import start_scheduled_trivia_round
     bot = Bot(os.getenv("BOT_TOKEN", ""))
     group_id = int(os.getenv("TEST_GROUP_ID", "0") if target == "test" else os.getenv("GROUP_ID", "0"))
+    context = SimpleNamespace(bot=bot, bot_data={"db": db})
+
+    if msg.get("message_type") == "trivia_round":
+        msg = dict(msg)
+        msg["_resolved_chat_id"] = group_id
+        await start_scheduled_trivia_round(context, msg)
+        if target != "test":
+            await db.mark_message_sent(msg["id"], 0)
+        return 0
+    if msg.get("message_type") == "emoji_puzzle":
+        session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
+        if session_id is None:
+            raise RuntimeError("Emoji Night did not start")
+        if target != "test":
+            await db.mark_message_sent(msg["id"], 0)
+        return 0
+    if msg.get("message_type") == "free_games":
+        await send_free_games(context)
+        if target != "test":
+            await db.mark_message_sent(msg["id"], 0)
+        return 0
+    if msg.get("message_type") == "weekly_roundup":
+        await send_weekly_roundup(context)
+        if target != "test":
+            await db.mark_message_sent(msg["id"], 0)
+        return 0
+    if msg.get("message_type") == "weekly_leaderboard":
+        await send_weekly_leaderboard(context)
+        if target != "test":
+            await db.mark_message_sent(msg["id"], 0)
+        return 0
 
     opts = _parse_poll_options(msg.get("poll_options"))
     if msg.get("message_type") == "poll" and len(opts) >= 2:

@@ -14,6 +14,9 @@ from telegram.ext import ContextTypes
 from ..database.db import Database
 from .emoji_puzzle import send_scheduled_emoji_message, start_emoji_night
 from .trivia_round import start_scheduled_trivia_round
+from .free_games import send_free_games
+from .levels import send_weekly_leaderboard
+from .roundup import send_weekly_roundup
 from ..utils.config import should_skip_scheduled_message
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
@@ -341,6 +344,15 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
                 if session_id is None:
                     raise RuntimeError("Emoji Night did not start")
+                sent = SimpleNamespace(message_id=0)
+            elif msg.get("message_type") == "free_games":
+                await send_free_games(context)
+                sent = SimpleNamespace(message_id=0)
+            elif msg.get("message_type") == "weekly_roundup":
+                await send_weekly_roundup(context)
+                sent = SimpleNamespace(message_id=0)
+            elif msg.get("message_type") == "weekly_leaderboard":
+                await send_weekly_leaderboard(context)
                 sent = SimpleNamespace(message_id=0)
             elif msg.get("message_type", "").startswith("emoji_puzzle_"):
                 sent = await send_scheduled_emoji_message(bot, db, msg)
