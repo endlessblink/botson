@@ -836,7 +836,7 @@
 <!-- Review-drafts modal — opens after ✨ click + via banner -->
 <div id="review-drafts-modal" class="hidden fixed inset-0 z-[55] flex items-center justify-center p-4" dir="rtl">
     <div class="absolute inset-0 bg-black/70" onclick="closeReviewDraftsModal()"></div>
-    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1200px] max-h-[90vh] flex flex-col overflow-hidden">
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1200px] max-h-[90vh] flex flex-col overflow-hidden min-h-0">
         <!-- Header -->
         <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between flex-shrink-0">
             <div>
@@ -846,12 +846,12 @@
             <button onclick="closeReviewDraftsModal()" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer text-xl leading-none">&times;</button>
         </div>
         <!-- AI notes (collapsible) -->
-        <div id="review-drafts-notes" class="hidden px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] text-xs text-[#a1a1aa] flex-shrink-0">
+        <div id="review-drafts-notes" class="hidden px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] text-xs text-[#a1a1aa] flex-shrink-0 max-h-[28vh] overflow-y-auto">
             <div class="font-medium text-[#d4d4d8] mb-1">הערות מה-AI:</div>
             <div id="review-drafts-notes-text" class="leading-relaxed"></div>
         </div>
         <!-- Cards -->
-        <div id="review-drafts-list" class="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-[#0a0a0a]">
+        <div id="review-drafts-list" class="flex-1 min-h-[260px] overflow-y-auto px-5 py-4 space-y-3 bg-[#0a0a0a]">
             <!-- card template lives in JS; populated dynamically -->
         </div>
         <!-- Footer -->
