@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% set active_page = "activities" %}
+
+{% block title %}Botson — פעילויות{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+    <div>
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">פעילויות</h1>
+        <p class="text-sm text-[#71717a] mt-1">כל מה שהבוט מפעיל בקהילה: משחקים, שאלות, אירועים ותוכן מתוזמן.</p>
+    </div>
+    <div class="flex items-center gap-2">
+        <a href="/planner" class="text-sm bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] px-3 py-1.5 rounded-md font-medium transition-colors">פתח תכנון</a>
+        <a href="/settings" class="text-sm text-[#a1a1aa] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] px-3 py-1.5 rounded-md transition-colors">הגדרות כלליות</a>
+    </div>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="text-xs text-[#71717a]">פעילויות</div>
+        <div class="text-2xl font-semibold text-[#fafafa] mt-1 stat-number">{{ activities|length }}</div>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="text-xs text-[#71717a]">פעילות</div>
+        <div class="text-2xl font-semibold text-emerald-300 mt-1 stat-number">{{ activities|selectattr('enabled')|list|length }}</div>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="text-xs text-[#71717a]">כבויות</div>
+        <div class="text-2xl font-semibold text-[#a1a1aa] mt-1 stat-number">{{ activities|rejectattr('enabled')|list|length }}</div>
+    </div>
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <div class="text-xs text-[#71717a]">מאגרי תוכן</div>
+        <div class="text-2xl font-semibold text-amber-300 mt-1 stat-number">{{ activities|selectattr('count')|list|length }}</div>
+    </div>
+</div>
+
+<div class="space-y-6">
+    {% for category in categories %}
+    <section>
+        <div class="flex items-center justify-between mb-3 px-1">
+            <h2 class="text-sm font-semibold text-[#fafafa]">{{ category.name }}</h2>
+            <span class="text-xs text-[#52525b]">{{ category.rows|length }} פריטים</span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            {% for item in category.rows %}
+            <article class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 hover:border-[#272727] transition-colors">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="w-9 h-9 rounded-lg bg-[#111318] border border-[#272727] flex items-center justify-center text-lg shrink-0">{{ item.emoji }}</span>
+                        <div class="min-w-0">
+                            <h3 class="text-sm font-medium text-[#fafafa] truncate">{{ item.title }}</h3>
+                            <p class="text-xs text-[#71717a] mt-0.5 truncate">{{ item.summary }}</p>
+                        </div>
+                    </div>
+                    <span class="text-[11px] px-2 py-1 rounded-md border {% if item.enabled %}bg-emerald-500/10 text-emerald-300 border-emerald-500/20{% else %}bg-zinc-500/10 text-zinc-400 border-zinc-500/20{% endif %}">{{ item.status }}</span>
+                </div>
+
+                <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs mb-4">
+                    <div>
+                        <dt class="text-[#52525b]">קבוצות</dt>
+                        <dd class="text-[#d4d4d8] mt-0.5">{{ item.groups }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-[#52525b]">מאגר</dt>
+                        <dd class="text-[#d4d4d8] mt-0.5">{% if item.count is not none %}{{ item.count }} פריטים{% else %}—{% endif %}</dd>
+                    </div>
+                    <div class="col-span-2">
+                        <dt class="text-[#52525b]">תזמון</dt>
+                        <dd class="text-[#d4d4d8] mt-0.5">{{ item.schedule }}</dd>
+                    </div>
+                    {% if item.routing %}
+                    <div class="col-span-2">
+                        <dt class="text-[#52525b]">Topic יעד</dt>
+                        <dd class="text-[#d4d4d8] mt-0.5 stat-number">{{ item.routing }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if item.detail %}
+                    <div class="col-span-2 text-[#71717a] leading-relaxed">{{ item.detail }}</div>
+                    {% endif %}
+                </dl>
+
+                <div class="flex items-center justify-between gap-2">
+                    <a href="{{ item.href }}" class="text-xs text-amber-300 hover:text-amber-200 border border-amber-500/20 hover:border-amber-500/40 rounded-md px-3 py-1.5 transition-colors">ניהול</a>
+                    <a href="/planner" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] hover:bg-[#171717] rounded-md px-3 py-1.5 transition-colors">תזמן</a>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+{% endblock %}

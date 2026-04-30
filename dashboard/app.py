@@ -2575,6 +2575,124 @@ def _is_feature_enabled_simple(features: dict, key: str) -> bool:
     return _is_feature_enabled(key)
 
 
+def _activity_feature_state(settings: dict, key: str) -> dict:
+    features = settings.get("features", {}) or {}
+    raw = features.get(key, False)
+    if isinstance(raw, dict):
+        return {
+            "enabled": bool(raw.get("enabled", False)),
+            "groups": raw.get("groups", []) or [],
+        }
+    return {"enabled": bool(raw), "groups": []}
+
+
+def _activity_schedule_label(settings: dict, key: str) -> str:
+    schedule = (settings.get("schedule", {}) or {}).get(key) or {}
+    if not isinstance(schedule, dict) or not schedule:
+        return "ללא תזמון"
+    days_he = ["א", "ב", "ג", "ד", "ה", "ו", "ש"]
+    days = schedule.get("days", []) or []
+    day_label = "ימים: " + ", ".join(days_he[int(d)] for d in days if isinstance(d, int) and 0 <= d < 7) if days else "ימים: כבוי"
+    if "times" in schedule:
+        time_label = ", ".join(str(t) for t in schedule.get("times") or []) or "ללא שעה"
+    else:
+        time_label = str(schedule.get("time") or "ללא שעה")
+    return f"{day_label} · {time_label}"
+
+
+def _count_pool_items(data) -> int:
+    if isinstance(data, list):
+        return len(data)
+    if isinstance(data, dict):
+        total = 0
+        for value in data.values():
+            total += _count_pool_items(value)
+        return total
+    return 0
+
+
+def _activity_status_label(enabled: bool) -> str:
+    return "פעיל" if enabled else "כבוי"
+
+
+async def _build_activities_context(db: Database) -> dict:
+    settings = get_settings()
+    prompts = load_yaml("prompts.yaml") or {}
+    discussions = load_yaml("discussions.yaml") or {}
+    trivia = load_yaml("trivia.yaml") or {}
+    facts = load_yaml("facts.yaml") or {}
+    emoji_puzzles = await db.list_emoji_puzzles()
+    events = await db.get_all_events()
+    recent_free_games = await db.recent_free_games(20)
+
+    routing_names = {}
+    for handler in (
+        "trivia_round", "emoji_puzzle", "free_games", "weekly_roundup",
+        "weekly_leaderboard", "events_publish", "events_reminder",
+    ):
+        try:
+            row = await db.get_handler_routing(handler)
+            routing_names[handler] = row.get("play_topic_id") if row else None
+        except Exception:
+            routing_names[handler] = None
+
+    def feature(key: str) -> dict:
+        return _activity_feature_state(settings, key)
+
+    def groups_label(key: str) -> str:
+        groups = feature(key)["groups"]
+        if not groups:
+            return "כללי"
+        names = {"main": "ראשית", "test": "טסט"}
+        return ", ".join(names.get(g, g) for g in groups)
+
+    def item(title, emoji, key, category, summary, href, count=None, schedule_key=None, routing_key=None, detail=None):
+        state = feature(key) if key else {"enabled": False, "groups": []}
+        return {
+            "title": title,
+            "emoji": emoji,
+            "key": key,
+            "category": category,
+            "summary": summary,
+            "href": href,
+            "count": count,
+            "detail": detail or "",
+            "enabled": state["enabled"],
+            "status": _activity_status_label(state["enabled"]),
+            "groups": groups_label(key) if key else "—",
+            "schedule": _activity_schedule_label(settings, schedule_key or key) if (schedule_key or key) else "ללא תזמון",
+            "routing": routing_names.get(routing_key) if routing_key else None,
+        }
+
+    activities = [
+        item("שאלות בוקר", "🌅", "morning_prompt", "שיחות ופרומפטים", "פתיחת יום קבועה לקהילה", "/prompts", count=len(prompts.get("morning", []) or [])),
+        item("שאלות ערב", "🌙", "evening_prompt", "שיחות ופרומפטים", "סגירת יום ושיתוף התקדמות", "/prompts", count=len(prompts.get("evening", []) or [])),
+        item("שאלות לדיון", "💬", "discussions", "שיחות ופרומפטים", "מאגר שאלות לפי ערוצים ונושאים", "/prompts", count=_count_pool_items(discussions), schedule_key="discussion_prompt"),
+        item("טריוויה", "🧠", "trivia", "משחקים", "סיבובי טריוויה, שאלות וניקוד", "/planner", count=len(trivia.get("questions", []) or []), routing_key="trivia_round", detail="ניהול ההרצה נמצא במגירת התכנון"),
+        item("חידות אימוג'י", "🎬", "emoji_puzzle", "משחקים", "Emoji Night וסבבי חידות", "/puzzles", count=len(emoji_puzzles), routing_key="emoji_puzzle"),
+        item("משחקים חינם", "🎮", "free_games", "משחקים", "RSS של מבצעי משחקים חינמיים", "/free-games", count=len(recent_free_games), routing_key="free_games"),
+        item("עובדות מעניינות", "🔎", None, "תוכן מעניין", "מאגר tidbit ו-spooky מתוך facts.yaml", "/settings", count=_count_pool_items(facts), detail="עדיין אין מסך ניהול מלא; המאגר קיים בקובץ config/facts.yaml"),
+        item("סיכום שבועי", "📊", "roundup", "תוכן מעניין", "סיכום פעילות ותוכן סוף שבוע", "/planner", schedule_key="weekly_roundup", routing_key="weekly_roundup"),
+        item("טבלת רמות שבועית", "🏆", "levels", "תוכן מעניין", "פרסום leaderboard קבוע", "/levels", schedule_key="weekly_leaderboard", routing_key="weekly_leaderboard"),
+        item("אירועים", "🎉", "events", "אירועים", "יצירה, פרסום ו-RSVP", "/events", count=len(events), routing_key="events_publish"),
+        item("ברוכים הבאים", "👋", "welcome", "אירועים", "קליטת מצטרפים והודעות פתיחה", "/settings", detail="כולל batch window ו-topic קבלה"),
+    ]
+
+    categories = []
+    for name in ("שיחות ופרומפטים", "משחקים", "תוכן מעניין", "אירועים"):
+        rows = [a for a in activities if a["category"] == name]
+        categories.append({"name": name, "rows": rows})
+    return {"settings": settings, "activities": activities, "categories": categories}
+
+
+@app.get("/activities", response_class=HTMLResponse)
+async def activities_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+    context = await _build_activities_context(db)
+    return templates.TemplateResponse(request, name="activities.html", context=context)
+
+
 @app.get("/api/weekplan/discussion-sample")
 async def get_discussion_sample(request: Request, category: str):
     """Return the first question from a discussion category pool."""

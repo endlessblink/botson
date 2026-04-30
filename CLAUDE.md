@@ -41,6 +41,13 @@ The dashboard is the primary control interface. Users should never need to use T
 - Bot health monitoring
 - Config reload / bot restart
 
+## Dashboard UI Change Guardrails
+
+- **Disambiguate repeated UI names before editing.** In this dashboard, terms like "sidebar", "drawer", "panel", "planner", "review", and "schedule" can refer to multiple visible surfaces. Before changing UI for any ambiguous term, inspect the relevant templates/routes and confirm the exact target in one sentence, e.g. "I am changing the global dashboard sidebar in `base.html`, not the planner create drawer." If the target is still unclear, ask one short question before editing.
+- **Global navigation lives in `dashboard/templates/base.html`.** The planner create side panel lives in `dashboard/templates/planner.html` and should be called the "planner drawer" or "create drawer", not the sidebar. Do not modify the planner drawer when the request is about the dashboard sidebar/navigation unless explicitly asked.
+- **Preserve compactness unless the user asks for expansion.** The dashboard navigation should stay dense and scannable. Prefer grouping, ordering, and label clarity over larger cards, long descriptions, or extra vertical spacing.
+- **Visually validate navigation changes before deploy.** For dashboard/sidebar/nav changes, run a headless Playwright CLI check or screenshot against the local dashboard before committing/deploying. Validate the intended labels are visible and the active route is highlighted.
+
 ## Trivia Round Scheduling
 
 When scheduling a trivia game, follow these rules — they exist because the calendar listing must be honest about what will fire.
