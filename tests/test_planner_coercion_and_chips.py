@@ -12,9 +12,11 @@ Covers the issues that bit us on 2026-04-27:
 """
 import json
 import asyncio
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from bot.database.db import Database
 from bot.handlers import calendar as bot_calendar
 from bot.handlers.trivia_round import _pick_questions
 from dashboard import app as dashboard_app
@@ -157,7 +159,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 }
                 with patch.object(
                     dashboard_app,
-                    "_ensure_trivia_announcement_draft",
+                    "_ensure_trivia_announcement_scheduled",
                     new=AsyncMock(return_value=None),
                 ):
                     res = await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
@@ -179,6 +181,99 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
         self.assertEqual(db.created[0]["message_type"], "custom")
         self.assertEqual(db.created[0]["channel_topic_id"], 54)
+
+    async def test_turning_trivia_live_promotes_existing_warmup_to_scheduled(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_id = await db.create_scheduled_message(
+                    text="🧠 סיבוב טריוויה גיימינג! 10 שאלות",
+                    message_type="trivia_round",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    poll_options=json.dumps({
+                        "pre_roll_s": 30,
+                        "theme_label": "גיימינג",
+                        "categories": ["גיימינג"],
+                        "question_count": 10,
+                    }, ensure_ascii=False),
+                    status="draft",
+                )
+                warmup_id = await db.create_scheduled_message(
+                    text="old warmup",
+                    message_type="custom",
+                    channel_topic_id=341,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="18:00",
+                    created_by=f"trivia-announcement-draft:{game_id}",
+                    status="draft",
+                )
+
+                res = await dashboard_app.schedule_calendar_item(
+                    game_id,
+                    FakeCalendarRequest({}),
+                    db,
+                )
+
+                self.assertEqual(res["status"], "ok")
+                self.assertEqual(res["announcement_draft_id"], warmup_id)
+                async with db._db.execute(
+                    "SELECT status, scheduled_time, channel_topic_id, text FROM scheduled_messages WHERE id = ?",
+                    (warmup_id,),
+                ) as cur:
+                    warmup = await cur.fetchone()
+                self.assertEqual(warmup["status"], "scheduled")
+                self.assertEqual(warmup["scheduled_time"], "18:00")
+                self.assertEqual(warmup["channel_topic_id"], 341)
+                self.assertIn("22:00", warmup["text"])
+            finally:
+                await db.close()
+
+    async def test_turning_trivia_live_creates_warmup_as_scheduled(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_id = await db.create_scheduled_message(
+                    text="🧠 סיבוב טריוויה גיימינג! 10 שאלות",
+                    message_type="trivia_round",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    poll_options=json.dumps({
+                        "pre_roll_s": 30,
+                        "theme_label": "גיימינג",
+                        "categories": ["גיימינג"],
+                        "question_count": 10,
+                    }, ensure_ascii=False),
+                    status="draft",
+                )
+
+                res = await dashboard_app.schedule_calendar_item(
+                    game_id,
+                    FakeCalendarRequest({}),
+                    db,
+                )
+
+                self.assertEqual(res["status"], "ok")
+                warmup_id = res["announcement_draft_id"]
+                self.assertIsInstance(warmup_id, int)
+                async with db._db.execute(
+                    "SELECT status, scheduled_time, channel_topic_id, created_by FROM scheduled_messages WHERE id = ?",
+                    (warmup_id,),
+                ) as cur:
+                    warmup = await cur.fetchone()
+                self.assertEqual(warmup["status"], "scheduled")
+                self.assertEqual(warmup["scheduled_time"], "18:00")
+                self.assertEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["created_by"], f"trivia-announcement-draft:{game_id}")
+            finally:
+                await db.close()
 
 
 class TestPlannerTemplateExposure(unittest.TestCase):
