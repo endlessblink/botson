@@ -2413,10 +2413,15 @@ async function approveDraft(draftId, btn) {
     if (topic) data.channel_topic_id = parseInt(topic);
     if (text) data.text = text;
     try {
-        await fetch('/api/calendar/' + draftId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+        var resp = await fetch('/api/calendar/' + draftId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+        if (!resp.ok) {
+            var err = await resp.json().catch(function() { return {}; });
+            var detail = err && (err.detail || err.message);
+            throw new Error(typeof detail === 'string' ? detail : ('HTTP ' + resp.status));
+        }
         showToast('אושר');
         location.reload();
-    } catch (e) { showToast('שגיאה', 'error'); }
+    } catch (e) { showToast(e.message || 'שגיאה', 'error'); }
 }
 
 async function sendDraft(draftId, target) {

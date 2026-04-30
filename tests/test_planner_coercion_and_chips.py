@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
+
 from bot.database.db import Database
 from bot.handlers import calendar as bot_calendar
 from bot.handlers.trivia_round import _pick_questions
@@ -161,6 +163,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     dashboard_app,
                     "_ensure_trivia_announcement_scheduled",
                     new=AsyncMock(return_value=None),
+                ), patch.object(
+                    dashboard_app,
+                    "_ensure_trivia_pool_ready_for_round",
+                    new=AsyncMock(return_value={"generated": 0, "available": 10, "required": 10}),
                 ):
                     res = await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
 
@@ -213,11 +219,16 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     status="draft",
                 )
 
-                res = await dashboard_app.schedule_calendar_item(
-                    game_id,
-                    FakeCalendarRequest({}),
-                    db,
-                )
+                with patch.object(
+                    dashboard_app,
+                    "_ensure_trivia_pool_ready_for_round",
+                    new=AsyncMock(return_value={"generated": 0, "available": 10, "required": 10}),
+                ):
+                    res = await dashboard_app.schedule_calendar_item(
+                        game_id,
+                        FakeCalendarRequest({}),
+                        db,
+                    )
 
                 self.assertEqual(res["status"], "ok")
                 self.assertEqual(res["announcement_draft_id"], warmup_id)
@@ -230,6 +241,43 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(warmup["scheduled_time"], "18:00")
                 self.assertEqual(warmup["channel_topic_id"], 341)
                 self.assertIn("22:00", warmup["text"])
+            finally:
+                await db.close()
+
+    async def test_turning_trivia_live_blocks_visibly_when_topup_fails(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_id = await db.create_scheduled_message(
+                    text="🧠 סיבוב טריוויה גיימינג! 10 שאלות",
+                    message_type="trivia_round",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    poll_options=json.dumps({
+                        "pre_roll_s": 30,
+                        "theme_label": "גיימינג",
+                        "categories": ["גיימינג"],
+                        "question_count": 10,
+                    }, ensure_ascii=False),
+                    status="draft",
+                )
+
+                with patch.object(
+                    dashboard_app,
+                    "_ensure_trivia_pool_ready_for_round",
+                    new=AsyncMock(side_effect=HTTPException(status_code=503, detail="missing trivia questions")),
+                ):
+                    with self.assertRaises(HTTPException) as ctx:
+                        await dashboard_app.schedule_calendar_item(game_id, FakeCalendarRequest({}), db)
+
+                self.assertEqual(ctx.exception.status_code, 503)
+                self.assertIn("missing trivia questions", ctx.exception.detail)
+                async with db._db.execute("SELECT status FROM scheduled_messages WHERE id = ?", (game_id,)) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["status"], "draft")
             finally:
                 await db.close()
 
@@ -254,11 +302,16 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     status="draft",
                 )
 
-                res = await dashboard_app.schedule_calendar_item(
-                    game_id,
-                    FakeCalendarRequest({}),
-                    db,
-                )
+                with patch.object(
+                    dashboard_app,
+                    "_ensure_trivia_pool_ready_for_round",
+                    new=AsyncMock(return_value={"generated": 0, "available": 10, "required": 10}),
+                ):
+                    res = await dashboard_app.schedule_calendar_item(
+                        game_id,
+                        FakeCalendarRequest({}),
+                        db,
+                    )
 
                 self.assertEqual(res["status"], "ok")
                 warmup_id = res["announcement_draft_id"]
@@ -311,6 +364,11 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         ):
             with self.subTest(message_type=message_type):
                 self.assertIn(f'data-type="{message_type}"', planner_html)
+
+    def test_draft_approval_checks_failed_http_response(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        self.assertIn("if (!resp.ok)", planner_html)
+        self.assertIn("throw new Error", planner_html)
 
         self.assertIn("'custom','poll'", planner_html)
 

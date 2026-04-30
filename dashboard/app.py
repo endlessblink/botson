@@ -1045,6 +1045,98 @@ def _format_trivia_announcement(*, game_time: str, payload: dict) -> str:
     )
 
 
+def _matching_trivia_questions(pool: list, categories: list[str]) -> list[dict]:
+    wanted = {str(c).strip().lower() for c in categories if str(c).strip()}
+    if not wanted:
+        return [q for q in pool if isinstance(q, dict)]
+    return [
+        q for q in pool
+        if isinstance(q, dict) and str(q.get("category") or "").strip().lower() in wanted
+    ]
+
+
+async def _ensure_trivia_pool_ready_for_round(row) -> dict:
+    """Ensure a trivia_round row has enough verified questions before it goes live.
+
+    This is intentionally run during "Turn live" rather than only at fire time:
+    approval should mean the round is actually runnable. If generation fails,
+    the endpoint raises a visible error and leaves the row as draft.
+    """
+    payload = _parse_game_payload(row["poll_options"])
+    categories = [str(c).strip() for c in (payload.get("categories") or []) if str(c).strip()]
+    question_count = max(1, min(20, int(payload.get("question_count") or 10)))
+    if not categories:
+        return {"generated": 0, "available": question_count, "required": question_count}
+
+    trivia_path = CONFIG_DIR / "trivia.yaml"
+    data = load_yaml("trivia.yaml") or {}
+    existing_pool = data.get("questions") or []
+    available = len(_matching_trivia_questions(existing_pool, categories))
+    if available >= question_count:
+        return {"generated": 0, "available": available, "required": question_count}
+
+    missing = question_count - available
+    theme_label = str(payload.get("theme_label") or categories[0]).strip() or categories[0]
+    prompt = build_generation_prompt(
+        "trivia",
+        "append",
+        yaml.safe_dump({"questions": existing_pool}, allow_unicode=True, sort_keys=False),
+        ",".join(categories),
+        theme_label,
+    )
+
+    cli_err = None
+    try:
+        content = await _generate_via_cli(prompt)
+    except Exception as e:
+        cli_err = e
+        logger.warning("trivia top-up: CLI failed, falling back to API: %s", e)
+        try:
+            content = await _generate_via_api(prompt)
+        except Exception as api_err:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "לא הצלחתי לייצר שאלות טריוויה חסרות, ולכן הסיבוב לא הועבר ללייב. "
+                    f"חסרות {missing} שאלות בקטגוריות {categories}. "
+                    f"CLI={cli_err}; API={api_err}"
+                ),
+            )
+
+    questions, invalid = _parse_trivia_blocks(content)
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail="נוצרו שאלות טריוויה לא תקינות, ולכן הסיבוב לא הועבר ללייב: " + "; ".join(invalid[:5]),
+        )
+    try:
+        review_trivia_questions(
+            questions,
+            allowed_categories=categories,
+            existing_questions=existing_pool,
+        )
+    except TriviaVerificationError as e:
+        raise HTTPException(status_code=422, detail=f"בודק הטריוויה דחה את השאלות שנוצרו: {e}")
+
+    generated_matches = _matching_trivia_questions(questions, categories)
+    if len(generated_matches) < missing:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"נוצרו רק {len(generated_matches)} שאלות מתאימות מתוך {missing} חסרות, "
+                f"לכן הסיבוב לא הועבר ללייב."
+            ),
+        )
+
+    merged = existing_pool + questions
+    save_and_verify_trivia_questions(trivia_path, merged)
+    logger.info(
+        "trivia top-up: generated=%d categories=%s available_before=%d required=%d row=%s",
+        len(questions), categories, available, question_count, row["id"],
+    )
+    return {"generated": len(questions), "available": available + len(generated_matches), "required": question_count}
+
+
 async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -> int | None:
     """Create one 341 warm-up announcement for a scheduled trivia game.
 
@@ -5358,6 +5450,14 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     elif message_type in {"free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
         routing = await db.get_handler_routing(message_type)
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
+
+    trivia_topup = None
+    if message_type == "trivia_round":
+        trivia_topup = await _ensure_trivia_pool_ready_for_round({
+            "id": "new",
+            "poll_options": poll_options,
+        })
+
     msg_id = await db.create_scheduled_message(
         text=data["text"],
         message_type=message_type,
@@ -5375,7 +5475,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     announcement_draft_id = None
     if message_type == "trivia_round":
         announcement_draft_id = await _ensure_trivia_announcement_scheduled(db, game_id=msg_id)
-    return {"status": "ok", "id": msg_id, "announcement_draft_id": announcement_draft_id}
+    return {"status": "ok", "id": msg_id, "announcement_draft_id": announcement_draft_id, "trivia_topup": trivia_topup}
 
 
 @app.put("/api/calendar/{msg_id}")
@@ -5418,6 +5518,20 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
     if "poll_options" in fields and isinstance(fields["poll_options"], list):
         fields["poll_options"] = json.dumps(fields["poll_options"])
 
+    trivia_topup = None
+    if fields.get("status") == "scheduled":
+        async with db._db.execute(
+            "SELECT id, message_type, poll_options FROM scheduled_messages WHERE id = ?",
+            (msg_id,),
+        ) as cur:
+            existing_row = await cur.fetchone()
+        effective_type = fields.get("message_type") or (existing_row["message_type"] if existing_row else None)
+        if effective_type == "trivia_round":
+            trivia_topup = await _ensure_trivia_pool_ready_for_round({
+                "id": msg_id,
+                "poll_options": fields.get("poll_options") if "poll_options" in fields else (existing_row["poll_options"] if existing_row else None),
+            })
+
     await db.update_scheduled_message(msg_id, **fields)
     announcement_draft_id = None
     if fields.get("status") == "scheduled":
@@ -5428,7 +5542,7 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
             row = await cur.fetchone()
         if row and row["message_type"] == "trivia_round":
             announcement_draft_id = await _ensure_trivia_announcement_scheduled(db, game_id=msg_id)
-    return {"status": "ok", "announcement_draft_id": announcement_draft_id}
+    return {"status": "ok", "announcement_draft_id": announcement_draft_id, "trivia_topup": trivia_topup}
 
 
 @app.delete("/api/calendar/{msg_id}")
@@ -5645,7 +5759,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     force = bool(body.get("force", False))
 
     async with db._db.execute(
-        "SELECT scheduled_date, scheduled_time, status, message_type FROM scheduled_messages WHERE id = ?",
+        "SELECT id, scheduled_date, scheduled_time, status, message_type, poll_options FROM scheduled_messages WHERE id = ?",
         (msg_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -5678,6 +5792,10 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
                 },
             )
 
+    topup_result = None
+    if row["message_type"] == "trivia_round":
+        topup_result = await _ensure_trivia_pool_ready_for_round(row)
+
     update_fields: dict = {"status": "scheduled"}
     if new_time and new_time != (row["scheduled_time"] or "")[:5]:
         update_fields["scheduled_time"] = new_time
@@ -5689,7 +5807,13 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
         "[schedule] msg_id=%d → status=scheduled at %s (force=%s)",
         msg_id, target_dt.isoformat(), force,
     )
-    return {"status": "ok", "id": msg_id, "scheduled_for": target_dt.isoformat(), "announcement_draft_id": announcement_draft_id}
+    return {
+        "status": "ok",
+        "id": msg_id,
+        "scheduled_for": target_dt.isoformat(),
+        "announcement_draft_id": announcement_draft_id,
+        "trivia_topup": topup_result,
+    }
 
 
 @app.post("/api/weekplan/send-today-drafts-now")
