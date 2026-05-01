@@ -430,6 +430,56 @@ class TestPlannerTemplateExposure(unittest.TestCase):
 
         self.assertEqual(allowed, set(dashboard_app.AI_REGULAR_SLOT_TYPES))
 
+    def test_ai_fill_schema_requires_activity_coverage_decisions(self):
+        schema = dashboard_app._today_plan_tool_schema()["input_schema"]
+        self.assertIn("coverage_decisions", schema["required"])
+        decision = schema["properties"]["coverage_decisions"]["items"]
+        self.assertEqual(
+            set(decision["required"]),
+            {"activity_type", "scheduled_time", "topic_id", "action", "reason"},
+        )
+
+    def test_question_quality_rejects_recent_bad_prompt_patterns(self):
+        quality = Path("config/question_quality.md").read_text(encoding="utf-8")
+        for marker in (
+            "דאנקינג",
+            "קבוצות חוץ",
+            "מאמץ כבד",
+            "פילר גנרי",
+            "שיפחדו",
+            "אוכלי בשר",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, quality)
+
+    def test_activity_coverage_marks_relevant_future_slots_required(self):
+        settings = {
+            "features": {"evening_prompt": True, "discussions": True, "levels": True},
+            "topics": {"goals": 2184},
+            "schedule": {
+                "evening_prompt": {"days": [5], "time": "21:00"},
+                "discussion_prompt": {"days": [5], "times": ["18:00", "21:00"]},
+                "weekly_leaderboard": {"days": [5], "time": "18:00"},
+            },
+        }
+        with patch.object(dashboard_app, "_is_feature_enabled_simple", return_value=True):
+            reqs = dashboard_app._build_activity_coverage_requirements(
+                settings=settings,
+                hebrew_day=5,
+                now_hhmm="17:30",
+                existing_drafts_today=[],
+                active_discussion_categories=[{"key": "funny", "topic_id": 153}],
+            )
+        required = {
+            (r["activity_type"], r["scheduled_time"])
+            for r in reqs
+            if r["relevance"] == "required"
+        }
+        self.assertIn(("discussion", "18:00"), required)
+        self.assertIn(("discussion", "21:00"), required)
+        self.assertIn(("evening", "21:00"), required)
+        self.assertIn(("weekly_leaderboard", "18:00"), required)
+
     def test_planner_drawer_exposes_supported_types_and_ai_allowlist(self):
         planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
         for message_type in (

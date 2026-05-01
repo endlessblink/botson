@@ -3502,7 +3502,13 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 
 11. טקסט משתמש (text/canonical_title/reminder_text) — עברית בלבד. ללא markdown, ללא backticks, ללא IDs פנימיים, ללא אנגלית טכנית.
 
-12. notes_for_admin — מנוסח כ-Markdown לקריאה נוחה. הקפד על המבנה הבא (השמט סקציה ריקה):
+12. **כיסוי פעילויות — חובה.** קרא את `activity_coverage_requirements`. עבור כל item עם `relevance="required"` חובה לעשות אחד משני דברים:
+    - ליצור `regular_slots` מתאים, או
+    - להחזיר `coverage_decisions` עם `action="skipped"` / `"already_covered"` וסיבה מפורשת.
+
+    אסור להשמיט פעילות רלוונטית בשקט. אם לא יצרת weekly_roundup / weekly_leaderboard / discussion / evening וכו' — חייבים לראות למה ב-coverage_decisions וב-notes_for_admin.
+
+13. notes_for_admin — מנוסח כ-Markdown לקריאה נוחה. הקפד על המבנה הבא (השמט סקציה ריקה):
 
     **סיכום:** משפט אחד מסכם את החלטות היום.
 
@@ -3599,6 +3605,21 @@ def _today_plan_tool_schema() -> dict:
                         "required": ["emoji_prompt", "answer_he", "answer_en", "aliases"],
                     },
                 },
+                "coverage_decisions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "activity_type": {"type": "string", "enum": list(AI_REGULAR_SLOT_TYPES)},
+                            "scheduled_time": {"type": "string"},
+                            "topic_id": {"type": ["integer", "null"]},
+                            "action": {"type": "string", "enum": ["drafted", "skipped", "already_covered", "not_relevant"]},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["activity_type", "scheduled_time", "topic_id", "action", "reason"],
+                    },
+                },
                 "skipped": {
                     "type": "object",
                     "additionalProperties": False,
@@ -3613,9 +3634,106 @@ def _today_plan_tool_schema() -> dict:
                     "required": ["reminders", "morning", "evening", "discussion", "trivia", "emoji"],
                 },
             },
-            "required": ["notes_for_admin", "reminders", "regular_slots", "trivia_questions", "emoji_puzzles", "skipped"],
+            "required": ["notes_for_admin", "reminders", "regular_slots", "trivia_questions", "emoji_puzzles", "coverage_decisions", "skipped"],
         },
     }
+
+
+def _hhmm_minutes(value: str) -> int | None:
+    try:
+        h, m = str(value or "").split(":")
+        return int(h) * 60 + int(m)
+    except (ValueError, TypeError):
+        return None
+
+
+def _build_activity_coverage_requirements(
+    *,
+    settings: dict,
+    hebrew_day: int,
+    now_hhmm: str,
+    existing_drafts_today: list[dict],
+    active_discussion_categories: list[dict],
+) -> list[dict]:
+    schedule = settings.get("schedule", {}) or {}
+    topics = settings.get("topics", {}) or {}
+    now_minutes = _hhmm_minutes(now_hhmm) or 0
+
+    def is_future(time_str: str) -> bool:
+        minutes = _hhmm_minutes(time_str)
+        return minutes is not None and minutes >= now_minutes + 5
+
+    def covered(activity_type: str, time_str: str, topic_id: int | None = None) -> bool:
+        for row in existing_drafts_today:
+            if row.get("message_type") != activity_type:
+                continue
+            if row.get("scheduled_time") != time_str:
+                continue
+            if topic_id is not None and row.get("topic_id") != topic_id:
+                continue
+            return True
+        return False
+
+    out: list[dict] = []
+
+    def add(activity_type: str, time_str: str, topic_id: int | None, relevance: str, reason: str):
+        out.append({
+            "activity_type": activity_type,
+            "scheduled_time": time_str,
+            "topic_id": topic_id,
+            "relevance": relevance,
+            "reason": reason,
+        })
+
+    def add_scheduled(activity_type: str, schedule_key: str, topic_id: int | None, feature_key: str | None = None):
+        cfg = schedule.get(schedule_key, {}) or {}
+        days = cfg.get("days", []) or []
+        time_str = str(cfg.get("time") or "18:00")[:5]
+        enabled = _is_feature_enabled_simple(settings.get("features", {}), feature_key or schedule_key)
+        if not enabled:
+            add(activity_type, time_str, topic_id, "not_relevant", "feature disabled")
+        elif not days:
+            add(activity_type, time_str, topic_id, "not_relevant", "schedule days empty")
+        elif hebrew_day not in days:
+            add(activity_type, time_str, topic_id, "optional", "off configured day")
+        elif not is_future(time_str):
+            add(activity_type, time_str, topic_id, "not_relevant", "slot already passed")
+        elif covered(activity_type, time_str, topic_id):
+            add(activity_type, time_str, topic_id, "already_covered", "existing ai-fill row")
+        else:
+            add(activity_type, time_str, topic_id, "required", "enabled, scheduled today, future slot")
+
+    add_scheduled("morning", "morning_prompt", topics.get("goals"), "morning_prompt")
+    add_scheduled("evening", "evening_prompt", topics.get("goals"), "evening_prompt")
+
+    discussion_cfg = schedule.get("discussion_prompt", {}) or {}
+    discussion_days = discussion_cfg.get("days", []) or []
+    discussion_enabled = _is_feature_enabled_simple(settings.get("features", {}), "discussions")
+    for time_str in discussion_cfg.get("times", []) or []:
+        time_str = str(time_str)[:5]
+        if not discussion_enabled:
+            add("discussion", time_str, None, "not_relevant", "feature disabled")
+        elif not discussion_days:
+            add("discussion", time_str, None, "not_relevant", "schedule days empty")
+        elif hebrew_day not in discussion_days:
+            add("discussion", time_str, None, "optional", "off configured day")
+        elif not is_future(time_str):
+            add("discussion", time_str, None, "not_relevant", "slot already passed")
+        elif covered("discussion", time_str):
+            add("discussion", time_str, None, "already_covered", "existing ai-fill row")
+        elif active_discussion_categories:
+            add("discussion", time_str, None, "required", "enabled, scheduled today, future slot")
+        else:
+            add("discussion", time_str, None, "not_relevant", "no active discussion categories")
+
+    add_scheduled("trivia_round", "trivia", None, "trivia")
+    add_scheduled("emoji_puzzle", "emoji_puzzle", None, "emoji_puzzle")
+    add_scheduled("free_games", "free_games", None, "free_games")
+    add_scheduled("facts_tidbit", "facts_tidbit", None, "facts_tidbit")
+    add_scheduled("facts_spooky", "facts_spooky", None, "facts_spooky")
+    add_scheduled("weekly_roundup", "weekly_roundup", None, "roundup")
+    add_scheduled("weekly_leaderboard", "weekly_leaderboard", None, "levels")
+    return out
 
 
 async def _build_today_bundle(db: Database, today, sunday, saturday, settings: dict) -> dict:
@@ -3799,6 +3917,13 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
     from zoneinfo import ZoneInfo as _Zi
     _now_il = _dt.now(_Zi("Asia/Jerusalem"))
     now_hhmm = _now_il.strftime("%H:%M")
+    activity_coverage_requirements = _build_activity_coverage_requirements(
+        settings=settings,
+        hebrew_day=hebrew_day,
+        now_hhmm=now_hhmm,
+        existing_drafts_today=existing_drafts_today,
+        active_discussion_categories=active_discussion_categories,
+    )
     return {
         "today": today_iso,
         "hebrew_day_name": _HEBREW_DAY_NAMES[hebrew_day],
@@ -3818,6 +3943,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         "existing_emoji_answers_sample": existing_emoji_answers,
         "schedule": schedule_snapshot,
         "active_discussion_categories": active_discussion_categories,
+        "activity_coverage_requirements": activity_coverage_requirements,
         "goals_topic_id": settings.get("topics", {}).get("goals"),
     }
 
@@ -4295,6 +4421,49 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         except Exception as e:
             errors.append(f"{mtype} insert: {e}")
 
+    # Coverage guard: the model must explicitly account for each relevant
+    # activity. Missing items become visible errors instead of silent under-fill.
+    coverage_decisions = plan.get("coverage_decisions") or []
+    decision_keys = {
+        (
+            (d.get("activity_type") or "").strip(),
+            (d.get("scheduled_time") or "").strip(),
+            d.get("topic_id"),
+        )
+        for d in coverage_decisions
+        if isinstance(d, dict)
+    }
+    created_keys = {
+        (r.get("type"), r.get("scheduled_time"), r.get("topic_id"))
+        for r in regular_out
+    }
+    created_loose_keys = {
+        (r.get("type"), r.get("scheduled_time"), None)
+        for r in regular_out
+    }
+    covered_existing_keys = {
+        (d.get("message_type"), d.get("scheduled_time"), d.get("topic_id"))
+        for d in bundle["existing_drafts_today"]
+    }
+    covered_existing_loose_keys = {
+        (d.get("message_type"), d.get("scheduled_time"), None)
+        for d in bundle["existing_drafts_today"]
+    }
+    for req in bundle.get("activity_coverage_requirements") or []:
+        if req.get("relevance") != "required":
+            continue
+        key = (req.get("activity_type"), req.get("scheduled_time"), req.get("topic_id"))
+        loose_key = (req.get("activity_type"), req.get("scheduled_time"), None)
+        if key in created_keys or key in covered_existing_keys or key in decision_keys:
+            continue
+        if loose_key in decision_keys or loose_key in created_loose_keys or loose_key in covered_existing_loose_keys:
+            continue
+        errors.append(
+            "coverage missing: "
+            f"{req.get('activity_type')} at {req.get('scheduled_time')} "
+            f"({req.get('reason')})"
+        )
+
     # ── Trivia (append to trivia.yaml) ─────────────────────────────────────
     trivia_questions = plan.get("trivia_questions") or []
     if trivia_questions:
@@ -4362,6 +4531,7 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
         "trivia": {"generated": trivia_added, "skipped": skipped.get("trivia")},
         "emoji": {"generated": emoji_added, "skipped": skipped.get("emoji")},
         "skipped": skipped,
+        "coverage_decisions": coverage_decisions,
         "notes_for_admin": plan.get("notes_for_admin") or "",
         "errors": errors,
     }
