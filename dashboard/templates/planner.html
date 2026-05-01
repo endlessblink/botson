@@ -139,20 +139,38 @@
         max-height: min(48vh, 520px);
         overflow-y: auto;
         overflow-x: hidden;
+        min-width: 0;
     }
     #review-drafts-notes-text {
         max-width: 100%;
+        min-width: 0;
         overflow-wrap: anywhere;
-        word-break: normal;
+        word-break: break-word;
+        direction: rtl;
     }
-    #review-drafts-notes-text p,
+    #review-drafts-notes-text .notes-section {
+        border: 1px solid #272727;
+        border-radius: 10px;
+        background: rgba(10, 10, 10, 0.45);
+        padding: 10px 12px;
+        min-width: 0;
+    }
+    #review-drafts-notes-text .notes-heading {
+        color: #fafafa;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+    #review-drafts-notes-text .notes-body,
     #review-drafts-notes-text li,
-    #review-drafts-notes-text div {
+    #review-drafts-notes-text p {
         white-space: normal;
         line-height: 1.75;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        unicode-bidi: plaintext;
     }
     #review-drafts-notes-text ul {
-        margin: 0.35rem 0 0.85rem;
+        margin: 0.35rem 0 0;
         padding-inline-start: 1.25rem;
     }
     #review-drafts-notes-text strong {
@@ -892,7 +910,7 @@
 {% include "_prompt_modal.html" %}
 
 <!-- Review-drafts modal — opens after ✨ click + via banner -->
-<div id="review-drafts-modal" class="hidden fixed inset-0 z-[55] flex items-center justify-center p-4" dir="rtl">
+<div id="review-drafts-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4" dir="rtl">
     <div class="absolute inset-0 bg-black/70" onclick="closeReviewDraftsModal()"></div>
     <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1200px] max-h-[90vh] flex flex-col overflow-hidden min-h-0">
         <!-- Header -->
@@ -906,7 +924,7 @@
         <!-- AI notes (collapsible) -->
         <div id="review-drafts-notes" class="hidden px-5 py-4 border-b border-[#1f1f1f] bg-[#111318] text-sm text-[#a1a1aa] flex-shrink-0">
             <div class="font-medium text-[#d4d4d8] mb-3">הערות מה-AI:</div>
-            <div id="review-drafts-notes-text" class="space-y-2"></div>
+            <div id="review-drafts-notes-text" class="grid gap-3"></div>
         </div>
         <!-- Cards -->
         <div id="review-drafts-list" class="flex-1 min-h-[260px] overflow-y-auto px-5 py-4 space-y-3 bg-[#0a0a0a]">
@@ -2778,29 +2796,60 @@ function escapeHtml(s) {
 function renderMarkdown(raw) {
     function applyInline(s) {
         var esc = escapeHtml(s);
-        return esc.replace(/\*\*(.+?)\*\*/g, '<strong class="text-[#fafafa]">$1</strong>');
+        return esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     }
-    var paragraphs = String(raw || '').split(/\n{2,}/);
-    return paragraphs.map(function(p) {
-        var lines = p.split('\n');
-        var out = [];
-        var bullets = [];
-        function flushBullets() {
-            if (bullets.length) {
-                out.push('<ul class="list-disc pr-5 space-y-2 my-2">' +
-                    bullets.map(function(b) { return '<li class="pr-1 leading-7 break-words">' + applyInline(b) + '</li>'; }).join('') +
-                    '</ul>');
-                bullets = [];
-            }
+    function sectionHtml(title, bodyParts) {
+        return '<section class="notes-section">' +
+            (title ? '<div class="notes-heading">' + applyInline(title) + '</div>' : '') +
+            bodyParts.join('') +
+            '</section>';
+    }
+
+    var sections = [];
+    var currentTitle = '';
+    var currentParts = [];
+    var bullets = [];
+
+    function flushBullets() {
+        if (bullets.length) {
+            currentParts.push('<ul class="list-disc pr-5 space-y-2">' +
+                bullets.map(function(b) { return '<li class="pr-1">' + applyInline(b) + '</li>'; }).join('') +
+                '</ul>');
+            bullets = [];
         }
-        lines.forEach(function(l) {
-            var bm = l.match(/^\s*[-*]\s+(.*)$/);
-            if (bm) { bullets.push(bm[1]); }
-            else if (l.trim()) { flushBullets(); out.push('<p class="leading-7 break-words mb-2">' + applyInline(l) + '</p>'); }
-        });
+    }
+
+    function flushSection() {
         flushBullets();
-        return '<section class="mb-3 last:mb-0">' + out.join('') + '</section>';
-    }).join('');
+        if (currentTitle || currentParts.length) {
+            sections.push(sectionHtml(currentTitle, currentParts));
+        }
+        currentTitle = '';
+        currentParts = [];
+    }
+
+    String(raw || '').split('\n').forEach(function(line) {
+        var trimmed = line.trim();
+        if (!trimmed) return;
+
+        var heading = trimmed.match(/^\*\*(.+?)\*\*:?$/);
+        if (heading) {
+            flushSection();
+            currentTitle = heading[1];
+            return;
+        }
+
+        var bullet = trimmed.match(/^[-*•]\s+(.*)$/);
+        if (bullet) {
+            bullets.push(bullet[1]);
+            return;
+        }
+
+        flushBullets();
+        currentParts.push('<p class="notes-body mb-2 last:mb-0">' + applyInline(trimmed) + '</p>');
+    });
+    flushSection();
+    return sections.join('');
 }
 
 function renderDraftCard(draft) {
