@@ -3531,6 +3531,24 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 חשוב: השתמש אך ורק בכלי today_plan. אל תחזיר טקסט חופשי."""
 
 
+DIGEST_CLI_PROMPT = """אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ'ילדפרי בטלגרם. החזר JSON בלבד לפי הסכמה.
+
+חוקים מחייבים:
+- כבד now_time_il: אל תיצור סלוט שעבר או קרוב פחות מ-5 דקות.
+- כבד verified_topic_ids בלבד. אל תנחש topic_id.
+- אל תכפיל מול existing_drafts_today או scheduled_messages_today.
+- מזג אירועים כפולים; reminder_scheduled_time הוא זמן האירוע פחות event_reminder_lead_minutes.
+- אם היום שבת או שישי בערב: סוף השבוע עדיין קורה; אל תכתוב "איך היה"/"סיכום"/עבר. ראשון בבוקר הוא זמן סיכום סוף שבוע.
+- עברית טבעית של טלגרם ישראלי. בלי markdown בטקסט משתמש, בלי IDs פנימיים, בלי אנגלית טכנית.
+- שאלות discussion חייבות להיות חדות ומותאמות ערוץ. אסור פילר כמו "מה עשה לכם את היום" או "מה הדבר האחד שעושה את הערב שווה".
+- בלי לעג/שיימינג/דאנקינג על אנשים אמיתיים, בלי framing מאשים של קבוצות חוץ, ובלי בקשות מאמץ כבד. אם צריך רשימה/מתכון — בקש פריט אחד בלבד.
+- פעילויות מותרות רק אם הבוט מפעיל אותן או שהן שאלה/פול קל. אל תציע מפגשים/משחקים שדורשים תיאום אדמין.
+- טריוויה/אמוג'י: אם יוצרים סיבוב, ספק גם שאלות/חידות מתאימות ולא כפולות; קטגוריה חייבת להתחבר ליום/ערוץ.
+- חובה לטפל בכל activity_coverage_requirements עם relevance="required": צור regular_slots מתאים או החזר coverage_decisions עם action skipped/already_covered/not_relevant וסיבה. אין השמטה שקטה.
+- notes_for_admin: Markdown קצר, עד 300 מילים, עם סיכום ומה נוצר/דולג.
+"""
+
+
 def _today_plan_tool_schema() -> dict:
     """JSON-schema for the tool the AI must call. Guarantees parseable typed
     output. `additionalProperties: false` + full `required` arrays are needed
@@ -3960,15 +3978,17 @@ def _strip_json_fences(raw: str) -> str:
 
 def _build_cli_digest_prompt(bundle: dict) -> str:
     """System + bundle + schema rolled into one prompt for CLI transports."""
+    compact_bundle = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+    compact_schema = json.dumps(_today_plan_tool_schema()["input_schema"], ensure_ascii=False, separators=(",", ":"))
     return (
-        DIGEST_SYSTEM_PROMPT
+        DIGEST_CLI_PROMPT
         + "\n\n---\n\nקונטקסט היום (JSON):\n```json\n"
-        + json.dumps(bundle, ensure_ascii=False, indent=2)
+        + compact_bundle
         + "\n```\n\n"
         "החזר אך ורק JSON חוקי שתואם את הסכמה של today_plan.\n"
         "הפלט חייב להיות בלוק ```json``` בלבד, ללא הקדמה, ללא הסבר, ללא טקסט אחר.\n\n"
         "סכמה:\n```json\n"
-        + json.dumps(_today_plan_tool_schema()["input_schema"], ensure_ascii=False, indent=2)
+        + compact_schema
         + "\n```"
     )
 

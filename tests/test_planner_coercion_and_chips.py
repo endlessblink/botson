@@ -480,6 +480,70 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         self.assertIn(("evening", "21:00"), required)
         self.assertIn(("weekly_leaderboard", "18:00"), required)
 
+    def test_ai_fill_cli_prompt_stays_under_timeout_budget(self):
+        bundle = {
+            "today": "2026-05-01",
+            "hebrew_day_name": "שישי",
+            "hebrew_day_num": 5,
+            "now_time_il": "15:30",
+            "events_today": [],
+            "scheduled_messages_today": [
+                {
+                    "id": i,
+                    "text": "טקסט קיים ארוך יחסית לשורה מתוזמנת כדי לדמות יום אמיתי " * 8,
+                    "message_type": "discussion",
+                    "scheduled_time": "18:00",
+                    "topic_id": 4037,
+                    "created_by": "ai-fill-today",
+                    "status": "draft",
+                }
+                for i in range(12)
+            ],
+            "existing_drafts_today": [],
+            "this_week_previews": [
+                {"date": "2026-05-02", "type": "discussion", "topic_id": 4037, "preview": "תצוגה מקדימה " * 6}
+                for _ in range(25)
+            ],
+            "recent_sent_samples_by_type": {
+                f"type_{i}": [
+                    {"date": "2026-04-30", "topic_id": 4037, "text": "דוגמת קול קהילה " * 8}
+                    for _ in range(3)
+                ]
+                for i in range(12)
+            },
+            "verified_topic_ids": [7, 54, 59, 153, 335, 341, 347, 1431, 1517, 2184, 3113, 4037],
+            "verified_topic_names": {str(i): "שם ערוץ מאומת" for i in range(12)},
+            "existing_trivia_categories": [
+                {"category": f"קטגוריה {i}", "count": 12, "sample": "שאלה לדוגמה " * 5}
+                for i in range(15)
+            ],
+            "existing_emoji_answers_sample": [{"he": "תשובה", "en": "answer"} for _ in range(20)],
+            "schedule": {"discussion_prompt": {"days": [5], "times": ["18:00", "21:00"]}},
+            "active_discussion_categories": [{"key": "funny", "topic_id": 153}],
+            "activity_coverage_requirements": [
+                {
+                    "activity_type": "discussion",
+                    "scheduled_time": "18:00",
+                    "topic_id": None,
+                    "relevance": "required",
+                    "reason": "enabled, scheduled today, future slot",
+                },
+                {
+                    "activity_type": "weekly_roundup",
+                    "scheduled_time": "18:00",
+                    "topic_id": None,
+                    "relevance": "required",
+                    "reason": "enabled, scheduled today, future slot",
+                },
+            ],
+            "goals_topic_id": 2184,
+        }
+
+        prompt = dashboard_app._build_cli_digest_prompt(bundle)
+
+        self.assertLess(len(prompt), 28000)
+        self.assertNotIn('\n  "', prompt)
+
     def test_planner_drawer_exposes_supported_types_and_ai_allowlist(self):
         planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
         for message_type in (
