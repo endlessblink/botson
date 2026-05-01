@@ -2434,6 +2434,120 @@ def _format_dedup_block(recent_sent: list[str] | None) -> str:
     )
 
 
+def _format_time_context(scheduled_date: str | None, scheduled_time: str | None) -> str:
+    """Render a Hebrew weekday + time-of-day context block.
+
+    Helps the model anchor the output in the actual day/time the message
+    will fire. Empty string if neither is supplied.
+    """
+    if not scheduled_date and not scheduled_time:
+        return ""
+    parts: list[str] = []
+    if scheduled_date:
+        try:
+            d = date.fromisoformat(scheduled_date)
+            hebrew_idx = (d.weekday() + 1) % 7  # python Mon=0 → Hebrew Sun=0
+            parts.append(f"יום {_HEBREW_DAY_NAMES[hebrew_idx]} ({scheduled_date})")
+        except Exception:
+            pass
+    if scheduled_time:
+        try:
+            hour = int(str(scheduled_time).split(":")[0])
+            if 5 <= hour < 11:
+                bucket = "בוקר"
+            elif 11 <= hour < 15:
+                bucket = "צהריים"
+            elif 15 <= hour < 19:
+                bucket = "אחר הצהריים"
+            elif 19 <= hour < 23:
+                bucket = "ערב"
+            else:
+                bucket = "לילה"
+            parts.append(f"בשעה {scheduled_time} ({bucket})")
+        except Exception:
+            pass
+    if not parts:
+        return ""
+    return (
+        "\n\nהקשר זמן ההודעה: " + " · ".join(parts) +
+        ". התוכן צריך להרגיש מתאים ליום ולשעה האלה — לא טקסט גנרי שיכול להיות בכל זמן."
+    )
+
+
+def _sample_pool_examples(field: str, category: str, n: int = 3) -> str:
+    """Pull a few random examples from the matching YAML pool as a few-shot anchor.
+
+    Anchors the model on the existing voice without giving it canned text to
+    copy. Returns '' if the pool can't be loaded or is empty. Used by both
+    single-mode and multi-mode generation.
+    """
+    try:
+        pool: list[str] = []
+        cat = (category or "").strip()
+        if field == "discussion" and cat:
+            data = load_yaml("discussions.yaml") or {}
+            raw = data.get(cat) or []
+            pool = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
+        elif field == "morning":
+            data = load_yaml("prompts.yaml") or {}
+            raw = data.get("morning") or []
+            pool = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
+        elif field == "evening":
+            data = load_yaml("prompts.yaml") or {}
+            raw = data.get("evening") or []
+            pool = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
+        else:
+            return ""
+        if not pool:
+            return ""
+        k = min(n, len(pool))
+        sample = random.sample(pool, k)
+        body = "\n".join(f"- {s}" for s in sample)
+        return (
+            "\n\nדוגמאות לאיכות וסגנון (אל תחזור עליהן מילה במילה — תפוס רק את הטון והאורך):\n"
+            f"{body}\n"
+            "צור משהו חדש לגמרי — לא וריאציה של הדוגמאות. אם הרעיון שלך נשמע כמו אחת מהדוגמאות, חשוב על משהו אחר."
+        )
+    except Exception as e:
+        logger.warning("[generate] few-shot pool sample failed: %s", e)
+        return ""
+
+
+def _finalize_prompt(
+    base: str,
+    field: str,
+    category: str,
+    *,
+    recent_sent: list[str] | None,
+    scheduled_date: str | None,
+    scheduled_time: str | None,
+    add_dedup: bool = True,
+) -> str:
+    """Wrap the per-field base prompt with the canonical layers:
+    context (weekday+time), few-shot from pool, dedup block, and the
+    question_quality.md rules at the very top.
+
+    Used by both single-mode and multi-mode generation paths so quality
+    enforcement isn't silently bypassed in the single-row drawer (the
+    historical `mode == "single"` early-return missed both rules and dedup,
+    which is the bug behind the 2026-05-01 'בולטת של תוכן' draft).
+    """
+    out = base
+    out += _format_time_context(scheduled_date, scheduled_time)
+    out += _sample_pool_examples(field, category, n=3)
+    if add_dedup and field != "trivia":
+        out += _format_dedup_block(recent_sent)
+    rules = _load_quality_rules()
+    if rules:
+        out = (
+            "להלן חוקים קשיחים ליצירת שאלות / הודעות עבור הבוט. אסור לעבור עליהם:\n\n"
+            f"{rules}\n\n"
+            "──────────\n"
+            f"{out}"
+        )
+    return out
+
+
 def build_generation_prompt(
     field: str,
     mode: str,
@@ -2441,6 +2555,8 @@ def build_generation_prompt(
     category: str,
     instructions: str = "",
     recent_sent: list[str] | None = None,
+    scheduled_date: str | None = None,
+    scheduled_time: str | None = None,
 ) -> str:
     # Single-item rewrite mode — used by the weekplan modal
     if mode == "rewrite":
@@ -2451,7 +2567,12 @@ def build_generation_prompt(
 {existing}"""
         if instructions:
             base += f"\n\nהוראות נוספות: {instructions}"
-        return base
+        return _finalize_prompt(
+            base, field, category,
+            recent_sent=recent_sent,
+            scheduled_date=scheduled_date,
+            scheduled_time=scheduled_time,
+        )
 
     # Single-item fresh generate — weekplan modal, one prompt only
     if mode == "single":
@@ -2459,25 +2580,40 @@ def build_generation_prompt(
             base = f"""צור הודעת בוקר אחת מעוררת השראה בעברית עבור {COMMUNITY_CONTEXT}
 
 ההודעה צריכה להיות שורה או שתיים, לפתוח באמוג'י רלוונטי, לעודד את חברי הקהילה לבוקר טוב.
-הטון: חם, מעודד, קליל.
+הטון: חם, מעודד, קליל. עברית תקנית בלבד — אל תמציא ביטויים, אל תשלב מילים באנגלית באמצע משפט עברי.
 פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."""
         elif field == "evening":
             base = f"""צור הודעת ערב אחת רפלקטיבית בעברית עבור {COMMUNITY_CONTEXT}
 
 ההודעה צריכה להיות שורה או שתיים, לפתוח באמוג'י רלוונטי, לעודד חשיבה על היום שעבר.
-הטון: רגוע, מחבק, מעודד רפלקציה.
+הטון: רגוע, מחבק, מעודד רפלקציה. עברית תקנית בלבד — אל תמציא ביטויים, אל תשלב מילים באנגלית באמצע משפט עברי.
 פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."""
         elif field == "discussion":
             base = f"""צור שאלה אחת לדיון בקטגוריה "{category}" בעברית עבור {COMMUNITY_CONTEXT}
 
-השאלה צריכה להיות שורה אחת, מעוררת שיחה ומעניינת.
-הטון: סקרני, פתוח, מזמין.
+השאלה צריכה להיות שורה אחת ספציפית, מעוררת שיחה ומעניינת — לא שאלה גנרית שאפשר לשאול בכל קבוצה.
+הטון: סקרני, פתוח, מזמין. עברית תקנית בלבד — אל תמציא ביטויים, אל תשלב מילים באנגלית באמצע משפט עברי, אל תעבור 140 תווים.
 פלט: רק השאלה, בלי מספור, בלי מרכאות, בלי הסברים."""
+        elif field == "poll":
+            cat_hint = f' בנושא "{category}"' if category else ""
+            base = f"""צור סקר אחד בעברית עבור {COMMUNITY_CONTEXT}{cat_hint}.
+
+הסקר חייב לכלול שאלה קצרה (עד 140 תווים) ו-3 או 4 אפשרויות בחירה. כל אפשרות עד 40 תווים.
+האפשרויות צריכות להיות מובחנות זו מזו ולכסות את עיקר הקשת — לא 4 וריאציות של אותה תשובה.
+עברית תקנית בלבד. אל תמציא ביטויים. אל תשלב מילים באנגלית באמצע משפט עברי.
+
+פלט: JSON תקין בלבד, ללא טקסט נוסף לפני או אחרי, במבנה:
+{{"question": "<טקסט השאלה>", "options": ["<אפשרות 1>", "<אפשרות 2>", "<אפשרות 3>"]}}"""
         else:
             base = f"צור תוכן בעברית עבור {COMMUNITY_CONTEXT}"
         if instructions:
             base += f"\n\nהוראות נוספות: {instructions}"
-        return base
+        return _finalize_prompt(
+            base, field, category,
+            recent_sent=recent_sent,
+            scheduled_date=scheduled_date,
+            scheduled_time=scheduled_time,
+        )
 
     count = "5-8" if mode == "append" else "15-20"
 
@@ -2545,24 +2681,15 @@ def build_generation_prompt(
         # (narrow themes otherwise keep landing on Check Point / NSO / Waze).
         base += f"\n\nהנה התוכן הקיים (אל תחזור עליו, צור תוכן חדש ושונה):\n{existing}"
 
-    # Append "DO NOT REPEAT THESE" block from recent sent/scheduled history.
     # Trivia uses a separate dedup mechanism (category exact-match + question
-    # text dedup inside _pick_questions) — skip recent_sent injection there.
-    if field != "trivia":
-        base += _format_dedup_block(recent_sent)
-
-    # Prepend the canonical quality rules at the TOP of the prompt so the
-    # model sees them before the task. This is the contract enforced by
-    # config/question_quality.md (single source of truth).
-    rules = _load_quality_rules()
-    if rules:
-        base = (
-            "להלן חוקים קשיחים ליצירת שאלות / הודעות עבור הבוט. אסור לעבור עליהם:\n\n"
-            f"{rules}\n\n"
-            "──────────\n"
-            f"{base}"
-        )
-    return base
+    # text dedup inside _pick_questions) — _finalize_prompt skips dedup for
+    # trivia automatically.
+    return _finalize_prompt(
+        base, field, category,
+        recent_sent=recent_sent,
+        scheduled_date=scheduled_date,
+        scheduled_time=scheduled_time,
+    )
 
 
 async def _generate_via_cli(prompt: str) -> str:
@@ -3000,20 +3127,17 @@ async def save_weekplan_day(request: Request, db: Database = Depends(get_db)):
         return {"status": "ok", "id": new_id, "action": "created"}
 
 
-@app.post("/api/weekplan/ai-fill")
-async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
-    """Bulk-generate content via Claude for all non-committed slots of a given type in a week.
+async def _ai_fill_weekplan_inner(
+    db: Database, mtype: str, week_offset: int
+) -> dict:
+    """Inner logic of /api/weekplan/ai-fill — extracted so /ai-fill-regenerate
+    can re-run a fill after wiping stale AI rows without going through HTTP.
 
-    Body: {week_offset, type}
-    type in {morning, evening, discussion}
-    Returns: {created, skipped, errors}
+    Validates the type, computes the week, deduplicates against existing
+    rows, generates one content blob per (day, time, type) tuple, inserts
+    the resulting rows tagged `created_by='ai-fill'`. Returns aggregate
+    counts and errors.
     """
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
-
-    data = await request.json()
-    week_offset = int(data.get("week_offset", 0))
-    mtype = (data.get("type") or "").strip()
     if mtype not in ("morning", "evening", "discussion"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
 
@@ -3089,12 +3213,18 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
             # Generate content
             if mtype == "morning":
                 prompt = build_generation_prompt(
-                    "morning", "single", "", "", recent_sent=recent_sent_for_type
+                    "morning", "single", "", "",
+                    recent_sent=recent_sent_for_type,
+                    scheduled_date=day_date.isoformat(),
+                    scheduled_time=t,
                 )
                 topic = goals_topic
             elif mtype == "evening":
                 prompt = build_generation_prompt(
-                    "evening", "single", "", "", recent_sent=recent_sent_for_type
+                    "evening", "single", "", "",
+                    recent_sent=recent_sent_for_type,
+                    scheduled_date=day_date.isoformat(),
+                    scheduled_time=t,
                 )
                 topic = goals_topic
             else:  # discussion
@@ -3110,7 +3240,10 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
                     db, "discussion", category_topic_id=channel_topic_id, limit=60
                 )
                 prompt = build_generation_prompt(
-                    "discussion", "single", "", cat, recent_sent=recent_for_channel
+                    "discussion", "single", "", cat,
+                    recent_sent=recent_for_channel,
+                    scheduled_date=day_date.isoformat(),
+                    scheduled_time=t,
                 )
 
             try:
@@ -3144,6 +3277,92 @@ async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
                 errors.append(f"day {i}: db insert failed: {e}")
 
     return {"created": created, "skipped": skipped, "errors": errors}
+
+
+@app.post("/api/weekplan/ai-fill")
+async def ai_fill_weekplan(request: Request, db: Database = Depends(get_db)):
+    """Bulk-generate content via Claude for all non-committed slots of a given type in a week.
+
+    Body: {week_offset, type}
+    type in {morning, evening, discussion}
+    Returns: {created, skipped, errors}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    week_offset = int(data.get("week_offset", 0))
+    mtype = (data.get("type") or "").strip()
+    return await _ai_fill_weekplan_inner(db, mtype, week_offset)
+
+
+@app.post("/api/weekplan/ai-fill-regenerate")
+async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
+    """Wipe stale AI-generated drafts in a week window and regenerate them
+    with the current prompt template. Targets `created_by LIKE 'ai-fill%'`
+    only — user-edited rows (`created_by='dashboard'`/`'weekplan'`/etc.) are
+    NOT deleted.
+
+    Body: {week_offset?, types?[]}
+    Defaults: current week, all 3 supported types.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    week_offset = int(data.get("week_offset", 0))
+    types = data.get("types") or ["morning", "evening", "discussion"]
+    if not isinstance(types, list):
+        raise HTTPException(status_code=400, detail="types must be a list")
+
+    today = date.today()
+    days_since_sunday = (today.weekday() + 1) % 7
+    sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
+    saturday = sunday + timedelta(days=6)
+
+    deleted = 0
+    try:
+        cur = await db._db.execute(
+            "DELETE FROM scheduled_messages "
+            "WHERE created_by LIKE 'ai-fill%' "
+            "AND status = 'scheduled' "
+            "AND scheduled_date BETWEEN ? AND ?",
+            (sunday.isoformat(), saturday.isoformat()),
+        )
+        deleted = cur.rowcount or 0
+        await db._db.commit()
+        logger.info(
+            "[ai-fill-regenerate] deleted %d AI rows in [%s, %s]",
+            deleted, sunday.isoformat(), saturday.isoformat(),
+        )
+    except Exception as e:
+        logger.exception("[ai-fill-regenerate] delete failed")
+        raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
+
+    total_created = 0
+    total_skipped = 0
+    total_errors: list[str] = []
+    by_type: dict = {}
+    for mtype in types:
+        if mtype not in ("morning", "evening", "discussion"):
+            total_errors.append(f"unsupported type skipped: {mtype}")
+            continue
+        try:
+            r = await _ai_fill_weekplan_inner(db, mtype, week_offset)
+            by_type[mtype] = r
+            total_created += int(r.get("created", 0))
+            total_skipped += int(r.get("skipped", 0))
+            total_errors.extend(r.get("errors", []))
+        except Exception as e:
+            logger.exception("[ai-fill-regenerate] inner fill failed for %s", mtype)
+            total_errors.append(f"{mtype}: {e}")
+
+    return {
+        "deleted": deleted,
+        "created": total_created,
+        "skipped": total_skipped,
+        "errors": total_errors,
+        "by_type": by_type,
+    }
 
 
 # ── AI fill: today-only, context-aware ─────────────────────
@@ -4639,8 +4858,9 @@ async def today_summary(request: Request, db: Database = Depends(get_db)):
 async def generate_content(request: Request, db: Database = Depends(get_db)):
     """Generate a single message via Claude for the create-drawer textarea.
 
-    Body: {type: morning|evening|discussion|custom|poll, category?: str, existing?: str}
-    Returns: {text: str}
+    Body: {type, category?, existing?, scheduled_date?, scheduled_time?}
+    type in {morning, evening, discussion, custom, poll}.
+    Returns: {text} for text types, {question, options[]} for poll.
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
@@ -4649,6 +4869,8 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     mtype = (data.get("type") or "").strip()
     category = (data.get("category") or "").strip()
     existing = (data.get("existing") or "").strip()
+    sched_date = (data.get("scheduled_date") or "").strip() or None
+    sched_time = (data.get("scheduled_time") or "").strip() or None
 
     if mtype not in ("morning", "evening", "discussion", "custom", "poll"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
@@ -4657,12 +4879,46 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
 
     mode = "rewrite" if existing else "single"
     recent_sent = await _fetch_recent_sent_for_dedup(db, mtype, limit=60)
-    prompt = build_generation_prompt(mtype, mode, existing, category, recent_sent=recent_sent)
+    prompt = build_generation_prompt(
+        mtype, mode, existing, category,
+        recent_sent=recent_sent,
+        scheduled_date=sched_date,
+        scheduled_time=sched_time,
+    )
 
     try:
         content = await _generate_via_cli(prompt)
     except Exception:
         content = await _generate_via_api(prompt)
+
+    if mtype == "poll":
+        # Poll prompts ask for strict JSON. Extract the first {...} blob and
+        # parse — surface a 502 with raw text if the model didn't comply, so
+        # the user sees the failure rather than a half-row written from a
+        # malformed response.
+        raw = content.strip()
+        try:
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError("no JSON object found")
+            payload = json.loads(raw[start:end + 1])
+            question = (payload.get("question") or "").strip()
+            options = [str(o).strip() for o in (payload.get("options") or []) if str(o).strip()]
+            if not question or len(options) < 2:
+                raise ValueError("missing question or fewer than 2 options")
+            options = options[:4]
+            logger.info(
+                "[generate-content] poll cat=%s mode=%s -> q=%r opts=%d",
+                category, mode, question[:60], len(options),
+            )
+            return {"question": question, "options": options}
+        except Exception as e:
+            logger.warning("[generate-content] poll JSON parse failed: %s — raw=%r", e, raw[:300])
+            raise HTTPException(
+                status_code=502,
+                detail=f"AI did not return valid poll JSON: {e}. Raw: {raw[:200]}",
+            )
 
     content = content.strip().replace('"', '').replace("'", "")
     lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
@@ -4670,6 +4926,458 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
 
     logger.info("[generate-content] type=%s cat=%s mode=%s -> %r", mtype, category, mode, text[:60])
     return {"text": text}
+
+
+_TRIVIA_VALID_CATEGORIES = (
+    "אומנות", "גיאוגרפיה", "גיימינג", "היסטוריה", "טבע", "טכנולוגיה",
+    "טלוויזיה", "ישראל", "כללי", "מדע", "מוזיקה", "ספורט", "ספרות", "סרטים",
+)
+
+
+@app.post("/api/trivia-round/suggest")
+async def trivia_round_suggest(request: Request, db: Database = Depends(get_db)):
+    """Suggest a themed trivia round configuration via Claude.
+
+    The result is meant to PRE-FILL the live trivia form (theme/categories/
+    count/pre-roll) and provide a warm-up announcement string the operator
+    can paste into a separate planner row at T-35 minutes (warm-up rows are
+    NOT auto-created here — see CLAUDE.md "Trivia Round Scheduling"; that
+    multi-row scheduling is owned by the planner write-side).
+
+    Body: {date?: 'YYYY-MM-DD', time?: 'HH:MM', hint?: str, category_hint?: str}
+    Returns: {theme_label, categories: [...], question_count, pre_roll_s, warmup_text, raw}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    sched_date = (data.get("date") or "").strip() or None
+    sched_time = (data.get("time") or "").strip() or None
+    hint = (data.get("hint") or "").strip()
+    category_hint = (data.get("category_hint") or "").strip()
+
+    # Avoid recently used themes by sniffing recent trivia_round poll_options
+    recent_themes: list[str] = []
+    try:
+        async with db._db.execute(
+            "SELECT poll_options FROM scheduled_messages "
+            "WHERE message_type = 'trivia_round' "
+            "AND poll_options IS NOT NULL AND poll_options != '' "
+            "ORDER BY created_at DESC LIMIT 30"
+        ) as cur:
+            async for row in cur:
+                try:
+                    payload = json.loads(row["poll_options"])
+                    label = (payload.get("theme_label") or "").strip()
+                    if label and label not in recent_themes:
+                        recent_themes.append(label)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    avoid = ""
+    if recent_themes:
+        avoid = (
+            "\n\nאסור לחזור על אחד מהנושאים האלה (השתמשו לאחרונה):\n"
+            + "\n".join(f"- {t}" for t in recent_themes[:15])
+        )
+
+    cat_list_he = " | ".join(_TRIVIA_VALID_CATEGORIES)
+    time_ctx = _format_time_context(sched_date, sched_time)
+
+    prompt = f"""בחר תצורה לסיבוב טריוויה לקהילת מבוגרים ישראלית (childfree, גילאי 30-50). הסיבוב מורכב מ-{{question_count}} שאלות בערוץ הטלגרם.
+
+חוקים:
+1. theme_label: כותרת קצרה ומזמינה בעברית (עד 25 תווים), ברורה ולא גנרית. אל תשתמש במילה "טריוויה" בכותרת.
+2. categories: רשימה של 1-3 קטגוריות מהסט הסגור הבא (חובה לאיית בדיוק כך, כל ערך כפי שמופיע):
+   {cat_list_he}
+   אם בחרת נושא רחב — בחר 2-3 קטגוריות. אם נושא צר — אחת מספיקה. הקטגוריות חייבות להתאים ל-theme_label.
+3. question_count: 5, 7, או 10. בחר על פי האווירה — סיבוב קצר ומהיר (5), בינוני (7), או מלא (10).
+4. pre_roll_s: 30 או 60 (השהייה בשניות בין ההכרזה לשאלה הראשונה).
+5. warmup_text: שורה אחת קצרה (עד 140 תווים) שתשלח כהודעת חימום ב"הפינה של בוטסון" כ-30 דקות לפני המשחק. חייבת להכיל את המילה "מתחממים" או "בעוד" (כדי שהבוט יזהה אותה כהודעת חימום ולא כהפעלה). הזכר את ה-theme_label.
+
+עברית תקנית בלבד. אל תמציא ביטויים. אל תשלב מילים באנגלית באמצע משפט עברי.{avoid}{time_ctx}
+
+{f'הקשר/רמז למפעיל: {hint}' if hint else ''}
+{f'העדפת קטגוריה: {category_hint}' if category_hint else ''}
+
+פלט: JSON תקין בלבד, ללא טקסט נוסף לפני או אחרי, במבנה:
+{{"theme_label": "<כותרת>", "categories": ["<קטגוריה>"], "question_count": 7, "pre_roll_s": 30, "warmup_text": "<טקסט חימום>"}}"""
+
+    try:
+        content = await _generate_via_cli(prompt)
+    except Exception:
+        content = await _generate_via_api(prompt)
+
+    raw = content.strip()
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("no JSON object found")
+        payload = json.loads(raw[start:end + 1])
+    except Exception as e:
+        logger.warning("[trivia-suggest] JSON parse failed: %s — raw=%r", e, raw[:300])
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI did not return valid JSON: {e}. Raw: {raw[:200]}",
+        )
+
+    theme_label = (payload.get("theme_label") or "").strip()
+    raw_cats = payload.get("categories") or []
+    if not isinstance(raw_cats, list):
+        raw_cats = []
+    categories = [
+        c.strip() for c in raw_cats
+        if isinstance(c, str) and c.strip() in _TRIVIA_VALID_CATEGORIES
+    ]
+    dropped = [
+        c for c in raw_cats
+        if isinstance(c, str) and c.strip() and c.strip() not in _TRIVIA_VALID_CATEGORIES
+    ]
+    try:
+        question_count = int(payload.get("question_count") or 7)
+    except Exception:
+        question_count = 7
+    question_count = max(1, min(question_count, 20))
+    try:
+        pre_roll_s = int(payload.get("pre_roll_s") or 30)
+    except Exception:
+        pre_roll_s = 30
+    pre_roll_s = max(5, min(pre_roll_s, 3600))
+    warmup_text = (payload.get("warmup_text") or "").strip()
+
+    if not theme_label or not categories:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "AI suggestion missing theme_label or no valid categories. "
+                f"Got theme={theme_label!r} categories={raw_cats!r}"
+            ),
+        )
+
+    if "מתחממים" not in warmup_text and "בעוד" not in warmup_text:
+        # Calendar coercer expects this; surface a soft note rather than failing,
+        # so the operator can edit before saving.
+        logger.info("[trivia-suggest] warmup_text missing trigger word — operator must adjust")
+
+    logger.info(
+        "[trivia-suggest] theme=%r cats=%s qc=%d pre_roll=%d dropped=%s",
+        theme_label, categories, question_count, pre_roll_s, dropped,
+    )
+
+    return {
+        "theme_label": theme_label,
+        "categories": categories,
+        "question_count": question_count,
+        "pre_roll_s": pre_roll_s,
+        "warmup_text": warmup_text,
+        "dropped_categories": dropped,
+        "valid_categories": list(_TRIVIA_VALID_CATEGORIES),
+    }
+
+
+@app.post("/api/pool/emoji-puzzles/suggest")
+async def pool_emoji_puzzles_suggest(request: Request, db: Database = Depends(get_db)):
+    """Generate N new emoji puzzles via Claude and insert them into the
+    `emoji_puzzles` pool table directly.
+
+    Body: {count: int (1-20), media_type: 'movie'|'tv'|'book'|'song'}
+    Returns: {inserted: int, items: [{id, emoji_prompt, answer_he, answer_en}], errors: [str]}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    try:
+        count = max(1, min(int(data.get("count", 5)), 20))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid count")
+    media_type = (data.get("media_type") or "movie").strip().lower()
+    if media_type not in ("movie", "tv", "book", "song"):
+        raise HTTPException(status_code=400, detail="Invalid media_type")
+
+    media_he = {
+        "movie": "סרט", "tv": "סדרת טלוויזיה", "book": "ספר", "song": "שיר",
+    }[media_type]
+
+    existing_he: list[str] = []
+    try:
+        async with db._db.execute("SELECT answer_he FROM emoji_puzzles") as cur:
+            async for row in cur:
+                v = (row["answer_he"] or "").strip()
+                if v:
+                    existing_he.append(v)
+    except Exception:
+        pass
+
+    avoid_block = ""
+    if existing_he:
+        sample = existing_he[:60]
+        avoid_block = (
+            "\n\nאסור להציע אחת מהתשובות הבאות (כבר קיימות במאגר):\n"
+            + "\n".join(f"- {s}" for s in sample)
+        )
+
+    prompt = f"""צור {count} חידות אמוג'י חדשות בעברית. כל חידה היא רצף של 3-6 אמוג'ים שמייצגים שם של {media_he}.
+
+הקפד על:
+- שמות מוכרים — {media_he}ים שרוב הקהילה (קהילת מבוגרים ישראלית, גילאי 30-50, ללא ילדים) תזהה.
+- אמוג'ים ויזואליים בלבד. אל תשתמש באותיות לטיניות מאמוג'ים (🅰️🅱️ וכו').
+- תשובה בעברית מדויקת ובאנגלית הבינלאומית.
+- אליאסים: 2-4 שמות חלופיים, איות שונה, או וריאציות מקובלות שאנשים עשויים להקליד.{avoid_block}
+
+פלט: JSON תקין בלבד, ללא טקסט נוסף לפני או אחרי, מערך של אובייקטים במבנה:
+[{{"emoji_prompt": "🦁👑", "answer_he": "מלך האריות", "answer_en": "The Lion King", "aliases": ["lion king", "Lion King", "המלך האריה"]}}]"""
+
+    try:
+        content = await _generate_via_cli(prompt)
+    except Exception:
+        content = await _generate_via_api(prompt)
+
+    raw = content.strip()
+    try:
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start < 0 or end <= start:
+            raise ValueError("no JSON array found")
+        items = json.loads(raw[start:end + 1])
+        if not isinstance(items, list):
+            raise ValueError("not an array")
+    except Exception as e:
+        logger.warning("[emoji-suggest] JSON parse failed: %s — raw=%r", e, raw[:300])
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI did not return valid JSON: {e}. Raw: {raw[:200]}",
+        )
+
+    inserted: list[dict] = []
+    errors: list[str] = []
+    for p in items:
+        if not isinstance(p, dict):
+            errors.append(f"non-dict item skipped: {p}")
+            continue
+        emoji_prompt_val = (p.get("emoji_prompt") or "").strip()
+        answer_he = (p.get("answer_he") or "").strip()
+        answer_en = (p.get("answer_en") or "").strip()
+        aliases = p.get("aliases") or []
+        if not emoji_prompt_val or not answer_he or not answer_en:
+            errors.append(f"incomplete entry: {p}")
+            continue
+        try:
+            new_id = await db.create_emoji_puzzle(
+                emoji_prompt=emoji_prompt_val,
+                answer_he=answer_he,
+                answer_en=answer_en,
+                aliases=json.dumps(
+                    [a for a in aliases if isinstance(a, str) and a.strip()],
+                    ensure_ascii=False,
+                ),
+                difficulty=2,
+                media_type=media_type,
+            )
+            inserted.append({
+                "id": new_id,
+                "emoji_prompt": emoji_prompt_val,
+                "answer_he": answer_he,
+                "answer_en": answer_en,
+            })
+            logger.info(
+                "[emoji-suggest] id=%d media=%s %s -> %s",
+                new_id, media_type, emoji_prompt_val, answer_he,
+            )
+        except Exception as e:
+            errors.append(f"insert failed for {answer_he}: {e}")
+
+    return {"inserted": len(inserted), "items": inserted, "errors": errors}
+
+
+_FACTS_VENUE_KEYWORDS = (
+    "Press", "Journal", "Nature", "Science", "Library", "University",
+    "Museum", "Post", "Magazine", "Society", "Review", "Communications",
+    "Atlas", "Encyclopedia", "Wikipedia", "Ministry", "Archive",
+    "Foundation", "Institute", "Israel", "France", "Britain",
+)
+_FACTS_URL_MARKERS = (".com", ".org", ".il", ".edu", ".gov", ".fr", ".uk", ".net", "http")
+
+
+def _validate_fact_entry(item_id: str, text_he: str, source: str, existing_ids: set) -> list[str]:
+    """Mirror of `tests/test_facts_pool.py` validators so the dashboard rejects
+    bad suggestions before they hit the YAML. CI is the final check; this is
+    the friendly first line of defense.
+    """
+    errors: list[str] = []
+    if not item_id:
+        errors.append("missing id")
+    elif item_id in existing_ids:
+        errors.append("id already exists in pool")
+    elif not item_id.replace("_", "").replace("-", "").isalnum():
+        errors.append("id must be ASCII alphanumeric (snake_case)")
+    if not text_he:
+        errors.append("missing text_he")
+    elif len(text_he.strip()) < 50:
+        errors.append("text_he too short (< 50 chars)")
+    elif not any(0x0590 <= ord(c) <= 0x05FF for c in text_he):
+        errors.append("text_he has no Hebrew characters")
+    if not source:
+        errors.append("missing source")
+    else:
+        import re as _re
+        year_re = _re.compile(r"\b(?:19|20)\d{2}\b")
+        has_year = bool(year_re.search(source))
+        has_venue = any(k in source for k in _FACTS_VENUE_KEYWORDS)
+        has_url = any(m in source for m in _FACTS_URL_MARKERS)
+        if not (has_year or has_venue or has_url):
+            errors.append("source doesn't look like a real citation (missing year/venue/URL)")
+    return errors
+
+
+def _load_facts_existing_ids() -> set:
+    try:
+        with open(CONFIG_DIR / "facts.yaml", "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+        ids: set = set()
+        for pool_name in ("tidbit", "spooky"):
+            for entry in existing.get(pool_name, []) or []:
+                if entry.get("id"):
+                    ids.add(entry["id"])
+        return ids
+    except Exception:
+        return set()
+
+
+@app.post("/api/pool/facts/suggest")
+async def pool_facts_suggest(request: Request):
+    """Generate candidate facts via Claude for manual review.
+
+    Does NOT write to config/facts.yaml. Returns suggestions with per-item
+    validation results so the admin can approve only the entries whose
+    citations they actually verified.
+
+    Body: {kind: 'tidbit'|'spooky', count: int (1-10)}
+    Returns: {kind, suggestions: [{id, text_he, source, validation_pass, validation_errors}], note}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    kind = (data.get("kind") or "tidbit").strip().lower()
+    if kind not in ("tidbit", "spooky"):
+        raise HTTPException(status_code=400, detail="Invalid kind (must be tidbit or spooky)")
+    try:
+        count = max(1, min(int(data.get("count", 5)), 10))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid count")
+
+    kind_he = "עובדה מעניינת מהמדע / היסטוריה / טבע" if kind == "tidbit" else "סיפור מסתורי / פולקלורי / לא-מוסבר"
+    prompt = f"""צור {count} פריטים חדשים מסוג "{kind_he}" בעברית עבור קהילת מבוגרים סקרנים.
+
+חוקים קשיחים:
+1. כל פריט חייב להגיע ממקור אמיתי שניתן לאמת (מאמר אקדמי, מוסד מחקר, ארכיון רשמי, אנציקלופדיה מוכרת, אתר ממשלתי).
+   אסור להמציא מקורות. אם אינך בטוח שהמקור קיים — דלג ובחר נושא אחר.
+2. השדה source חייב לכלול לפחות אחד מהבאים: שם מחבר + שנה (4 ספרות 1900-2099), או שם כתב-עת מוכר (Nature/Science/וכו'), או URL.
+   דוגמאות חוקיות: "Oren et al., Science (2024). Hebrew University." | "Seymour et al., Science Advances (2023)." | "https://www.nature.com/articles/..."
+3. text_he: לפחות 50 תווים, עברית טבעית מספרת. לא תרגום מילולי, לא רשימה יבשה.
+4. id: מזהה לטיני קצר (snake_case, אנגלית בלבד) שמתאר את התוכן. ייחודי לכל פריט.
+5. בחר נושאים לא-טריוויאליים. עובדה ש-90% כבר מכירים — דלג.
+
+פלט: JSON תקין בלבד, ללא טקסט נוסף לפני או אחרי, מערך אובייקטים במבנה:
+[{{"id": "marmoset_calls", "text_he": "מחקר מהאוניברסיטה העברית מצא...", "source": "Oren et al., Science (2024). Hebrew University."}}]"""
+
+    try:
+        content = await _generate_via_cli(prompt)
+    except Exception:
+        content = await _generate_via_api(prompt)
+
+    raw = content.strip()
+    try:
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start < 0 or end <= start:
+            raise ValueError("no JSON array found")
+        items = json.loads(raw[start:end + 1])
+        if not isinstance(items, list):
+            raise ValueError("not an array")
+    except Exception as e:
+        logger.warning("[facts-suggest] JSON parse failed: %s — raw=%r", e, raw[:300])
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI did not return valid JSON: {e}. Raw: {raw[:200]}",
+        )
+
+    existing_ids = _load_facts_existing_ids()
+    suggestions: list[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        item_id = (it.get("id") or "").strip()
+        text_he = (it.get("text_he") or "").strip()
+        source = (it.get("source") or "").strip()
+        verrors = _validate_fact_entry(item_id, text_he, source, existing_ids)
+        suggestions.append({
+            "id": item_id,
+            "text_he": text_he,
+            "source": source,
+            "validation_pass": not verrors,
+            "validation_errors": verrors,
+        })
+
+    return {
+        "kind": kind,
+        "suggestions": suggestions,
+        "note": (
+            "אמת ידנית שכל מקור אכן קיים לפני אישור. אישור מוסיף ל-config/facts.yaml — "
+            "ה-CI יבדוק את הצורה אבל לא את אמיתות המקור."
+        ),
+    }
+
+
+@app.post("/api/pool/facts/append")
+async def pool_facts_append(request: Request):
+    """Append a single validated fact to config/facts.yaml under the chosen pool.
+
+    Re-runs the validator (don't trust client-side `validation_pass`) and
+    refuses to write if the entry would fail `tests/test_facts_pool.py`.
+
+    Body: {kind: 'tidbit'|'spooky', id, text_he, source}
+    Returns: {ok, kind, id} or 422 with errors
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    kind = (data.get("kind") or "").strip().lower()
+    if kind not in ("tidbit", "spooky"):
+        raise HTTPException(status_code=400, detail="Invalid kind")
+    item_id = (data.get("id") or "").strip()
+    text_he = (data.get("text_he") or "").strip()
+    source = (data.get("source") or "").strip()
+
+    existing_ids = _load_facts_existing_ids()
+    verrors = _validate_fact_entry(item_id, text_he, source, existing_ids)
+    if verrors:
+        raise HTTPException(status_code=422, detail={"validation_errors": verrors})
+
+    path = CONFIG_DIR / "facts.yaml"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data_yaml = yaml.safe_load(f) or {}
+        if kind not in data_yaml or not isinstance(data_yaml[kind], list):
+            data_yaml[kind] = []
+        data_yaml[kind].append({
+            "id": item_id,
+            "text_he": text_he,
+            "source": source,
+        })
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(data_yaml, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        logger.info("[facts-append] kind=%s id=%s appended", kind, item_id)
+    except Exception as e:
+        logger.exception("[facts-append] write failed")
+        raise HTTPException(status_code=500, detail=f"YAML write failed: {e}")
+
+    return {"ok": True, "kind": kind, "id": item_id}
 
 
 @app.post("/api/weekplan/update-prompt")

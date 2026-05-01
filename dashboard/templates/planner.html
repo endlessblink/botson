@@ -439,6 +439,9 @@
             <button type="button" id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 ✨ מלא טיוטות ב-AI
             </button>
+            <button type="button" id="ai-regenerate-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="מחק טיוטות AI ישנות וייצר אותן מחדש עם הנחיות איכות עדכניות">
+                ♻️ ייצר מחדש טיוטות AI
+            </button>
         </div>
     </div>
 </div>
@@ -783,6 +786,13 @@
                         <input id="trivia-categories" type="text" value="ישראל"
                             class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                     </div>
+                </div>
+
+                <!-- AI suggest -->
+                <div class="flex items-center justify-end">
+                    <button type="button" id="trivia-ai-suggest-btn" onclick="aiSuggestTriviaRound()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ה-AI יבחר נושא, קטגוריות, מספר שאלות וטקסט חימום">
+                        ✨ הצע נושא ב-AI
+                    </button>
                 </div>
 
                 <!-- Count + pre-roll -->
@@ -1448,7 +1458,13 @@ async function aiGenerateContent() {
     btn.disabled = true;
     btn.style.opacity = '0.5';
     try {
-        var body = { type: type, category: wizardState.category || '', existing: ta.value || '' };
+        var body = {
+            type: type,
+            category: wizardState.category || '',
+            existing: ta.value || '',
+            scheduled_date: wizardState.date || '',
+            scheduled_time: wizardState.time || ''
+        };
         var r = await fetch('/api/generate-content', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1459,7 +1475,32 @@ async function aiGenerateContent() {
             throw new Error(err.detail || ('HTTP ' + r.status));
         }
         var data = await r.json();
-        if (data.text) {
+        if (type === 'poll' && data.question && Array.isArray(data.options)) {
+            // Poll: populate the question textarea AND replace the options list.
+            ta.value = data.question;
+            wizardState.text = data.question;
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+            wizardState.pollOptions = data.options.slice();
+            while (wizardState.pollOptions.length < 2) wizardState.pollOptions.push('');
+
+            var pollList = document.getElementById('poll-options-list');
+            if (pollList) {
+                pollList.innerHTML = '';
+                wizardState.pollOptions.forEach(function(val, idx) {
+                    var input = document.createElement('input');
+                    input.type = 'text';
+                    input.dir = 'rtl';
+                    input.placeholder = 'אפשרות ' + (idx + 1);
+                    input.value = val || '';
+                    input.className = 'poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors';
+                    input.oninput = (function(i) {
+                        return function() { updatePollOption(i, this.value); };
+                    })(idx);
+                    pollList.appendChild(input);
+                });
+            }
+        } else if (data.text) {
             ta.value = data.text;
             wizardState.text = data.text;
             ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -3192,6 +3233,131 @@ async function aiFillAllVisible() {
         }
 
         showToast('נוצרו ' + totalCreated + ' הודעות' + (totalErrors > 0 ? ' (' + totalErrors + ' שגיאות)' : ''), totalErrors > 0 ? 'error' : 'success');
+        calendar.refetchEvents();
+    } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    }
+}
+
+async function aiSuggestTriviaRound() {
+    var btn = document.getElementById('trivia-ai-suggest-btn');
+    if (!btn) return;
+    var origText = btn.innerHTML;
+    btn.innerHTML = '⏳ מייצר...';
+    btn.disabled = true;
+    try {
+        var dateInput = document.getElementById('create-date');
+        var timeInput = document.getElementById('create-time');
+        var body = {
+            date: dateInput ? dateInput.value : '',
+            time: timeInput ? timeInput.value : '',
+            hint: '',
+            category_hint: (document.getElementById('trivia-categories') || {}).value || ''
+        };
+        var r = await fetch('/api/trivia-round/suggest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var data = await r.json();
+        var theme = document.getElementById('trivia-theme');
+        var cats = document.getElementById('trivia-categories');
+        var count = document.getElementById('trivia-count');
+        var preroll = document.getElementById('trivia-preroll');
+        if (theme && data.theme_label) theme.value = data.theme_label;
+        if (cats && Array.isArray(data.categories)) cats.value = data.categories.join(', ');
+        if (count && data.question_count) count.value = String(data.question_count);
+        if (preroll && data.pre_roll_s) preroll.value = String(data.pre_roll_s);
+
+        // Warm-up text doesn't go in the trivia form (it's a separate
+        // planner row per CLAUDE.md). Copy it to clipboard so the operator
+        // can paste it into a discussion-row at T-35 in the planner.
+        if (data.warmup_text) {
+            try {
+                await navigator.clipboard.writeText(data.warmup_text);
+                showToast('הצעה: ' + data.theme_label + '. טקסט החימום הועתק ללוח: ' + data.warmup_text.slice(0, 60), 'success');
+            } catch (e) {
+                showToast('הצעה: ' + data.theme_label + '. חימום: ' + data.warmup_text, 'success');
+            }
+        } else {
+            showToast('הצעה: ' + data.theme_label, 'success');
+        }
+        if (Array.isArray(data.dropped_categories) && data.dropped_categories.length) {
+            console.warn('[trivia-suggest] dropped invalid categories:', data.dropped_categories);
+        }
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    }
+}
+
+async function aiRegenerateWeek() {
+    var btn = document.getElementById('ai-regenerate-btn');
+    if (!btn) return;
+    if (!confirm('זה ימחק את טיוטות ה-AI הקיימות בשבועות הגלויים וייצר אותן מחדש עם הנחיות האיכות העדכניות. שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+
+    var origText = btn.innerHTML;
+    btn.innerHTML = '⏳ מייצר מחדש...';
+    btn.disabled = true;
+
+    try {
+        var view = calendar.view;
+        var startDate = view.activeStart;
+        var endDate = view.activeEnd;
+
+        var today = new Date();
+        var todaySunday = new Date(today);
+        todaySunday.setDate(today.getDate() - ((today.getDay()) % 7));
+        todaySunday.setHours(0,0,0,0);
+
+        var firstWeekStart = new Date(startDate);
+        firstWeekStart.setDate(startDate.getDate() - startDate.getDay());
+        firstWeekStart.setHours(0,0,0,0);
+
+        var weekOffsets = [];
+        var cur = new Date(firstWeekStart);
+        while (cur < endDate) {
+            var diffDays = Math.round((cur - todaySunday) / (1000*60*60*24));
+            var offset = Math.round(diffDays / 7);
+            weekOffsets.push(offset);
+            cur.setDate(cur.getDate() + 7);
+        }
+
+        var totalDeleted = 0;
+        var totalCreated = 0;
+        var totalErrors = 0;
+
+        for (var i = 0; i < weekOffsets.length; i++) {
+            btn.innerHTML = '⏳ שבוע ' + (i+1) + '/' + weekOffsets.length;
+            try {
+                var resp = await fetch('/api/weekplan/ai-fill-regenerate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({week_offset: weekOffsets[i]})
+                });
+                var data = await resp.json();
+                if (!resp.ok) {
+                    totalErrors += 1;
+                    continue;
+                }
+                totalDeleted += (data.deleted || 0);
+                totalCreated += (data.created || 0);
+                totalErrors += ((data.errors && data.errors.length) || 0);
+            } catch (e) {
+                totalErrors += 1;
+            }
+        }
+
+        var msg = 'נמחקו ' + totalDeleted + ', נוצרו ' + totalCreated;
+        if (totalErrors > 0) msg += ' (' + totalErrors + ' שגיאות)';
+        showToast(msg, totalErrors > 0 ? 'error' : 'success');
         calendar.refetchEvents();
     } finally {
         btn.innerHTML = origText;
