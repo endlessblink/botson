@@ -14,8 +14,10 @@ import json
 import asyncio
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import yaml
 from fastapi import HTTPException
 
 from bot.database.db import Database
@@ -281,6 +283,41 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_review_schedule_can_move_draft_to_requested_date(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                msg_id = await db.create_scheduled_message(
+                    text="old ai draft",
+                    message_type="discussion",
+                    channel_topic_id=59,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="19:30",
+                    status="draft",
+                    created_by="ai-fill-today",
+                )
+
+                res = await dashboard_app.schedule_calendar_item(
+                    msg_id,
+                    FakeCalendarRequest({"scheduled_date": "2099-01-02", "scheduled_time": "20:00"}),
+                    db,
+                )
+
+                self.assertEqual(res["status"], "ok")
+                self.assertEqual(res["scheduled_for"], "2099-01-02T20:00:00")
+                async with db._db.execute(
+                    "SELECT scheduled_date, scheduled_time, status FROM scheduled_messages WHERE id = ?",
+                    (msg_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["scheduled_date"], "2099-01-02")
+                self.assertEqual(row["scheduled_time"], "20:00")
+                self.assertEqual(row["status"], "scheduled")
+            finally:
+                await db.close()
+
     async def test_turning_trivia_live_creates_warmup_as_scheduled(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
@@ -328,6 +365,49 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_trivia_topup_generates_reviews_and_persists_missing_questions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            (config_dir / "trivia.yaml").write_text(
+                yaml.safe_dump({
+                    "questions": [{
+                        "text": "existing gaming question",
+                        "options": ["a", "b", "c", "d"],
+                        "correct": 0,
+                        "category": "גיימינג",
+                    }]
+                }, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
+            generated = "\n\n".join(
+                f"שאלה: שאלת גיימינג חדשה מספר {i}\n"
+                f"תשובות: א{i} | ב{i} | ג{i} | ד{i}\n"
+                "נכונה: 0\n"
+                "קטגוריה: גיימינג"
+                for i in range(1, 10)
+            )
+            row = {
+                "id": 999,
+                "poll_options": json.dumps({
+                    "theme_label": "גיימינג",
+                    "categories": ["גיימינג"],
+                    "question_count": 10,
+                }, ensure_ascii=False),
+            }
+
+            with patch.object(dashboard_app, "CONFIG_DIR", config_dir), \
+                 patch.object(dashboard_app, "load_yaml", return_value=yaml.safe_load((config_dir / "trivia.yaml").read_text(encoding="utf-8"))), \
+                 patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=generated)), \
+                 patch.object(dashboard_app, "_generate_via_api", new=AsyncMock()) as generate_api:
+                result = await dashboard_app._ensure_trivia_pool_ready_for_round(row)
+
+            self.assertEqual(result["generated"], 9)
+            self.assertEqual(result["available"], 10)
+            generate_api.assert_not_awaited()
+            saved = yaml.safe_load((config_dir / "trivia.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(len(saved["questions"]), 10)
+            self.assertEqual({q["category"] for q in saved["questions"]}, {"גיימינג"})
+
 
 class TestPlannerTemplateExposure(unittest.TestCase):
     def test_calendar_styles_include_executable_activity_types(self):
@@ -371,6 +451,12 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         self.assertIn("throw new Error", planner_html)
 
         self.assertIn("'custom','poll'", planner_html)
+
+    def test_review_schedule_sends_date_and_uses_local_date_formatter(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        self.assertIn("scheduled_date: card.getAttribute('data-review-date')", planner_html)
+        self.assertIn("function formatLocalDate", planner_html)
+        self.assertNotIn("toISOString().split('T')[0]", planner_html)
 
     def test_content_inventory_scheduler_types_are_exposed(self):
         class FakeDb:

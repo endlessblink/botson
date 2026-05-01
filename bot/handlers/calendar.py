@@ -27,10 +27,18 @@ _IL_TZ = ZoneInfo("Asia/Jerusalem")
 
 
 def _require_message_id(value, activity: str) -> int:
+    if isinstance(value, dict) and value.get("skipped"):
+        raise SkippedActivity(f"{activity} skipped: {value.get('skipped')}")
+    if isinstance(value, dict) and value.get("message_id") is not None:
+        value = value.get("message_id")
     message_id = int(value or 0)
     if message_id <= 0:
         raise RuntimeError(f"{activity} did not return a Telegram message_id")
     return message_id
+
+
+class SkippedActivity(RuntimeError):
+    """Scheduled activity made an intentional no-op decision."""
 
 
 _TRIVIA_CATEGORY_NEEDLES = (
@@ -360,6 +368,8 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             elif msg.get("message_type") == "free_games":
                 summary = await send_free_games(context, force=True)
                 if not summary or int(summary.get("posted") or 0) <= 0:
+                    if summary and (summary.get("error") in {None, "blackout date", "disabled"}):
+                        raise SkippedActivity(f"free_games: {summary}")
                     raise RuntimeError(f"free_games did not post: {summary}")
                 sent = SimpleNamespace(message_id=1)
             elif msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
@@ -498,6 +508,13 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     )
                     logger.info("Created next occurrence for %d on %s", msg["id"], next_date)
 
+        except SkippedActivity as e:
+            mark_skipped = getattr(db, "mark_message_skipped", None)
+            if mark_skipped:
+                await mark_skipped(msg["id"], str(e))
+            else:
+                await db.mark_message_failed(msg["id"], f"skipped: {e}")
+            logger.info("Skipped scheduled message %d: %s", msg["id"], e)
         except Exception as e:
             await db.mark_message_failed(msg["id"], str(e))
             logger.error("Failed to send scheduled message %d: %s", msg["id"], e)

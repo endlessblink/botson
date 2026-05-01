@@ -39,6 +39,7 @@ from dashboard.verified_topics import (
 )
 
 RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
+_TRIVIA_TOPUP_LOCKS: dict[int, asyncio.Lock] = {}
 
 
 def _signal_bot_reload():
@@ -1056,6 +1057,13 @@ def _matching_trivia_questions(pool: list, categories: list[str]) -> list[dict]:
 
 
 async def _ensure_trivia_pool_ready_for_round(row) -> dict:
+    row_id = int(row["id"])
+    lock = _TRIVIA_TOPUP_LOCKS.setdefault(row_id, asyncio.Lock())
+    async with lock:
+        return await _ensure_trivia_pool_ready_for_round_unlocked(row)
+
+
+async def _ensure_trivia_pool_ready_for_round_unlocked(row) -> dict:
     """Ensure a trivia_round row has enough verified questions before it goes live.
 
     This is intentionally run during "Turn live" rather than only at fire time:
@@ -3468,14 +3476,13 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 
      a. **אסור לחלוטין להציע פעילויות שהמנהל מארגן ידנית** — board games, Among Us, watch parties, מפגשי משחקי קופסה, ערבי קלפים, וכל פעילות אחרת שדורשת תיאום בין משתתפים. זה תפקיד המנהל, לא של ה-AI. אסור לכתוב "מי בא לשחק...?" / "מי מצטרף ל...?".
 
-     b. **טריוויה / אמוג'י-פאזל — מותר ומומלץ, אך כהכרזה ולא כשאלה**:
-        - אסור: "מי בעניין?", "מי מצטרף?", "כמה מגיעים?".
-        - מותר: "🧠 הערב ב-22:00 — סיבוב טריוויה על מוזיקת 80s. 10 שאלות מהירות בערוץ הפינה." (פוסט ראשי, regular_slots, type="discussion", category הקרוב, scheduled_time=שעת הסיבוב).
-        - **בנוסף — חובה תזכורת**: הוסף שורה שניה ב-regular_slots לאותו סיבוב, scheduled_time=שעה-10min, type="discussion", text="🧠 בעוד 10 דקות — סיבוב טריוויה!" (קצרה, מזכירה). דמה ל-event reminders אבל ב-regular_slots כי זה לא event ב-events table.
-        - חובה גם לאכלס trivia_questions ב-10 שאלות באותה קטגוריה אלא אם האדמין ביקש מספר אחר (אמוג'י: 3-5 חידות).
-        - חובה ב-notes_for_admin תחת **"סיבובי משחק שתוזמנו:"** רשימת הסיבובים, עם הערה: "לפתיחה ידנית בשעה הנכונה: /trivia → התחל סיבוב" (או /puzzles).
-        - **חובה גם להוסיף ב-notes_for_admin** את האזהרה הבאה (מילה במילה, כדי שהמנהל יראה אותה בכל פעם):
-          **"⚠️ שים לב: התזכורת היא הודעה רגילה ב-scheduled_messages — היא תישלח לקבוצה בזמן שלה גם אם לא הפעלת את הסיבוב בפועל. אם החלטת שהסיבוב לא קורה — מחק את שתי השורות (ההכרזה והתזכורת) לפני הזמן."**
+     b. **טריוויה / אמוג'י-פאזל — מותר ומומלץ, אך כסלוט ביצוע אוטומטי ולא כשאלה**:
+         - אסור: "מי בעניין?", "מי מצטרף?", "כמה מגיעים?".
+         - מותר: "🧠 הערב ב-22:00 — סיבוב טריוויה על מוזיקת 80s. 10 שאלות מהירות בערוץ הפינה." (regular_slots, type="discussion" או type="trivia_round" אם יש התאמה ברורה, scheduled_time=שעת הסיבוב). שורת סיבוב כזו תהפוך להפעלה אוטומטית של המשחק בזמן המתוכנן אחרי אישור המנהל.
+         - תזכורת/חימום היא אופציונלית ורק אם יש מספיק זמן לפני הסיבוב. אם מוסיפים תזכורת, היא regular_slots רגיל עם טקסט קצר כמו "🧠 בעוד 10 דקות — סיבוב טריוויה!".
+         - חובה גם לאכלס trivia_questions ב-10 שאלות באותה קטגוריה אלא אם האדמין ביקש מספר אחר (אמוג'י: 3-5 חידות).
+         - חובה ב-notes_for_admin תחת **"סיבובי משחק שתוזמנו:"** לרשום את הסיבובים כטיוטות שממתינות לאישור. אל תכתוב לפתוח ידנית עם /trivia או /puzzles; אחרי אישור, שורת המשחק מפעילה את המשחק אוטומטית בזמן שלה.
+         - אם קיימת תזכורת נפרדת, רשום שהיא הודעת חימום רגילה שאפשר למחוק אם מבטלים את המשחק. אל תציג אותה כאזהרה קריטית ואל תטען שהמשחק לא יופעל אוטומטית.
 
      c. **פולס מהיר** עם 2-4 אופציות בטקסט (regular_slots, type="discussion") — מותר אם הנושא מעניין ולא דורש תיאום בין-אישי.
 
@@ -5755,6 +5762,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
         body = await request.json()
     except Exception:
         body = {}
+    new_date = (body.get("scheduled_date") or "").strip() or None
     new_time = (body.get("scheduled_time") or "").strip() or None
     force = bool(body.get("force", False))
 
@@ -5766,15 +5774,17 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     if not row:
         raise HTTPException(status_code=404, detail="message not found")
 
+    target_date_str = new_date or row["scheduled_date"]
     target_time_str = new_time or (row["scheduled_time"] or "")[:5]
     from datetime import datetime
-    now = datetime.now()
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
     try:
         target_dt = datetime.strptime(
-            f"{row['scheduled_date']} {target_time_str}", "%Y-%m-%d %H:%M"
+            f"{target_date_str} {target_time_str}", "%Y-%m-%d %H:%M"
         )
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"invalid time {target_time_str!r}")
+        raise HTTPException(status_code=400, detail=f"invalid scheduled date/time {target_date_str!r} {target_time_str!r}")
 
     if not force:
         delta = (target_dt - now).total_seconds()
@@ -5797,6 +5807,8 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
         topup_result = await _ensure_trivia_pool_ready_for_round(row)
 
     update_fields: dict = {"status": "scheduled"}
+    if new_date and new_date != row["scheduled_date"]:
+        update_fields["scheduled_date"] = new_date
     if new_time and new_time != (row["scheduled_time"] or "")[:5]:
         update_fields["scheduled_time"] = new_time
     await db.update_scheduled_message(msg_id, **update_fields)

@@ -832,6 +832,14 @@ class Database:
         )
         await self._db.commit()
 
+    async def mark_message_skipped(self, msg_id: int, reason: str):
+        """Mark a scheduled message as intentionally skipped, not failed."""
+        await self._db.execute(
+            "UPDATE scheduled_messages SET status = 'skipped', error_message = ? WHERE id = ?",
+            (reason, msg_id),
+        )
+        await self._db.commit()
+
     async def get_draft_messages(self) -> list[dict]:
         """Get all draft messages awaiting approval."""
         async with self._db.execute(

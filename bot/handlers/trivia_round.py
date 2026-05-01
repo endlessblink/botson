@@ -102,6 +102,19 @@ def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> lis
     return picked
 
 
+async def _top_up_scheduled_questions_if_possible(msg: dict) -> None:
+    """Best-effort runtime fallback for old rows or pool edits after approval."""
+    try:
+        from dashboard.app import _ensure_trivia_pool_ready_for_round
+        result = await _ensure_trivia_pool_ready_for_round({
+            "id": msg.get("id") or 0,
+            "poll_options": msg.get("poll_options"),
+        })
+        logger.info("trivia_round: runtime top-up result for row %s: %s", msg.get("id"), result)
+    except Exception as e:
+        logger.warning("trivia_round: runtime top-up failed for row %s: %s", msg.get("id"), e)
+
+
 def _build_answer_markup(q_index: int, options: list[str]) -> InlineKeyboardMarkup:
     rows = []
     for i, opt in enumerate(options):
@@ -645,6 +658,9 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
     theme_label = theme_label or THEME_LABEL
     question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
     questions = _pick_questions(question_count, preferred_categories)
+    if len(questions) < question_count:
+        await _top_up_scheduled_questions_if_possible(msg)
+        questions = _pick_questions(question_count, preferred_categories)
     for q in questions:
         q["_round_question_count"] = question_count
     if len(questions) < question_count:

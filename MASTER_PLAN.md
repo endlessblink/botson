@@ -1072,6 +1072,52 @@ On `/events`, the title field gets auto-filled with a date/time summary like `"�
 
 ---
 
+#### T-119: Scheduled activity reliability hardening (✅ DONE 2026-05-01)
+**Phase:** 22 — Scheduler reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-111
+
+Hardened scheduled executable activities so the calendar never reports false success:
+
+- `trivia_round` still requires a real Telegram announcement `message_id` before the row is marked `sent`.
+- Approval/send paths preserve visible HTTP errors instead of silently showing success.
+- Successful trivia top-up is covered by tests: missing category questions are generated, deterministically reviewed, persisted to `config/trivia.yaml`, and reloaded as eligible questions.
+- Added regression coverage for failed top-up, successful top-up, and scheduler proof checks.
+
+**Files:** `dashboard/app.py`, `dashboard/templates/planner.html`, `tests/test_planner_coercion_and_chips.py`, `tests/test_calendar_scheduled_games.py`.
+
+---
+
+#### T-120: Runtime fallback for underfilled trivia rounds (✅ DONE 2026-05-01)
+**Phase:** 22 — Scheduler reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-119
+
+Added a bot-side fallback for already-approved trivia rows or post-approval pool edits: if `_pick_questions()` finds too few matching questions at fire time, the scheduled launcher attempts the same reviewed top-up path, reloads `trivia.yaml`, and only fails the row if the pool is still underfilled.
+
+**Files:** `bot/handlers/trivia_round.py`, `tests/test_calendar_scheduled_games.py`.
+
+---
+
+#### T-121: Skipped status for legitimate scheduled no-ops (✅ DONE 2026-05-01)
+**Phase:** 22 — Scheduler reliability | **Priority:** P2 | **Status:** DONE | **Deps:** T-119
+
+Added `status='skipped'` for legitimate no-op activities so the calendar distinguishes "nothing to send" from real failures:
+
+- Free-games rows with no new candidates are skipped, not failed.
+- Weekly leaderboard rows with no leaders are skipped, not failed.
+- `scheduled_messages.error_message` stores the skip reason.
+- Planner status dots now include a skipped color.
+
+**Files:** `bot/database/db.py`, `bot/handlers/calendar.py`, `bot/handlers/free_games.py`, `bot/handlers/levels.py`, `dashboard/templates/planner.html`, `tests/test_calendar_scheduled_games.py`.
+
+---
+
+#### T-122: Trivia top-up concurrency guard (✅ DONE 2026-05-01)
+**Phase:** 22 — Scheduler reliability | **Priority:** P2 | **Status:** DONE | **Deps:** T-119
+
+Added a per-row async lock around trivia top-up generation so concurrent approval/retry requests for the same scheduled game cannot duplicate generated questions or race on `config/trivia.yaml` writes.
+
+**Files:** `dashboard/app.py`.
+
+---
+
 ## Environment Variables
 
 | Variable | Description | Example |

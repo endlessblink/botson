@@ -129,13 +129,13 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
     """Scheduled job: post weekly level leaderboard to general channel."""
     if is_auto_blocked_on(date.today()):
         logger.info("levels: blackout date, skipping weekly leaderboard")
-        return None
+        return {"skipped": "blackout date"}
 
     db: Database = context.bot_data["db"]
     leaders = await db.get_weekly_leaders(10)
 
     if not leaders:
-        return None
+        return {"skipped": "no weekly leaders"}
 
     routing = await db.get_handler_routing("weekly_leaderboard")
     if not routing or routing["play_topic_id"] is None:
