@@ -1,0 +1,358 @@
+"""End-to-end tests for the trivia-round launch path.
+
+These cover the full chain `get_due_messages` → `_coerce_due_game_row` →
+dispatch loop → `start_scheduled_trivia_round` → `safe_send`, against a real
+SQLite database and the live `config/trivia.yaml` pool. Telegram is mocked
+at the `context.bot` boundary; the question-posting background task
+(`_continue_round_after_announcement`) is patched to a no-op so the tests
+don't hang on `pre_roll_s` waits.
+
+Existing dispatch tests (`tests/test_calendar_scheduled_games.py`) use a
+`FakeScheduledDb` stub and most of them also stub `start_scheduled_trivia_round`
+itself — so they don't catch regressions in the SQL filter, the coercion
+step, or the handler entry path. This file fills that gap.
+
+Run with: .venv/bin/python -m unittest tests.test_scheduler_e2e_trivia_launch
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+# Set env vars BEFORE importing dashboard/handlers so module-level reads
+# pick them up. The dispatch loop reads TEST_GROUP_ID/GROUP_ID/BOT_TOKEN
+# inside check_and_send_due_messages (calendar.py:295-297), but Bot(...)
+# format-validation can also surface here.
+os.environ.setdefault("TEST_GROUP_ID", "-1003747545764")
+os.environ.setdefault("GROUP_ID", "-1003873409631")
+os.environ.setdefault("BOT_TOKEN", "12345:fake_test_token_passes_format_check")
+
+# Israel time matches `_IL_TZ` used by the dispatch loop.
+try:
+    from zoneinfo import ZoneInfo
+    _IL_TZ = ZoneInfo("Asia/Jerusalem")
+except Exception:  # pragma: no cover
+    _IL_TZ = None
+
+from bot.database.db import Database  # noqa: E402
+from bot.handlers import calendar as calendar_handler  # noqa: E402
+from bot.handlers import trivia_round as trivia_handler  # noqa: E402
+
+
+TEST_GROUP_ID = int(os.environ["TEST_GROUP_ID"])
+
+
+def _now_il_struct():
+    """`(date_iso, hh_mm_iso, datetime)` from Israel time, matching the dispatch loop."""
+    now = datetime.now(_IL_TZ) if _IL_TZ else datetime.now()
+    return now.strftime("%Y-%m-%d"), now.strftime("%H:%M"), now
+
+
+def _hhmm_seconds_ago(seconds: int) -> tuple[str, str]:
+    """Return `(date_iso, HH:MM)` for `seconds` ago in IL time."""
+    now = datetime.now(_IL_TZ) if _IL_TZ else datetime.now()
+    earlier = now - timedelta(seconds=seconds)
+    return earlier.strftime("%Y-%m-%d"), earlier.strftime("%H:%M")
+
+
+def _make_context(db: Database) -> SimpleNamespace:
+    """Build a fake `ContextTypes.DEFAULT_TYPE` shaped object for the dispatch loop."""
+    bot = AsyncMock()
+    # safe_send returns whatever bot.<method_name>(...) returns.
+    # Trivia handler reads `int(getattr(announcement, "message_id", 0) or 0)`.
+    bot.send_message = AsyncMock(
+        return_value=SimpleNamespace(
+            message_id=900001,
+            chat=SimpleNamespace(id=TEST_GROUP_ID),
+        )
+    )
+    bot.pin_chat_message = AsyncMock(return_value=None)
+    bot.set_message_reaction = AsyncMock(return_value=None)
+    return SimpleNamespace(bot=bot, bot_data={"db": db})
+
+
+class TriviaLaunchE2EBase(unittest.IsolatedAsyncioTestCase):
+    """Common fixture: temp SQLite DB, patched background task, _active_rounds reset.
+
+    Subclasses define the actual scenarios. We patch at the test boundary
+    rather than the suite level so a single bad test can't poison the rest.
+    """
+
+    async def asyncSetUp(self) -> None:
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db = Database(self._tmp.name)
+        await self.db.init()
+        # Background-task no-op — prevents pre_roll_s waits from hanging the test.
+        self._continue_patch = patch.object(
+            trivia_handler, "_continue_round_after_announcement",
+            new=AsyncMock(return_value=None),
+        )
+        self._continue_patch.start()
+        # Top-up no-op — tests don't want to spawn LLM/CLI calls when the
+        # pool is intentionally short (T5).
+        self._topup_patch = patch.object(
+            trivia_handler, "_top_up_scheduled_questions_if_possible",
+            new=AsyncMock(return_value=None),
+        )
+        self._topup_patch.start()
+        # Patch the freshly-constructed Bot inside the dispatch loop so
+        # non-trivia rows (text-typed discussion, polls, events) don't hit
+        # real Telegram. Tests that care about this path inspect the
+        # AsyncMock instance. The dispatch loop does `from telegram import
+        # Bot` lazily (calendar.py:294-295), so the patch target is
+        # `telegram.Bot` rather than `calendar.Bot`.
+        self._bot_factory_instance = AsyncMock()
+        self._bot_factory_instance.send_message = AsyncMock(
+            return_value=SimpleNamespace(message_id=800001)
+        )
+        self._bot_factory_instance.pin_chat_message = AsyncMock(return_value=None)
+        self._bot_class_patch = patch(
+            "telegram.Bot",
+            new=lambda token: self._bot_factory_instance,
+        )
+        self._bot_class_patch.start()
+
+    async def asyncTearDown(self) -> None:
+        # Clear active-rounds guard so the next test can launch in the same chat.
+        trivia_handler._active_rounds.clear()
+        self._continue_patch.stop()
+        self._topup_patch.stop()
+        self._bot_class_patch.stop()
+        await self.db.close()
+        try:
+            os.unlink(self._tmp.name)
+        except OSError:
+            pass
+
+    async def _row(self, msg_id: int) -> dict:
+        """Reload a scheduled_messages row by id."""
+        async with self.db._db.execute(
+            "SELECT * FROM scheduled_messages WHERE id = ?", (msg_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else {}
+
+
+class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
+
+    async def test_due_trivia_round_launches_announcement_and_marks_sent(self):
+        """T1 (happy path): a due trivia_round row fires the announcement and flips to sent."""
+        date_iso, time_iso = _hhmm_seconds_ago(60)  # well within current minute
+        msg_id = await self.db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה ישראל! 3 שאלות",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options=json.dumps({
+                "pre_roll_s": 5,
+                "theme_label": "ישראל",
+                "categories": ["ישראל"],
+                "question_count": 3,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        # Telegram was called for the announcement.
+        ctx.bot.send_message.assert_awaited()
+        announce_args = ctx.bot.send_message.await_args
+        self.assertEqual(announce_args.kwargs.get("chat_id"), TEST_GROUP_ID)
+        self.assertIn("ישראל", announce_args.kwargs.get("text", ""))
+
+        # Row flipped to sent with a real message_id.
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+        self.assertEqual(row["sent_message_id"], 900001)
+
+        # Background task was created (patched to no-op but spy on the call).
+        trivia_handler._continue_round_after_announcement.assert_awaited_once()
+
+    async def test_due_discussion_row_with_trivia_launch_text_is_coerced_and_fires(self):
+        """T2 (coercion): a `discussion`-typed row with trivia-launch text becomes a trivia_round at fire time."""
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        msg_id = await self.db.create_scheduled_message(
+            text="🧠 הערב — סיבוב טריוויה ישראל! 3 שאלות",
+            message_type="discussion",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        # Trivia handler ran (announcement on context.bot, NOT on the
+        # text-path Bot factory).
+        ctx.bot.send_message.assert_awaited()
+        self._bot_factory_instance.send_message.assert_not_called()
+
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+
+    async def test_warmup_text_does_not_coerce_to_launch(self):
+        """T3 (warm-up boundary): "בעוד … מתחממים" stays a discussion, sent as text."""
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        msg_id = await self.db.create_scheduled_message(
+            text="🧠 בעוד 30 דקות מתחממים לסיבוב טריוויה ישראל הערב!",
+            message_type="discussion",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        # Trivia path NOT invoked; text-Bot path WAS invoked.
+        ctx.bot.send_message.assert_not_called()
+        self._bot_factory_instance.send_message.assert_called()
+
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+
+    async def test_malformed_poll_options_falls_back_to_defaults(self):
+        """T4 (malformed): bad JSON in poll_options → empty payload → handler uses defaults and fires a general round.
+
+        `_parse_scheduled_payload` (trivia_round.py:600-608) silently returns
+        `{}` on JSON decode failure rather than raising; the handler then uses
+        default values for theme/categories/count. This is the actual behavior
+        — the test locks it in so a future "raise on bad JSON" change is
+        intentional, not accidental. The bot must NOT crash on malformed input.
+        """
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        msg_id = await self.db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options="{not valid json",
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        # Must NOT raise.
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        # Default general round fires successfully.
+        ctx.bot.send_message.assert_awaited()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+
+    async def test_insufficient_question_pool_marks_failed_before_announcement(self):
+        """T5 (empty pool): a category not in trivia.yaml → row failed, no send."""
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        msg_id = await self.db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options=json.dumps({
+                "pre_roll_s": 5,
+                "theme_label": "ניסוי",
+                "categories": ["___nonexistent___"],
+                "question_count": 5,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        ctx.bot.send_message.assert_not_called()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "failed")
+        # Top-up was attempted (and short-circuited by our patch).
+        trivia_handler._top_up_scheduled_questions_if_possible.assert_awaited()
+
+    async def test_idempotent_dispatch_does_not_double_fire(self):
+        """T6 (idempotency): two scheduler ticks in a row → handler runs once."""
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        msg_id = await self.db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה ישראל",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options=json.dumps({
+                "pre_roll_s": 5,
+                "theme_label": "ישראל",
+                "categories": ["ישראל"],
+                "question_count": 3,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        # The first tick fires; the second tick must skip (status='sent' filters it out).
+        await calendar_handler.check_and_send_due_messages(ctx)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        # Exactly one announcement send; mark_message_sent ran once.
+        self.assertEqual(ctx.bot.send_message.await_count, 1)
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+
+    async def test_warmup_and_game_in_same_tick_fire_in_order(self):
+        """T7 (multi-row): warm-up discussion + trivia_round in same tick fire in scheduled-time order."""
+        date_iso_3s, time_iso_3s = _hhmm_seconds_ago(180)
+        date_iso_1s, time_iso_1s = _hhmm_seconds_ago(60)
+        # Warm-up discussion with the "מתחממים" trigger word — stays text, doesn't coerce.
+        warmup_id = await self.db.create_scheduled_message(
+            text="🧠 בעוד חצי שעה מתחממים לטריוויה ישראל!",
+            message_type="discussion",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso_3s,
+            scheduled_time=time_iso_3s,
+            status="scheduled",
+        )
+        game_id = await self.db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה ישראל",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso_1s,
+            scheduled_time=time_iso_1s,
+            poll_options=json.dumps({
+                "pre_roll_s": 5,
+                "theme_label": "ישראל",
+                "categories": ["ישראל"],
+                "question_count": 3,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        # Warm-up went via text-Bot; trivia went via context.bot.
+        self._bot_factory_instance.send_message.assert_called()
+        ctx.bot.send_message.assert_awaited()
+
+        warmup = await self._row(warmup_id)
+        game = await self._row(game_id)
+        self.assertEqual(warmup["status"], "sent")
+        self.assertEqual(game["status"], "sent")
+
+
+if __name__ == "__main__":
+    unittest.main()
