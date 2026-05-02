@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}ציון איכות תוכן · Botson{% endblock %}
+{% block content %}
+<style>
+.qa-card { transition: border-color 0.15s, transform 0.05s; }
+.qa-card:hover { border-color: #3f3f46; }
+.score-btn { transition: background 0.1s, color 0.1s; }
+.score-btn:hover { background: #fbbf2433; color: #fbbf24; }
+.score-btn.active { background: #fbbf24; color: #0a0a0a; font-weight: 600; }
+.score-btn:disabled { cursor: default; }
+.violation-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #ef444420; color: #f87171; border: 1px solid #ef444450; }
+</style>
+
+<div class="px-4 py-4 max-w-5xl mx-auto" dir="rtl">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h1 class="text-lg font-semibold text-[#fafafa]">ציון איכות תוכן</h1>
+            <p class="text-xs text-[#71717a] mt-0.5">דגימת טיוטות AI טריות מהפייפליין החדש. תן ציון 1-5 לכל טיוטה כדי לעקוב אם הפרומפט עובד.</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <input type="number" id="qa-count" min="1" max="10" value="6" class="w-16 bg-[#111318] border border-[#272727] rounded-md h-9 px-2 text-sm text-[#fafafa]">
+            <button id="qa-gen-btn" onclick="qaGenerate()" class="text-sm bg-amber-500 text-[#0a0a0a] hover:bg-amber-400 h-9 px-4 rounded-md font-medium cursor-pointer transition-colors">
+                ✨ ייצר {<span id="qa-count-label">6</span>} טיוטות
+            </button>
+            <button onclick="qaClearScored()" class="text-xs text-[#71717a] hover:text-[#a1a1aa] border border-[#272727] hover:border-[#3f3f46] h-9 px-3 rounded-md cursor-pointer transition-colors">
+                🗑️ נקה מצוינים
+            </button>
+        </div>
+    </div>
+
+    <!-- Aggregate -->
+    {% if drafts %}
+    {% set scored_drafts = drafts | selectattr("score") | list %}
+    {% if scored_drafts %}
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3 mb-4 flex items-center gap-6 text-sm">
+        {% set total_score = scored_drafts | sum(attribute="score") %}
+        {% set avg = (total_score / scored_drafts|length) | round(2) %}
+        <div>
+            <span class="text-[#71717a]">ציון ממוצע:</span>
+            <span class="text-[#fafafa] font-medium ml-2">{{ avg }}</span>
+            <span class="text-[#71717a] text-xs">({{ scored_drafts|length }} מצוינים)</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-[#71717a] text-xs">התפלגות:</span>
+            {% for s in [1, 2, 3, 4, 5] %}
+                {% set count_s = scored_drafts | selectattr("score", "equalto", s) | list | length %}
+                <span class="text-xs text-[#a1a1aa]">{{ s }}★: {{ count_s }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <!-- Drafts -->
+    {% if not drafts %}
+    <div class="bg-[#0a0a0a] border border-dashed border-[#272727] rounded-lg px-6 py-8 text-center">
+        <p class="text-sm text-[#71717a]">אין טיוטות עדיין. לחץ "✨ ייצר טיוטות" כדי לקבל דגימה ולציין אותן.</p>
+    </div>
+    {% else %}
+    <div class="space-y-3">
+    {% for d in drafts %}
+        <div class="qa-card bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3" data-draft-id="{{ d.id }}">
+            <!-- Meta -->
+            <div class="flex items-center gap-2 mb-2 text-xs text-[#71717a]">
+                <span class="px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400">{{ d.draft_type }}</span>
+                {% if d.category %}<span class="px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400">{{ d.category }}</span>{% endif %}
+                <span>יום {{ d.target_day_name }} · {{ d.target_time }} · {{ d.target_date }}</span>
+                <span class="ml-auto">נוצר {{ d.generated_at }}</span>
+                <button onclick="qaDelete({{ d.id }})" class="text-[#52525b] hover:text-red-400 transition-colors" title="מחק">✕</button>
+            </div>
+            <!-- Text -->
+            <p class="text-[15px] text-[#fafafa] bg-[#111318] border border-[#272727] rounded-md px-3 py-3 whitespace-pre-line leading-relaxed">{{ d.text }}</p>
+            <!-- Scoring -->
+            <div class="mt-3 flex items-center gap-3">
+                <span class="text-xs text-[#71717a]">ציון:</span>
+                <div class="flex items-center gap-1">
+                    {% for s in [1, 2, 3, 4, 5] %}
+                    <button onclick="qaScore({{ d.id }}, {{ s }})" class="score-btn w-9 h-9 rounded-md border border-[#272727] text-sm cursor-pointer {% if d.score == s %}active{% endif %}" data-id="{{ d.id }}" data-score="{{ s }}">{{ s }}</button>
+                    {% endfor %}
+                </div>
+                <input type="text" placeholder="הערה (לא חובה)" id="qa-comment-{{ d.id }}" value="{{ d.score_comment or '' }}"
+                    class="flex-1 bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-xs text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
+                {% if d.scored_at %}
+                <span class="text-[11px] text-[#52525b]">צוין {{ d.scored_at }}</span>
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+function showToast(msg, kind) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:9999;padding:0.6rem 1rem;border-radius:6px;font-size:13px;color:#fff;background:' + (kind === 'error' ? '#dc2626' : '#16a34a');
+    document.body.appendChild(t);
+    setTimeout(function() { t.remove(); }, 2500);
+}
+
+document.getElementById('qa-count').addEventListener('input', function() {
+    document.getElementById('qa-count-label').textContent = this.value;
+});
+
+async function qaGenerate() {
+    var btn = document.getElementById('qa-gen-btn');
+    var countEl = document.getElementById('qa-count');
+    var count = Math.max(1, Math.min(10, parseInt(countEl.value) || 6));
+    var orig = btn.innerHTML;
+    btn.innerHTML = '⏳ מייצר...';
+    btn.disabled = true;
+    try {
+        var r = await fetch('/api/qa-scoring/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({count: count})
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var data = await r.json();
+        var msg = 'נוצרו ' + (data.generated || 0) + ' טיוטות';
+        if (data.errors && data.errors.length) msg += ' (' + data.errors.length + ' שגיאות)';
+        showToast(msg, (data.errors && data.errors.length) ? 'error' : 'success');
+        location.reload();
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    } finally {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+    }
+}
+
+async function qaScore(id, score) {
+    var commentEl = document.getElementById('qa-comment-' + id);
+    var comment = commentEl ? commentEl.value : '';
+    try {
+        var r = await fetch('/api/qa-scoring/' + id + '/score', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({score: score, comment: comment})
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var btns = document.querySelectorAll('button[data-id="' + id + '"]');
+        btns.forEach(function(b) {
+            if (parseInt(b.getAttribute('data-score')) === score) b.classList.add('active');
+            else b.classList.remove('active');
+        });
+        showToast('ציון ' + score + ' נשמר', 'success');
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+async function qaDelete(id) {
+    if (!confirm('למחוק את הטיוטה הזו?')) return;
+    try {
+        var r = await fetch('/api/qa-scoring/' + id + '/delete', {method: 'POST'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var card = document.querySelector('div[data-draft-id="' + id + '"]');
+        if (card) card.remove();
+        showToast('נמחק', 'success');
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+async function qaClearScored() {
+    if (!confirm('למחוק את כל הטיוטות שכבר צוינו? לא צוינו יישארו.')) return;
+    try {
+        var r = await fetch('/api/qa-scoring/clear', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({only_scored: true})
+        });
+        var data = await r.json();
+        showToast('נמחקו ' + (data.deleted || 0), 'success');
+        location.reload();
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}

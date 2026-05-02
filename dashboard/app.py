@@ -6038,6 +6038,219 @@ async def review_page(request: Request):
     })
 
 
+# ── QA Scoring ──────────────────────────────────────────
+#
+# A separate page from /review. Generates fresh AI-fill outputs through the
+# upgraded prompt pipeline so the operator can score them 1-5 + comment, and
+# we get a longitudinal record of whether the prompts are working.
+#
+# Lives in its own JSON file to avoid mixing with the reviewer queue.
+
+QA_DRAFTS_PATH = Path(__file__).parent.parent / "data" / "qa_drafts.json"
+
+_QA_SAMPLE_SLOTS = [
+    # (draft_type, category, time, hebrew-day-name)
+    ("morning",    "",         "09:00", "שני"),
+    ("evening",    "",         "21:00", "ראשון"),
+    ("discussion", "movies",   "21:00", "שישי"),
+    ("discussion", "gaming",   "21:00", "שישי"),
+    ("discussion", "general",  "20:00", "שבת"),
+    ("discussion", "singles",  "18:00", "שני"),
+    ("discussion", "vegan",    "18:00", "שלישי"),
+    ("discussion", "art",      "18:00", "רביעי"),
+    ("discussion", "funny",    "18:00", "חמישי"),
+    ("discussion", "politics", "20:00", "ראשון"),
+]
+
+
+def _load_qa_drafts() -> list[dict]:
+    if not QA_DRAFTS_PATH.exists():
+        return []
+    try:
+        items = json.loads(QA_DRAFTS_PATH.read_text(encoding="utf-8"))
+        return items if isinstance(items, list) else []
+    except Exception:
+        logger.exception("[qa-scoring] failed to read %s — returning empty", QA_DRAFTS_PATH)
+        return []
+
+
+def _save_qa_drafts(items: list) -> None:
+    QA_DRAFTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QA_DRAFTS_PATH.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _next_date_for_hebrew_day_name(name: str) -> str:
+    """'שישי' → '2026-05-08' (the next Friday from today)."""
+    target = _HEBREW_DAY_TO_IDX.get(name)
+    if target is None:
+        return date.today().isoformat()
+    today = date.today()
+    today_hebrew = (today.weekday() + 1) % 7
+    if today_hebrew == target:
+        return today.isoformat()
+    for i in range(1, 8):
+        cand = today + timedelta(days=i)
+        if (cand.weekday() + 1) % 7 == target:
+            return cand.isoformat()
+    return today.isoformat()
+
+
+@app.get("/qa-scoring", response_class=HTMLResponse)
+async def qa_scoring_page(request: Request):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+    drafts = _load_qa_drafts()
+    # Newest first; unscored at the top so the operator sees what needs work.
+    drafts.sort(key=lambda d: (d.get("score") is not None, -float(d.get("generated_at_ts") or 0)))
+    return templates.TemplateResponse(request, name="qa_scoring.html", context={
+        "drafts": drafts,
+        "active_page": "qa_scoring",
+    })
+
+
+@app.post("/api/qa-scoring/generate")
+async def qa_scoring_generate(request: Request):
+    """Generate a batch of fresh AI-fill outputs through build_generation_prompt
+    + _generate_via_cli/_generate_via_api and store them in qa_drafts.json.
+
+    Body: {count?: int (1-10, default 6)}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json() if await request.body() else {}
+    try:
+        count = max(1, min(int(data.get("count", 6)), 10))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid count")
+
+    import time as _time
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    now_ts = _time.time()
+
+    items = _load_qa_drafts()
+    next_id = (max((int(d.get("id", 0)) for d in items), default=0) or 0) + 1
+    generated: list[dict] = []
+    errors: list[str] = []
+
+    # Cycle through the sample slots so the operator sees a representative mix.
+    slots = list(_QA_SAMPLE_SLOTS)
+    random.shuffle(slots)
+    slots = slots[:count]
+
+    for draft_type, category, time_str, day_name in slots:
+        target_date = _next_date_for_hebrew_day_name(day_name)
+        try:
+            prompt = build_generation_prompt(
+                draft_type, "single", "", category,
+                scheduled_date=target_date,
+                scheduled_time=time_str,
+            )
+        except Exception as e:
+            errors.append(f"prompt build failed for {draft_type}/{category}: {e}")
+            continue
+
+        content: str
+        try:
+            content = await _generate_via_cli(prompt)
+        except Exception as cli_err:
+            try:
+                content = await _generate_via_api(prompt)
+            except Exception as api_err:
+                errors.append(
+                    f"{draft_type}/{category}: cli={cli_err}; api={api_err}"
+                )
+                continue
+
+        text = content.strip().replace('"', '').replace("'", "")
+        first_line = next(
+            (ln.strip() for ln in text.split("\n") if ln.strip()),
+            text,
+        )
+
+        entry = {
+            "id": next_id,
+            "draft_type": draft_type,
+            "category": category,
+            "target_date": target_date,
+            "target_time": time_str,
+            "target_day_name": day_name,
+            "text": first_line,
+            "generated_at": now_iso,
+            "generated_at_ts": now_ts,
+            "score": None,
+            "score_comment": "",
+            "scored_at": None,
+        }
+        items.append(entry)
+        generated.append(entry)
+        next_id += 1
+        logger.info(
+            "[qa-scoring] generated id=%d %s/%s @ %s %s -> %r",
+            entry["id"], draft_type, category, day_name, time_str, first_line[:60],
+        )
+
+    _save_qa_drafts(items)
+    return {"generated": len(generated), "errors": errors, "items": generated}
+
+
+@app.post("/api/qa-scoring/{draft_id}/score")
+async def qa_scoring_set_score(draft_id: int, request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json() if await request.body() else {}
+    try:
+        score = int(body.get("score"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="score required (int 1-5)")
+    if not (1 <= score <= 5):
+        raise HTTPException(status_code=400, detail="score must be 1-5")
+    comment = (body.get("comment") or "").strip()
+
+    items = _load_qa_drafts()
+    found = False
+    for d in items:
+        if int(d.get("id", -1)) == int(draft_id):
+            d["score"] = score
+            d["score_comment"] = comment
+            d["scored_at"] = datetime.now().isoformat(timespec="seconds")
+            found = True
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="draft not found")
+    _save_qa_drafts(items)
+    return {"ok": True, "id": draft_id, "score": score}
+
+
+@app.post("/api/qa-scoring/{draft_id}/delete")
+async def qa_scoring_delete(draft_id: int, request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    items = _load_qa_drafts()
+    remaining = [d for d in items if int(d.get("id", -1)) != int(draft_id)]
+    if len(remaining) == len(items):
+        raise HTTPException(status_code=404, detail="draft not found")
+    _save_qa_drafts(remaining)
+    return {"ok": True, "remaining": len(remaining)}
+
+
+@app.post("/api/qa-scoring/clear")
+async def qa_scoring_clear(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json() if await request.body() else {}
+    only_scored = bool(body.get("only_scored", False))
+    items = _load_qa_drafts()
+    if only_scored:
+        kept = [d for d in items if d.get("score") is None]
+    else:
+        kept = []
+    _save_qa_drafts(kept)
+    return {"ok": True, "deleted": len(items) - len(kept), "remaining": len(kept)}
+
+
 _HEBREW_DAY_TO_IDX = {
     "ראשון": 0, "שני": 1, "שלישי": 2, "רביעי": 3,
     "חמישי": 4, "שישי": 5, "שבת": 6,
