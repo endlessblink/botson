@@ -442,6 +442,12 @@
             <button type="button" id="ai-regenerate-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="מחק טיוטות AI ישנות וייצר אותן מחדש עם הנחיות איכות עדכניות">
                 ♻️ ייצר מחדש טיוטות AI
             </button>
+            <button type="button" id="ai-suggest-emoji-btn" onclick="aiSuggestEmojiPuzzles()" class="text-xs text-fuchsia-400 hover:text-fuchsia-300 border border-fuchsia-500/30 hover:border-fuchsia-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ה-AI ייצר חידות אמוג'י חדשות ויוסיף אותן למאגר">
+                🎬 הצע חידות אמוג'י
+            </button>
+            <button type="button" id="ai-suggest-facts-btn" onclick="aiSuggestFacts()" class="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ה-AI יציע עובדות חדשות לאישור ידני">
+                🔎 הצע עובדות
+            </button>
         </div>
     </div>
 </div>
@@ -3237,6 +3243,165 @@ async function aiFillAllVisible() {
     } finally {
         btn.innerHTML = origText;
         btn.disabled = false;
+    }
+}
+
+async function aiSuggestEmojiPuzzles() {
+    var btn = document.getElementById('ai-suggest-emoji-btn');
+    if (!btn) return;
+    var countStr = prompt('כמה חידות אמוג'י לייצר? (1-20)', '5');
+    if (countStr === null) return;
+    var count = parseInt(countStr);
+    if (!Number.isFinite(count) || count < 1 || count > 20) {
+        showToast('הזן מספר בין 1 ל-20', 'error');
+        return;
+    }
+    var mediaType = prompt('סוג? (movie / tv / book / song)', 'movie');
+    if (mediaType === null) return;
+    mediaType = (mediaType || '').trim().toLowerCase();
+    if (['movie', 'tv', 'book', 'song'].indexOf(mediaType) === -1) {
+        showToast('סוג לא חוקי. בחר movie / tv / book / song', 'error');
+        return;
+    }
+    var orig = btn.innerHTML;
+    btn.innerHTML = '⏳ מייצר...';
+    btn.disabled = true;
+    try {
+        var r = await fetch('/api/pool/emoji-puzzles/suggest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({count: count, media_type: mediaType})
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var data = await r.json();
+        var msg = 'נוספו ' + (data.inserted || 0) + ' חידות למאגר';
+        if (data.errors && data.errors.length) msg += ' (' + data.errors.length + ' שגיאות)';
+        showToast(msg, (data.errors && data.errors.length) ? 'error' : 'success');
+        if (Array.isArray(data.items) && data.items.length) {
+            console.log('[emoji-suggest] inserted:', data.items);
+        }
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    } finally {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+    }
+}
+
+async function aiSuggestFacts() {
+    var btn = document.getElementById('ai-suggest-facts-btn');
+    if (!btn) return;
+    var kind = prompt('איזה סוג עובדות? (tidbit / spooky)', 'tidbit');
+    if (kind === null) return;
+    kind = (kind || '').trim().toLowerCase();
+    if (kind !== 'tidbit' && kind !== 'spooky') {
+        showToast('סוג לא חוקי. בחר tidbit או spooky', 'error');
+        return;
+    }
+    var countStr = prompt('כמה עובדות לייצר לבדיקה? (1-10)', '3');
+    if (countStr === null) return;
+    var count = parseInt(countStr);
+    if (!Number.isFinite(count) || count < 1 || count > 10) {
+        showToast('הזן מספר בין 1 ל-10', 'error');
+        return;
+    }
+    var orig = btn.innerHTML;
+    btn.innerHTML = '⏳ מייצר...';
+    btn.disabled = true;
+    try {
+        var r = await fetch('/api/pool/facts/suggest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({kind: kind, count: count})
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var data = await r.json();
+        var suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+        var passing = suggestions.filter(function(s) { return s.validation_pass; });
+        var msg = 'נוצרו ' + suggestions.length + ' הצעות. ' + passing.length + ' עברו אימות.';
+        showToast(msg, passing.length === 0 ? 'error' : 'success');
+        // Show in a simple modal so the user can copy/approve manually.
+        // Each entry has yaml_block ready to paste into config/facts.yaml,
+        // OR they can click "approve" to append via /api/pool/facts/append.
+        showFactsSuggestionsModal(kind, suggestions);
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    } finally {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+    }
+}
+
+function showFactsSuggestionsModal(kind, suggestions) {
+    var modal = document.getElementById('facts-suggest-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'facts-suggest-modal';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:1rem;';
+        modal.innerHTML = '<div id="facts-suggest-modal-inner" style="background:#0a0a0a;border:1px solid #272727;border-radius:8px;max-width:800px;max-height:85vh;overflow-y:auto;padding:1.25rem;width:100%;direction:rtl;text-align:right;"></div>';
+        document.body.appendChild(modal);
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) modal.remove();
+        });
+    }
+    var inner = modal.querySelector('#facts-suggest-modal-inner');
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">';
+    html += '<h3 style="font-size:16px;font-weight:600;color:#fafafa;">הצעות עובדות (' + kind + ')</h3>';
+    html += '<button onclick="document.getElementById(\'facts-suggest-modal\').remove()" style="color:#a1a1aa;background:none;border:none;cursor:pointer;font-size:18px;">✕</button>';
+    html += '</div>';
+    html += '<p style="color:#71717a;font-size:12px;margin-bottom:1rem;">אמת ידנית שהמקור אכן קיים לפני "אשר ושמור". CI יבדוק את הצורה אבל לא אמיתות המקור.</p>';
+    suggestions.forEach(function(s, idx) {
+        var pass = s.validation_pass;
+        var statusColor = pass ? '#16a34a' : '#dc2626';
+        var statusText = pass ? '✅ עבר אימות' : '❌ נכשל אימות';
+        html += '<div style="border:1px solid #272727;border-radius:6px;padding:1rem;margin-bottom:0.75rem;background:#111318;">';
+        html += '<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;font-size:11px;">';
+        html += '<span style="color:' + statusColor + ';">' + statusText + '</span>';
+        html += '<span style="color:#52525b;">id: ' + (s.id || '—') + '</span>';
+        html += '</div>';
+        html += '<div style="color:#fafafa;font-size:13px;line-height:1.6;white-space:pre-wrap;margin-bottom:0.5rem;">' + (s.text_he || '') + '</div>';
+        html += '<div style="color:#a1a1aa;font-size:11px;border-top:1px dashed #272727;padding-top:0.5rem;"><strong>מקור:</strong> ' + (s.source || '') + '</div>';
+        if (!pass && Array.isArray(s.validation_errors) && s.validation_errors.length) {
+            html += '<div style="color:#f87171;font-size:11px;margin-top:0.5rem;">שגיאות: ' + s.validation_errors.join('; ') + '</div>';
+        }
+        if (pass) {
+            html += '<button onclick="appendFactSuggestion(' + idx + ', this)" data-kind="' + kind + '" data-id="' + (s.id || '') + '" data-text="' + (s.text_he || '').replace(/"/g, '&quot;') + '" data-source="' + (s.source || '').replace(/"/g, '&quot;') + '" style="margin-top:0.5rem;background:#16a34a;color:white;border:none;padding:0.4rem 0.8rem;border-radius:4px;cursor:pointer;font-size:12px;">✓ אשר ושמור ל-facts.yaml</button>';
+        }
+        html += '</div>';
+    });
+    inner.innerHTML = html;
+}
+
+async function appendFactSuggestion(idx, btn) {
+    var kind = btn.getAttribute('data-kind');
+    var id = btn.getAttribute('data-id');
+    var text_he = btn.getAttribute('data-text');
+    var source = btn.getAttribute('data-source');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ שומר...';
+    try {
+        var r = await fetch('/api/pool/facts/append', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({kind: kind, id: id, text_he: text_he, source: source})
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error((err.detail && err.detail.validation_errors) ? err.detail.validation_errors.join('; ') : (err.detail || ('HTTP ' + r.status)));
+        }
+        btn.innerHTML = '✓ נוספה';
+        btn.style.background = '#52525b';
+        showToast('נוספה למאגר', 'success');
+    } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = '✓ אשר ושמור ל-facts.yaml';
+        showToast('שגיאה: ' + e.message, 'error');
     }
 }
 

@@ -3750,22 +3750,69 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 חשוב: השתמש אך ורק בכלי today_plan. אל תחזיר טקסט חופשי."""
 
 
-DIGEST_CLI_PROMPT = """אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ'ילדפרי בטלגרם. החזר JSON בלבד לפי הסכמה.
+def _build_digest_cli_prompt() -> str:
+    """Build the ai-fill-today digest prompt: short rules + bad-example anchors
+    + per-channel few-shot. Stays under the CLI timeout budget asserted by
+    `tests/test_planner_coercion_and_chips`.
 
-חוקים מחייבים:
+    Why this shape: the previous prompt had only abstract anti-patterns
+    ("אסור פילר") and the model kept producing them anyway. The fix is
+    concrete failure examples plus rotating few-shot from the real pool —
+    Claude follows specific examples better than abstract rules.
+    """
+    # Pull 1 example from each of 4 representative channels as voice anchors.
+    examples_block = ""
+    try:
+        disc = load_yaml("discussions.yaml") or {}
+        prompts = load_yaml("prompts.yaml") or {}
+        lines: list[str] = []
+        for cat in ("movies", "gaming", "general", "funny"):
+            pool = disc.get(cat) or []
+            if pool:
+                lines.append(f"  ✅ [{cat}] {random.choice(pool)}")
+        for kind in ("morning", "evening"):
+            pool = prompts.get(kind) or []
+            if pool:
+                lines.append(f"  ✅ [{kind}] {random.choice(pool)}")
+        if lines:
+            examples_block = (
+                "\n\nדוגמאות לטון/אורך (אל תעתיק, רק תפוס את הסגנון):\n"
+                + "\n".join(lines)
+            )
+    except Exception as e:
+        logger.warning("[ai-fill-today] failed to build examples block: %s", e)
+
+    return (
+        'אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ\'ילדפרי בטלגרם. '
+        'החזר JSON בלבד לפי הסכמה.\n\n'
+        """חוקים מחייבים:
 - כבד now_time_il: אל תיצור סלוט שעבר או קרוב פחות מ-5 דקות.
 - כבד verified_topic_ids בלבד. אל תנחש topic_id.
 - אל תכפיל מול existing_drafts_today או scheduled_messages_today.
 - מזג אירועים כפולים; reminder_scheduled_time הוא זמן האירוע פחות event_reminder_lead_minutes.
 - אם היום שבת או שישי בערב: סוף השבוע עדיין קורה; אל תכתוב "איך היה"/"סיכום"/עבר. ראשון בבוקר הוא זמן סיכום סוף שבוע.
-- עברית טבעית של טלגרם ישראלי. בלי markdown בטקסט משתמש, בלי IDs פנימיים, בלי אנגלית טכנית.
-- שאלות discussion חייבות להיות חדות ומותאמות ערוץ. אסור פילר כמו "מה עשה לכם את היום" או "מה הדבר האחד שעושה את הערב שווה".
-- בלי לעג/שיימינג/דאנקינג על אנשים אמיתיים, בלי framing מאשים של קבוצות חוץ, ובלי בקשות מאמץ כבד. אם צריך רשימה/מתכון — בקש פריט אחד בלבד.
-- פעילויות מותרות רק אם הבוט מפעיל אותן או שהן שאלה/פול קל. אל תציע מפגשים/משחקים שדורשים תיאום אדמין.
+- עברית תקנית של טלגרם ישראלי. אל תמציא מילים. אל תשלב אנגלית טכנית באמצע משפט עברי. שם מותג בלטינית (Netflix) — מותר.
+- שאלת discussion חייבת לעבור 3 בדיקות: (1) רק סימן שאלה אחד, (2) ספציפית ליום/שעה/ערוץ — לא טקסט שעובד בכל ערוץ ובכל זמן, (3) קוראה לתגובה אחת קצרה (לא רשימה/מתכון).
+- בלי לעג/שיימינג/דאנקינג, בלי framing מאשים של קבוצות חוץ, בלי בקשות מאמץ כבד. אם רוצים רשימה — בקש פריט אחד בלבד.
+- פעילויות מותרות רק אם הבוט מפעיל אותן או שהן שאלה/פול קל. אסור להציע מפגש/משחק שדורש תיאום אדמין.
 - טריוויה/אמוג'י: אם יוצרים סיבוב, ספק גם שאלות/חידות מתאימות ולא כפולות; קטגוריה חייבת להתחבר ליום/ערוץ.
-- חובה לטפל בכל activity_coverage_requirements עם relevance="required": צור regular_slots מתאים או החזר coverage_decisions עם action skipped/already_covered/not_relevant וסיבה. אין השמטה שקטה.
-- notes_for_admin: Markdown קצר, עד 300 מילים, עם סיכום ומה נוצר/דולג.
-"""
+- חובה לטפל בכל activity_coverage_requirements עם relevance="required": regular_slots או coverage_decisions עם action+סיבה. אין השמטה שקטה.
+- notes_for_admin: Markdown קצר, עד 300 מילים.
+
+דוגמאות שאסור — כשלים אמיתיים שראינו. אל תייצר וריאציה שלהן:
+  ❌ "מה עולה על הסדר בשבוע שמתחיל מחר?"  — סדר יום גנרי, אין עוגן ערוץ.
+  ❌ "ערב שישי — מה הפלן הערב? מנוחה, יציאה, בולמוס של תוכן..."  — רשימת אופציות גנריות.
+  ❌ "מה עולה הערב? ז'אנר, מצב רוח, או שם ספציפי..."  — פילר ערב כללי.
+  ❌ "מה הסרט/סדרה האהוב/ה עליכם?"  — מסטיק קליפ, אפס תגובות.
+
+הבדיקה הקריטית: אם השאלה נשארת הגיונית כשמחליפים שם הערוץ — לא לשלוח."""
+        + examples_block
+    )
+
+
+# Built lazily per-call so few-shot rotates each time. Keep a thin alias for
+# backwards compatibility with any future callers expecting the old constant.
+DIGEST_CLI_PROMPT = "DEPRECATED — use _build_digest_cli_prompt() so few-shot rotates per call"
 
 
 def _today_plan_tool_schema() -> dict:
@@ -4200,7 +4247,7 @@ def _build_cli_digest_prompt(bundle: dict) -> str:
     compact_bundle = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
     compact_schema = json.dumps(_today_plan_tool_schema()["input_schema"], ensure_ascii=False, separators=(",", ":"))
     return (
-        DIGEST_CLI_PROMPT
+        _build_digest_cli_prompt()
         + "\n\n---\n\nקונטקסט היום (JSON):\n```json\n"
         + compact_bundle
         + "\n```\n\n"
