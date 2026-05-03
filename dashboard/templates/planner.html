@@ -436,14 +436,8 @@
             <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 ✕ בטל
             </button>
-            <button type="button" id="ai-fill-all-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ייצר טיוטות AI לשבועות הגלויים — שורות שערכת ידנית לא יישברו">
+            <button type="button" id="ai-fill-all-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ייצר טיוטות AI לשבועות הגלויים, וגם חידות אמוג'י ועובדות חדשות. שורות שערכת ידנית לא יישברו.">
                 ✨ מלא טיוטות ב-AI
-            </button>
-            <button type="button" id="ai-suggest-emoji-btn" onclick="aiSuggestEmojiPuzzles()" class="text-xs text-fuchsia-400 hover:text-fuchsia-300 border border-fuchsia-500/30 hover:border-fuchsia-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ה-AI ייצר חידות אמוג'י חדשות ויוסיף אותן למאגר">
-                🎬 הצע חידות אמוג'י
-            </button>
-            <button type="button" id="ai-suggest-facts-btn" onclick="aiSuggestFacts()" class="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ה-AI יציע עובדות חדשות לאישור ידני">
-                🔎 הצע עובדות
             </button>
         </div>
     </div>
@@ -3396,10 +3390,73 @@ async function aiSuggestTriviaRound() {
     }
 }
 
+// Weighted random media_type for emoji-puzzle generation. The live pool
+// skews movie-heavy; this distribution nudges variety without hard rules.
+function _pickEmojiMediaType() {
+    var r = Math.random();
+    if (r < 0.40) return 'movie';
+    if (r < 0.70) return 'tv';
+    if (r < 0.85) return 'book';
+    return 'song';
+}
+
+async function _populateEmojiPuzzles() {
+    try {
+        var resp = await fetch('/api/pool/emoji-puzzles/suggest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({count: 3, media_type: _pickEmojiMediaType()})
+        });
+        if (!resp.ok) return {inserted: 0, errors: 1};
+        var data = await resp.json();
+        return {
+            inserted: data.inserted || 0,
+            errors: (data.errors && data.errors.length) || 0,
+        };
+    } catch (e) {
+        return {inserted: 0, errors: 1};
+    }
+}
+
+async function _populateFactsForKind(kind) {
+    var inserted = 0;
+    var errors = 0;
+    try {
+        var resp = await fetch('/api/pool/facts/suggest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({kind: kind, count: 2})
+        });
+        if (!resp.ok) return {inserted: 0, errors: 1};
+        var data = await resp.json();
+        var suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+        for (var i = 0; i < suggestions.length; i++) {
+            var s = suggestions[i];
+            if (!s.validation_pass) continue;
+            try {
+                var ar = await fetch('/api/pool/facts/append', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        kind: kind, id: s.id, text_he: s.text_he, source: s.source,
+                    })
+                });
+                if (ar.ok) inserted += 1;
+                else errors += 1;
+            } catch (e) {
+                errors += 1;
+            }
+        }
+    } catch (e) {
+        errors += 1;
+    }
+    return {inserted: inserted, errors: errors};
+}
+
 async function aiRegenerateWeek() {
     var btn = document.getElementById('ai-fill-all-btn');
     if (!btn) return;
-    if (!confirm('זה ייצר טיוטות AI לכל השבועות הגלויים. טיוטות AI ישנות יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+    if (!confirm('זה ייצר טיוטות AI לכל השבועות הגלויים, וגם חידות אמוג\'י ועובדות חדשות. טיוטות AI ישנות יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
 
     var origText = btn.innerHTML;
     btn.innerHTML = '⏳ מייצר...';
@@ -3428,10 +3485,9 @@ async function aiRegenerateWeek() {
             cur.setDate(cur.getDate() + 7);
         }
 
-        var totalDeleted = 0;
+        // Phase 1: drafts (per-week, sequential — the inner endpoint is heavy).
         var totalCreated = 0;
         var totalErrors = 0;
-
         for (var i = 0; i < weekOffsets.length; i++) {
             btn.innerHTML = '⏳ שבוע ' + (i+1) + '/' + weekOffsets.length;
             try {
@@ -3445,7 +3501,6 @@ async function aiRegenerateWeek() {
                     totalErrors += 1;
                     continue;
                 }
-                totalDeleted += (data.deleted || 0);
                 totalCreated += (data.created || 0);
                 totalErrors += ((data.errors && data.errors.length) || 0);
             } catch (e) {
@@ -3453,7 +3508,26 @@ async function aiRegenerateWeek() {
             }
         }
 
-        var msg = 'נמחקו ' + totalDeleted + ', נוצרו ' + totalCreated;
+        // Phase 2 + 3: emoji puzzles AND facts in parallel (independent endpoints).
+        // Saves ~10-15s of wall time vs sequential.
+        btn.innerHTML = '⏳ חידות אמוג\'י + עובדות';
+        var emojiInserted = 0;
+        var factsInserted = 0;
+        try {
+            var poolResults = await Promise.all([
+                _populateEmojiPuzzles(),
+                _populateFactsForKind('tidbit'),
+                _populateFactsForKind('spooky'),
+            ]);
+            emojiInserted = poolResults[0].inserted;
+            factsInserted = poolResults[1].inserted + poolResults[2].inserted;
+            totalErrors += poolResults[0].errors + poolResults[1].errors + poolResults[2].errors;
+        } catch (e) {
+            totalErrors += 1;
+        }
+
+        var msg = 'טיוטות: ' + totalCreated + ' | חידות: ' + emojiInserted + ' | עובדות: ' + factsInserted;
+        if (factsInserted > 0) msg += ' · אמת מקורות';
         if (totalErrors > 0) msg += ' (' + totalErrors + ' שגיאות)';
         showToast(msg, totalErrors > 0 ? 'error' : 'success');
         calendar.refetchEvents();

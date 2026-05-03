@@ -696,11 +696,66 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "aiRegenerateWeek still references the deleted button id",
         )
 
+    def test_pool_growth_buttons_removed_from_toolbar(self):
+        # Pool growth (emoji puzzles, facts) folded INTO Populate — the
+        # standalone toolbar buttons must be gone. Their JS handlers stay as
+        # private helpers callable from aiRegenerateWeek.
+        self.assertNotIn(
+            'id="ai-suggest-emoji-btn"', self.html,
+            "🎬 הצע חידות אמוג'י button is back — pool growth folds into Populate",
+        )
+        self.assertNotIn(
+            'id="ai-suggest-facts-btn"', self.html,
+            "🔎 הצע עובדות button is back — pool growth folds into Populate",
+        )
+
+    def test_populate_calls_pool_growth_endpoints(self):
+        # aiRegenerateWeek must POST to the three pool-growth URLs (emoji
+        # suggest, facts suggest, facts append) so one click grows pools.
+        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
+        # The pool helpers live above aiRegenerateWeek and are awaited from
+        # inside it; check the whole tail of the file.
+        whole_tail = self.html[regenerate_block_start - 5000:]
+        for endpoint in (
+            "/api/pool/emoji-puzzles/suggest",
+            "/api/pool/facts/suggest",
+            "/api/pool/facts/append",
+        ):
+            self.assertIn(
+                endpoint, whole_tail,
+                f"Populate flow must POST to {endpoint}",
+            )
+
+    def test_populate_toast_includes_all_three_phase_keywords(self):
+        # The aggregate toast must surface all three phase counts so a future
+        # template edit can't quietly drop one.
+        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
+        block = self.html[regenerate_block_start:regenerate_block_start + 4000]
+        for keyword in ("טיוטות", "חידות", "עובדות"):
+            self.assertIn(
+                keyword, block,
+                f"toast must mention '{keyword}' so the count is visible",
+            )
+
+    def test_populate_phased_spinner_labels_present(self):
+        # The phased spinner cycles through שבוע → חידות → עובדות. If a future
+        # edit drops the phase labels the user sees a static spinner for 60s.
+        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
+        block = self.html[regenerate_block_start:regenerate_block_start + 4000]
+        self.assertIn(
+            "⏳ שבוע", block,
+            "weekly per-loop spinner phase missing",
+        )
+        self.assertIn(
+            "חידות אמוג", block,
+            "pool-growth spinner phase missing",
+        )
+
     def test_regenerate_endpoint_is_what_the_button_hits(self):
         # Sanity check: the regenerate function fetches /api/weekplan/ai-fill-regenerate.
         # If a future refactor swaps the endpoint, that's a real concern — pin it.
         regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        block = self.html[regenerate_block_start:regenerate_block_start + 1500]
+        block = self.html[regenerate_block_start:regenerate_block_start + 4000]
         self.assertIn(
             "/api/weekplan/ai-fill-regenerate", block,
             "Populate button must POST to /api/weekplan/ai-fill-regenerate",
