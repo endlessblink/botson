@@ -625,6 +625,88 @@ class TestPlannerTemplateExposure(unittest.TestCase):
             self.assertTrue(mapped.get(category), f"{category} must have a topic id")
 
 
+class TestPopulateButtonConsolidation(unittest.TestCase):
+    """The planner used to have two AI populate buttons (✨ fill empty slots
+    only, and ♻️ wipe + regenerate). They were collapsed into a single
+    `✨ מלא טיוטות ב-AI` that runs the regenerate flow (which subsumes
+    fill since the inner ai_fill loop fills empty slots after wipe). These
+    tests pin the consolidation so a future template edit can't quietly
+    bring back the duplicate or break the wiring.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+
+    def test_exactly_one_populate_button_in_toolbar(self):
+        # The ai-fill-all-btn id should appear exactly once (button definition).
+        # JS lookups via getElementById('ai-fill-all-btn') count separately.
+        button_def = self.html.count('id="ai-fill-all-btn"')
+        self.assertEqual(
+            button_def, 1,
+            f'expected one button with id="ai-fill-all-btn", found {button_def}',
+        )
+
+    def test_orphaned_regenerate_button_is_gone(self):
+        self.assertNotIn(
+            'id="ai-regenerate-btn"', self.html,
+            "old ♻ ייצר מחדש button is back — collapse the duplicates",
+        )
+        self.assertNotIn(
+            "♻️ ייצר מחדש", self.html,
+            "old ♻ button label is back",
+        )
+
+    def test_populate_button_wires_to_regenerate_flow(self):
+        # The single button must call aiRegenerateWeek (which posts to the
+        # regenerate endpoint), not the deleted aiFillAllVisible.
+        self.assertIn(
+            'id="ai-fill-all-btn" onclick="aiRegenerateWeek()"', self.html,
+            "Populate button must call aiRegenerateWeek",
+        )
+
+    def test_orphaned_fill_function_is_gone(self):
+        self.assertNotIn(
+            "function aiFillAllVisible", self.html,
+            "deleted aiFillAllVisible function is back",
+        )
+        # And no leftover calls to it from anywhere else.
+        self.assertNotIn(
+            "aiFillAllVisible(", self.html,
+            "stale call to deleted aiFillAllVisible(...)",
+        )
+
+    def test_regenerate_function_targets_the_consolidated_button_id(self):
+        # aiRegenerateWeek must look up the renamed button id, not the
+        # deleted ai-regenerate-btn — otherwise the spinner/disable logic
+        # silently no-ops at runtime.
+        self.assertIn(
+            "async function aiRegenerateWeek()", self.html,
+            "aiRegenerateWeek function must still exist",
+        )
+        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
+        # Look at the next ~600 chars; the getElementById call should be in there.
+        block = self.html[regenerate_block_start:regenerate_block_start + 600]
+        self.assertIn(
+            "getElementById('ai-fill-all-btn')", block,
+            "aiRegenerateWeek must look up the consolidated button id",
+        )
+        self.assertNotIn(
+            "getElementById('ai-regenerate-btn')", block,
+            "aiRegenerateWeek still references the deleted button id",
+        )
+
+    def test_regenerate_endpoint_is_what_the_button_hits(self):
+        # Sanity check: the regenerate function fetches /api/weekplan/ai-fill-regenerate.
+        # If a future refactor swaps the endpoint, that's a real concern — pin it.
+        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
+        block = self.html[regenerate_block_start:regenerate_block_start + 1500]
+        self.assertIn(
+            "/api/weekplan/ai-fill-regenerate", block,
+            "Populate button must POST to /api/weekplan/ai-fill-regenerate",
+        )
+
+
 # Pull dashboard-side inference into a helper for the agreement check above.
 def _DASHBOARD_INFER_CATEGORIES(text: str):
     from dashboard.app import _infer_trivia_categories as _f
