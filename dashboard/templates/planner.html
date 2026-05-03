@@ -959,6 +959,13 @@
 var calendar;
 var selectedDraftText = {};
 
+// Hard cap on AI-fill (Day + Week) HTTP wall time. Inner loop now runs
+// jobs in parallel via asyncio.Semaphore (default 4), so a Week-level
+// click (~22 jobs) at 30–60s/job ≈ 3–6 minutes wall time. 10 minutes
+// gives a comfortable margin without leaving a stuck button hanging
+// indefinitely. Bump if BOTSON_AI_FILL_CONCURRENCY is lowered on VPS.
+const AI_FILL_CLIENT_TIMEOUT_MS = 600000;
+
 // ─── Wizard State ───
 var wizardState = {
     step: 1, type: null, text: '', channelTopicId: null, category: null,
@@ -2590,14 +2597,17 @@ async function aiFillToday(targetDate) {
     var tickHandle = setInterval(tick, 1000);
 
     _aiFillTodayController = new AbortController();
-    // Hard client-side cap: 5 minutes. If the server doesn't respond by then,
-    // abort and show an error rather than letting the elapsed counter run
-    // forever (e.g., when a deploy kills the in-flight fetch). The backend
-    // claude-cli timeout is 240s, codex+ollama add ~30s, so 300s is a safe
-    // upper bound that's still well below "user thinks it's stuck".
+    // Hard client-side cap shared with the Week-level Populate. Inner
+    // loop now parallelises jobs (semaphore=BOTSON_AI_FILL_CONCURRENCY,
+    // default 4), so a Day click of ~16 jobs at 30–60s/job runs in
+    // ~120–240s. AI_FILL_CLIENT_TIMEOUT_MS leaves headroom; the flag
+    // lets the catch branch distinguish hard cap from manual cancel
+    // without a fragile elapsed-time heuristic.
+    var hardTimeoutFired = false;
     var hardTimeoutHandle = setTimeout(function() {
+        hardTimeoutFired = true;
         if (_aiFillTodayController) _aiFillTodayController.abort('client_timeout');
-    }, 300000);
+    }, AI_FILL_CLIENT_TIMEOUT_MS);
     try {
         // Day-level "Fill Today / Fill Specific Day" now share the
         // always-generate semantics with the week-level Populate. The
@@ -2645,10 +2655,9 @@ async function aiFillToday(targetDate) {
         if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
     } catch (e) {
         if (e && e.name === 'AbortError') {
-            // Distinguish manual cancel vs hard timeout
-            var elapsed = Math.floor((Date.now() - startedAt) / 1000);
-            if (elapsed >= 295) {
-                showToast('פסק זמן (5 דקות) — הקריאה נעצרה. בדוק את הלוגים בשרת.', 'error');
+            if (hardTimeoutFired) {
+                var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+                showToast('פסק זמן (10 דקות) — הקריאה נעצרה. בדוק את הלוגים בשרת.', 'error');
                 console.error('[ai-fill-today] client-side timeout after', elapsed, 'seconds');
             } else {
                 showToast('בוטל');
@@ -3444,11 +3453,21 @@ async function _populateFactsForKind(kind) {
 async function aiRegenerateWeek() {
     var btn = document.getElementById('ai-fill-all-btn');
     if (!btn) return;
-    if (!confirm('זה ייצר טיוטות AI לשבוע הנוכחי בלבד (פחות זמן המתנה — ~2 דקות), וגם חידות אמוג\'י ועובדות חדשות. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+    if (!confirm('זה ייצר טיוטות AI לשבוע הנוכחי בלבד (פחות זמן המתנה — ~3-6 דקות), וגם חידות אמוג\'י ועובדות חדשות. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
 
     var origText = btn.innerHTML;
     btn.innerHTML = '⏳ מייצר...';
     btn.disabled = true;
+
+    // Hard cap so a hung server doesn't leave the button spinning
+    // forever. Same cap as the Day path; inner endpoint parallelises
+    // ~22 jobs in ~3–6 min wall time.
+    var weekController = new AbortController();
+    var weekHardTimeoutFired = false;
+    var weekHardTimeoutHandle = setTimeout(function() {
+        weekHardTimeoutFired = true;
+        weekController.abort('client_timeout');
+    }, AI_FILL_CLIENT_TIMEOUT_MS);
 
     try {
         // Scope: ONE week only. Earlier logic walked the whole calendar
@@ -3482,6 +3501,7 @@ async function aiRegenerateWeek() {
             try {
                 var resp = await fetch('/api/weekplan/ai-fill-regenerate', {
                     method: 'POST',
+                    signal: weekController.signal,
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({week_offset: weekOffsets[i]})
                 });
@@ -3505,6 +3525,10 @@ async function aiRegenerateWeek() {
             } catch (e) {
                 console.error('[populate] week ' + weekOffsets[i] + ' failed:', e);
                 totalErrors += 1;
+                if (e && e.name === 'AbortError' && weekHardTimeoutFired) {
+                    showToast('פסק זמן (10 דקות) — הקריאה נעצרה. בדוק את הלוגים בשרת.', 'error');
+                    return;
+                }
             }
         }
 
@@ -3536,6 +3560,7 @@ async function aiRegenerateWeek() {
         console.log('[populate] summary:', {created: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, emoji: emojiInserted, facts: factsInserted, errors: totalErrors});
         calendar.refetchEvents();
     } finally {
+        clearTimeout(weekHardTimeoutHandle);
         btn.innerHTML = origText;
         btn.disabled = false;
     }

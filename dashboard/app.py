@@ -3325,10 +3325,18 @@ async def _ai_fill_weekplan_inner(
             else:
                 jobs.append((i, t, ""))
 
-    for day_index, t, cat in jobs:
+    # Run jobs with bounded concurrency. Each job is independent (own
+    # claude-CLI subprocess + DB insert); aiosqlite serialises writes
+    # through the shared connection so concurrent inserts are safe. The
+    # semaphore guards only the LLM call, which is the scarce resource
+    # (CPU / CLI rate limits). Default 4 keeps the 4-core VPS comfortable
+    # alongside Supabase/WAHA; bump via env when needed.
+    concurrency = max(1, int(os.environ.get("BOTSON_AI_FILL_CONCURRENCY", "4")))
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _run_job(day_index: int, t: str, cat: str) -> dict:
         day_date = sunday + timedelta(days=day_index)
 
-        # Generate content
         if mtype == "morning":
             prompt = build_generation_prompt(
                 "morning", "single", "", "",
@@ -3358,14 +3366,14 @@ async def _ai_fill_weekplan_inner(
                 scheduled_time=t,
             )
 
-        try:
-            content = await _generate_via_cli(prompt)
-        except Exception:
+        async with sem:
             try:
-                content = await _generate_via_api(prompt)
-            except Exception as e:
-                errors.append(f"day {day_index}: generation failed: {e}")
-                continue
+                content = await _generate_via_cli(prompt)
+            except Exception:
+                try:
+                    content = await _generate_via_api(prompt)
+                except Exception as e:
+                    return {"ok": False, "error": f"day {day_index}: generation failed: {e}"}
 
         # Clean up: take first non-empty line, strip surrounding quotes
         content = content.strip().replace('"', '').replace("'", "")
@@ -3388,11 +3396,18 @@ async def _ai_fill_weekplan_inner(
                 created_by="ai-fill",
                 status="draft",
             )
-            created += 1
             logger.info("[weekplan.ai-fill] created %s id=%d for %s %s cat=%r: %r",
                         mtype, new_id, day_date.isoformat(), t, cat, content[:60])
+            return {"ok": True}
         except Exception as e:
-            errors.append(f"day {day_index}: db insert failed: {e}")
+            return {"ok": False, "error": f"day {day_index}: db insert failed: {e}"}
+
+    results = await asyncio.gather(*(_run_job(d, t, c) for d, t, c in jobs))
+    for r in results:
+        if r.get("ok"):
+            created += 1
+        else:
+            errors.append(r.get("error", "unknown"))
 
     return {"created": created, "skipped": skipped, "errors": errors}
 
