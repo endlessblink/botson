@@ -3209,7 +3209,8 @@ async def save_weekplan_day(request: Request, db: Database = Depends(get_db)):
 
 
 async def _ai_fill_weekplan_inner(
-    db: Database, mtype: str, week_offset: int
+    db: Database, mtype: str, week_offset: int,
+    target_date: str | None = None,
 ) -> dict:
     """Inner logic of /api/weekplan/ai-fill — extracted so /ai-fill-regenerate
     can re-run a fill after wiping stale AI rows without going through HTTP.
@@ -3218,6 +3219,11 @@ async def _ai_fill_weekplan_inner(
     rows, generates one content blob per (day, time, type) tuple, inserts
     the resulting rows tagged `created_by='ai-fill'`. Returns aggregate
     counts and errors.
+
+    If `target_date` is provided ('YYYY-MM-DD'), the day loop is filtered
+    to ONLY that date. Used by the day-level "Fill Today / Specific Day"
+    buttons so they share the same always-generate semantics as the
+    week-level Populate, just scoped tighter.
     """
     if mtype not in ("morning", "evening", "discussion"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
@@ -3234,6 +3240,22 @@ async def _ai_fill_weekplan_inner(
     days_since_sunday = (python_weekday + 1) % 7
     current_sunday = today - timedelta(days=days_since_sunday)
     sunday = current_sunday + timedelta(weeks=week_offset)
+
+    # Day filter: when target_date is supplied, restrict the loop to that
+    # one day. Computed as the python weekday relative to that week's
+    # Sunday so the existing day_index loop body works unchanged.
+    target_day_index: int | None = None
+    if target_date:
+        try:
+            td = date.fromisoformat(target_date)
+            delta = (td - sunday).days
+            if 0 <= delta <= 6:
+                target_day_index = delta
+            else:
+                # target_date isn't in this week; nothing to do.
+                return {"created": 0, "skipped": 0, "errors": [f"target_date {target_date} outside week"]}
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
 
     # Build committed index for this week
     raw_committed = await db.get_scheduled_messages(
@@ -3285,6 +3307,8 @@ async def _ai_fill_weekplan_inner(
     # asked for "many more suggestions"; this is where they come from.
     jobs: list[tuple] = []  # (day_index, time_str, category_or_empty)
     for i in range(7):
+        if target_day_index is not None and i != target_day_index:
+            continue
         if i not in days_list:
             continue
         day_date = sunday + timedelta(days=i)
@@ -3396,8 +3420,12 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
     only — user-edited rows (`created_by='dashboard'`/`'weekplan'`/etc.) are
     NOT deleted.
 
-    Body: {week_offset?, types?[]}
-    Defaults: current week, all 3 supported types.
+    Body: {week_offset?, types?[], target_date?: 'YYYY-MM-DD'}
+    - week_offset (default 0) = current week
+    - types defaults to all 3 supported types
+    - target_date scopes both DELETE and the inner fill to one specific
+      day. Used by the day-level Fill Today / Fill Specific Day buttons
+      so they get the same always-generate semantics, just narrower.
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
@@ -3405,8 +3433,15 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
     data = await request.json()
     week_offset = int(data.get("week_offset", 0))
     types = data.get("types") or ["morning", "evening", "discussion"]
+    target_date_raw = (data.get("target_date") or "").strip()
+    target_date: str | None = target_date_raw or None
     if not isinstance(types, list):
         raise HTTPException(status_code=400, detail="types must be a list")
+    if target_date:
+        try:
+            date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
 
     today = date.today()
     days_since_sunday = (today.weekday() + 1) % 7
@@ -3422,19 +3457,21 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
     # Hand-edited rows still survive because their `created_by` is
     # 'dashboard'/'weekplan'/etc., not 'ai-fill%'.
     deleted = 0
+    delete_window_start = target_date if target_date else sunday.isoformat()
+    delete_window_end = target_date if target_date else saturday.isoformat()
     try:
         cur = await db._db.execute(
             "DELETE FROM scheduled_messages "
             "WHERE created_by LIKE 'ai-fill%' "
             "AND status IN ('scheduled', 'draft') "
             "AND scheduled_date BETWEEN ? AND ?",
-            (sunday.isoformat(), saturday.isoformat()),
+            (delete_window_start, delete_window_end),
         )
         deleted = cur.rowcount or 0
         await db._db.commit()
         logger.info(
             "[ai-fill-regenerate] deleted %d AI rows (scheduled+draft) in [%s, %s]",
-            deleted, sunday.isoformat(), saturday.isoformat(),
+            deleted, delete_window_start, delete_window_end,
         )
     except Exception as e:
         logger.exception("[ai-fill-regenerate] delete failed")
@@ -3449,7 +3486,7 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
             total_errors.append(f"unsupported type skipped: {mtype}")
             continue
         try:
-            r = await _ai_fill_weekplan_inner(db, mtype, week_offset)
+            r = await _ai_fill_weekplan_inner(db, mtype, week_offset, target_date=target_date)
             by_type[mtype] = r
             total_created += int(r.get("created", 0))
             total_skipped += int(r.get("skipped", 0))

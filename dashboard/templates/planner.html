@@ -2599,12 +2599,20 @@ async function aiFillToday(targetDate) {
         if (_aiFillTodayController) _aiFillTodayController.abort('client_timeout');
     }, 300000);
     try {
-        var fetchOpts = {method: 'POST', signal: _aiFillTodayController.signal};
-        if (targetDate) {
-            fetchOpts.headers = {'Content-Type': 'application/json'};
-            fetchOpts.body = JSON.stringify({target_date: targetDate});
-        }
-        var resp = await fetch('/api/weekplan/ai-fill-today', fetchOpts);
+        // Day-level "Fill Today / Fill Specific Day" now share the
+        // always-generate semantics with the week-level Populate. The
+        // regenerate endpoint accepts a `target_date` that scopes both the
+        // DELETE and the inner fill to one day. Result: this button
+        // produces drafts regardless of "already covered" coverage logic
+        // — the user sees options instead of an empty modal.
+        var dateForCall = targetDate || new Date().toISOString().slice(0, 10);
+        var fetchOpts = {
+            method: 'POST',
+            signal: _aiFillTodayController.signal,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({week_offset: 0, target_date: dateForCall}),
+        };
+        var resp = await fetch('/api/weekplan/ai-fill-regenerate', fetchOpts);
         var data = await resp.json().catch(function() { return {}; });
         if (!resp.ok) {
             var detail = data.detail || data;
@@ -2613,51 +2621,28 @@ async function aiFillToday(targetDate) {
             if (errors.length > 0) errMsg += ': ' + errors[0];
             throw new Error(errMsg);
         }
-        if (data.skipped_holiday) {
-            showToast('היום חג חסום אוטומטית — לא נוצר תוכן', 'error');
+        var created = data.created || 0;
+        var skipped = data.skipped || 0;
+        var errs = data.errors || [];
+        var byType = data.by_type || {};
+        if (created === 0 && errs.length > 0) {
+            var failMsg = 'נכשל: ' + errs[0];
+            if (errs.length > 1) failMsg += ' (ועוד ' + (errs.length - 1) + ' שגיאות)';
+            showToast(failMsg, 'error');
+        } else if (created === 0) {
+            showToast('לא נוצרו טיוטות ליום ' + dateForCall + ' (אין סלוטים בלו"ז)');
         } else {
-            var rem = (data.reminders || []).length;
-            var slots = (data.regular_slots || []).length;
-            var total = rem + slots;
-            var errs = (data.errors || []);
-            if (total === 0 && errs.length > 0) {
-                var msg = 'נכשל: ' + errs[0];
-                if (errs.length > 1) msg += ' (ועוד ' + (errs.length - 1) + ' שגיאות)';
-                showToast(msg, 'error');
-            } else if (total === 0) {
-                var trivia = data.trivia && data.trivia.generated || 0;
-                var emoji = data.emoji && data.emoji.generated || 0;
-                if (trivia + emoji > 0) {
-                    showToast('לא נוצרו טיוטות, אבל הוספו ' + trivia + ' שאלות טריוויה ו-' + emoji + ' חידות אמוג\'י');
-                } else {
-                    showToast('לא נוצרו טיוטות להיום (לא בלו"ז)');
-                }
-            } else {
-                var summary = total + ' טיוטות נוצרו';
-                if (data.trivia && data.trivia.generated > 0) summary += ' · +' + data.trivia.generated + ' שאלות טריוויה';
-                if (data.emoji && data.emoji.generated > 0) summary += ' · +' + data.emoji.generated + ' חידות אמוג\'י';
-                showToast(summary);
-            }
-            if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
-            if (data.notes_for_admin) console.log('[ai-fill-today] notes:', data.notes_for_admin);
-
-            // Auto-open the review modal whenever ANY content was generated.
-            // Trivia and emoji additions live in their own stores (trivia.yaml,
-            // emoji_puzzles table) — the modal surfaces those counts in the
-            // header so the admin sees a single confirmation surface.
-            var triviaN = (data.trivia && data.trivia.generated) || 0;
-            var emojiN = (data.emoji && data.emoji.generated) || 0;
-            if (total + triviaN + emojiN > 0 || (data.notes_for_admin || '').trim()) {
-                openReviewDraftsModal({
-                    autoOpen: true,
-                    notes: data.notes_for_admin || '',
-                    extraStats: {trivia: triviaN, emoji: emojiN},
-                    targetDate: data.date || targetDate || '',
-                });
-            }
+            var details = '🌅' + ((byType.morning && byType.morning.created) || 0)
+                + ' · 🌙' + ((byType.evening && byType.evening.created) || 0)
+                + ' · 💬' + ((byType.discussion && byType.discussion.created) || 0);
+            var msg = created + ' טיוטות נוצרו ל-' + dateForCall + ' (' + details + ')';
+            if (errs.length > 0) msg += ' (' + errs.length + ' שגיאות)';
+            showToast(msg, errs.length > 0 ? 'error' : 'success');
         }
+        if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
+        console.log('[ai-fill-today] response:', data);
         calendar.refetchEvents();
-        refreshTodaySummary();
+        if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
     } catch (e) {
         if (e && e.name === 'AbortError') {
             // Distinguish manual cancel vs hard timeout
@@ -3459,36 +3444,34 @@ async function _populateFactsForKind(kind) {
 async function aiRegenerateWeek() {
     var btn = document.getElementById('ai-fill-all-btn');
     if (!btn) return;
-    if (!confirm('זה ייצר טיוטות AI לכל השבועות הגלויים, וגם חידות אמוג\'י ועובדות חדשות. טיוטות AI ישנות יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+    if (!confirm('זה ייצר טיוטות AI לשבוע הנוכחי בלבד (פחות זמן המתנה — ~2 דקות), וגם חידות אמוג\'י ועובדות חדשות. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
 
     var origText = btn.innerHTML;
     btn.innerHTML = '⏳ מייצר...';
     btn.disabled = true;
 
     try {
+        // Scope: ONE week only. Earlier logic walked the whole calendar
+        // view (4-5 weeks in month view) which meant 88+ LLM calls per
+        // click and ~12 minute wall time — exceeding the 5-min client
+        // timeout the day-level button uses. We pick the week that
+        // contains the calendar's currentStart (FullCalendar's notion of
+        // "the visible week"). For month view that's the first week of
+        // the visible month; the user can navigate to a specific week
+        // and click again for non-current weeks.
         var view = calendar.view;
-        var startDate = view.activeStart;
-        var endDate = view.activeEnd;
-
+        var anchor = view.currentStart || view.activeStart;
         var today = new Date();
         var todaySunday = new Date(today);
         todaySunday.setDate(today.getDate() - ((today.getDay()) % 7));
         todaySunday.setHours(0,0,0,0);
+        var anchorSunday = new Date(anchor);
+        anchorSunday.setDate(anchor.getDate() - anchor.getDay());
+        anchorSunday.setHours(0,0,0,0);
+        var diffDays = Math.round((anchorSunday - todaySunday) / (1000*60*60*24));
+        var weekOffsets = [Math.round(diffDays / 7)];
 
-        var firstWeekStart = new Date(startDate);
-        firstWeekStart.setDate(startDate.getDate() - startDate.getDay());
-        firstWeekStart.setHours(0,0,0,0);
-
-        var weekOffsets = [];
-        var cur = new Date(firstWeekStart);
-        while (cur < endDate) {
-            var diffDays = Math.round((cur - todaySunday) / (1000*60*60*24));
-            var offset = Math.round(diffDays / 7);
-            weekOffsets.push(offset);
-            cur.setDate(cur.getDate() + 7);
-        }
-
-        // Phase 1: drafts (per-week, sequential — the inner endpoint is heavy).
+        // Phase 1: drafts (one week only — the inner endpoint is heavy).
         var totalCreated = 0;
         var totalSkipped = 0;
         var totalDeleted = 0;
