@@ -916,8 +916,11 @@
 
 {% include "_prompt_modal.html" %}
 
-<!-- Review-drafts modal — opens after ✨ click + via banner -->
-<div id="review-drafts-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4" dir="rtl">
+<!-- Review-drafts modal — opens after ✨ click + via banner.
+     `inset-y-0 left-0 right-0 lg:right-56` constrains the centering area to
+     the main content column on desktop so the modal's right edge (RTL =
+     visual start) doesn't slide behind the 56-wide fixed sidebar at z-30. -->
+<div id="review-drafts-modal" class="hidden fixed inset-y-0 left-0 right-0 lg:right-56 z-[100] flex items-center justify-center p-4" dir="rtl">
     <div class="absolute inset-0 bg-black/70" onclick="closeReviewDraftsModal()"></div>
     <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1200px] max-h-[90vh] flex flex-col overflow-hidden min-h-0">
         <!-- Header -->
