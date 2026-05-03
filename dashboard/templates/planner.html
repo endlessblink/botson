@@ -3176,7 +3176,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 async function aiSuggestEmojiPuzzles() {
     var btn = document.getElementById('ai-suggest-emoji-btn');
     if (!btn) return;
-    var countStr = prompt('כמה חידות אמוג'י לייצר? (1-20)', '5');
+    var countStr = prompt('כמה חידות אמוג\'י לייצר? (1-20)', '5');
     if (countStr === null) return;
     var count = parseInt(countStr);
     if (!Number.isFinite(count) || count < 1 || count > 20) {

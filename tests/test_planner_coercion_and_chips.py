@@ -12,6 +12,7 @@ Covers the issues that bit us on 2026-04-27:
 """
 import json
 import asyncio
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -760,6 +761,46 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "/api/weekplan/ai-fill-regenerate", block,
             "Populate button must POST to /api/weekplan/ai-fill-regenerate",
         )
+
+    def test_inline_js_parses_as_valid_syntax(self):
+        """Catch the class of bug where Hebrew strings in single-quoted JS
+        ('כמה חידות אמוג'י') aren't escaped — that turns the apostrophe in
+        אמוג'י into a string terminator and SyntaxErrors the whole script,
+        which silently breaks the calendar widget.
+
+        Skipped if Node isn't on PATH (CI without Node will pass — fine for
+        a regression check that primarily fires during local dev).
+        """
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available — JS syntax check skipped")
+        # Strip Jinja2 expression/block tags before sending to Node.
+        src = self.html
+        src = re.sub(r"{%[\s\S]*?%}", "", src)
+        src = re.sub(r"{{\s*(?:[^{}]|{[^}]*})*\s*}}", "0", src)
+        scripts = re.findall(r"<script[^>]*>([\s\S]*?)</script>", src)
+        combined = "\n;\n".join(s for s in scripts if s.strip())
+        with tempfile.NamedTemporaryFile(suffix=".js", mode="w", delete=False) as f:
+            f.write(combined)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                [node, "--check", tmp_path],
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(
+                result.returncode, 0,
+                f"planner.html inline JS has a syntax error:\n{result.stderr}",
+            )
+        finally:
+            import os
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 # Pull dashboard-side inference into a helper for the agreement check above.
