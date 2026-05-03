@@ -3487,7 +3487,10 @@ async function aiRegenerateWeek() {
 
         // Phase 1: drafts (per-week, sequential — the inner endpoint is heavy).
         var totalCreated = 0;
+        var totalSkipped = 0;
+        var totalDeleted = 0;
         var totalErrors = 0;
+        var byType = {morning: 0, evening: 0, discussion: 0};
         for (var i = 0; i < weekOffsets.length; i++) {
             btn.innerHTML = '⏳ שבוע ' + (i+1) + '/' + weekOffsets.length;
             try {
@@ -3497,13 +3500,24 @@ async function aiRegenerateWeek() {
                     body: JSON.stringify({week_offset: weekOffsets[i]})
                 });
                 var data = await resp.json();
+                console.log('[populate] week ' + weekOffsets[i] + ':', data);
                 if (!resp.ok) {
                     totalErrors += 1;
                     continue;
                 }
+                totalDeleted += (data.deleted || 0);
                 totalCreated += (data.created || 0);
+                totalSkipped += (data.skipped || 0);
                 totalErrors += ((data.errors && data.errors.length) || 0);
+                if (data.by_type) {
+                    for (var t in byType) {
+                        if (data.by_type[t] && typeof data.by_type[t].created === 'number') {
+                            byType[t] += data.by_type[t].created;
+                        }
+                    }
+                }
             } catch (e) {
+                console.error('[populate] week ' + weekOffsets[i] + ' failed:', e);
                 totalErrors += 1;
             }
         }
@@ -3526,10 +3540,14 @@ async function aiRegenerateWeek() {
             totalErrors += 1;
         }
 
-        var msg = 'טיוטות: ' + totalCreated + ' | חידות: ' + emojiInserted + ' | עובדות: ' + factsInserted;
+        var details = '🌅' + byType.morning + ' · 🌙' + byType.evening + ' · 💬' + byType.discussion;
+        var msg = 'טיוטות: ' + totalCreated + ' (' + details + ')';
+        msg += ' | חידות: ' + emojiInserted + ' | עובדות: ' + factsInserted;
+        if (totalSkipped > 0) msg += ' | דילוג: ' + totalSkipped;
         if (factsInserted > 0) msg += ' · אמת מקורות';
         if (totalErrors > 0) msg += ' (' + totalErrors + ' שגיאות)';
         showToast(msg, totalErrors > 0 ? 'error' : 'success');
+        console.log('[populate] summary:', {created: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, emoji: emojiInserted, facts: factsInserted, errors: totalErrors});
         calendar.refetchEvents();
     } finally {
         btn.innerHTML = origText;

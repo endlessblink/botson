@@ -3400,19 +3400,27 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
     sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
     saturday = sunday + timedelta(days=6)
 
+    # Wipe both 'scheduled' AND 'draft' ai-fill rows. ai-fill-today writes
+    # rows as drafts (status='draft') for human review; if we only deleted
+    # 'scheduled' rows, those drafts would survive and then occupy the same
+    # (date, time, type) slot in the inner fill's `committed_keys` index,
+    # silently blocking fresh generation. The user expects Populate to mean
+    # "give me fresh content" — that requires wiping the stale drafts too.
+    # Hand-edited rows still survive because their `created_by` is
+    # 'dashboard'/'weekplan'/etc., not 'ai-fill%'.
     deleted = 0
     try:
         cur = await db._db.execute(
             "DELETE FROM scheduled_messages "
             "WHERE created_by LIKE 'ai-fill%' "
-            "AND status = 'scheduled' "
+            "AND status IN ('scheduled', 'draft') "
             "AND scheduled_date BETWEEN ? AND ?",
             (sunday.isoformat(), saturday.isoformat()),
         )
         deleted = cur.rowcount or 0
         await db._db.commit()
         logger.info(
-            "[ai-fill-regenerate] deleted %d AI rows in [%s, %s]",
+            "[ai-fill-regenerate] deleted %d AI rows (scheduled+draft) in [%s, %s]",
             deleted, sunday.isoformat(), saturday.isoformat(),
         )
     except Exception as e:
