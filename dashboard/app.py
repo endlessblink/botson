@@ -3278,6 +3278,12 @@ async def _ai_fill_weekplan_inner(
     skipped = 0
     errors: list[str] = []
 
+    # Build the (day, time, category) work list. For morning/evening, one job
+    # per scheduled slot. For discussion, one job PER ACTIVE CATEGORY per
+    # scheduled slot — so a click produces e.g. 14 discussion candidates
+    # (one per channel) instead of 2 cycled-category candidates. The user
+    # asked for "many more suggestions"; this is where they come from.
+    jobs: list[tuple] = []  # (day_index, time_str, category_or_empty)
     for i in range(7):
         if i not in days_list:
             continue
@@ -3286,76 +3292,83 @@ async def _ai_fill_weekplan_inner(
             skipped += len(times)
             continue
         for t in times:
-            key = (day_date.isoformat(), t, mtype)
-            if key in committed_keys:
-                skipped += 1
-                continue
-
-            # Generate content
-            if mtype == "morning":
-                prompt = build_generation_prompt(
-                    "morning", "single", "", "",
-                    recent_sent=recent_sent_for_type,
-                    scheduled_date=day_date.isoformat(),
-                    scheduled_time=t,
-                )
-                topic = goals_topic
-            elif mtype == "evening":
-                prompt = build_generation_prompt(
-                    "evening", "single", "", "",
-                    recent_sent=recent_sent_for_type,
-                    scheduled_date=day_date.isoformat(),
-                    scheduled_time=t,
-                )
-                topic = goals_topic
-            else:  # discussion
+            if mtype == "discussion":
                 if not active_categories:
                     errors.append(f"no active discussion categories for day {i}")
                     continue
-                cat = active_categories[i % len(active_categories)]
-                topic = topic_ids.get(cat)
-                # Per-channel dedup is more relevant for discussions: avoid
-                # paraphrasing what was sent IN THIS CHANNEL specifically.
-                channel_topic_id = int(topic) if topic else None
-                recent_for_channel = await _fetch_recent_sent_for_dedup(
-                    db, "discussion", category_topic_id=channel_topic_id, limit=60
-                )
-                prompt = build_generation_prompt(
-                    "discussion", "single", "", cat,
-                    recent_sent=recent_for_channel,
-                    scheduled_date=day_date.isoformat(),
-                    scheduled_time=t,
-                )
+                for cat in active_categories:
+                    jobs.append((i, t, cat))
+            else:
+                jobs.append((i, t, ""))
 
+    for day_index, t, cat in jobs:
+        day_date = sunday + timedelta(days=day_index)
+
+        # Generate content
+        if mtype == "morning":
+            prompt = build_generation_prompt(
+                "morning", "single", "", "",
+                recent_sent=recent_sent_for_type,
+                scheduled_date=day_date.isoformat(),
+                scheduled_time=t,
+            )
+            topic = goals_topic
+        elif mtype == "evening":
+            prompt = build_generation_prompt(
+                "evening", "single", "", "",
+                recent_sent=recent_sent_for_type,
+                scheduled_date=day_date.isoformat(),
+                scheduled_time=t,
+            )
+            topic = goals_topic
+        else:  # discussion
+            topic = topic_ids.get(cat)
+            channel_topic_id = int(topic) if topic else None
+            recent_for_channel = await _fetch_recent_sent_for_dedup(
+                db, "discussion", category_topic_id=channel_topic_id, limit=60
+            )
+            prompt = build_generation_prompt(
+                "discussion", "single", "", cat,
+                recent_sent=recent_for_channel,
+                scheduled_date=day_date.isoformat(),
+                scheduled_time=t,
+            )
+
+        try:
+            content = await _generate_via_cli(prompt)
+        except Exception:
             try:
-                content = await _generate_via_cli(prompt)
-            except Exception:
-                try:
-                    content = await _generate_via_api(prompt)
-                except Exception as e:
-                    errors.append(f"day {i}: generation failed: {e}")
-                    continue
-
-            # Clean up: take first non-empty line, strip surrounding quotes
-            content = content.strip().replace('"', '').replace("'", "")
-            lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
-            content = lines[0] if lines else content
-
-            try:
-                new_id = await db.create_scheduled_message(
-                    text=content,
-                    message_type=mtype,
-                    channel_topic_id=int(topic) if topic else None,
-                    target_group="main",
-                    scheduled_date=day_date.isoformat(),
-                    scheduled_time=t,
-                    created_by="ai-fill",
-                )
-                created += 1
-                logger.info("[weekplan.ai-fill] created %s id=%d for %s %s: %r",
-                            mtype, new_id, day_date.isoformat(), t, content[:60])
+                content = await _generate_via_api(prompt)
             except Exception as e:
-                errors.append(f"day {i}: db insert failed: {e}")
+                errors.append(f"day {day_index}: generation failed: {e}")
+                continue
+
+        # Clean up: take first non-empty line, strip surrounding quotes
+        content = content.strip().replace('"', '').replace("'", "")
+        lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
+        content = lines[0] if lines else content
+
+        try:
+            # Insert as 'draft' so they appear in the drafts panel for review
+            # but DON'T auto-fire and don't conflict with other content already
+            # scheduled at the same slot. The user picks which to keep, and
+            # any existing 'auto'-materialized content at the same slot stays
+            # untouched until the user removes it.
+            new_id = await db.create_scheduled_message(
+                text=content,
+                message_type=mtype,
+                channel_topic_id=int(topic) if topic else None,
+                target_group="main",
+                scheduled_date=day_date.isoformat(),
+                scheduled_time=t,
+                created_by="ai-fill",
+                status="draft",
+            )
+            created += 1
+            logger.info("[weekplan.ai-fill] created %s id=%d for %s %s cat=%r: %r",
+                        mtype, new_id, day_date.isoformat(), t, cat, content[:60])
+        except Exception as e:
+            errors.append(f"day {day_index}: db insert failed: {e}")
 
     return {"created": created, "skipped": skipped, "errors": errors}
 
