@@ -2384,6 +2384,38 @@ def _load_quality_rules() -> str:
     return _QUALITY_RULES_CACHE
 
 
+_QUALITY_RULES_SHORT_CACHE: str | None = None
+
+
+def _load_quality_rules_short() -> str:
+    """Trimmed version of the rules file for paths under a tight token budget
+    (notably the ai-fill-today digest prompt — see `tests/test_planner_coercion_and_chips.py:544`).
+
+    Returns the "Hard rules" + "Concrete failures to refuse" sections only.
+    Skips the file header/intro (the model doesn't need to know how the file
+    is sourced) and stops at the start of "## Anti-patterns". The dropped
+    sections (Anti-patterns, Pattern mix, Per-channel hint, Output rules)
+    stay in the file for `build_generation_prompt` to consume — they're
+    guidance for human curators / per-row outputs, not load-bearing
+    constraints the digest schema needs.
+    """
+    global _QUALITY_RULES_SHORT_CACHE
+    if _QUALITY_RULES_SHORT_CACHE is not None:
+        return _QUALITY_RULES_SHORT_CACHE
+    full = _load_quality_rules()
+    if not full:
+        _QUALITY_RULES_SHORT_CACHE = ""
+        return ""
+    start = full.find("## Hard rules")
+    end = full.find("\n## Anti-patterns")
+    if start < 0:
+        start = 0
+    if end < 0:
+        end = len(full)
+    _QUALITY_RULES_SHORT_CACHE = full[start:end].rstrip()
+    return _QUALITY_RULES_SHORT_CACHE
+
+
 async def _fetch_recent_sent_for_dedup(
     db: "Database", message_type: str, *, category_topic_id: int | None = None, limit: int = 60
 ) -> list[str]:
@@ -2416,6 +2448,55 @@ async def _fetch_recent_sent_for_dedup(
     except Exception as e:
         logger.warning("[generate] recent-sent dedup query failed: %s", e)
     return out
+
+
+_DRAFT_BANNED_REGEXES = (
+    # 5 patterns swept against discussions.yaml + prompts.yaml — 0 false positives.
+    # The "מה ה.+ האהוב" pattern was excluded after sweep flagged 2 legit entries
+    # ("מה המדיום האהוב עליכם?" art, "מה הג'אנר האהוב עליכם במשחקים?" gaming).
+    (re.compile(r"^ספרו על"), "rule_anti_pattern_vague"),
+    (re.compile(r"^מה היה היום"), "rule11_generic_day"),
+    (re.compile(r"מה עולה (על הסדר|הערב)"), "concrete_failure_agenda"),
+    (re.compile(r"בולמוס של"), "concrete_failure_invented"),
+    (re.compile(r"מה הפלן הערב"), "concrete_failure_plan"),
+)
+
+_DRAFT_ENGLISH_JARGON = (
+    "mechanic", "WIP", "NPC", "build", "meta", "pipeline",
+    "stack", "loop", "boss", "spawn",
+)
+
+
+def _validate_draft_text(text: str) -> list[str]:
+    """Lint a single Hebrew draft against the rules in `config/question_quality.md`.
+
+    Returns a list of human-readable failure reasons (empty list = passes).
+    Used by the ai-fill-today retry loop and by `/api/generate-content` so a
+    bad model output never reaches the DB. Patterns are deliberately specific
+    (caught real failures, no false positives) — softer style violations are
+    enforced by the prompt, not by this validator.
+    """
+    if not text or not text.strip():
+        return ["empty draft"]
+    s = text.strip()
+    failures: list[str] = []
+    if len(s) > 200:
+        failures.append(f"length>200 ({len(s)})")
+    # Rule 2 says "1 question per post"; in practice two-question
+    # rhetorical pairs ("על מה אתם מרוצים? על מה פחות?") show up in the
+    # curated pool, so we only reject 3+ question marks here. The model
+    # sees the strict rule in the prompt regardless.
+    if s.count("?") > 2:
+        failures.append("multiple question marks")
+    tokens = re.findall(r"\b[A-Za-z]{2,}\b", s)
+    for tok in tokens:
+        if tok in _DRAFT_ENGLISH_JARGON:
+            failures.append(f"english_jargon:{tok}")
+            break
+    for pattern, label in _DRAFT_BANNED_REGEXES:
+        if pattern.search(s):
+            failures.append(label)
+    return failures
 
 
 def _format_dedup_block(recent_sent: list[str] | None) -> str:
@@ -3750,63 +3831,115 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 חשוב: השתמש אך ורק בכלי today_plan. אל תחזיר טקסט חופשי."""
 
 
-def _build_digest_cli_prompt() -> str:
-    """Build the ai-fill-today digest prompt: short rules + bad-example anchors
-    + per-channel few-shot. Stays under the CLI timeout budget asserted by
-    `tests/test_planner_coercion_and_chips`.
+async def _retry_failed_regular_slots(
+    plan: dict, db: "Database", today_iso: str,
+) -> tuple[dict, list[str]]:
+    """Lint each `regular_slots[].text` in the freshly-generated plan; for
+    every slot that fails `_validate_draft_text`, try one regeneration via
+    `build_generation_prompt`. If the replacement also fails, drop that slot
+    and surface it in the returned `notes` list so the operator sees why.
 
-    Why this shape: the previous prompt had only abstract anti-patterns
-    ("אסור פילר") and the model kept producing them anyway. The fix is
-    concrete failure examples plus rotating few-shot from the real pool —
-    Claude follows specific examples better than abstract rules.
+    Returns the (possibly-modified) plan plus a list of human-readable notes.
+    Idempotent on a clean plan: zero failures → zero retries → unchanged plan.
     """
-    # Pull 1 example from each of 4 representative channels as voice anchors.
-    examples_block = ""
-    try:
-        disc = load_yaml("discussions.yaml") or {}
-        prompts = load_yaml("prompts.yaml") or {}
-        lines: list[str] = []
-        for cat in ("movies", "gaming", "general", "funny"):
-            pool = disc.get(cat) or []
-            if pool:
-                lines.append(f"  ✅ [{cat}] {random.choice(pool)}")
-        for kind in ("morning", "evening"):
-            pool = prompts.get(kind) or []
-            if pool:
-                lines.append(f"  ✅ [{kind}] {random.choice(pool)}")
-        if lines:
-            examples_block = (
-                "\n\nדוגמאות לטון/אורך (אל תעתיק, רק תפוס את הסגנון):\n"
-                + "\n".join(lines)
+    notes: list[str] = []
+    raw_slots = plan.get("regular_slots") or []
+    if not isinstance(raw_slots, list) or not raw_slots:
+        return plan, notes
+
+    surviving_slots: list[dict] = []
+    for slot in raw_slots:
+        if not isinstance(slot, dict):
+            surviving_slots.append(slot)
+            continue
+        text = (slot.get("text") or "").strip()
+        failures = _validate_draft_text(text)
+        if not failures:
+            surviving_slots.append(slot)
+            continue
+
+        slot_type = (slot.get("type") or "").strip()
+        category = (slot.get("category") or "").strip()
+        scheduled_time = (slot.get("scheduled_time") or "").strip()
+        # Only retry text-shaped slots through build_generation_prompt; other
+        # slot types fall back to "drop and note" since the per-row builder
+        # only knows morning/evening/discussion.
+        if slot_type not in ("morning", "evening", "discussion"):
+            notes.append(
+                f"slot {slot_type} @ {scheduled_time} dropped: {', '.join(failures)} (not retriable)"
             )
-    except Exception as e:
-        logger.warning("[ai-fill-today] failed to build examples block: %s", e)
+            continue
+
+        logger.info(
+            "[ai-fill-today] validator failed slot type=%s @ %s reasons=%s — retrying via build_generation_prompt",
+            slot_type, scheduled_time, failures,
+        )
+        try:
+            recent = await _fetch_recent_sent_for_dedup(db, slot_type, limit=60)
+            retry_prompt = build_generation_prompt(
+                slot_type, "single", "", category,
+                recent_sent=recent,
+                scheduled_date=today_iso,
+                scheduled_time=scheduled_time,
+            )
+            try:
+                content = await _generate_via_cli(retry_prompt)
+            except Exception:
+                content = await _generate_via_api(retry_prompt)
+            cleaned = content.strip().replace('"', '').replace("'", "")
+            lines = [ln.strip() for ln in cleaned.split("\n") if ln.strip()]
+            replacement = lines[0] if lines else cleaned
+        except Exception as e:
+            notes.append(
+                f"slot {slot_type} @ {scheduled_time} dropped: retry call failed ({e})"
+            )
+            continue
+
+        retry_failures = _validate_draft_text(replacement)
+        if retry_failures:
+            notes.append(
+                f"slot {slot_type} @ {scheduled_time} dropped: original={failures}; "
+                f"retry also failed {retry_failures}"
+            )
+            continue
+
+        slot["text"] = replacement
+        surviving_slots.append(slot)
+        logger.info(
+            "[ai-fill-today] slot type=%s @ %s replaced after validation: %r",
+            slot_type, scheduled_time, replacement[:80],
+        )
+
+    plan["regular_slots"] = surviving_slots
+    return plan, notes
+
+
+def _build_digest_cli_prompt() -> str:
+    """Build the ai-fill-today digest prompt: centralized quality rules from
+    config/question_quality.md (Hard rules + Concrete failures only — Anti-patterns
+    section dropped to fit the 28k CLI timeout budget) + operational digest rules.
+
+    Per-row few-shot lives in `build_generation_prompt`'s `_finalize_prompt`;
+    the digest path skips few-shot to stay within budget. The concrete-failures
+    section in the centralized rules carries the negative anchors instead.
+    """
+    rules_block = _load_quality_rules_short()
+    rules_section = f"\n\n{rules_block}\n\n" if rules_block else "\n\n"
 
     return (
         'אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ\'ילדפרי בטלגרם. '
-        'החזר JSON בלבד לפי הסכמה.\n\n'
-        """חוקים מחייבים:
+        'החזר JSON בלבד לפי הסכמה.'
+        + rules_section
+        + """חוקים מחייבים מבצעיים (בנוסף לחוקי האיכות שלמעלה):
 - כבד now_time_il: אל תיצור סלוט שעבר או קרוב פחות מ-5 דקות.
 - כבד verified_topic_ids בלבד. אל תנחש topic_id.
 - אל תכפיל מול existing_drafts_today או scheduled_messages_today.
 - מזג אירועים כפולים; reminder_scheduled_time הוא זמן האירוע פחות event_reminder_lead_minutes.
 - אם היום שבת או שישי בערב: סוף השבוע עדיין קורה; אל תכתוב "איך היה"/"סיכום"/עבר. ראשון בבוקר הוא זמן סיכום סוף שבוע.
-- עברית תקנית של טלגרם ישראלי. אל תמציא מילים. אל תשלב אנגלית טכנית באמצע משפט עברי. שם מותג בלטינית (Netflix) — מותר.
-- שאלת discussion חייבת לעבור 3 בדיקות: (1) רק סימן שאלה אחד, (2) ספציפית ליום/שעה/ערוץ — לא טקסט שעובד בכל ערוץ ובכל זמן, (3) קוראה לתגובה אחת קצרה (לא רשימה/מתכון).
-- בלי לעג/שיימינג/דאנקינג, בלי framing מאשים של קבוצות חוץ, בלי בקשות מאמץ כבד. אם רוצים רשימה — בקש פריט אחד בלבד.
 - פעילויות מותרות רק אם הבוט מפעיל אותן או שהן שאלה/פול קל. אסור להציע מפגש/משחק שדורש תיאום אדמין.
 - טריוויה/אמוג'י: אם יוצרים סיבוב, ספק גם שאלות/חידות מתאימות ולא כפולות; קטגוריה חייבת להתחבר ליום/ערוץ.
 - חובה לטפל בכל activity_coverage_requirements עם relevance="required": regular_slots או coverage_decisions עם action+סיבה. אין השמטה שקטה.
-- notes_for_admin: Markdown קצר, עד 300 מילים.
-
-דוגמאות שאסור — כשלים אמיתיים שראינו. אל תייצר וריאציה שלהן:
-  ❌ "מה עולה על הסדר בשבוע שמתחיל מחר?"  — סדר יום גנרי, אין עוגן ערוץ.
-  ❌ "ערב שישי — מה הפלן הערב? מנוחה, יציאה, בולמוס של תוכן..."  — רשימת אופציות גנריות.
-  ❌ "מה עולה הערב? ז'אנר, מצב רוח, או שם ספציפי..."  — פילר ערב כללי.
-  ❌ "מה הסרט/סדרה האהוב/ה עליכם?"  — מסטיק קליפ, אפס תגובות.
-
-הבדיקה הקריטית: אם השאלה נשארת הגיונית כשמחליפים שם הערוץ — לא לשלוח."""
-        + examples_block
+- notes_for_admin: Markdown קצר, עד 300 מילים."""
     )
 
 
@@ -4592,6 +4725,22 @@ async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
             "message": "AI digest failed on all available transports",
             "errors": errors,
         })
+
+    # ── Quality validation + per-slot retry ─────────────────────────────────
+    # Lint every regular_slots[].text against _validate_draft_text. For each
+    # failed slot, regenerate via the per-row build_generation_prompt path
+    # (one extra API call per failure). If the replacement also fails, drop
+    # the slot and surface it in notes_for_admin so the operator sees why.
+    plan, retry_notes = await _retry_failed_regular_slots(plan, db, today_iso)
+    if retry_notes:
+        errors.extend(retry_notes)
+        existing_notes = (plan.get("notes_for_admin") or "").rstrip()
+        plan["notes_for_admin"] = (
+            existing_notes
+            + ("\n\n" if existing_notes else "")
+            + "**Quality validator surfaced these:**\n"
+            + "\n".join(f"- {n}" for n in retry_notes)
+        )
 
     # ── Server-side validation + persistence ────────────────────────────────
     verified_topic_ids = set(bundle["verified_topic_ids"])
