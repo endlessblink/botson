@@ -436,11 +436,8 @@
             <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 ✕ בטל
             </button>
-            <button type="button" id="ai-fill-all-btn" onclick="aiFillAllVisible()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+            <button type="button" id="ai-fill-all-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ייצר טיוטות AI לשבועות הגלויים — שורות שערכת ידנית לא יישברו">
                 ✨ מלא טיוטות ב-AI
-            </button>
-            <button type="button" id="ai-regenerate-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="מחק טיוטות AI ישנות וייצר אותן מחדש עם הנחיות איכות עדכניות">
-                ♻️ ייצר מחדש טיוטות AI
             </button>
             <button type="button" id="ai-suggest-emoji-btn" onclick="aiSuggestEmojiPuzzles()" class="text-xs text-fuchsia-400 hover:text-fuchsia-300 border border-fuchsia-500/30 hover:border-fuchsia-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ה-AI ייצר חידות אמוג'י חדשות ויוסיף אותן למאגר">
                 🎬 הצע חידות אמוג'י
@@ -3182,70 +3179,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     } catch (e) { /* silent */ }
 });
 
-async function aiFillAllVisible() {
-    var btn = document.getElementById('ai-fill-all-btn');
-    if (!btn) return;
-    if (!confirm('זה ייצור תוכן AI לכל הטיוטות הגלויות בלוח שנה. להמשיך?')) return;
-
-    var origText = btn.innerHTML;
-    btn.innerHTML = '⏳ מייצר...';
-    btn.disabled = true;
-
-    try {
-        // Determine visible week offsets from calendar's current view
-        var view = calendar.view;
-        var startDate = view.activeStart; // Date object
-        var endDate = view.activeEnd;
-
-        // Convert to week offsets relative to this week's Sunday
-        var today = new Date();
-        var todaySunday = new Date(today);
-        todaySunday.setDate(today.getDate() - ((today.getDay()) % 7));
-        todaySunday.setHours(0,0,0,0);
-
-        var firstWeekStart = new Date(startDate);
-        firstWeekStart.setDate(startDate.getDate() - startDate.getDay()); // back to Sunday
-        firstWeekStart.setHours(0,0,0,0);
-
-        var weekOffsets = [];
-        var cur = new Date(firstWeekStart);
-        while (cur < endDate) {
-            var diffDays = Math.round((cur - todaySunday) / (1000*60*60*24));
-            var offset = Math.round(diffDays / 7);
-            weekOffsets.push(offset);
-            cur.setDate(cur.getDate() + 7);
-        }
-
-        var types = ['morning', 'discussion', 'evening'];
-        var totalCreated = 0;
-        var totalErrors = 0;
-
-        for (var i = 0; i < weekOffsets.length; i++) {
-            for (var j = 0; j < types.length; j++) {
-                btn.innerHTML = '⏳ שבוע ' + (i+1) + '/' + weekOffsets.length + ' — ' + types[j];
-                try {
-                    var resp = await fetch('/api/weekplan/ai-fill', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({week_offset: weekOffsets[i], type: types[j]})
-                    });
-                    var data = await resp.json();
-                    totalCreated += (data.created || 0);
-                    totalErrors += ((data.errors && data.errors.length) || 0);
-                } catch (e) {
-                    totalErrors += 1;
-                }
-            }
-        }
-
-        showToast('נוצרו ' + totalCreated + ' הודעות' + (totalErrors > 0 ? ' (' + totalErrors + ' שגיאות)' : ''), totalErrors > 0 ? 'error' : 'success');
-        calendar.refetchEvents();
-    } finally {
-        btn.innerHTML = origText;
-        btn.disabled = false;
-    }
-}
-
 async function aiSuggestEmojiPuzzles() {
     var btn = document.getElementById('ai-suggest-emoji-btn');
     if (!btn) return;
@@ -3464,12 +3397,12 @@ async function aiSuggestTriviaRound() {
 }
 
 async function aiRegenerateWeek() {
-    var btn = document.getElementById('ai-regenerate-btn');
+    var btn = document.getElementById('ai-fill-all-btn');
     if (!btn) return;
-    if (!confirm('זה ימחק את טיוטות ה-AI הקיימות בשבועות הגלויים וייצר אותן מחדש עם הנחיות האיכות העדכניות. שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+    if (!confirm('זה ייצר טיוטות AI לכל השבועות הגלויים. טיוטות AI ישנות יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
 
     var origText = btn.innerHTML;
-    btn.innerHTML = '⏳ מייצר מחדש...';
+    btn.innerHTML = '⏳ מייצר...';
     btn.disabled = true;
 
     try {
