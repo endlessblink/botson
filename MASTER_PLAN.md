@@ -1131,6 +1131,8 @@ Fixed the production AI Populate flow so it opens the suggest+confirm modal firs
 - Trivia populate defaults live in `config/settings.yaml:trivia.populate_defaults`, including warm-up offset and poll payload defaults.
 - Removed the pre-modal browser confirm so every Populate click shows the modal immediately.
 - Suggestions now skip slots before the current server datetime, including earlier dates in the current week and earlier times today.
+- Emoji Night suggestions now include a separate announcement row before the game row; the game row shows the subject and carries `theme_label`/`media_types` in `poll_options` so the runtime filters to the same subject.
+- The Emoji Night announcement lead is admin-configurable via `schedule.emoji_puzzle.announcement_lead_minutes` (default 90 minutes, intended 1–2 hour range), alongside `theme_label` and `media_types`.
 - Added regression coverage that the suggest engine returns mixed types and writes zero rows before approval.
 
 Verification: `python3 -m py_compile dashboard/app.py`, `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`, and `/tmp/e2e_suggest.py` stubbed flow. Deployed to prod as `28ce1b4`; user confirmed the production behavior looked much better.

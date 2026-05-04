@@ -8,5 +8,6 @@
 - Do not hardcode days, times, topic IDs, trivia defaults, warm-up offsets, or content caps in Python. Use `config/settings.yaml`, `topics.discussions`, and `bot_message_routing`.
 - Day-level Populate intentionally ignores `schedule.*.days`; it uses configured times only and lets the admin approve or reject the suggested mix.
 - Never suggest rows for times that have already passed on the server clock. Week-level Populate must skip earlier dates in the current week and earlier times today.
+- Emoji Night Populate must suggest an announcement row before the executable game row. The announcement lead, human subject label, and allowed pool media types are admin-configurable in `schedule.emoji_puzzle`; the `emoji_puzzle` row must carry the same payload in `poll_options` so runtime filtering matches the modal.
 - Before claiming this flow works, run `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q` and a stubbed suggest flow equivalent to `/tmp/e2e_suggest.py`.
 - Push only after showing/understanding the diff. Deploy only after explicit deploy approval.

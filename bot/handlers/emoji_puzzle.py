@@ -67,10 +67,11 @@ def resolve_emoji_target(target: str, settings: dict | None = None) -> tuple[int
     return None, None
 
 
-def _format_intro_text(puzzle_count: int) -> str:
+def _format_intro_text(puzzle_count: int, theme_label: str | None = None) -> str:
+    theme = str(theme_label or "סרטים וסדרות").strip() or "סרטים וסדרות"
     return (
         "🎬 Emoji Night מתחיל!\n\n"
-        f"מחכות לכם {puzzle_count} חידות אימוג'י על סרטים וסדרות.\n"
+        f"מחכות לכם {puzzle_count} חידות אימוג'י בנושא {theme}.\n"
         "הראשונ/ה שעונ/ה נכון על כל חידה מקבל/ת 5 נקודות מיד.\n\n"
         "עונים ב-reply להודעת החידה. אפשר לענות גם על חידות קודמות עד סוף המשחק, ובסוף נחשוף את מה שלא נפתר."
     )
@@ -250,8 +251,13 @@ def _get_answer_actor(update: Update):
     return None
 
 
-async def _pick_session_puzzles(db: Database, puzzle_count: int) -> list[dict]:
+async def _pick_session_puzzles(
+    db: Database, puzzle_count: int, media_types: list[str] | None = None,
+) -> list[dict]:
     pool = await db.list_emoji_puzzles(enabled_only=True)
+    allowed = {str(m).strip() for m in (media_types or []) if str(m).strip()}
+    if allowed:
+        pool = [p for p in pool if str(p.get("media_type") or "").strip() in allowed]
     if not pool:
         return []
 
@@ -279,6 +285,8 @@ async def start_emoji_night(
     chat_id: int,
     thread_id: int | None,
     force: bool = False,
+    media_types: list[str] | None = None,
+    theme_label: str | None = None,
 ) -> int | None:
     """Create one Emoji Night session and launch its timed send flow."""
     if not force and not is_feature_enabled("emoji_puzzle", chat_id):
@@ -300,9 +308,12 @@ async def start_emoji_night(
     intro_offset_seconds = int(schedule.get("intro_offset_seconds", 10) or 10)
     wrap_offset_seconds = int(schedule.get("wrap_offset_seconds", 20) or 20)
 
-    puzzles = await _pick_session_puzzles(db, puzzle_count)
+    puzzles = await _pick_session_puzzles(db, puzzle_count, media_types=media_types)
     if len(puzzles) < puzzle_count:
-        logger.warning("emoji_puzzle: not enough enabled puzzles (%d/%d)", len(puzzles), puzzle_count)
+        logger.warning(
+            "emoji_puzzle: not enough enabled puzzles (%d/%d) media_types=%s",
+            len(puzzles), puzzle_count, media_types,
+        )
         return None
 
     session_id = await db.create_emoji_session(chat_id, thread_id, puzzle_count)
@@ -315,6 +326,7 @@ async def start_emoji_night(
             chat_id=chat_id,
             thread_id=thread_id,
             puzzles=puzzles,
+            theme_label=theme_label,
             intro_offset_seconds=intro_offset_seconds,
             interval_seconds=interval_seconds,
             wrap_offset_seconds=wrap_offset_seconds,
@@ -333,6 +345,7 @@ async def _run_emoji_session(
     chat_id: int,
     thread_id: int | None,
     puzzles: list[dict],
+    theme_label: str | None,
     intro_offset_seconds: int,
     interval_seconds: int,
     wrap_offset_seconds: int,
@@ -344,7 +357,7 @@ async def _run_emoji_session(
         db,
         "send_message",
         chat_id=chat_id,
-        text=_format_intro_text(len(puzzles)),
+        text=_format_intro_text(len(puzzles), theme_label=theme_label),
         message_thread_id=thread_id,
     )
 

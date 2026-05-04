@@ -80,6 +80,20 @@
                     <input id="ep-wrap" type="number" min="0" max="7200" value="{{ puzzle_sched.wrap_offset_seconds or 420 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
                 </div>
             </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">נושא המשחק</label>
+                    <input id="ep-theme" type="text" value="{{ puzzle_sched.theme_label or 'סרטים וסדרות' }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">סוגי מאגר</label>
+                    <input id="ep-media-types" type="text" value="{{ (puzzle_sched.media_types or ['movie','tv'])|join(',') }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]" placeholder="movie,tv,book,song">
+                </div>
+                <div>
+                    <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">הכרזה לפני (דק')</label>
+                    <input id="ep-announcement-lead" type="number" min="60" max="120" value="{{ puzzle_sched.announcement_lead_minutes or 90 }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                </div>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                 <div>
                     <label class="text-sm text-[#a1a1aa] font-medium mb-2 block">ימים</label>
@@ -245,6 +259,9 @@ async function savePuzzleSchedule() {
         groups: getPuzzleGroups(),
         days: getPuzzleDays(),
         time: document.getElementById('ep-time').value,
+        announcement_lead_minutes: parseInt(document.getElementById('ep-announcement-lead').value, 10),
+        theme_label: document.getElementById('ep-theme').value,
+        media_types: document.getElementById('ep-media-types').value.split(',').map(s => s.trim()).filter(Boolean),
         puzzle_count: parseInt(document.getElementById('ep-count').value, 10),
         interval_seconds: parseInt(document.getElementById('ep-interval-seconds').value, 10),
         interval_minutes: Math.max(1, Math.ceil(parseInt(document.getElementById('ep-interval-seconds').value, 10) / 60)),

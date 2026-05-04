@@ -37,6 +37,18 @@ def _require_message_id(value, activity: str) -> int:
     return message_id
 
 
+def _parse_payload(raw) -> dict:
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 class SkippedActivity(RuntimeError):
     """Scheduled activity made an intentional no-op decision."""
 
@@ -361,7 +373,15 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     )
                 )
             elif msg.get("message_type") == "emoji_puzzle":
-                session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
+                payload = _parse_payload(msg.get("poll_options"))
+                session_id = await start_emoji_night(
+                    context,
+                    group_id,
+                    msg.get("channel_topic_id"),
+                    force=True,
+                    media_types=payload.get("media_types") or None,
+                    theme_label=payload.get("theme_label") or None,
+                )
                 if session_id is None:
                     raise RuntimeError("Emoji Night did not start")
                 sent = SimpleNamespace(message_id=session_id)

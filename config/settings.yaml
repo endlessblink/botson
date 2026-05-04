@@ -127,6 +127,11 @@ schedule:
   emoji_puzzle:
     days: []
     time: '22:00'
+    announcement_lead_minutes: 90
+    theme_label: סרטים וסדרות
+    media_types:
+    - movie
+    - tv
     puzzle_count: 5
     interval_seconds: 20
     interval_minutes: 1

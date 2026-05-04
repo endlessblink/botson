@@ -72,7 +72,9 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.failed, [])
 
     async def test_emoji_puzzle_row_starts_session_without_plain_send(self):
-        db = FakeScheduledDb(_base_row("emoji_puzzle"))
+        row = _base_row("emoji_puzzle")
+        row["poll_options"] = json.dumps({"theme_label": "סרטים", "media_types": ["movie"]}, ensure_ascii=False)
+        db = FakeScheduledDb(row)
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
@@ -81,7 +83,9 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
-        start_emoji.assert_awaited_once_with(context, -1002, None, force=True)
+        start_emoji.assert_awaited_once_with(
+            context, -1002, None, force=True, media_types=["movie"], theme_label="סרטים",
+        )
         send_text.assert_not_awaited()
         self.assertEqual(db.sent, [(123, 77)])
         self.assertEqual(db.failed, [])

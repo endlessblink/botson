@@ -145,6 +145,14 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
         await db.init()
+        for idx in range(5):
+            await db._db.execute(
+                """INSERT INTO emoji_puzzles
+                   (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                ("🎬⭐", f"סרט {idx}", f"Movie {idx}", "[]", 2, "movie", 1),
+            )
+        await db._db.commit()
         before = await self._scheduled_count(db)
         canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
 
@@ -164,6 +172,15 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("facts_tidbit", types)
         self.assertIn("facts_spooky", types)
         self.assertIn("weekly_leaderboard", types)
+        emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
+        self.assertTrue(emoji_rows)
+        emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
+        self.assertEqual(emoji_payload["theme_label"], "סרטים וסדרות")
+        self.assertEqual(emoji_payload["media_types"], ["movie", "tv"])
+        self.assertTrue(any(
+            s["message_type"] == "discussion" and s["source"] == "ai-fill-emoji"
+            for s in result["suggestions"]
+        ))
         self.assertLessEqual(len(result["suggestions"]), 12)
 
     async def test_ai_suggest_calendar_skips_past_times_today(self):

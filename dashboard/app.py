@@ -1046,6 +1046,15 @@ def _format_trivia_announcement(*, game_time: str, payload: dict) -> str:
     )
 
 
+def _format_emoji_announcement(*, game_time: str, theme_label: str, puzzle_count: int) -> str:
+    theme = str(theme_label or "סרטים וסדרות").strip() or "סרטים וסדרות"
+    return (
+        "🧩 מתחממים לחידת אימוג'י\n"
+        f"ב-{game_time} נפתח Emoji Night בנושא {theme} בפינה של בוטסון.\n"
+        f"{puzzle_count} חידות קצרות, נקודות למהירים, ועונים ב-reply להודעת החידה."
+    )
+
+
 def _matching_trivia_questions(pool: list, categories: list[str]) -> list[dict]:
     wanted = {str(c).strip().lower() for c in categories if str(c).strip()}
     if not wanted:
@@ -2180,9 +2189,18 @@ async def save_puzzle_schedule(request: Request):
         "enabled": bool(data.get("enabled", False)),
         "groups": [str(g) for g in data.get("groups", []) if str(g) in ("main", "test")],
     }
+    existing_emoji_schedule = settings.get("schedule", {}).get("emoji_puzzle", {}) or {}
+    media_types_raw = data.get("media_types", existing_emoji_schedule.get("media_types", ["movie", "tv"]))
+    if isinstance(media_types_raw, str):
+        media_types = [x.strip() for x in media_types_raw.split(",") if x.strip()]
+    else:
+        media_types = [str(x).strip() for x in (media_types_raw or []) if str(x).strip()]
     settings["schedule"]["emoji_puzzle"] = {
         "days": [int(d) for d in data.get("days", [])],
         "time": str(data.get("time") or "22:00").strip() or "22:00",
+        "announcement_lead_minutes": int(data.get("announcement_lead_minutes") or existing_emoji_schedule.get("announcement_lead_minutes") or 90),
+        "theme_label": str(data.get("theme_label") or existing_emoji_schedule.get("theme_label") or "סרטים וסדרות").strip() or "סרטים וסדרות",
+        "media_types": media_types,
         "puzzle_count": int(data.get("puzzle_count") or 5),
         "interval_seconds": int(data.get("interval_seconds") or 20),
         "interval_minutes": int(data.get("interval_minutes") or 1),
@@ -4263,24 +4281,65 @@ async def _ai_suggest_calendar(
                                     rationale=f"שאלה ל{cat}",
                                     validation_failures=[])
 
-        # Emoji puzzle row. Runtime chooses the actual puzzle from the DB pool.
+        # Emoji puzzle row + announcement. Runtime filters the puzzle pool by
+        # the selected subject payload, so the modal's subject is truthful.
         if (counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]
                 and _feature_on("emoji_puzzle")
                 and routed_topics.get("emoji_puzzle") is not None):
+            emoji_cfg = (settings.get("schedule", {}) or {}).get("emoji_puzzle", {}) or {}
+            emoji_theme = str(emoji_cfg.get("theme_label") or "סרטים וסדרות").strip() or "סרטים וסדרות"
+            emoji_media_types = [str(x).strip() for x in (emoji_cfg.get("media_types") or []) if str(x).strip()]
+            emoji_count = int(emoji_cfg.get("puzzle_count") or 5)
             try:
-                async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles") as cur:
-                    pool_n = (await cur.fetchone())[0] or 0
+                emoji_lead = int(emoji_cfg.get("announcement_lead_minutes") or 90)
+            except (TypeError, ValueError):
+                emoji_lead = 90
+            try:
+                if emoji_media_types:
+                    placeholders = ",".join("?" for _ in emoji_media_types)
+                    async with db._db.execute(
+                        f"SELECT COUNT(*) FROM emoji_puzzles WHERE enabled = 1 AND media_type IN ({placeholders})",
+                        tuple(emoji_media_types),
+                    ) as cur:
+                        pool_n = (await cur.fetchone())[0] or 0
+                else:
+                    async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles WHERE enabled = 1") as cur:
+                        pool_n = (await cur.fetchone())[0] or 0
             except Exception:
                 pool_n = 0
-            for t in emoji_t:
-                if not _slot_free(d_iso, t, "emoji_puzzle"):
-                    continue
-                rationale = f"מאגר חידות פעיל ({pool_n} פריטים)" if pool_n > 0 else "סלוט חידת אמוג'י פנוי"
-                _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
-                                text="🧩 חידת אמוג'י (תיבחר מהמאגר בזמן השליחה)",
-                                source="ai-fill-pool-row",
-                                rationale=rationale)
-                break
+            if pool_n >= emoji_count:
+                for t in emoji_t:
+                    if not _slot_free(d_iso, t, "emoji_puzzle"):
+                        continue
+                    try:
+                        hh, mm = [int(x) for x in str(t).split(":")]
+                        announce_total = hh * 60 + mm - emoji_lead
+                        if announce_total < 0:
+                            announce_total += 24 * 60
+                        announce_t = f"{announce_total // 60:02d}:{announce_total % 60:02d}"
+                    except Exception:
+                        continue
+                    if not _slot_free(d_iso, announce_t, "discussion"):
+                        continue
+                    payload = {
+                        "theme_label": emoji_theme,
+                        "media_types": emoji_media_types,
+                        "announcement_lead_minutes": emoji_lead,
+                        "puzzle_count": emoji_count,
+                    }
+                    _add_suggestion(
+                        d_iso, announce_t, "discussion", topic=routed_topics["emoji_puzzle"],
+                        text=_format_emoji_announcement(game_time=t, theme_label=emoji_theme, puzzle_count=emoji_count),
+                        source="ai-fill-emoji",
+                        rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night",
+                        count_as=None,
+                    )
+                    _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
+                                    text=f"🧩 Emoji Night — {emoji_theme} ({emoji_count} חידות)",
+                                    source="ai-fill-pool-row",
+                                    rationale=f"נושא: {emoji_theme} · מאגר מתאים ({pool_n} פריטים)",
+                                    poll_options_json=json.dumps(payload, ensure_ascii=False))
+                    break
 
         # Facts tidbit (max cap)
         if (counts["facts_tidbit"] < cap_per_window["facts_tidbit"]
