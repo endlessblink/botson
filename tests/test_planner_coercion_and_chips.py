@@ -124,9 +124,17 @@ class FakeCalendarRequest:
 
     def __init__(self, body):
         self._body = body
+        self.query_params = {}
 
     async def json(self):
         return self._body
+
+
+class FakeQueryRequest:
+    session = {"authenticated": True}
+
+    def __init__(self, query_params):
+        self.query_params = query_params
 
 
 class FakeCalendarDb:
@@ -263,6 +271,42 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created[0]["status"], "scheduled")
         self.assertEqual(db.created[0]["message_type"], "emoji_puzzle")
         self.assertEqual(db.created[0]["poll_options"], '{"theme_label":"movies"}')
+
+    async def test_planner_day_diagnostics_reports_scheduler_state(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                await db.upsert_verified_forum_topic(4037, "הפינה של בוטסון", "botson_corner", "test")
+                await db.set_handler_routing("emoji_puzzle", 4037, [])
+                msg_id = await db.create_scheduled_message(
+                    text="🧩 Emoji Night — סרטים וסדרות (5 חידות)",
+                    message_type="emoji_puzzle",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    created_by="ai-fill-pool-row",
+                    status="scheduled",
+                    poll_options=json.dumps({"theme_label": "סרטים וסדרות", "media_types": ["movie", "tv"]}, ensure_ascii=False),
+                )
+
+                res = await dashboard_app.planner_day_diagnostics(
+                    FakeQueryRequest({"date": "2099-01-01"}),
+                    db,
+                )
+
+                self.assertEqual(res["counts"]["total"], 1)
+                self.assertEqual(res["counts"]["by_type"]["emoji_puzzle"], 1)
+                self.assertEqual(res["routing"]["emoji_puzzle"]["play_topic_id"], 4037)
+                row = res["rows"][0]
+                self.assertEqual(row["id"], msg_id)
+                self.assertEqual(row["status"], "scheduled")
+                self.assertEqual(row["message_type"], "emoji_puzzle")
+                self.assertTrue(row["topic_verified"])
+                self.assertEqual(row["payload"]["media_types"], ["movie", "tv"])
+            finally:
+                await db.close()
 
     async def test_plain_text_types_keep_selected_topic(self):
         db = FakeCalendarDb()

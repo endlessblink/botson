@@ -7934,6 +7934,116 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     return events
 
 
+@app.get("/api/diagnostics/planner-day")
+async def planner_day_diagnostics(request: Request, db: Database = Depends(get_db)):
+    """Read-only diagnostics for scheduled_messages on one planner date.
+
+    This endpoint exists so agents/admins can verify production scheduler state
+    without SSHing into SQLite. It returns row status/type/topic/payload data
+    needed to explain whether the autonomous calendar_checker will pick a row.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Jerusalem")
+    now = datetime.now(tz)
+    date_str = (request.query_params.get("date") or now.date().isoformat()).strip()
+    try:
+        target_date = date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {date_str}")
+
+    messages = await db.get_scheduled_messages(target_date.isoformat(), target_date.isoformat(), include_cancelled=True)
+    due_rows = await db.get_due_messages(target_date.isoformat(), now.strftime("%H:%M")) if target_date == now.date() else []
+    due_ids = {int(row["id"]) for row in due_rows}
+
+    try:
+        verified_rows = await db.get_verified_forum_topics()
+    except Exception:
+        verified_rows = []
+    verified_topics = {}
+    for row in verified_rows:
+        try:
+            verified_topics[int(row["topic_id"])] = {
+                "category_key": row.get("category_key"),
+                "name": row.get("verified_name") or row.get("observed_name"),
+            }
+        except Exception:
+            pass
+
+    try:
+        routings = await db.list_handler_routings()
+    except Exception:
+        routings = []
+    routing_by_handler = {r.get("handler"): r for r in routings if r.get("handler")}
+
+    rows = []
+    for msg in messages:
+        topic_id = msg.get("channel_topic_id")
+        try:
+            topic_id_int = int(topic_id) if topic_id is not None else None
+        except (TypeError, ValueError):
+            topic_id_int = None
+        payload = _parse_game_payload(msg.get("poll_options"))
+        poll_options = None
+        if msg.get("poll_options") and not payload:
+            try:
+                parsed = json.loads(msg.get("poll_options"))
+                if isinstance(parsed, list):
+                    poll_options = [str(x) for x in parsed]
+            except Exception:
+                poll_options = None
+
+        sched_time = (msg.get("scheduled_time") or "00:00")[:5]
+        try:
+            sched_dt = datetime.fromisoformat(f"{target_date.isoformat()}T{sched_time}").replace(tzinfo=tz)
+            minutes_from_now = int((sched_dt - now).total_seconds() / 60)
+        except Exception:
+            minutes_from_now = None
+        status = msg.get("status") or "scheduled"
+        will_calendar_checker_consider = status == "scheduled" and (
+            target_date < now.date() or (target_date == now.date() and sched_time <= now.strftime("%H:%M"))
+        )
+        rows.append({
+            "id": msg.get("id"),
+            "scheduled_date": msg.get("scheduled_date"),
+            "scheduled_time": sched_time,
+            "minutes_from_now": minutes_from_now,
+            "status": status,
+            "message_type": msg.get("message_type"),
+            "target_group": msg.get("target_group"),
+            "created_by": msg.get("created_by"),
+            "channel_topic_id": topic_id_int,
+            "topic_verified": topic_id_int in verified_topics if topic_id_int is not None else None,
+            "topic_name": (verified_topics.get(topic_id_int) or {}).get("name") if topic_id_int is not None else None,
+            "text_preview": (msg.get("text") or "").replace("\n", " ")[:120],
+            "payload": payload,
+            "poll_options": poll_options,
+            "error_message": msg.get("error_message"),
+            "sent_at": msg.get("sent_at"),
+            "sent_message_id": msg.get("sent_message_id"),
+            "due_now": int(msg.get("id")) in due_ids,
+            "will_calendar_checker_consider": will_calendar_checker_consider,
+        })
+
+    by_status: dict[str, int] = {}
+    by_type: dict[str, int] = {}
+    for row in rows:
+        by_status[row["status"]] = by_status.get(row["status"], 0) + 1
+        mtype = row.get("message_type") or "custom"
+        by_type[mtype] = by_type.get(mtype, 0) + 1
+
+    return {
+        "date": target_date.isoformat(),
+        "now_il": now.isoformat(timespec="seconds"),
+        "counts": {"total": len(rows), "by_status": by_status, "by_type": by_type},
+        "routing": routing_by_handler,
+        "rows": rows,
+    }
+
+
 @app.post("/api/calendar")
 async def create_calendar_item(request: Request, db: Database = Depends(get_db)):
     """Create a new scheduled message."""
