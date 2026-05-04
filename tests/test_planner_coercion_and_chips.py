@@ -243,6 +243,27 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(db.created[0]["message_type"], message_type)
                 self.assertEqual(db.created[0]["channel_topic_id"], 4037)
 
+    async def test_ai_suggest_commit_schedules_approved_rows(self):
+        db = FakeCalendarDb()
+        body = {
+            "approved": [{
+                "date": "2099-01-01",
+                "time": "22:00",
+                "message_type": "emoji_puzzle",
+                "topic_id": 4037,
+                "text": "Emoji Night",
+                "source": "ai-fill-pool-row",
+                "poll_options_json": '{"theme_label":"movies"}',
+            }]
+        }
+
+        res = await dashboard_app.ai_suggest_commit(FakeCalendarRequest(body), db)
+
+        self.assertEqual(res["inserted"], 1)
+        self.assertEqual(db.created[0]["status"], "scheduled")
+        self.assertEqual(db.created[0]["message_type"], "emoji_puzzle")
+        self.assertEqual(db.created[0]["poll_options"], '{"theme_label":"movies"}')
+
     async def test_plain_text_types_keep_selected_topic(self):
         db = FakeCalendarDb()
         body = {
@@ -307,9 +328,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ) as cur:
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
-                self.assertEqual(warmup["scheduled_time"], "18:00")
-                self.assertEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["scheduled_time"], "21:25")
+                self.assertNotEqual(warmup["channel_topic_id"], 341)
                 self.assertIn("22:00", warmup["text"])
+                self.assertIn("35 דקות", warmup["text"])
             finally:
                 await db.close()
 
@@ -426,8 +448,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ) as cur:
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
-                self.assertEqual(warmup["scheduled_time"], "18:00")
-                self.assertEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["scheduled_time"], "21:25")
+                self.assertNotEqual(warmup["channel_topic_id"], 341)
                 self.assertEqual(warmup["created_by"], f"trivia-announcement-draft:{game_id}")
             finally:
                 await db.close()

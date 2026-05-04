@@ -1036,12 +1036,19 @@ def _parse_game_payload(raw) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _format_trivia_announcement(*, game_time: str, payload: dict) -> str:
+def _format_lead_time(minutes: int) -> str:
+    if minutes % 60 == 0:
+        hours = minutes // 60
+        return f"{hours} שעות" if hours != 1 else "שעה"
+    return f"{minutes} דקות"
+
+
+def _format_trivia_announcement(*, game_time: str, payload: dict, lead_minutes: int) -> str:
     theme = str(payload.get("theme_label") or "גיימינג").strip() or "גיימינג"
     question_count = int(payload.get("question_count") or 10)
     return (
         f"🎮 מתחממים לטריוויה הערב\n"
-        f"בעוד 4 שעות, ב-{game_time}, נפתח סיבוב טריוויה {theme} בפינה של בוטסון.\n"
+        f"בעוד {_format_lead_time(lead_minutes)}, ב-{game_time}, נפתח סיבוב טריוויה {theme} בפינה של בוטסון.\n"
         f"{question_count} שאלות קצרות, ניקוד למהירים, ואפס צורך להירשם מראש. פשוט להגיע בזמן."
     )
 
@@ -1162,7 +1169,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     but are ignored by the autonomous sender.
     """
     async with db._db.execute(
-        """SELECT id, scheduled_date, scheduled_time, message_type, status, poll_options
+        """SELECT id, scheduled_date, scheduled_time, message_type, status, poll_options, channel_topic_id
            FROM scheduled_messages WHERE id = ?""",
         (game_id,),
     ) as cur:
@@ -1175,9 +1182,24 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         game_dt = datetime.strptime(f"{row['scheduled_date']} {game_time}", "%Y-%m-%d %H:%M")
     except ValueError:
         return None
-    announcement_dt = game_dt - timedelta(hours=4)
     payload = _parse_game_payload(row["poll_options"])
-    text = _format_trivia_announcement(game_time=game_time, payload=payload)
+    trivia_defaults = (get_settings().get("trivia") or {}).get("populate_defaults") or {}
+    try:
+        lead_minutes = int(payload.get("warmup_offset_min") or trivia_defaults.get("warmup_offset_min") or 35)
+    except (TypeError, ValueError):
+        lead_minutes = 35
+    lead_minutes = max(1, min(24 * 60, lead_minutes))
+    announcement_dt = game_dt - timedelta(minutes=lead_minutes)
+    text = _format_trivia_announcement(game_time=game_time, payload=payload, lead_minutes=lead_minutes)
+    try:
+        routing = await db.get_handler_routing("trivia_round")
+    except Exception:
+        routing = None
+    announcement_topic_id = payload.get("teaser_topic_id")
+    if announcement_topic_id is None and routing and routing.get("play_topic_id") is not None:
+        announcement_topic_id = routing["play_topic_id"]
+    if announcement_topic_id is None:
+        announcement_topic_id = row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"]
     marker = f"trivia-announcement-draft:{game_id}"
     async with db._db.execute(
         "SELECT id FROM scheduled_messages WHERE created_by = ? AND status != 'cancelled' LIMIT 1",
@@ -1190,7 +1212,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
             existing_id,
             text=text,
             message_type="custom",
-            channel_topic_id=341,
+            channel_topic_id=announcement_topic_id,
             target_group="main",
             scheduled_date=announcement_dt.date().isoformat(),
             scheduled_time=announcement_dt.strftime("%H:%M"),
@@ -1201,7 +1223,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     return await db.create_scheduled_message(
         text=text,
         message_type="custom",
-        channel_topic_id=341,
+        channel_topic_id=announcement_topic_id,
         target_group="main",
         scheduled_date=announcement_dt.date().isoformat(),
         scheduled_time=announcement_dt.strftime("%H:%M"),
@@ -2479,6 +2501,7 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"מה הפלן הערב"), "concrete_failure_plan"),
     (re.compile(r"מה נשאר (איתכם|אתכם)"), "rule11_generic_evening"),
     (re.compile(r"אחרי כל מה שהיה"), "rule11_generic_evening"),
+    (re.compile(r"מה\s+ה\S*\s+הכי\s+מעריך"), "concrete_failure_bad_hebrew"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -2517,6 +2540,15 @@ def _validate_draft_text(text: str) -> list[str]:
         if pattern.search(s):
             failures.append(label)
     return failures
+
+
+def _reject_bad_planner_text(text: str) -> None:
+    failures = _validate_draft_text(text)
+    if failures:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "quality_rejected", "failures": failures},
+        )
 
 
 def _format_dedup_block(recent_sent: list[str] | None) -> str:
@@ -3231,6 +3263,7 @@ async def save_weekplan_day(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Missing date or time")
     if mtype not in ("morning", "evening", "discussion"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
+    _reject_bad_planner_text(text)
 
     # Normalize topic_id to int or None
     if channel_topic_id in (None, "", "0", 0):
@@ -3642,11 +3675,11 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
 
 # ── AI fill: weekly trivia round ───────────────────────────
 
-# Default trivia destination when no theme channel matches. CLAUDE.md
-# "Trivia Round Scheduling" rules: warm-up + game both in botson_corner
-# (topic 4037) for a generic round. Theme-channel teasers are out of
-# scope here — Phase 2 candidate.
-_BOTSON_CORNER_TOPIC_ID = 4037
+async def _handler_play_topic_or_error(db: Database, handler: str) -> int:
+    routing = await db.get_handler_routing(handler)
+    if not routing or routing.get("play_topic_id") is None:
+        raise RuntimeError(f"missing bot_message_routing.play_topic_id for {handler}")
+    return int(routing["play_topic_id"])
 
 
 async def _ai_fill_trivia_for_week(
@@ -3699,16 +3732,38 @@ async def _ai_fill_trivia_for_week(
 
     inserted = 0
     errors: list[str] = []
+    try:
+        topic_id = await _handler_play_topic_or_error(db, "trivia_round")
+    except Exception as e:
+        return {"inserted": 0, "errors": [str(e)], "scheduled_date": sat_iso}
+
+    settings = get_settings()
+    trivia_defaults = (settings.get("trivia") or {}).get("populate_defaults") or {}
+    trivia_cfg = (settings.get("schedule") or {}).get("trivia") or {}
+    game_time = str(trivia_cfg.get("time") or "21:00")[:5]
+    try:
+        lead_minutes = int(trivia_defaults.get("warmup_offset_min") or 35)
+    except (TypeError, ValueError):
+        lead_minutes = 35
+    try:
+        game_h, game_m = [int(x) for x in game_time.split(":")]
+        warm_total = game_h * 60 + game_m - lead_minutes
+        if warm_total < 0:
+            warm_total += 24 * 60
+        warm_time = f"{warm_total // 60:02d}:{warm_total % 60:02d}"
+    except Exception as e:
+        return {"inserted": 0, "errors": [f"invalid trivia schedule: {e}"], "scheduled_date": sat_iso}
 
     try:
-        warmup_text = "מתחממים לטריוויה 🧠 — בעוד 35 דקות מתחילים סיבוב כללי בפינה של בוטסון."
+        theme_label = str(trivia_defaults.get("theme_label") or "כללי")
+        warmup_text = f"מתחממים לטריוויה 🧠 — בעוד {_format_lead_time(lead_minutes)} מתחילים סיבוב {theme_label} בפינה של בוטסון."
         await db.create_scheduled_message(
             text=warmup_text,
             message_type="discussion",
-            channel_topic_id=_BOTSON_CORNER_TOPIC_ID,
+            channel_topic_id=topic_id,
             target_group="main",
             scheduled_date=sat_iso,
-            scheduled_time="20:25",
+            scheduled_time=warm_time,
             created_by="ai-fill-trivia",
             status="draft",
         )
@@ -3719,18 +3774,19 @@ async def _ai_fill_trivia_for_week(
 
     try:
         poll_payload = {
-            "pre_roll_s": 30,
-            "theme_label": "כללי",
-            "categories": [],
-            "question_count": 5,
+            "pre_roll_s": int(trivia_defaults.get("pre_roll_s") or 30),
+            "theme_label": str(trivia_defaults.get("theme_label") or "כללי"),
+            "categories": list(trivia_defaults.get("categories") or []),
+            "question_count": int(trivia_defaults.get("question_count") or 5),
+            "warmup_offset_min": lead_minutes,
         }
         await db.create_scheduled_message(
-            text="🧠 סיבוב טריוויה — 5 שאלות מהירות",
+            text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
             message_type="trivia_round",
-            channel_topic_id=_BOTSON_CORNER_TOPIC_ID,
+            channel_topic_id=topic_id,
             target_group="main",
             scheduled_date=sat_iso,
-            scheduled_time="21:00",
+            scheduled_time=game_time,
             created_by="ai-fill-trivia",
             status="draft",
             poll_options=json.dumps(poll_payload, ensure_ascii=False),
@@ -3854,10 +3910,11 @@ async def _ai_fill_pool_rows_for_week(
     for day_idx, time_str, mtype, placeholder in slots:
         day_date = sunday + timedelta(days=day_idx)
         try:
+            topic_id = await _handler_play_topic_or_error(db, mtype)
             await db.create_scheduled_message(
                 text=placeholder,
                 message_type=mtype,
-                channel_topic_id=_BOTSON_CORNER_TOPIC_ID,
+                channel_topic_id=topic_id,
                 target_group="main",
                 scheduled_date=day_date.isoformat(),
                 scheduled_time=time_str,
@@ -3912,7 +3969,7 @@ async def ai_fill_pool_rows(request: Request, db: Database = Depends(get_db)):
 # /api/weekplan/ai-suggest        — generates Hebrew text + slot list,
 #                                   returns JSON, NO DB writes.
 # /api/weekplan/ai-suggest-commit — takes the user-approved subset and
-#                                   inserts each as a draft row.
+#                                   inserts each as a scheduled row.
 #
 # All slot times/topics are derived from `config/settings.yaml.schedule.*`
 # and the `bot_message_routing` table — no day/time/topic literals here.
@@ -4484,7 +4541,7 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
 
 @app.post("/api/weekplan/ai-suggest-commit")
 async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
-    """Insert the user-approved subset of suggestions as draft rows.
+    """Insert the user-approved subset of suggestions as scheduled rows.
 
     Body: {approved: [{date, time, message_type, topic_id, text,
                        category?, source, poll_options_json?}, ...]}
@@ -4562,7 +4619,7 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                 scheduled_date=d,
                 scheduled_time=t,
                 created_by=source,
-                status="draft",
+                status="scheduled",
                 poll_options=poll_options_json,
             )
             inserted_ids.append(new_id)
@@ -4570,6 +4627,10 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         except Exception as e:
             errors.append(f"#{i}: insert failed: {e}")
 
+    logger.info(
+        "[weekplan.ai-suggest-commit] inserted=%d ids=%s by_type=%s errors=%s",
+        len(inserted_ids), inserted_ids, by_type, errors,
+    )
     return {"inserted": len(inserted_ids), "ids": inserted_ids,
             "by_type": by_type, "errors": errors}
 
@@ -6247,6 +6308,8 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     content = content.strip().replace('"', '').replace("'", "")
     lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
     text = lines[0] if lines else content
+    if mtype in {"morning", "evening", "discussion"}:
+        _reject_bad_planner_text(text)
 
     logger.info("[generate-content] type=%s cat=%s mode=%s -> %r", mtype, category, mode, text[:60])
     return {"text": text}
@@ -7892,6 +7955,8 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     elif message_type in {"free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
         routing = await db.get_handler_routing(message_type)
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
+    if message_type in {"morning", "evening", "discussion"}:
+        _reject_bad_planner_text(data["text"])
 
     trivia_topup = None
     if message_type == "trivia_round":
@@ -7959,6 +8024,17 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
         fields["recurrence_days"] = json.dumps(fields["recurrence_days"])
     if "poll_options" in fields and isinstance(fields["poll_options"], list):
         fields["poll_options"] = json.dumps(fields["poll_options"])
+    if "text" in fields:
+        effective_text_type = fields.get("message_type")
+        if effective_text_type is None:
+            async with db._db.execute(
+                "SELECT message_type FROM scheduled_messages WHERE id = ?",
+                (msg_id,),
+            ) as cur:
+                existing_type_row = await cur.fetchone()
+            effective_text_type = existing_type_row["message_type"] if existing_type_row else None
+        if effective_text_type in {"morning", "evening", "discussion"}:
+            _reject_bad_planner_text(str(fields["text"] or ""))
 
     trivia_topup = None
     if fields.get("status") == "scheduled":
