@@ -7,5 +7,6 @@
 - Do not narrow Populate back to discussion-only. The suggest engine should return a configurable mix across morning, evening, discussion, trivia, emoji, facts, free games, weekly roundup, and weekly leaderboard when those types are configured, enabled, routable, and free.
 - Do not hardcode days, times, topic IDs, trivia defaults, warm-up offsets, or content caps in Python. Use `config/settings.yaml`, `topics.discussions`, and `bot_message_routing`.
 - Day-level Populate intentionally ignores `schedule.*.days`; it uses configured times only and lets the admin approve or reject the suggested mix.
+- Never suggest rows for times that have already passed on the server clock. Week-level Populate must skip earlier dates in the current week and earlier times today.
 - Before claiming this flow works, run `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q` and a stubbed suggest flow equivalent to `/tmp/e2e_suggest.py`.
 - Push only after showing/understanding the diff. Deploy only after explicit deploy approval.

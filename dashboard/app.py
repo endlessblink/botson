@@ -3990,6 +3990,7 @@ async def _ai_suggest_calendar(
     """
     import uuid as _uuid
 
+    now_dt = datetime.now()
     today_d = date.today()
     days_since_sunday = (today_d.weekday() + 1) % 7
     sunday = today_d - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
@@ -4067,8 +4068,15 @@ async def _ai_suggest_calendar(
     suggestions: list = []
     errors: list = []
 
+    def _slot_future(d_iso: str, t: str) -> bool:
+        try:
+            slot_dt = datetime.fromisoformat(f"{d_iso}T{str(t)[:5]}")
+        except ValueError:
+            return False
+        return slot_dt >= now_dt
+
     def _slot_free(d_iso: str, t: str, mtype: str) -> bool:
-        return (d_iso, t, mtype) not in occupied
+        return _slot_future(d_iso, t) and (d_iso, t, mtype) not in occupied
 
     # ── Build candidate slot list ─────────────────────────────────
     # Strategy: for each day in window, lay out at most one of each
@@ -4161,6 +4169,8 @@ async def _ai_suggest_calendar(
                         poll_options_json: str | None = None,
                         validation_failures: list | None = None,
                         count_as: str | None = "__self__") -> None:
+        if not _slot_future(d_iso, t):
+            return
         suggestions.append({
             "key": _uuid.uuid4().hex,
             "date": d_iso,
@@ -4369,11 +4379,12 @@ async def _ai_suggest_calendar(
                     "categories": list(trivia_cfg.get("categories") or []),
                     "question_count": int(trivia_cfg["question_count"]),
                 }
-                _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
-                                text=f"מתחממים לטריוויה 🧠 — בעוד {warmup_offset} דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.",
-                                source="ai-fill-trivia",
-                                rationale="חימום לסיבוב טריוויה",
-                                count_as=None)
+                if _slot_free(d_iso, warm_t, "discussion"):
+                    _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
+                                    text=f"מתחממים לטריוויה 🧠 — בעוד {warmup_offset} דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.",
+                                    source="ai-fill-trivia",
+                                    rationale="חימום לסיבוב טריוויה",
+                                    count_as=None)
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
                                 text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
                                 source="ai-fill-trivia",

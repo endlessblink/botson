@@ -166,6 +166,27 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("weekly_leaderboard", types)
         self.assertLessEqual(len(result["suggestions"]), 12)
 
+    async def test_ai_suggest_calendar_skips_past_times_today(self):
+        db = Database(":memory:")
+        await db.init()
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+        now = dashboard_app.datetime.now()
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=now.date().isoformat(), week_offset=0,
+            )
+
+        await db.close()
+
+        for suggestion in result["suggestions"]:
+            slot = dashboard_app.datetime.fromisoformat(
+                f"{suggestion['date']}T{suggestion['time'][:5]}"
+            )
+            self.assertGreaterEqual(slot, now, suggestion)
+
     async def _scheduled_count(self, db):
         async with db._db.execute("SELECT COUNT(*) FROM scheduled_messages") as cur:
             return (await cur.fetchone())[0]

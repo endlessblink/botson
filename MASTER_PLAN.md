@@ -1130,6 +1130,7 @@ Fixed the production AI Populate flow so it opens the suggest+confirm modal firs
 - Slot times come from `config/settings.yaml.schedule.*`; executable bot content topics come from `bot_message_routing`; discussion topic/category matching is validated again at commit time.
 - Trivia populate defaults live in `config/settings.yaml:trivia.populate_defaults`, including warm-up offset and poll payload defaults.
 - Removed the pre-modal browser confirm so every Populate click shows the modal immediately.
+- Suggestions now skip slots before the current server datetime, including earlier dates in the current week and earlier times today.
 - Added regression coverage that the suggest engine returns mixed types and writes zero rows before approval.
 
 Verification: `python3 -m py_compile dashboard/app.py`, `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`, and `/tmp/e2e_suggest.py` stubbed flow. Deployed to prod as `28ce1b4`; user confirmed the production behavior looked much better.
