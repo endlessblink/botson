@@ -374,8 +374,8 @@ async function scheduleOneOff() {
     // Determine topic_id: for discussion use dropdown value, otherwise use activity's own topic_id
     var topicId = _modalState.topicId;
     if (_modalState.type === 'discussion') {
-        var sel = document.getElementById('modalChannelSelect');
-        if (sel.value) topicId = sel.value;
+        var sel = document.getElementById('modalHeaderChannelSelect');
+        if (sel && sel.value) topicId = sel.value;
     }
 
     var btn = document.getElementById('modalScheduleBtn');
