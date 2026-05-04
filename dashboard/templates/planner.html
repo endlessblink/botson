@@ -2640,6 +2640,13 @@ function aiSuggestToggleAll(value) {
     _aiSuggestUpdateCount();
 }
 
+function _aiSuggestIsChecked(s) {
+    var cb = document.querySelector('input[data-suggest-key="' + s.key + '"]');
+    if (!cb) return false;
+    _aiSuggestState.checked[s.key] = cb.checked;
+    return cb.checked;
+}
+
 function _aiSuggestRenderRow(s) {
     var checked = _aiSuggestState.checked[s.key] !== false;
     var emoji = _aiSuggestRowEmoji(s.message_type);
@@ -2741,7 +2748,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
 
 async function aiSuggestApprove() {
     var approved = _aiSuggestState.suggestions.filter(function(s) {
-        return _aiSuggestState.checked[s.key] !== false;
+        return _aiSuggestIsChecked(s);
     });
     if (approved.length === 0) {
         showToast('לא סומנה אף הצעה', 'error');

@@ -68,6 +68,7 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("מה הפלן הערב חברים?", "concrete_failure_plan"),
             ("ספרו על החיים שלכם", "rule_anti_pattern_vague"),
             ("מה היה היום בעבודה?", "rule11_generic_day"),
+            ("יום שני בערב — אחרי כל מה שהיה, מה נשאר איתכם?", "rule11_generic_evening"),
         ]
         for text, expected in cases:
             with self.subTest(text=text):

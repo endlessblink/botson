@@ -825,6 +825,18 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "suggest-commit endpoint url missing in JS",
         )
 
+    def test_approve_reads_live_checkbox_state(self):
+        approve_start = self.html.index("async function aiSuggestApprove()")
+        block = self.html[approve_start:approve_start + 700]
+        self.assertIn(
+            "_aiSuggestIsChecked(s)", block,
+            "Approve must read checkbox DOM state so unchecked rows are not committed",
+        )
+        self.assertNotIn(
+            "_aiSuggestState.checked[s.key] !== false", block,
+            "Approve must not rely only on cached checkbox state",
+        )
+
     def test_regenerate_endpoint_is_what_the_button_hits(self):
         # Sanity check: the regenerate function fetches /api/weekplan/ai-fill-regenerate.
         # If a future refactor swaps the endpoint, that's a real concern — pin it.
