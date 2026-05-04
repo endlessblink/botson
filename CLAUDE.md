@@ -65,6 +65,15 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
 - **Topic routing** (off-topic detection) runs in Phase 0 `observe` mode — classifies messages against `config/topic_rules.yaml` and logs to `topic_observations` table, no user-visible action. Controlled via `topic_routing: {enabled, mode}` in `settings.yaml` and the `/moderation` dashboard page.
 
+## Planner AI Populate Rules
+
+- Populate must always use the suggest+confirm modal flow: `/api/weekplan/ai-suggest` returns candidate rows and writes nothing; `/api/weekplan/ai-suggest-commit` inserts only the approved checked rows as drafts.
+- Populate must suggest a balanced content mix, not a flood of discussion questions. The budgets live in `config/settings.yaml:ai_populate.caps`; adjust those values before changing Python.
+- Day-level Populate is intentionally free: it uses schedule-configured times but does **not** restrict candidates by `schedule.*.days`. A Friday click may suggest morning, evening, discussion, trivia, emoji, facts, and weekly rows if those types are configured, enabled, routable, and free.
+- No hardcoded slot config in code. Times come from `schedule.*`, discussion topics from `topics.discussions`, executable bot content topics from `bot_message_routing`, and trivia poll/warm-up defaults from `trivia.populate_defaults`.
+- A `discussion` suggestion with a category must commit only to `settings.yaml.topics.discussions[category]`; reject mismatches instead of silently inserting into the wrong topic.
+- Keep regression coverage for the production failure class: the suggest engine must return mixed types and must not write to `scheduled_messages` before approval.
+
 ## Deploy
 
 **VPS is a deploy target, not a workspace.** Never edit `/opt/robotnik/*` files directly on the VPS. Every change goes through: commit on local → push → run `scripts/deploy.sh` on VPS.

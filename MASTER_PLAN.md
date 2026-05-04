@@ -117,6 +117,7 @@
 | T-116 | 20 | Events: stop overwriting user content with date/time line | TODO | P1 | — |
 | T-117 | 21 | Bulk-cancel future auto-scheduled rows endpoint + dashboard button (purge AI-generated content created before quality-rules wiring) | DONE | P1 | — |
 | T-118 | 21 | Audit + rewrite 7 flagged questions in config/discussions.yaml (English jargon: ironic/autocorrect/overrated/underrated/red flag/green flag; 1 stacked question in cute) | DONE | P2 | — |
+| T-123 | 23 | Planner AI Populate mixed suggestions | DONE | P0 | T-080 |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
@@ -1115,6 +1116,25 @@ Added `status='skipped'` for legitimate no-op activities so the calendar disting
 Added a per-row async lock around trivia top-up generation so concurrent approval/retry requests for the same scheduled game cannot duplicate generated questions or race on `config/trivia.yaml` writes.
 
 **Files:** `dashboard/app.py`.
+
+---
+
+#### T-123: Planner AI Populate mixed suggestions (✅ DONE 2026-05-04)
+**Phase:** 23 — Planner AI reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-080
+
+Fixed the production AI Populate flow so it opens the suggest+confirm modal first and returns a balanced mixed slate instead of discussion-only drafts. The suggest endpoint still writes nothing to `scheduled_messages`; only `/api/weekplan/ai-suggest-commit` inserts the rows explicitly approved in the modal.
+
+- Week Populate now targets a configurable mixed budget from `config/settings.yaml:ai_populate.caps.week`.
+- Day Populate ignores `schedule.*.days` and can suggest all configured activity types for the clicked date.
+- Supported suggestion types now include morning, evening, discussion, trivia round + warm-up, emoji puzzle, facts tidbit, facts spooky, free games, weekly roundup, and weekly leaderboard when enabled/routed.
+- Slot times come from `config/settings.yaml.schedule.*`; executable bot content topics come from `bot_message_routing`; discussion topic/category matching is validated again at commit time.
+- Trivia populate defaults live in `config/settings.yaml:trivia.populate_defaults`, including warm-up offset and poll payload defaults.
+- Removed the pre-modal browser confirm so every Populate click shows the modal immediately.
+- Added regression coverage that the suggest engine returns mixed types and writes zero rows before approval.
+
+Verification: `python3 -m py_compile dashboard/app.py`, `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`, and `/tmp/e2e_suggest.py` stubbed flow. Deployed to prod as `28ce1b4`; user confirmed the production behavior looked much better.
+
+**Files:** `dashboard/app.py`, `dashboard/templates/planner.html`, `config/settings.yaml`, `tests/test_planner_coercion_and_chips.py`.
 
 ---
 
