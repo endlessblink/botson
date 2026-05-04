@@ -748,7 +748,7 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "weekly per-loop spinner phase missing",
         )
         self.assertIn(
-            "חידות אמוג", block,
+            "⏳ מאגרים", block,
             "pool-growth spinner phase missing",
         )
 

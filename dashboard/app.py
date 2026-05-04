@@ -3662,6 +3662,112 @@ async def ai_fill_trivia(request: Request, db: Database = Depends(get_db)):
     return await _ai_fill_trivia_for_week(db, week_offset)
 
 
+# ── AI fill: pool-backed calendar rows (emoji + facts) ──────
+
+async def _ai_fill_pool_rows_for_week(db: Database, week_offset: int) -> dict:
+    """Schedule pool-backed activities as calendar rows for the week:
+    - Wed 22:00 emoji_puzzle row (botson_corner, draws from emoji_puzzles DB pool at fire time)
+    - Tue 12:00 facts_tidbit row (botson_corner, picks from facts.yaml tidbit pool at fire time)
+    - Thu 12:00 facts_tidbit row
+    - Sat 22:00 facts_spooky row (after the 21:00 trivia round)
+
+    Skips a slot if its backing pool is empty so the bot doesn't fire onto
+    an empty source. Tagged `created_by='ai-fill-pool-row'` so the
+    `LIKE 'ai-fill%'` wipe pattern in `/api/weekplan/ai-fill-regenerate`
+    handles re-runs without duplicates.
+    """
+    today = date.today()
+    days_since_sunday = (today.weekday() + 1) % 7
+    sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
+    saturday = sunday + timedelta(days=6)
+
+    # Wipe prior pool-row entries in this week
+    try:
+        await db._db.execute(
+            "DELETE FROM scheduled_messages "
+            "WHERE created_by LIKE 'ai-fill-pool-row%' "
+            "AND status IN ('scheduled', 'draft') "
+            "AND scheduled_date BETWEEN ? AND ?",
+            (sunday.isoformat(), saturday.isoformat()),
+        )
+        await db._db.commit()
+    except Exception as e:
+        logger.exception("[ai-fill-pool-row] wipe failed")
+        return {"inserted": 0, "errors": [f"wipe failed: {e}"], "by_type": {}}
+
+    # Pool-availability checks: skip a slot when its source is empty so
+    # the runtime handler isn't fed an unfireable row.
+    try:
+        async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles") as cur:
+            emoji_pool_count = (await cur.fetchone())[0] or 0
+    except Exception:
+        emoji_pool_count = 0
+    try:
+        facts_yaml = load_yaml("facts.yaml") or {}
+        tidbit_count = len(facts_yaml.get("tidbit") or [])
+        spooky_count = len(facts_yaml.get("spooky") or [])
+    except Exception:
+        tidbit_count = 0
+        spooky_count = 0
+
+    slots: list[tuple[int, str, str, str]] = []  # (day_idx, time, mtype, placeholder)
+    if emoji_pool_count > 0:
+        slots.append((3, "22:00", "emoji_puzzle", "🧩 חידת אמוג'י של הערב"))
+    if tidbit_count > 0:
+        slots.append((2, "12:00", "facts_tidbit", "🔎 עובדה מעניינת"))
+        slots.append((4, "12:00", "facts_tidbit", "🔎 עובדה מעניינת"))
+    if spooky_count > 0:
+        slots.append((6, "22:00", "facts_spooky", "🕯️ סיפור מסתורי"))
+
+    inserted = 0
+    by_type: dict = {}
+    errors: list[str] = []
+
+    for day_idx, time_str, mtype, placeholder in slots:
+        day_date = sunday + timedelta(days=day_idx)
+        try:
+            await db.create_scheduled_message(
+                text=placeholder,
+                message_type=mtype,
+                channel_topic_id=_BOTSON_CORNER_TOPIC_ID,
+                target_group="main",
+                scheduled_date=day_date.isoformat(),
+                scheduled_time=time_str,
+                created_by="ai-fill-pool-row",
+                status="draft",
+            )
+            inserted += 1
+            by_type[mtype] = by_type.get(mtype, 0) + 1
+        except Exception as e:
+            logger.exception("[ai-fill-pool-row] insert failed mtype=%s", mtype)
+            errors.append(f"{mtype} {day_date.isoformat()}: {e}")
+
+    skipped_empty: list[str] = []
+    if emoji_pool_count == 0:
+        skipped_empty.append("emoji_puzzles pool empty")
+    if tidbit_count == 0:
+        skipped_empty.append("facts.tidbit pool empty")
+    if spooky_count == 0:
+        skipped_empty.append("facts.spooky pool empty")
+
+    return {
+        "inserted": inserted,
+        "by_type": by_type,
+        "errors": errors,
+        "skipped_empty": skipped_empty,
+    }
+
+
+@app.post("/api/weekplan/ai-fill-pool-rows")
+async def ai_fill_pool_rows(request: Request, db: Database = Depends(get_db)):
+    """Schedule emoji_puzzle + facts_tidbit + facts_spooky calendar rows for the week."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    week_offset = int(data.get("week_offset", 0))
+    return await _ai_fill_pool_rows_for_week(db, week_offset)
+
+
 # ── AI fill: today-only, context-aware ─────────────────────
 
 _HEBREW_DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]

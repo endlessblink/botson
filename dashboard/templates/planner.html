@@ -3433,6 +3433,25 @@ async function _populateTrivia(weekOffset) {
     }
 }
 
+async function _populatePoolRows(weekOffset) {
+    try {
+        var resp = await fetch('/api/weekplan/ai-fill-pool-rows', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({week_offset: weekOffset || 0})
+        });
+        if (!resp.ok) return {inserted: 0, by_type: {}, errors: 1};
+        var data = await resp.json();
+        return {
+            inserted: data.inserted || 0,
+            by_type: data.by_type || {},
+            errors: (data.errors && data.errors.length) || 0,
+        };
+    } catch (e) {
+        return {inserted: 0, by_type: {}, errors: 1};
+    }
+}
+
 async function _populateFactsForKind(kind) {
     var inserted = 0;
     var errors = 0;
@@ -3471,7 +3490,7 @@ async function _populateFactsForKind(kind) {
 async function aiRegenerateWeek() {
     var btn = document.getElementById('ai-fill-all-btn');
     if (!btn) return;
-    if (!confirm('זה ייצר מקבץ מאוזן לשבוע: ~6 טיוטות שיחה (בוקר/ערב + 2 שאלות אקראיות), חידת אמוג\'י, עובדות, וסיבוב טריוויה לסוף השבוע. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+    if (!confirm('זה ייצר מקבץ מאוזן לשבוע: ~10 טיוטות (3 בוקר, 3 ערב, 4 שאלות אקראיות), 1 סיבוב טריוויה + warm-up, 1 חידת אמוג\'י, 2-3 שורות עובדות, וגדילת מאגרים. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
 
     var origText = btn.innerHTML;
     btn.innerHTML = '⏳ מייצר...';
@@ -3550,35 +3569,47 @@ async function aiRegenerateWeek() {
             }
         }
 
-        // Phase 2 + 3: emoji puzzles, facts, AND trivia in parallel
-        // (independent endpoints). Saves ~10-15s of wall time vs sequential.
-        btn.innerHTML = '⏳ חידות אמוג\'י + עובדות + טריוויה';
-        var emojiInserted = 0;
-        var factsInserted = 0;
+        // Phase 2: pool growth + calendar rows for all auto-schedulable
+        // activity types in parallel. The first three calls grow content
+        // pools (emoji puzzles + facts) for future use; the last two
+        // schedule actual calendar rows for the week (trivia + pool-backed
+        // emoji/facts slots). Independent endpoints, ~10-15s saved vs
+        // sequential.
+        btn.innerHTML = '⏳ מאגרים + סלוטי לו"ז';
+        var emojiPoolInserted = 0;
+        var factsPoolInserted = 0;
         var triviaInserted = 0;
+        var poolRowsInserted = 0;
+        var poolRowsByType = {};
         try {
             var poolResults = await Promise.all([
                 _populateEmojiPuzzles(),
                 _populateFactsForKind('tidbit'),
                 _populateFactsForKind('spooky'),
                 _populateTrivia(weekOffsets[0]),
+                _populatePoolRows(weekOffsets[0]),
             ]);
-            emojiInserted = poolResults[0].inserted;
-            factsInserted = poolResults[1].inserted + poolResults[2].inserted;
+            emojiPoolInserted = poolResults[0].inserted;
+            factsPoolInserted = poolResults[1].inserted + poolResults[2].inserted;
             triviaInserted = poolResults[3].inserted;
-            totalErrors += poolResults[0].errors + poolResults[1].errors + poolResults[2].errors + poolResults[3].errors;
+            poolRowsInserted = poolResults[4].inserted;
+            poolRowsByType = poolResults[4].by_type || {};
+            totalErrors += poolResults[0].errors + poolResults[1].errors + poolResults[2].errors + poolResults[3].errors + poolResults[4].errors;
         } catch (e) {
             totalErrors += 1;
         }
 
+        var emojiSlots = poolRowsByType.emoji_puzzle || 0;
+        var factSlots = (poolRowsByType.facts_tidbit || 0) + (poolRowsByType.facts_spooky || 0);
         var details = '🌅' + byType.morning + ' · 🌙' + byType.evening + ' · 💬' + byType.discussion;
+        var totalCalendarRows = totalCreated + triviaInserted + poolRowsInserted;
         var msg = 'טיוטות: ' + totalCreated + ' (' + details + ')';
-        msg += ' | חידות: ' + emojiInserted + ' | עובדות: ' + factsInserted + ' | טריוויה: ' + triviaInserted;
+        msg += ' | בלו"ז: 🧠' + triviaInserted + '·🧩' + emojiSlots + '·🔎🕯' + factSlots;
+        msg += ' | מאגר: +' + emojiPoolInserted + ' חידות, +' + factsPoolInserted + ' עובדות';
         if (totalSkipped > 0) msg += ' | דילוג: ' + totalSkipped;
-        if (factsInserted > 0) msg += ' · אמת מקורות';
         if (totalErrors > 0) msg += ' (' + totalErrors + ' שגיאות)';
         showToast(msg, totalErrors > 0 ? 'error' : 'success');
-        console.log('[populate] summary:', {created: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, emoji: emojiInserted, facts: factsInserted, trivia: triviaInserted, errors: totalErrors});
+        console.log('[populate] summary:', {drafts: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, calendarRows: totalCalendarRows, trivia: triviaInserted, poolRows: poolRowsByType, emojiPool: emojiPoolInserted, factsPool: factsPoolInserted, errors: totalErrors});
         calendar.refetchEvents();
     } finally {
         clearTimeout(weekHardTimeoutHandle);
