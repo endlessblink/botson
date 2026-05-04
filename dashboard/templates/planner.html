@@ -2619,7 +2619,8 @@ function _aiSuggestRowEmoji(mtype) {
     return ({
         morning: '🌅', evening: '🌙', discussion: '💬',
         trivia_round: '🧠', emoji_puzzle: '🧩',
-        facts_tidbit: '🔎', facts_spooky: '🕯️',
+        free_games: '🎮', facts_tidbit: '🔎', facts_spooky: '🕯️',
+        weekly_roundup: '📊', weekly_leaderboard: '🏆',
     })[mtype] || '•';
 }
 
@@ -2783,7 +2784,6 @@ async function aiFillToday(targetDate) {
 async function aiRegenerateWeek() {
     // Same suggest+confirm flow as aiFillToday, scoped to the whole
     // current week (no target_date).
-    if (!confirm('זה יציג הצעות AI לשבוע הנוכחי לאישור. דקה — לא ייכתב כלום ל-DB עד שתאשר. להמשיך?')) return;
     await _aiSuggestFetch(null, 'week');
 }
 

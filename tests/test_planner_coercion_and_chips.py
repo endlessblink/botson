@@ -142,6 +142,34 @@ class FakeCalendarDb:
 
 
 class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
+    async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
+        db = Database(":memory:")
+        await db.init()
+        before = await self._scheduled_count(db)
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+
+        after = await self._scheduled_count(db)
+        await db.close()
+
+        self.assertEqual(before, after, "suggest must not write scheduled rows")
+        types = {s["message_type"] for s in result["suggestions"]}
+        self.assertIn("discussion", types)
+        self.assertIn("trivia_round", types)
+        self.assertIn("emoji_puzzle", types)
+        self.assertIn("facts_tidbit", types)
+        self.assertIn("facts_spooky", types)
+        self.assertIn("weekly_leaderboard", types)
+        self.assertLessEqual(len(result["suggestions"]), 12)
+
+    async def _scheduled_count(self, db):
+        async with db._db.execute("SELECT COUNT(*) FROM scheduled_messages") as cur:
+            return (await cur.fetchone())[0]
+
     async def test_executable_types_without_topic_resolve_to_handler_routing(self):
         for message_type in (
             "trivia_round",
@@ -689,6 +717,10 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn(
             "_aiSuggestFetch(", block,
             "aiRegenerateWeek must trigger the suggest+confirm modal",
+        )
+        self.assertNotIn(
+            "confirm(", block,
+            "Populate must always open the suggestion modal without a pre-modal browser confirm",
         )
 
     def test_pool_growth_buttons_removed_from_toolbar(self):

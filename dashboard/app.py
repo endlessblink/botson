@@ -3912,9 +3912,13 @@ def _gather_schedule_slot_map(settings: dict) -> dict:
         ("morning", "morning_prompt"),
         ("evening", "evening_prompt"),
         ("discussion", "discussion_prompt"),
+        ("trivia_round", "trivia"),
         ("emoji_puzzle", "emoji_puzzle"),
+        ("free_games", "free_games"),
         ("facts_tidbit", "facts_tidbit"),
         ("facts_spooky", "facts_spooky"),
+        ("weekly_roundup", "weekly_roundup"),
+        ("weekly_leaderboard", "weekly_leaderboard"),
     ]
     for mtype, key in pairs:
         cfg = sched.get(key, {}) or {}
@@ -3927,6 +3931,18 @@ def _gather_schedule_slot_map(settings: dict) -> dict:
         if times:
             out[mtype] = {"times": times}
     return out
+
+
+def _ai_populate_caps(settings: dict, scope: str, slot_map: dict) -> dict:
+    cfg = (settings.get("ai_populate") or {}).get("caps") or {}
+    scoped = cfg.get("day" if scope == "day" else "week") or {}
+    caps: dict[str, int] = {}
+    for mtype in slot_map:
+        try:
+            caps[mtype] = max(0, int(scoped.get(mtype, 0)))
+        except (TypeError, ValueError):
+            caps[mtype] = 0
+    return caps
 
 
 async def _resolve_routing_topic(db: Database, handler: str) -> int | None:
@@ -4015,16 +4031,14 @@ async def _ai_suggest_calendar(
     except Exception:
         pass
 
-    # Resolve botson_corner / goals topics from routing table where possible.
-    # Fall back to settings.yaml topics block if a handler row is absent.
-    botson_corner_id = (
-        await _resolve_routing_topic(db, "trivia_round")
-        or await _resolve_routing_topic(db, "emoji_puzzle")
-        or await _resolve_routing_topic(db, "weekly_roundup")
-    )
-    if botson_corner_id is None:
-        return {"suggestions": [], "errors": ["no routing row for trivia_round/emoji_puzzle/weekly_roundup — cannot suggest pool slots"],
-                "stats_block": "", "window": {"start": win_start, "end": win_end, "scope": scope}}
+    routed_topics: dict[str, int] = {}
+    for handler in (
+        "trivia_round", "emoji_puzzle", "free_games", "facts_tidbit",
+        "facts_spooky", "weekly_roundup", "weekly_leaderboard",
+    ):
+        topic = await _resolve_routing_topic(db, handler)
+        if topic is not None:
+            routed_topics[handler] = int(topic)
 
     # Topic name lookup for display in modal
     topic_names: dict = {}
@@ -4068,20 +4082,14 @@ async def _ai_suggest_calendar(
     evening_t = (slot_map.get("evening") or {}).get("times") or []
     discussion_t = (slot_map.get("discussion") or {}).get("times") or []
     emoji_t = (slot_map.get("emoji_puzzle") or {}).get("times") or []
+    free_games_t = (slot_map.get("free_games") or {}).get("times") or []
     tidbit_t = (slot_map.get("facts_tidbit") or {}).get("times") or []
     spooky_t = (slot_map.get("facts_spooky") or {}).get("times") or []
+    trivia_t = (slot_map.get("trivia_round") or {}).get("times") or []
+    roundup_t = (slot_map.get("weekly_roundup") or {}).get("times") or []
+    leaderboard_t = (slot_map.get("weekly_leaderboard") or {}).get("times") or []
 
-    # Per-type weekly/day caps for variety (not hardcoded slot positions —
-    # these are *budget* constraints, like "max 2 facts per week").
-    cap_per_window = {
-        "morning": 3 if scope == "week" else 1,
-        "evening": 3 if scope == "week" else 1,
-        "discussion": 4 if scope == "week" else 2,
-        "emoji_puzzle": 1,
-        "facts_tidbit": 2 if scope == "week" else 1,
-        "facts_spooky": 1,
-        "trivia_round": 1,
-    }
+    cap_per_window = _ai_populate_caps(settings, scope, slot_map)
     counts = {k: 0 for k in cap_per_window}
 
     async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list) -> tuple[str, list]:
@@ -4141,10 +4149,18 @@ async def _ai_suggest_calendar(
     day_indices = list(range(len(window_dates)))
     random.shuffle(day_indices)
 
+    features = settings.get("features", {}) or {}
+
+    def _feature_on(feature_key: str | None) -> bool:
+        if not feature_key:
+            return True
+        return _is_feature_enabled_simple(features, feature_key)
+
     def _add_suggestion(d_iso: str, t: str, mtype: str, *, topic: int, text: str,
                         source: str, rationale: str, category: str | None = None,
                         poll_options_json: str | None = None,
-                        validation_failures: list | None = None) -> None:
+                        validation_failures: list | None = None,
+                        count_as: str | None = "__self__") -> None:
         suggestions.append({
             "key": _uuid.uuid4().hex,
             "date": d_iso,
@@ -4159,7 +4175,10 @@ async def _ai_suggest_calendar(
             "poll_options_json": poll_options_json,
             "validation_failures": validation_failures or [],
         })
-        counts[mtype] = counts.get(mtype, 0) + 1
+        if count_as == "__self__":
+            count_as = mtype
+        if count_as:
+            counts[count_as] = counts.get(count_as, 0) + 1
         occupied.add((d_iso, t, mtype))
 
     for di in day_indices:
@@ -4169,6 +4188,8 @@ async def _ai_suggest_calendar(
 
         # Morning
         for t in morning_t:
+            if not _feature_on("morning_prompt"):
+                break
             if counts["morning"] >= cap_per_window["morning"]:
                 break
             if not _slot_free(d_iso, t, "morning"):
@@ -4186,6 +4207,8 @@ async def _ai_suggest_calendar(
 
         # Evening
         for t in evening_t:
+            if not _feature_on("evening_prompt"):
+                break
             if counts["evening"] >= cap_per_window["evening"]:
                 break
             if not _slot_free(d_iso, t, "evening"):
@@ -4202,7 +4225,7 @@ async def _ai_suggest_calendar(
             break
 
         # Discussion (1-2 cats per slot, capped at cap_per_window["discussion"])
-        if active_categories:
+        if active_categories and _feature_on("discussions"):
             cats_for_slot = random.sample(
                 active_categories, min(2, len(active_categories))
             )
@@ -4230,87 +4253,128 @@ async def _ai_suggest_calendar(
                                     rationale=f"שאלה ל{cat}",
                                     validation_failures=[])
 
-        # Emoji puzzle (any free 22:00-ish slot, max 1 per window)
-        if counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]:
+        # Emoji puzzle row. Runtime chooses the actual puzzle from the DB pool.
+        if (counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]
+                and _feature_on("emoji_puzzle")
+                and routed_topics.get("emoji_puzzle") is not None):
             try:
                 async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles") as cur:
                     pool_n = (await cur.fetchone())[0] or 0
             except Exception:
                 pool_n = 0
-            if pool_n > 0:
-                for t in emoji_t:
-                    if not _slot_free(d_iso, t, "emoji_puzzle"):
-                        continue
-                    _add_suggestion(d_iso, t, "emoji_puzzle", topic=botson_corner_id,
-                                    text="🧩 חידת אמוג'י (תיבחר מהמאגר בזמן השליחה)",
-                                    source="ai-fill-pool-row",
-                                    rationale=f"מאגר חידות פעיל ({pool_n} פריטים)")
-                    break
+            for t in emoji_t:
+                if not _slot_free(d_iso, t, "emoji_puzzle"):
+                    continue
+                rationale = f"מאגר חידות פעיל ({pool_n} פריטים)" if pool_n > 0 else "סלוט חידת אמוג'י פנוי"
+                _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
+                                text="🧩 חידת אמוג'י (תיבחר מהמאגר בזמן השליחה)",
+                                source="ai-fill-pool-row",
+                                rationale=rationale)
+                break
 
         # Facts tidbit (max cap)
-        if counts["facts_tidbit"] < cap_per_window["facts_tidbit"]:
+        if (counts["facts_tidbit"] < cap_per_window["facts_tidbit"]
+                and routed_topics.get("facts_tidbit") is not None):
             try:
                 fy = load_yaml("facts.yaml") or {}
                 tn = len(fy.get("tidbit") or [])
             except Exception:
                 tn = 0
-            if tn > 0:
-                for t in tidbit_t:
-                    if not _slot_free(d_iso, t, "facts_tidbit"):
-                        continue
-                    _add_suggestion(d_iso, t, "facts_tidbit", topic=botson_corner_id,
-                                    text="🔎 עובדה מעניינת (תיבחר מהמאגר בזמן השליחה)",
-                                    source="ai-fill-pool-row",
-                                    rationale=f"מאגר עובדות פעיל ({tn} פריטים)")
-                    break
+            for t in tidbit_t:
+                if not _slot_free(d_iso, t, "facts_tidbit"):
+                    continue
+                rationale = f"מאגר עובדות פעיל ({tn} פריטים)" if tn > 0 else "סלוט עובדה פנוי"
+                _add_suggestion(d_iso, t, "facts_tidbit", topic=routed_topics["facts_tidbit"],
+                                text="🔎 עובדה מעניינת (תיבחר מהמאגר בזמן השליחה)",
+                                source="ai-fill-pool-row",
+                                rationale=rationale)
+                break
 
         # Facts spooky (max 1)
-        if counts["facts_spooky"] < cap_per_window["facts_spooky"]:
+        if (counts["facts_spooky"] < cap_per_window["facts_spooky"]
+                and routed_topics.get("facts_spooky") is not None):
             try:
                 fy = load_yaml("facts.yaml") or {}
                 sn = len(fy.get("spooky") or [])
             except Exception:
                 sn = 0
-            if sn > 0:
-                for t in spooky_t:
-                    if not _slot_free(d_iso, t, "facts_spooky"):
-                        continue
-                    _add_suggestion(d_iso, t, "facts_spooky", topic=botson_corner_id,
-                                    text="🕯️ סיפור מסתורי (ייבחר מהמאגר בזמן השליחה)",
-                                    source="ai-fill-pool-row",
-                                    rationale=f"מאגר ספוקי פעיל ({sn} פריטים)")
-                    break
+            for t in spooky_t:
+                if not _slot_free(d_iso, t, "facts_spooky"):
+                    continue
+                rationale = f"מאגר ספוקי פעיל ({sn} פריטים)" if sn > 0 else "סלוט סיפור מסתורי פנוי"
+                _add_suggestion(d_iso, t, "facts_spooky", topic=routed_topics["facts_spooky"],
+                                text="🕯️ סיפור מסתורי (ייבחר מהמאגר בזמן השליחה)",
+                                source="ai-fill-pool-row",
+                                rationale=rationale)
+                break
 
-        # Trivia round + warm-up (max 1 round per window). Suggestion uses
-        # the evening time and inserts a discussion warm-up 35 min earlier.
-        if counts["trivia_round"] < cap_per_window["trivia_round"] and evening_t:
-            for t in evening_t:
+        # Free games / live weekly bot-generated rows.
+        if (counts.get("free_games", 0) < cap_per_window.get("free_games", 0)
+                and _feature_on("free_games")
+                and routed_topics.get("free_games") is not None):
+            for t in free_games_t:
+                if not _slot_free(d_iso, t, "free_games"):
+                    continue
+                _add_suggestion(d_iso, t, "free_games", topic=routed_topics["free_games"],
+                                text="🎮 בדיקת משחקים חינם (הבוט יבדוק וישלח אם נמצא משחק רלוונטי)",
+                                source="ai-fill-pool-row",
+                                rationale="סלוט משחקים חינם פנוי")
+                break
+
+        if (counts.get("weekly_roundup", 0) < cap_per_window.get("weekly_roundup", 0)
+                and _feature_on("roundup")
+                and routed_topics.get("weekly_roundup") is not None):
+            for t in roundup_t:
+                if not _slot_free(d_iso, t, "weekly_roundup"):
+                    continue
+                _add_suggestion(d_iso, t, "weekly_roundup", topic=routed_topics["weekly_roundup"],
+                                text="📊 סיכום שבועי (יופק מנתוני הפעילות בזמן השליחה)",
+                                source="ai-fill-pool-row",
+                                rationale="סלוט סיכום שבועי פנוי")
+                break
+
+        if (counts.get("weekly_leaderboard", 0) < cap_per_window.get("weekly_leaderboard", 0)
+                and _feature_on("levels")
+                and routed_topics.get("weekly_leaderboard") is not None):
+            for t in leaderboard_t:
+                if not _slot_free(d_iso, t, "weekly_leaderboard"):
+                    continue
+                _add_suggestion(d_iso, t, "weekly_leaderboard", topic=routed_topics["weekly_leaderboard"],
+                                text="🏆 טבלת רמות שבועית (תופק מנתוני הרמות בזמן השליחה)",
+                                source="ai-fill-pool-row",
+                                rationale="סלוט טבלת רמות פנוי")
+                break
+
+        # Trivia round + warm-up. Defaults and warm-up offset come from settings.
+        if (counts.get("trivia_round", 0) < cap_per_window.get("trivia_round", 0)
+                and _feature_on("trivia")
+                and routed_topics.get("trivia_round") is not None):
+            for t in trivia_t:
                 if not _slot_free(d_iso, t, "trivia_round"):
                     continue
-                # Compute warm-up time = round time - 35 min
+                trivia_cfg = (settings.get("trivia") or {}).get("populate_defaults") or {}
                 try:
                     hh, mm = [int(x) for x in t.split(":")]
-                    total = hh * 60 + mm - 35
+                    warmup_offset = int(trivia_cfg["warmup_offset_min"])
+                    total = hh * 60 + mm - warmup_offset
                     if total < 0:
                         total += 24 * 60
                     warm_t = f"{total // 60:02d}:{total % 60:02d}"
-                except Exception:
-                    warm_t = t
-                # Trivia poll defaults — read from settings.trivia.populate_defaults
-                # if present, otherwise sensible fallbacks. (Phase 2 of the
-                # de-hardcoding plan adds a settings entry for these.)
-                trivia_cfg = (settings.get("trivia") or {}).get("populate_defaults") or {}
+                except Exception as e:
+                    errors.append(f"trivia populate_defaults invalid: {e}")
+                    break
                 poll_payload = {
-                    "pre_roll_s": int(trivia_cfg.get("pre_roll_s", 30)),
-                    "theme_label": str(trivia_cfg.get("theme_label", "כללי")),
-                    "categories": list(trivia_cfg.get("categories", [])),
-                    "question_count": int(trivia_cfg.get("question_count", 5)),
+                    "pre_roll_s": int(trivia_cfg["pre_roll_s"]),
+                    "theme_label": str(trivia_cfg["theme_label"]),
+                    "categories": list(trivia_cfg.get("categories") or []),
+                    "question_count": int(trivia_cfg["question_count"]),
                 }
-                _add_suggestion(d_iso, warm_t, "discussion", topic=botson_corner_id,
-                                text=f"מתחממים לטריוויה 🧠 — בעוד 35 דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.",
+                _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
+                                text=f"מתחממים לטריוויה 🧠 — בעוד {warmup_offset} דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.",
                                 source="ai-fill-trivia",
-                                rationale="חימום לסיבוב טריוויה")
-                _add_suggestion(d_iso, t, "trivia_round", topic=botson_corner_id,
+                                rationale="חימום לסיבוב טריוויה",
+                                count_as=None)
+                _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
                                 text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
                                 source="ai-fill-trivia",
                                 rationale="סיבוב טריוויה שבועי",
@@ -4365,7 +4429,8 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
 
     valid_types = {
         "morning", "evening", "discussion", "trivia_round",
-        "emoji_puzzle", "facts_tidbit", "facts_spooky",
+        "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky",
+        "weekly_roundup", "weekly_leaderboard",
     }
     inserted_ids: list = []
     errors: list = []
@@ -4396,6 +4461,17 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         source = str(item.get("source") or "ai-fill")
         if not source.startswith("ai-fill"):
             source = "ai-fill"  # anchor inside the wipe pattern
+
+        category = str(item.get("category") or "").strip()
+        if mtype == "discussion" and category:
+            expected_topics = (get_settings().get("topics", {}).get("discussions", {}) or {})
+            expected_topic = expected_topics.get(category)
+            if expected_topic is None:
+                errors.append(f"#{i}: unknown discussion category {category}")
+                continue
+            if int(expected_topic) != topic:
+                errors.append(f"#{i}: discussion topic mismatch for {category}")
+                continue
 
         poll_options_json = item.get("poll_options_json") or None
         if poll_options_json is not None and not isinstance(poll_options_json, str):
