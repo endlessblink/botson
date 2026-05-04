@@ -2622,6 +2622,10 @@ async function aiFillToday(targetDate) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({week_offset: 0, target_date: dateForCall}),
         };
+        // Day-level fan-out: drafts (regenerate), trivia, and pool-rows
+        // run in parallel scoped to target_date. Trivia + pool-rows
+        // helpers internally skip days that don't match a slot, so a
+        // click on Friday produces 0 of those — that's expected.
         var resp = await fetch('/api/weekplan/ai-fill-regenerate', fetchOpts);
         var data = await resp.json().catch(function() { return {}; });
         if (!resp.ok) {
@@ -2631,26 +2635,51 @@ async function aiFillToday(targetDate) {
             if (errors.length > 0) errMsg += ': ' + errors[0];
             throw new Error(errMsg);
         }
+
+        // Trivia + pool-rows scoped to target_date in parallel. Both
+        // helpers no-op for days that don't match a slot.
+        var triviaP = fetch('/api/weekplan/ai-fill-trivia', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({week_offset:0, target_date: dateForCall}),
+        }).then(function(r){ return r.json(); }).catch(function(){ return {inserted:0,errors:[]}; });
+        var poolRowsP = fetch('/api/weekplan/ai-fill-pool-rows', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({week_offset:0, target_date: dateForCall}),
+        }).then(function(r){ return r.json(); }).catch(function(){ return {inserted:0,errors:[],by_type:{}}; });
+        var dayPool = await Promise.all([triviaP, poolRowsP]);
+        var triviaResp = dayPool[0];
+        var poolRowsResp = dayPool[1];
+
         var created = data.created || 0;
         var skipped = data.skipped || 0;
         var errs = data.errors || [];
         var byType = data.by_type || {};
-        if (created === 0 && errs.length > 0) {
+        var triviaCreated = triviaResp.inserted || 0;
+        var poolRowsCreated = poolRowsResp.inserted || 0;
+        var poolRowsByType = poolRowsResp.by_type || {};
+        var totalDay = created + triviaCreated + poolRowsCreated;
+
+        if (totalDay === 0 && errs.length > 0) {
             var failMsg = 'נכשל: ' + errs[0];
             if (errs.length > 1) failMsg += ' (ועוד ' + (errs.length - 1) + ' שגיאות)';
             showToast(failMsg, 'error');
-        } else if (created === 0) {
-            showToast('לא נוצרו טיוטות ליום ' + dateForCall + ' (אין סלוטים בלו"ז)');
+        } else if (totalDay === 0) {
+            showToast('אין סלוטים פעילים ליום ' + dateForCall);
         } else {
             var details = '🌅' + ((byType.morning && byType.morning.created) || 0)
-                + ' · 🌙' + ((byType.evening && byType.evening.created) || 0)
-                + ' · 💬' + ((byType.discussion && byType.discussion.created) || 0);
-            var msg = created + ' טיוטות נוצרו ל-' + dateForCall + ' (' + details + ')';
+                + '·🌙' + ((byType.evening && byType.evening.created) || 0)
+                + '·💬' + ((byType.discussion && byType.discussion.created) || 0);
+            var extras = [];
+            if (triviaCreated > 0) extras.push('🧠' + triviaCreated);
+            if ((poolRowsByType.emoji_puzzle || 0) > 0) extras.push('🧩' + poolRowsByType.emoji_puzzle);
+            var factsTotal = (poolRowsByType.facts_tidbit || 0) + (poolRowsByType.facts_spooky || 0);
+            if (factsTotal > 0) extras.push('🔎🕯' + factsTotal);
+            var msg = totalDay + ' שורות ל-' + dateForCall + ' (' + details + (extras.length ? ' · ' + extras.join('·') : '') + ')';
             if (errs.length > 0) msg += ' (' + errs.length + ' שגיאות)';
             showToast(msg, errs.length > 0 ? 'error' : 'success');
         }
         if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
-        console.log('[ai-fill-today] response:', data);
+        console.log('[ai-fill-today] response:', {drafts: data, trivia: triviaResp, poolRows: poolRowsResp});
         calendar.refetchEvents();
         if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
     } catch (e) {

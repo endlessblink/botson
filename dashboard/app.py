@@ -2603,10 +2603,11 @@ def _finalize_prompt(
     scheduled_date: str | None,
     scheduled_time: str | None,
     add_dedup: bool = True,
+    group_stats: str | None = None,
 ) -> str:
     """Wrap the per-field base prompt with the canonical layers:
-    context (weekday+time), few-shot from pool, dedup block, and the
-    question_quality.md rules at the very top.
+    context (weekday+time), few-shot from pool, dedup block, optional
+    group-stats block, and the question_quality.md rules at the very top.
 
     Used by both single-mode and multi-mode generation paths so quality
     enforcement isn't silently bypassed in the single-row drawer (the
@@ -2618,6 +2619,8 @@ def _finalize_prompt(
     out += _sample_pool_examples(field, category, n=3)
     if add_dedup and field != "trivia":
         out += _format_dedup_block(recent_sent)
+    if group_stats:
+        out += "\n\n" + group_stats
     rules = _load_quality_rules()
     if rules:
         out = (
@@ -2629,6 +2632,45 @@ def _finalize_prompt(
     return out
 
 
+async def _render_group_stats_context(db: Database, since_days: int = 7) -> str:
+    """Hebrew block summarising live group state for prompt context.
+
+    Returns an empty string on any failure so a stats-DB hiccup never
+    blocks generation. Cheap: 3 single-table queries, ~5ms total.
+
+    The model treats this as informational context — it must NOT quote
+    user names verbatim into a prompt, only reference the group's mood
+    ("רואים שיש פעילות חזקה השבוע", "אם רוצים לעודד שקטים, פנו אליהם").
+    """
+    try:
+        since = datetime.now() - timedelta(days=since_days)
+        new_members = await db.get_member_count_since(since)
+        leaders = await db.get_weekly_leaders(limit=3)
+        streaks = await db.get_top_streaks(limit=3)
+    except Exception:
+        return ""
+
+    lines = ["מצב הקבוצה (אינפורמטיבי בלבד — לא לצטט שמות בתשובה):"]
+    lines.append(f"- בשבוע האחרון הצטרפו {int(new_members or 0)} חברים חדשים.")
+
+    if leaders:
+        leader_count = len(leaders)
+        top_score = int((leaders[0] or {}).get("weekly_stars") or 0)
+        lines.append(
+            f"- {leader_count} חברים מובילים בקארמה השבוע (השיא: {top_score} נקודות)."
+        )
+
+    if streaks:
+        top_streak = int((streaks[0] or {}).get("current_streak") or 0)
+        if top_streak >= 3:
+            lines.append(f"- שיא רצף יומי פעיל בקבוצה: {top_streak} ימים רצוף.")
+
+    lines.append(
+        "השתמש במידע הזה רק כדי לכוון את האווירה (לדוגמה — אם הקבוצה פעילה השבוע, אפשר לרמוז לזה; אם שקטה, אפשר לפתוח שאלה מזמינה ללא לחץ). אל תכתוב מספרים מתוך הבלוק הזה ישירות לתוך השאלה."
+    )
+    return "\n".join(lines)
+
+
 def build_generation_prompt(
     field: str,
     mode: str,
@@ -2638,6 +2680,7 @@ def build_generation_prompt(
     recent_sent: list[str] | None = None,
     scheduled_date: str | None = None,
     scheduled_time: str | None = None,
+    group_stats: str | None = None,
 ) -> str:
     # Single-item rewrite mode — used by the weekplan modal
     if mode == "rewrite":
@@ -2653,6 +2696,7 @@ def build_generation_prompt(
             recent_sent=recent_sent,
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
+            group_stats=group_stats,
         )
 
     # Single-item fresh generate — weekplan modal, one prompt only
@@ -2694,6 +2738,7 @@ def build_generation_prompt(
             recent_sent=recent_sent,
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
+            group_stats=group_stats,
         )
 
     count = "5-8" if mode == "append" else "15-20"
@@ -3296,6 +3341,11 @@ async def _ai_fill_weekplan_inner(
     # recent send. For discussion we additionally scope per-channel below.
     recent_sent_for_type = await _fetch_recent_sent_for_dedup(db, mtype, limit=60)
 
+    # Compute group-state context once per fill so every job in this run
+    # sees the same snapshot. Empty string on any DB error — content
+    # generation should still work without it.
+    group_stats_block = await _render_group_stats_context(db)
+
     created = 0
     skipped = 0
     errors: list[str] = []
@@ -3348,6 +3398,7 @@ async def _ai_fill_weekplan_inner(
                 recent_sent=recent_sent_for_type,
                 scheduled_date=day_date.isoformat(),
                 scheduled_time=t,
+                group_stats=group_stats_block,
             )
             topic = goals_topic
         elif mtype == "evening":
@@ -3356,6 +3407,7 @@ async def _ai_fill_weekplan_inner(
                 recent_sent=recent_sent_for_type,
                 scheduled_date=day_date.isoformat(),
                 scheduled_time=t,
+                group_stats=group_stats_block,
             )
             topic = goals_topic
         else:  # discussion
@@ -3369,6 +3421,7 @@ async def _ai_fill_weekplan_inner(
                 recent_sent=recent_for_channel,
                 scheduled_date=day_date.isoformat(),
                 scheduled_time=t,
+                group_stats=group_stats_block,
             )
 
         async def _gen_once(p: str) -> str:
@@ -3575,30 +3628,48 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
 _BOTSON_CORNER_TOPIC_ID = 4037
 
 
-async def _ai_fill_trivia_for_week(db: Database, week_offset: int) -> dict:
+async def _ai_fill_trivia_for_week(
+    db: Database, week_offset: int, target_date: str | None = None
+) -> dict:
     """Schedule one mixed-pool trivia round for the requested week.
 
     Inserts two rows tagged `created_by='ai-fill-trivia'`:
       - Saturday 20:25 — `discussion` warm-up in botson_corner
       - Saturday 21:00 — `trivia_round` in botson_corner with mixed pool
 
+    When `target_date` is provided ('YYYY-MM-DD'), the helper only
+    inserts/wipes if that date IS the Saturday of the week. Used by
+    Day-level Populate so a click on Saturday produces the trivia rows
+    and a click on any other day is a no-op for trivia.
+
     Idempotent within a click: first wipes existing `ai-fill-trivia%` rows
-    in the target week, then inserts fresh. The broader `LIKE 'ai-fill%'`
+    in the relevant window, then inserts fresh. The broader `LIKE 'ai-fill%'`
     wipe in `/api/weekplan/ai-fill-regenerate` also catches these.
     """
     today = date.today()
     days_since_sunday = (today.weekday() + 1) % 7
     sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
     saturday = sunday + timedelta(days=6)
+    sat_iso = saturday.isoformat()
 
-    # Wipe any prior ai-fill-trivia rows in this week's window before inserting
+    # Day-level scoping: trivia only lands on Saturday. Other days = no-op.
+    if target_date:
+        if target_date != sat_iso:
+            return {"inserted": 0, "errors": [], "scheduled_date": None,
+                    "skipped_reason": f"target_date {target_date} is not Saturday"}
+        wipe_start = wipe_end = sat_iso
+    else:
+        wipe_start = sunday.isoformat()
+        wipe_end = sat_iso
+
+    # Wipe any prior ai-fill-trivia rows in the relevant window
     try:
         await db._db.execute(
             "DELETE FROM scheduled_messages "
             "WHERE created_by LIKE 'ai-fill-trivia%' "
             "AND status IN ('scheduled', 'draft') "
             "AND scheduled_date BETWEEN ? AND ?",
-            (sunday.isoformat(), saturday.isoformat()),
+            (wipe_start, wipe_end),
         )
         await db._db.commit()
     except Exception as e:
@@ -3607,7 +3678,6 @@ async def _ai_fill_trivia_for_week(db: Database, week_offset: int) -> dict:
 
     inserted = 0
     errors: list[str] = []
-    sat_iso = saturday.isoformat()
 
     try:
         warmup_text = "מתחממים לטריוויה 🧠 — בעוד 35 דקות מתחילים סיבוב כללי בפינה של בוטסון."
@@ -3654,22 +3724,39 @@ async def _ai_fill_trivia_for_week(db: Database, week_offset: int) -> dict:
 
 @app.post("/api/weekplan/ai-fill-trivia")
 async def ai_fill_trivia(request: Request, db: Database = Depends(get_db)):
-    """Schedule one weekly trivia round + warm-up. See `_ai_fill_trivia_for_week`."""
+    """Schedule one weekly trivia round + warm-up. See `_ai_fill_trivia_for_week`.
+
+    Body: {week_offset?, target_date?: 'YYYY-MM-DD'}
+    target_date scopes Day-level Populate: rows are only inserted if that
+    date is the Saturday of the week.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     data = await request.json()
     week_offset = int(data.get("week_offset", 0))
-    return await _ai_fill_trivia_for_week(db, week_offset)
+    target_date_raw = (data.get("target_date") or "").strip()
+    target_date: str | None = target_date_raw or None
+    if target_date:
+        try:
+            date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
+    return await _ai_fill_trivia_for_week(db, week_offset, target_date=target_date)
 
 
 # ── AI fill: pool-backed calendar rows (emoji + facts) ──────
 
-async def _ai_fill_pool_rows_for_week(db: Database, week_offset: int) -> dict:
+async def _ai_fill_pool_rows_for_week(
+    db: Database, week_offset: int, target_date: str | None = None
+) -> dict:
     """Schedule pool-backed activities as calendar rows for the week:
     - Wed 22:00 emoji_puzzle row (botson_corner, draws from emoji_puzzles DB pool at fire time)
     - Tue 12:00 facts_tidbit row (botson_corner, picks from facts.yaml tidbit pool at fire time)
     - Thu 12:00 facts_tidbit row
     - Sat 22:00 facts_spooky row (after the 21:00 trivia round)
+
+    When `target_date` is provided ('YYYY-MM-DD'), only the slots whose
+    day matches that date are considered. Used by Day-level Populate.
 
     Skips a slot if its backing pool is empty so the bot doesn't fire onto
     an empty source. Tagged `created_by='ai-fill-pool-row'` so the
@@ -3681,14 +3768,30 @@ async def _ai_fill_pool_rows_for_week(db: Database, week_offset: int) -> dict:
     sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
     saturday = sunday + timedelta(days=6)
 
-    # Wipe prior pool-row entries in this week
+    target_day_index: int | None = None
+    if target_date:
+        try:
+            td = date.fromisoformat(target_date)
+            delta = (td - sunday).days
+            if 0 <= delta <= 6:
+                target_day_index = delta
+            else:
+                return {"inserted": 0, "errors": [], "by_type": {},
+                        "skipped_reason": f"target_date {target_date} outside week"}
+        except ValueError:
+            return {"inserted": 0, "errors": [f"invalid target_date: {target_date}"], "by_type": {}}
+
+    wipe_start = target_date if target_date else sunday.isoformat()
+    wipe_end = target_date if target_date else saturday.isoformat()
+
+    # Wipe prior pool-row entries in this window
     try:
         await db._db.execute(
             "DELETE FROM scheduled_messages "
             "WHERE created_by LIKE 'ai-fill-pool-row%' "
             "AND status IN ('scheduled', 'draft') "
             "AND scheduled_date BETWEEN ? AND ?",
-            (sunday.isoformat(), saturday.isoformat()),
+            (wipe_start, wipe_end),
         )
         await db._db.commit()
     except Exception as e:
@@ -3718,6 +3821,10 @@ async def _ai_fill_pool_rows_for_week(db: Database, week_offset: int) -> dict:
         slots.append((4, "12:00", "facts_tidbit", "🔎 עובדה מעניינת"))
     if spooky_count > 0:
         slots.append((6, "22:00", "facts_spooky", "🕯️ סיפור מסתורי"))
+
+    # Day-level scoping: only slots whose day matches target_date.
+    if target_day_index is not None:
+        slots = [s for s in slots if s[0] == target_day_index]
 
     inserted = 0
     by_type: dict = {}
@@ -3760,12 +3867,23 @@ async def _ai_fill_pool_rows_for_week(db: Database, week_offset: int) -> dict:
 
 @app.post("/api/weekplan/ai-fill-pool-rows")
 async def ai_fill_pool_rows(request: Request, db: Database = Depends(get_db)):
-    """Schedule emoji_puzzle + facts_tidbit + facts_spooky calendar rows for the week."""
+    """Schedule emoji_puzzle + facts_tidbit + facts_spooky calendar rows for the week.
+
+    Body: {week_offset?, target_date?: 'YYYY-MM-DD'}
+    target_date scopes Day-level Populate to slots that fall on that date.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     data = await request.json()
     week_offset = int(data.get("week_offset", 0))
-    return await _ai_fill_pool_rows_for_week(db, week_offset)
+    target_date_raw = (data.get("target_date") or "").strip()
+    target_date: str | None = target_date_raw or None
+    if target_date:
+        try:
+            date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
+    return await _ai_fill_pool_rows_for_week(db, week_offset, target_date=target_date)
 
 
 # ── AI fill: today-only, context-aware ─────────────────────
