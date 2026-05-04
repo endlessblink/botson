@@ -677,24 +677,18 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "stale call to deleted aiFillAllVisible(...)",
         )
 
-    def test_regenerate_function_targets_the_consolidated_button_id(self):
-        # aiRegenerateWeek must look up the renamed button id, not the
-        # deleted ai-regenerate-btn — otherwise the spinner/disable logic
-        # silently no-ops at runtime.
+    def test_regenerate_function_opens_suggest_modal(self):
+        # Populate flow is suggest+confirm modal — aiRegenerateWeek must
+        # call _aiSuggestFetch instead of writing to the DB directly.
         self.assertIn(
             "async function aiRegenerateWeek()", self.html,
             "aiRegenerateWeek function must still exist",
         )
         regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        # Look at the next ~600 chars; the getElementById call should be in there.
         block = self.html[regenerate_block_start:regenerate_block_start + 600]
         self.assertIn(
-            "getElementById('ai-fill-all-btn')", block,
-            "aiRegenerateWeek must look up the consolidated button id",
-        )
-        self.assertNotIn(
-            "getElementById('ai-regenerate-btn')", block,
-            "aiRegenerateWeek still references the deleted button id",
+            "_aiSuggestFetch(", block,
+            "aiRegenerateWeek must trigger the suggest+confirm modal",
         )
 
     def test_pool_growth_buttons_removed_from_toolbar(self):
@@ -727,29 +721,38 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
                 f"Populate flow must POST to {endpoint}",
             )
 
-    def test_populate_toast_includes_all_three_phase_keywords(self):
-        # The aggregate toast must surface all three phase counts so a future
-        # template edit can't quietly drop one.
-        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        block = self.html[regenerate_block_start:regenerate_block_start + 6000]
-        for keyword in ("טיוטות", "חידות", "עובדות"):
-            self.assertIn(
-                keyword, block,
-                f"toast must mention '{keyword}' so the count is visible",
-            )
-
-    def test_populate_phased_spinner_labels_present(self):
-        # The phased spinner cycles through שבוע → חידות → עובדות. If a future
-        # edit drops the phase labels the user sees a static spinner for 60s.
-        regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        block = self.html[regenerate_block_start:regenerate_block_start + 6000]
+    def test_suggest_modal_markup_present(self):
+        # Modal must exist with the suggest list container, approve button,
+        # and clear/check toggles. If any of these go missing, the user
+        # can't review or approve suggestions.
         self.assertIn(
-            "⏳ שבוע", block,
-            "weekly per-loop spinner phase missing",
+            'id="ai-suggest-modal"', self.html,
+            "ai-suggest-modal container missing",
         )
         self.assertIn(
-            "⏳ מאגרים", block,
-            "pool-growth spinner phase missing",
+            'id="ai-suggest-list"', self.html,
+            "ai-suggest-list container missing — suggestions render here",
+        )
+        self.assertIn(
+            'id="ai-suggest-approve-btn"', self.html,
+            "approve button missing — user can't commit suggestions",
+        )
+        for label in ("אשר וצור טיוטות", "סמן הכל", "נקה הכל", "ביטול"):
+            self.assertIn(
+                label, self.html,
+                f"modal control label '{label}' missing",
+            )
+
+    def test_suggest_endpoints_referenced_from_js(self):
+        # The new suggest+commit endpoints must be called from the modal's
+        # fetch logic. Pins URL string to catch typos / refactor drift.
+        self.assertIn(
+            "'/api/weekplan/ai-suggest'", self.html,
+            "suggest endpoint url missing in JS",
+        )
+        self.assertIn(
+            "'/api/weekplan/ai-suggest-commit'", self.html,
+            "suggest-commit endpoint url missing in JS",
         )
 
     def test_regenerate_endpoint_is_what_the_button_hits(self):

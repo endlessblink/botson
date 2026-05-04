@@ -3886,6 +3886,545 @@ async def ai_fill_pool_rows(request: Request, db: Database = Depends(get_db)):
     return await _ai_fill_pool_rows_for_week(db, week_offset, target_date=target_date)
 
 
+# ── AI Suggest: preview-then-confirm flow ───────────────────
+#
+# /api/weekplan/ai-suggest        — generates Hebrew text + slot list,
+#                                   returns JSON, NO DB writes.
+# /api/weekplan/ai-suggest-commit — takes the user-approved subset and
+#                                   inserts each as a draft row.
+#
+# All slot times/topics are derived from `config/settings.yaml.schedule.*`
+# and the `bot_message_routing` table — no day/time/topic literals here.
+
+
+def _gather_schedule_slot_map(settings: dict) -> dict:
+    """Return a dict mapping `message_type` -> {'times':[...]} pulled from
+    settings.yaml.schedule. Each entry's `time` and `times` are merged into
+    a single `times` list. `days` is intentionally NOT consumed — the
+    suggestion engine picks days dynamically rather than restricting to
+    the user's cron schedule.
+    """
+    sched = settings.get("schedule", {}) or {}
+    out: dict = {}
+    # canonical handler→schedule_key mapping mirrors how settings.yaml is
+    # laid out today.
+    pairs = [
+        ("morning", "morning_prompt"),
+        ("evening", "evening_prompt"),
+        ("discussion", "discussion_prompt"),
+        ("emoji_puzzle", "emoji_puzzle"),
+        ("facts_tidbit", "facts_tidbit"),
+        ("facts_spooky", "facts_spooky"),
+    ]
+    for mtype, key in pairs:
+        cfg = sched.get(key, {}) or {}
+        times: list = []
+        if cfg.get("time"):
+            times.append(cfg["time"])
+        for t in cfg.get("times", []) or []:
+            if t and t not in times:
+                times.append(t)
+        if times:
+            out[mtype] = {"times": times}
+    return out
+
+
+async def _resolve_routing_topic(db: Database, handler: str) -> int | None:
+    """Look up `bot_message_routing.play_topic_id` for a handler. Returns
+    None if no row — the caller decides what to do with that.
+    """
+    try:
+        row = await db.get_handler_routing(handler)
+        if row and row.get("play_topic_id") is not None:
+            return int(row["play_topic_id"])
+    except Exception:
+        return None
+    return None
+
+
+async def _ai_suggest_calendar(
+    db: Database, target_date: str | None = None, week_offset: int = 0,
+) -> dict:
+    """Build a list of suggested calendar rows for a window without
+    writing to the DB. The shape is intentionally close to a draft row so
+    the commit step is a near-1:1 insert.
+
+    Returns:
+        {
+          "window": {"start": "...", "end": "...", "scope": "day"|"week"},
+          "suggestions": [
+            {
+              "key": "<uuid>",
+              "date": "YYYY-MM-DD",
+              "time": "HH:MM",
+              "message_type": str,
+              "topic_id": int,
+              "topic_name": str,
+              "category": str | None,
+              "text": str,                      # for content types; placeholder for pool types
+              "rationale": str,                 # short Hebrew "why this slot"
+              "source": "ai-fill" | "ai-fill-pool" | "ai-fill-pool-row" | "ai-fill-trivia",
+              "poll_options_json": str | None,  # for trivia_round
+              "validation_failures": [str],     # empty if quality-clean
+            }, ...
+          ],
+          "stats_block": str,
+          "errors": [str],
+        }
+    """
+    import uuid as _uuid
+
+    today_d = date.today()
+    days_since_sunday = (today_d.weekday() + 1) % 7
+    sunday = today_d - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
+    saturday = sunday + timedelta(days=6)
+
+    if target_date:
+        try:
+            td = date.fromisoformat(target_date)
+        except ValueError:
+            return {"suggestions": [], "errors": [f"invalid target_date: {target_date}"],
+                    "stats_block": "", "window": {}}
+        window_dates = [td]
+        scope = "day"
+        win_start = win_end = td.isoformat()
+    else:
+        window_dates = [sunday + timedelta(days=i) for i in range(7)]
+        scope = "week"
+        win_start = sunday.isoformat()
+        win_end = saturday.isoformat()
+
+    settings = get_settings()
+    slot_map = _gather_schedule_slot_map(settings)
+    topic_ids = settings.get("topics", {}).get("discussions", {}) or {}
+    goals_topic = settings.get("topics", {}).get("goals")
+
+    # Existing rows in window — to avoid suggesting an occupied slot
+    occupied: set = set()
+    try:
+        async with db._db.execute(
+            "SELECT scheduled_date, scheduled_time, message_type "
+            "FROM scheduled_messages "
+            "WHERE status IN ('scheduled', 'draft') "
+            "AND scheduled_date BETWEEN ? AND ?",
+            (win_start, win_end),
+        ) as cur:
+            rows = await cur.fetchall()
+        for r in rows:
+            occupied.add((r[0], (r[1] or "")[:5], r[2]))
+    except Exception:
+        pass
+
+    # Resolve botson_corner / goals topics from routing table where possible.
+    # Fall back to settings.yaml topics block if a handler row is absent.
+    botson_corner_id = (
+        await _resolve_routing_topic(db, "trivia_round")
+        or await _resolve_routing_topic(db, "emoji_puzzle")
+        or await _resolve_routing_topic(db, "weekly_roundup")
+    )
+    if botson_corner_id is None:
+        return {"suggestions": [], "errors": ["no routing row for trivia_round/emoji_puzzle/weekly_roundup — cannot suggest pool slots"],
+                "stats_block": "", "window": {"start": win_start, "end": win_end, "scope": scope}}
+
+    # Topic name lookup for display in modal
+    topic_names: dict = {}
+    try:
+        verified = await db.get_verified_forum_topics()
+        for v in verified:
+            try:
+                topic_names[int(v["topic_id"])] = (
+                    v.get("verified_name") or v.get("observed_name") or ""
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Group stats once (shared across LLM calls in this run)
+    stats_block = await _render_group_stats_context(db)
+
+    # Discussion category pool
+    try:
+        discussions_pool = load_yaml("discussions.yaml") or {}
+    except Exception:
+        discussions_pool = {}
+    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+
+    suggestions: list = []
+    errors: list = []
+
+    def _slot_free(d_iso: str, t: str, mtype: str) -> bool:
+        return (d_iso, t, mtype) not in occupied
+
+    # ── Build candidate slot list ─────────────────────────────────
+    # Strategy: for each day in window, lay out at most one of each
+    # activity type at its natural time. Take a balanced subset across
+    # the week. Day-scope = single day, all activity types if free.
+    #
+    # Time selection per type comes from slot_map (settings.yaml). When a
+    # type has no time configured, it doesn't enter the candidate list.
+
+    morning_t = (slot_map.get("morning") or {}).get("times") or []
+    evening_t = (slot_map.get("evening") or {}).get("times") or []
+    discussion_t = (slot_map.get("discussion") or {}).get("times") or []
+    emoji_t = (slot_map.get("emoji_puzzle") or {}).get("times") or []
+    tidbit_t = (slot_map.get("facts_tidbit") or {}).get("times") or []
+    spooky_t = (slot_map.get("facts_spooky") or {}).get("times") or []
+
+    # Per-type weekly/day caps for variety (not hardcoded slot positions —
+    # these are *budget* constraints, like "max 2 facts per week").
+    cap_per_window = {
+        "morning": 3 if scope == "week" else 1,
+        "evening": 3 if scope == "week" else 1,
+        "discussion": 4 if scope == "week" else 2,
+        "emoji_puzzle": 1,
+        "facts_tidbit": 2 if scope == "week" else 1,
+        "facts_spooky": 1,
+        "trivia_round": 1,
+    }
+    counts = {k: 0 for k in cap_per_window}
+
+    async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list) -> tuple[str, list]:
+        """Run LLM with retry-once + validate. Returns (text, validation_failures).
+        On total failure returns ("", [reason])."""
+        prompt = build_generation_prompt(
+            field, "single", "", cat,
+            recent_sent=recent,
+            scheduled_date=d_iso,
+            scheduled_time=t,
+            group_stats=stats_block,
+        )
+        try:
+            raw = await _generate_via_cli(prompt)
+        except Exception:
+            try:
+                raw = await _generate_via_api(prompt)
+            except Exception as e:
+                return "", [f"generation failed: {e}"]
+        text = raw.strip().replace('"', '').replace("'", "")
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        text = lines[0] if lines else text
+        fails = _validate_draft_text(text)
+        if fails:
+            try:
+                retry = await _generate_via_cli(
+                    prompt + "\n\n(הניסיון הקודם נדחה: " + ", ".join(fails) +
+                    ". נסח שאלה ספציפית אחרת בעברית טבעית.)"
+                )
+                rtext = retry.strip().replace('"', '').replace("'", "")
+                rlines = [ln.strip() for ln in rtext.split("\n") if ln.strip()]
+                rtext = rlines[0] if rlines else rtext
+                rfails = _validate_draft_text(rtext)
+                if not rfails:
+                    return rtext, []
+                # discussion can fall back to curated pool
+                if field == "discussion" and cat:
+                    pool_items = discussions_pool.get(cat) or []
+                    if pool_items:
+                        chosen = random.choice(pool_items)
+                        chosen_clean = chosen.strip().replace('"', '').replace("'", "")
+                        return chosen_clean, []  # tagged via source="ai-fill-pool" upstream
+            except Exception:
+                pass
+            return text, fails
+        return text, []
+
+    # Recent dedup blocks per type
+    recent_by_type: dict = {
+        "morning": await _fetch_recent_sent_for_dedup(db, "morning", limit=60),
+        "evening": await _fetch_recent_sent_for_dedup(db, "evening", limit=60),
+    }
+
+    # ── Walk window, propose slots ────────────────────────────────
+    # Random-but-spread day pick: shuffle once so suggestions aren't all
+    # on day 0 first. Cap per type enforces variety.
+    day_indices = list(range(len(window_dates)))
+    random.shuffle(day_indices)
+
+    def _add_suggestion(d_iso: str, t: str, mtype: str, *, topic: int, text: str,
+                        source: str, rationale: str, category: str | None = None,
+                        poll_options_json: str | None = None,
+                        validation_failures: list | None = None) -> None:
+        suggestions.append({
+            "key": _uuid.uuid4().hex,
+            "date": d_iso,
+            "time": t,
+            "message_type": mtype,
+            "topic_id": int(topic),
+            "topic_name": topic_names.get(int(topic), ""),
+            "category": category,
+            "text": text,
+            "rationale": rationale,
+            "source": source,
+            "poll_options_json": poll_options_json,
+            "validation_failures": validation_failures or [],
+        })
+        counts[mtype] = counts.get(mtype, 0) + 1
+        occupied.add((d_iso, t, mtype))
+
+    for di in day_indices:
+        d = window_dates[di]
+        d_iso = d.isoformat()
+        weekday_idx = (d.weekday() + 1) % 7  # Sunday=0
+
+        # Morning
+        for t in morning_t:
+            if counts["morning"] >= cap_per_window["morning"]:
+                break
+            if not _slot_free(d_iso, t, "morning"):
+                continue
+            text, fails = await _gen_text("morning", "", d_iso, t, recent_by_type["morning"])
+            if not text:
+                errors.extend(fails)
+                continue
+            if goals_topic:
+                _add_suggestion(d_iso, t, "morning", topic=int(goals_topic),
+                                text=text, source="ai-fill",
+                                rationale="פתיחת יום — סלוט בוקר פנוי",
+                                validation_failures=fails)
+            break  # one morning per day
+
+        # Evening
+        for t in evening_t:
+            if counts["evening"] >= cap_per_window["evening"]:
+                break
+            if not _slot_free(d_iso, t, "evening"):
+                continue
+            text, fails = await _gen_text("evening", "", d_iso, t, recent_by_type["evening"])
+            if not text:
+                errors.extend(fails)
+                continue
+            if goals_topic:
+                _add_suggestion(d_iso, t, "evening", topic=int(goals_topic),
+                                text=text, source="ai-fill",
+                                rationale="סגירת יום — סלוט ערב פנוי",
+                                validation_failures=fails)
+            break
+
+        # Discussion (1-2 cats per slot, capped at cap_per_window["discussion"])
+        if active_categories:
+            cats_for_slot = random.sample(
+                active_categories, min(2, len(active_categories))
+            )
+            for t in discussion_t:
+                if counts["discussion"] >= cap_per_window["discussion"]:
+                    break
+                for cat in cats_for_slot:
+                    if counts["discussion"] >= cap_per_window["discussion"]:
+                        break
+                    if not _slot_free(d_iso, t, "discussion"):
+                        continue
+                    expected_topic = topic_ids.get(cat)
+                    if not expected_topic:
+                        continue
+                    recent_chan = await _fetch_recent_sent_for_dedup(
+                        db, "discussion", category_topic_id=int(expected_topic), limit=60,
+                    )
+                    text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan)
+                    if not text:
+                        errors.extend(fails)
+                        continue
+                    src = "ai-fill-pool" if (fails and not _validate_draft_text(text)) else "ai-fill"
+                    _add_suggestion(d_iso, t, "discussion", topic=int(expected_topic),
+                                    text=text, source=src, category=cat,
+                                    rationale=f"שאלה ל{cat}",
+                                    validation_failures=[])
+
+        # Emoji puzzle (any free 22:00-ish slot, max 1 per window)
+        if counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]:
+            try:
+                async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles") as cur:
+                    pool_n = (await cur.fetchone())[0] or 0
+            except Exception:
+                pool_n = 0
+            if pool_n > 0:
+                for t in emoji_t:
+                    if not _slot_free(d_iso, t, "emoji_puzzle"):
+                        continue
+                    _add_suggestion(d_iso, t, "emoji_puzzle", topic=botson_corner_id,
+                                    text="🧩 חידת אמוג'י (תיבחר מהמאגר בזמן השליחה)",
+                                    source="ai-fill-pool-row",
+                                    rationale=f"מאגר חידות פעיל ({pool_n} פריטים)")
+                    break
+
+        # Facts tidbit (max cap)
+        if counts["facts_tidbit"] < cap_per_window["facts_tidbit"]:
+            try:
+                fy = load_yaml("facts.yaml") or {}
+                tn = len(fy.get("tidbit") or [])
+            except Exception:
+                tn = 0
+            if tn > 0:
+                for t in tidbit_t:
+                    if not _slot_free(d_iso, t, "facts_tidbit"):
+                        continue
+                    _add_suggestion(d_iso, t, "facts_tidbit", topic=botson_corner_id,
+                                    text="🔎 עובדה מעניינת (תיבחר מהמאגר בזמן השליחה)",
+                                    source="ai-fill-pool-row",
+                                    rationale=f"מאגר עובדות פעיל ({tn} פריטים)")
+                    break
+
+        # Facts spooky (max 1)
+        if counts["facts_spooky"] < cap_per_window["facts_spooky"]:
+            try:
+                fy = load_yaml("facts.yaml") or {}
+                sn = len(fy.get("spooky") or [])
+            except Exception:
+                sn = 0
+            if sn > 0:
+                for t in spooky_t:
+                    if not _slot_free(d_iso, t, "facts_spooky"):
+                        continue
+                    _add_suggestion(d_iso, t, "facts_spooky", topic=botson_corner_id,
+                                    text="🕯️ סיפור מסתורי (ייבחר מהמאגר בזמן השליחה)",
+                                    source="ai-fill-pool-row",
+                                    rationale=f"מאגר ספוקי פעיל ({sn} פריטים)")
+                    break
+
+        # Trivia round + warm-up (max 1 round per window). Suggestion uses
+        # the evening time and inserts a discussion warm-up 35 min earlier.
+        if counts["trivia_round"] < cap_per_window["trivia_round"] and evening_t:
+            for t in evening_t:
+                if not _slot_free(d_iso, t, "trivia_round"):
+                    continue
+                # Compute warm-up time = round time - 35 min
+                try:
+                    hh, mm = [int(x) for x in t.split(":")]
+                    total = hh * 60 + mm - 35
+                    if total < 0:
+                        total += 24 * 60
+                    warm_t = f"{total // 60:02d}:{total % 60:02d}"
+                except Exception:
+                    warm_t = t
+                # Trivia poll defaults — read from settings.trivia.populate_defaults
+                # if present, otherwise sensible fallbacks. (Phase 2 of the
+                # de-hardcoding plan adds a settings entry for these.)
+                trivia_cfg = (settings.get("trivia") or {}).get("populate_defaults") or {}
+                poll_payload = {
+                    "pre_roll_s": int(trivia_cfg.get("pre_roll_s", 30)),
+                    "theme_label": str(trivia_cfg.get("theme_label", "כללי")),
+                    "categories": list(trivia_cfg.get("categories", [])),
+                    "question_count": int(trivia_cfg.get("question_count", 5)),
+                }
+                _add_suggestion(d_iso, warm_t, "discussion", topic=botson_corner_id,
+                                text=f"מתחממים לטריוויה 🧠 — בעוד 35 דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.",
+                                source="ai-fill-trivia",
+                                rationale="חימום לסיבוב טריוויה")
+                _add_suggestion(d_iso, t, "trivia_round", topic=botson_corner_id,
+                                text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
+                                source="ai-fill-trivia",
+                                rationale="סיבוב טריוויה שבועי",
+                                poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
+                break
+
+    return {
+        "window": {"start": win_start, "end": win_end, "scope": scope},
+        "suggestions": suggestions,
+        "stats_block": stats_block,
+        "errors": errors,
+    }
+
+
+@app.post("/api/weekplan/ai-suggest")
+async def ai_suggest(request: Request, db: Database = Depends(get_db)):
+    """Build calendar-fill suggestions for review. Does NOT touch the DB.
+
+    Body: {target_date?: 'YYYY-MM-DD', week_offset?: int}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    week_offset = int(data.get("week_offset", 0))
+    target_date_raw = (data.get("target_date") or "").strip()
+    target_date: str | None = target_date_raw or None
+    if target_date:
+        try:
+            date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
+    return await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
+
+
+@app.post("/api/weekplan/ai-suggest-commit")
+async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
+    """Insert the user-approved subset of suggestions as draft rows.
+
+    Body: {approved: [{date, time, message_type, topic_id, text,
+                       category?, source, poll_options_json?}, ...]}
+    Each item is validated (topic must be a known integer; type must be
+    in the supported set; date must parse) before insert. Inserts use the
+    item's `source` as `created_by` so they remain inside the
+    `LIKE 'ai-fill%'` wipe pattern.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    approved = data.get("approved") or []
+    if not isinstance(approved, list):
+        raise HTTPException(status_code=400, detail="approved must be a list")
+
+    valid_types = {
+        "morning", "evening", "discussion", "trivia_round",
+        "emoji_puzzle", "facts_tidbit", "facts_spooky",
+    }
+    inserted_ids: list = []
+    errors: list = []
+    by_type: dict = {}
+
+    for i, item in enumerate(approved):
+        if not isinstance(item, dict):
+            errors.append(f"#{i}: not a dict")
+            continue
+        try:
+            d = str(item["date"])
+            t = str(item["time"])
+            mtype = str(item["message_type"])
+            topic = int(item["topic_id"])
+            text = str(item.get("text") or "")
+        except (KeyError, ValueError, TypeError) as e:
+            errors.append(f"#{i}: bad shape ({e})")
+            continue
+        if mtype not in valid_types:
+            errors.append(f"#{i}: unknown type {mtype}")
+            continue
+        try:
+            date.fromisoformat(d)
+        except ValueError:
+            errors.append(f"#{i}: bad date {d}")
+            continue
+
+        source = str(item.get("source") or "ai-fill")
+        if not source.startswith("ai-fill"):
+            source = "ai-fill"  # anchor inside the wipe pattern
+
+        poll_options_json = item.get("poll_options_json") or None
+        if poll_options_json is not None and not isinstance(poll_options_json, str):
+            try:
+                poll_options_json = json.dumps(poll_options_json, ensure_ascii=False)
+            except Exception:
+                poll_options_json = None
+
+        try:
+            new_id = await db.create_scheduled_message(
+                text=text,
+                message_type=mtype,
+                channel_topic_id=topic,
+                target_group="main",
+                scheduled_date=d,
+                scheduled_time=t,
+                created_by=source,
+                status="draft",
+                poll_options=poll_options_json,
+            )
+            inserted_ids.append(new_id)
+            by_type[mtype] = by_type.get(mtype, 0) + 1
+        except Exception as e:
+            errors.append(f"#{i}: insert failed: {e}")
+
+    return {"inserted": len(inserted_ids), "ids": inserted_ids,
+            "by_type": by_type, "errors": errors}
+
+
 # ── AI fill: today-only, context-aware ─────────────────────
 
 _HEBREW_DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]

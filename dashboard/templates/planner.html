@@ -952,6 +952,39 @@
     </div>
 </div>
 
+<!-- AI Suggest modal: previews the AI's proposed calendar fill. NOTHING
+     is written to the DB until the user clicks Approve. Per-row checkbox
+     lets the user reject individual suggestions before commit. -->
+<div id="ai-suggest-modal" class="hidden fixed inset-y-0 left-0 right-0 lg:right-56 z-[110] flex items-center justify-center p-4" dir="rtl">
+    <div class="absolute inset-0 bg-black/70" onclick="closeAiSuggestModal()"></div>
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1100px] max-h-[90vh] flex flex-col overflow-hidden min-h-0">
+        <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between flex-shrink-0">
+            <div>
+                <h3 class="text-base font-medium text-[#fafafa]">הצעות תזמון AI</h3>
+                <p id="ai-suggest-subtitle" class="text-xs text-[#71717a] mt-0.5">דקה — מייצר הצעות...</p>
+            </div>
+            <button onclick="closeAiSuggestModal()" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer text-xl leading-none">&times;</button>
+        </div>
+        <div id="ai-suggest-stats" class="hidden px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] text-xs text-[#a1a1aa] flex-shrink-0 whitespace-pre-wrap"></div>
+        <div id="ai-suggest-list" class="flex-1 min-h-[260px] overflow-y-auto px-5 py-4 space-y-2 bg-[#0a0a0a]">
+            <div class="text-center text-[#71717a] py-8">טוען הצעות...</div>
+        </div>
+        <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center gap-3">
+                <button onclick="aiSuggestToggleAll(true)" class="text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-md cursor-pointer transition-colors">סמן הכל</button>
+                <button onclick="aiSuggestToggleAll(false)" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 py-1.5 rounded-md cursor-pointer transition-colors">נקה הכל</button>
+                <span id="ai-suggest-count" class="text-xs text-[#71717a]"></span>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="closeAiSuggestModal()" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 py-1.5 rounded-md cursor-pointer transition-colors">ביטול</button>
+                <button id="ai-suggest-approve-btn" onclick="aiSuggestApprove()" class="text-xs text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 hover:border-emerald-500/70 bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-1.5 rounded-md cursor-pointer transition-colors">
+                    אשר וצור טיוטות
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -2551,6 +2584,209 @@ function cancelAiFillToday() {
     }
 }
 
+// ─── AI Suggest modal state + helpers ───────────────────────
+// The modal previews suggestions; nothing hits the DB until Approve.
+var _aiSuggestState = {
+    suggestions: [],
+    checked: {},
+    controller: null,
+    timeoutHandle: null,
+    timedOut: false,
+    triggerLabel: '',
+};
+
+function openAiSuggestModal() {
+    var modal = document.getElementById('ai-suggest-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeAiSuggestModal() {
+    var modal = document.getElementById('ai-suggest-modal');
+    if (modal) modal.classList.add('hidden');
+    if (_aiSuggestState.controller) {
+        _aiSuggestState.controller.abort();
+        _aiSuggestState.controller = null;
+    }
+    if (_aiSuggestState.timeoutHandle) {
+        clearTimeout(_aiSuggestState.timeoutHandle);
+        _aiSuggestState.timeoutHandle = null;
+    }
+    _aiSuggestState.suggestions = [];
+    _aiSuggestState.checked = {};
+}
+
+function _aiSuggestRowEmoji(mtype) {
+    return ({
+        morning: '🌅', evening: '🌙', discussion: '💬',
+        trivia_round: '🧠', emoji_puzzle: '🧩',
+        facts_tidbit: '🔎', facts_spooky: '🕯️',
+    })[mtype] || '•';
+}
+
+function _aiSuggestUpdateCount() {
+    var checked = Object.values(_aiSuggestState.checked).filter(Boolean).length;
+    var total = _aiSuggestState.suggestions.length;
+    var el = document.getElementById('ai-suggest-count');
+    if (el) el.textContent = total > 0 ? '(' + checked + ' / ' + total + ' מסומנות)' : '';
+}
+
+function aiSuggestToggleAll(value) {
+    _aiSuggestState.suggestions.forEach(function(s) {
+        _aiSuggestState.checked[s.key] = !!value;
+        var cb = document.querySelector('input[data-suggest-key="' + s.key + '"]');
+        if (cb) cb.checked = !!value;
+    });
+    _aiSuggestUpdateCount();
+}
+
+function _aiSuggestRenderRow(s) {
+    var checked = _aiSuggestState.checked[s.key] !== false;
+    var emoji = _aiSuggestRowEmoji(s.message_type);
+    var topicLabel = s.topic_name || ('topic ' + s.topic_id);
+    var catLabel = s.category ? ' · ' + s.category : '';
+    var rationale = s.rationale ? ' · ' + s.rationale : '';
+    var failTag = (s.validation_failures && s.validation_failures.length)
+        ? '<span class="text-[10px] text-amber-400 ml-1">⚠️ ' + s.validation_failures[0] + '</span>'
+        : '';
+    var card = document.createElement('div');
+    card.className = 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3';
+    var safeText = (s.text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    card.innerHTML = (
+        '<input type="checkbox" data-suggest-key="' + s.key + '" ' +
+        (checked ? 'checked' : '') +
+        ' class="mt-1 cursor-pointer accent-emerald-500" />' +
+        '<div class="flex-1 min-w-0">' +
+            '<div class="flex items-center gap-2 text-xs text-[#a1a1aa] mb-1.5 flex-wrap">' +
+                '<span class="text-[#fafafa] font-medium">' + emoji + ' ' + s.date + ' · ' + s.time + '</span>' +
+                '<span class="text-[#71717a]">→</span>' +
+                '<span class="text-sky-300">' + topicLabel + '</span>' +
+                '<span class="text-[10px] text-[#52525b]">' + s.message_type + catLabel + rationale + '</span>' +
+                failTag +
+            '</div>' +
+            '<div class="text-sm text-[#e4e4e7] whitespace-pre-wrap">' + safeText + '</div>' +
+        '</div>'
+    );
+    var cb = card.querySelector('input[type=checkbox]');
+    cb.addEventListener('change', function() {
+        _aiSuggestState.checked[s.key] = cb.checked;
+        _aiSuggestUpdateCount();
+    });
+    return card;
+}
+
+async function _aiSuggestFetch(targetDate, triggerLabel) {
+    _aiSuggestState.triggerLabel = triggerLabel || '';
+    _aiSuggestState.timedOut = false;
+    _aiSuggestState.controller = new AbortController();
+    _aiSuggestState.timeoutHandle = setTimeout(function() {
+        _aiSuggestState.timedOut = true;
+        if (_aiSuggestState.controller) _aiSuggestState.controller.abort('client_timeout');
+    }, AI_FILL_CLIENT_TIMEOUT_MS);
+
+    var subtitle = document.getElementById('ai-suggest-subtitle');
+    var listEl = document.getElementById('ai-suggest-list');
+    var statsEl = document.getElementById('ai-suggest-stats');
+    if (subtitle) subtitle.textContent = (targetDate ? ('יום ' + targetDate) : 'שבוע נוכחי') + ' — מייצר הצעות (יכול לקחת 1-3 דקות)...';
+    if (listEl) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">⏳ טוען הצעות מה-AI...</div>';
+    openAiSuggestModal();
+
+    var body = {week_offset: 0};
+    if (targetDate) body.target_date = targetDate;
+
+    try {
+        var resp = await fetch('/api/weekplan/ai-suggest', {
+            method: 'POST',
+            signal: _aiSuggestState.controller.signal,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+            var err = await resp.json().catch(function(){return {};});
+            throw new Error(err.detail || ('HTTP ' + resp.status));
+        }
+        var data = await resp.json();
+        _aiSuggestState.suggestions = data.suggestions || [];
+        _aiSuggestState.checked = {};
+        _aiSuggestState.suggestions.forEach(function(s) { _aiSuggestState.checked[s.key] = true; });
+
+        if (listEl) {
+            listEl.innerHTML = '';
+            if (_aiSuggestState.suggestions.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">אין הצעות לחלון הזה (כל הסלוטים תפוסים או שאין סוגי פעילות פנויים)</div>';
+            } else {
+                _aiSuggestState.suggestions.forEach(function(s) {
+                    listEl.appendChild(_aiSuggestRenderRow(s));
+                });
+            }
+        }
+        if (statsEl && data.stats_block) {
+            statsEl.textContent = data.stats_block;
+            statsEl.classList.remove('hidden');
+        }
+        var w = data.window || {};
+        if (subtitle) subtitle.textContent = (w.scope === 'day' ? 'יום ' + w.start : 'שבוע ' + w.start + ' — ' + w.end) + ' · ' + _aiSuggestState.suggestions.length + ' הצעות. סמן את אלה שתרצה לאשר.';
+        _aiSuggestUpdateCount();
+    } catch (e) {
+        if (subtitle) subtitle.textContent = 'שגיאה: ' + (e && e.message || e);
+        if (listEl) listEl.innerHTML = '<div class="text-center text-rose-400 py-8">❌ ' + (e && e.message || e) + '</div>';
+    } finally {
+        if (_aiSuggestState.timeoutHandle) {
+            clearTimeout(_aiSuggestState.timeoutHandle);
+            _aiSuggestState.timeoutHandle = null;
+        }
+        _aiSuggestState.controller = null;
+    }
+}
+
+async function aiSuggestApprove() {
+    var approved = _aiSuggestState.suggestions.filter(function(s) {
+        return _aiSuggestState.checked[s.key] !== false;
+    });
+    if (approved.length === 0) {
+        showToast('לא סומנה אף הצעה', 'error');
+        return;
+    }
+    var btn = document.getElementById('ai-suggest-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ יוצר טיוטות...'; }
+    try {
+        var resp = await fetch('/api/weekplan/ai-suggest-commit', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({approved: approved}),
+        });
+        var data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+        var n = data.inserted || 0;
+        var errs = (data.errors && data.errors.length) || 0;
+        showToast(n + ' טיוטות נוצרו' + (errs > 0 ? ' (' + errs + ' שגיאות)' : ''),
+                  errs > 0 ? 'error' : 'success');
+        if (errs > 0) console.error('[ai-suggest-commit] errors:', data.errors);
+        closeAiSuggestModal();
+        if (typeof calendar !== 'undefined' && calendar) calendar.refetchEvents();
+        if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
+    } catch (e) {
+        showToast('שגיאה: ' + (e && e.message || e), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'אשר וצור טיוטות'; }
+    }
+}
+
+async function aiFillToday(targetDate) {
+    // Suggest+confirm flow: open modal with AI suggestions; nothing
+    // hits the DB until the user clicks Approve. The legacy direct-
+    // insert behaviour at /api/weekplan/ai-fill-regenerate is still
+    // exposed but no longer called from the UI.
+    var dateForCall = targetDate || todayIsoLocal();
+    await _aiSuggestFetch(dateForCall, 'day');
+}
+
+async function aiRegenerateWeek() {
+    // Same suggest+confirm flow as aiFillToday, scoped to the whole
+    // current week (no target_date).
+    if (!confirm('זה יציג הצעות AI לשבוע הנוכחי לאישור. דקה — לא ייכתב כלום ל-DB עד שתאשר. להמשיך?')) return;
+    await _aiSuggestFetch(null, 'week');
+}
+
 function aiFillSpecificDay() {
     // Default to today's date in the prompt
     var defaultIso = todayIsoLocal();
@@ -2564,149 +2800,11 @@ function aiFillSpecificDay() {
     aiFillToday(iso);
 }
 
-async function aiFillToday(targetDate) {
-    var btn = document.getElementById('ai-fill-today-btn');
-    var cancelBtn = document.getElementById('ai-fill-today-cancel-btn');
-    if (!btn) return;
-    var promptMsg = targetDate
-        ? ('לייצר טיוטות AI לתאריך ' + targetDate + '? (לא ישלח עד אישור ידני)')
-        : 'לייצר טיוטות AI להיום? (לא ישלח עד אישור ידני)';
-    if (!confirm(promptMsg)) return;
-
-    var origText = btn.innerHTML;
-    btn.disabled = true;
-    if (cancelBtn) cancelBtn.classList.remove('hidden');
-
-    // Show indeterminate progress bar at top of page
-    var bar = document.createElement('div');
-    bar.className = 'ai-progress-bar';
-    bar.id = 'ai-fill-progress-bar';
-    document.body.appendChild(bar);
-
-    // Tick elapsed-time counter on the button so it's visibly alive
-    var startedAt = Date.now();
-    function fmtElapsed() {
-        var s = Math.floor((Date.now() - startedAt) / 1000);
-        var m = Math.floor(s / 60);
-        return (m > 0 ? m + ':' + String(s % 60).padStart(2, '0') : s + 's');
-    }
-    function tick() {
-        btn.innerHTML = '⏳ מנתח את היום... (' + fmtElapsed() + ')';
-    }
-    tick();
-    var tickHandle = setInterval(tick, 1000);
-
-    _aiFillTodayController = new AbortController();
-    // Hard client-side cap shared with the Week-level Populate. Inner
-    // loop now parallelises jobs (semaphore=BOTSON_AI_FILL_CONCURRENCY,
-    // default 4), so a Day click of ~16 jobs at 30–60s/job runs in
-    // ~120–240s. AI_FILL_CLIENT_TIMEOUT_MS leaves headroom; the flag
-    // lets the catch branch distinguish hard cap from manual cancel
-    // without a fragile elapsed-time heuristic.
-    var hardTimeoutFired = false;
-    var hardTimeoutHandle = setTimeout(function() {
-        hardTimeoutFired = true;
-        if (_aiFillTodayController) _aiFillTodayController.abort('client_timeout');
-    }, AI_FILL_CLIENT_TIMEOUT_MS);
-    try {
-        // Day-level "Fill Today / Fill Specific Day" now share the
-        // always-generate semantics with the week-level Populate. The
-        // regenerate endpoint accepts a `target_date` that scopes both the
-        // DELETE and the inner fill to one day. Result: this button
-        // produces drafts regardless of "already covered" coverage logic
-        // — the user sees options instead of an empty modal.
-        var dateForCall = targetDate || new Date().toISOString().slice(0, 10);
-        var fetchOpts = {
-            method: 'POST',
-            signal: _aiFillTodayController.signal,
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({week_offset: 0, target_date: dateForCall}),
-        };
-        // Day-level fan-out: drafts (regenerate), trivia, and pool-rows
-        // run in parallel scoped to target_date. Trivia + pool-rows
-        // helpers internally skip days that don't match a slot, so a
-        // click on Friday produces 0 of those — that's expected.
-        var resp = await fetch('/api/weekplan/ai-fill-regenerate', fetchOpts);
-        var data = await resp.json().catch(function() { return {}; });
-        if (!resp.ok) {
-            var detail = data.detail || data;
-            var errors = (detail && detail.errors) || [];
-            var errMsg = (detail && detail.message) || ('HTTP ' + resp.status);
-            if (errors.length > 0) errMsg += ': ' + errors[0];
-            throw new Error(errMsg);
-        }
-
-        // Trivia + pool-rows scoped to target_date in parallel. Both
-        // helpers no-op for days that don't match a slot.
-        var triviaP = fetch('/api/weekplan/ai-fill-trivia', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({week_offset:0, target_date: dateForCall}),
-        }).then(function(r){ return r.json(); }).catch(function(){ return {inserted:0,errors:[]}; });
-        var poolRowsP = fetch('/api/weekplan/ai-fill-pool-rows', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({week_offset:0, target_date: dateForCall}),
-        }).then(function(r){ return r.json(); }).catch(function(){ return {inserted:0,errors:[],by_type:{}}; });
-        var dayPool = await Promise.all([triviaP, poolRowsP]);
-        var triviaResp = dayPool[0];
-        var poolRowsResp = dayPool[1];
-
-        var created = data.created || 0;
-        var skipped = data.skipped || 0;
-        var errs = data.errors || [];
-        var byType = data.by_type || {};
-        var triviaCreated = triviaResp.inserted || 0;
-        var poolRowsCreated = poolRowsResp.inserted || 0;
-        var poolRowsByType = poolRowsResp.by_type || {};
-        var totalDay = created + triviaCreated + poolRowsCreated;
-
-        if (totalDay === 0 && errs.length > 0) {
-            var failMsg = 'נכשל: ' + errs[0];
-            if (errs.length > 1) failMsg += ' (ועוד ' + (errs.length - 1) + ' שגיאות)';
-            showToast(failMsg, 'error');
-        } else if (totalDay === 0) {
-            showToast('אין סלוטים פעילים ליום ' + dateForCall);
-        } else {
-            var details = '🌅' + ((byType.morning && byType.morning.created) || 0)
-                + '·🌙' + ((byType.evening && byType.evening.created) || 0)
-                + '·💬' + ((byType.discussion && byType.discussion.created) || 0);
-            var extras = [];
-            if (triviaCreated > 0) extras.push('🧠' + triviaCreated);
-            if ((poolRowsByType.emoji_puzzle || 0) > 0) extras.push('🧩' + poolRowsByType.emoji_puzzle);
-            var factsTotal = (poolRowsByType.facts_tidbit || 0) + (poolRowsByType.facts_spooky || 0);
-            if (factsTotal > 0) extras.push('🔎🕯' + factsTotal);
-            var msg = totalDay + ' שורות ל-' + dateForCall + ' (' + details + (extras.length ? ' · ' + extras.join('·') : '') + ')';
-            if (errs.length > 0) msg += ' (' + errs.length + ' שגיאות)';
-            showToast(msg, errs.length > 0 ? 'error' : 'success');
-        }
-        if (errs.length > 0) console.error('[ai-fill-today] errors:', errs);
-        console.log('[ai-fill-today] response:', {drafts: data, trivia: triviaResp, poolRows: poolRowsResp});
-        calendar.refetchEvents();
-        if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
-    } catch (e) {
-        if (e && e.name === 'AbortError') {
-            if (hardTimeoutFired) {
-                var elapsed = Math.floor((Date.now() - startedAt) / 1000);
-                showToast('פסק זמן (10 דקות) — הקריאה נעצרה. בדוק את הלוגים בשרת.', 'error');
-                console.error('[ai-fill-today] client-side timeout after', elapsed, 'seconds');
-            } else {
-                showToast('בוטל');
-            }
-        } else {
-            var message = 'שגיאה: ' + (e && e.message || e);
-            showToast(message, 'error');
-            alert(message);
-        }
-    } finally {
-        clearTimeout(hardTimeoutHandle);
-        clearInterval(tickHandle);
-        var b = document.getElementById('ai-fill-progress-bar');
-        if (b) b.remove();
-        btn.innerHTML = origText;
-        btn.disabled = false;
-        if (cancelBtn) cancelBtn.classList.add('hidden');
-        _aiFillTodayController = null;
-    }
-}
+// Legacy direct-insert aiFillToday/aiRegenerateWeek removed — replaced by
+// the suggest+confirm modal flow defined above. Old endpoints
+// (/api/weekplan/ai-fill-regenerate, /ai-fill-trivia, /ai-fill-pool-rows)
+// remain on the server for backward compat but are no longer called from
+// the UI.
 
 async function refreshTodaySummary() {
     try {
@@ -3516,135 +3614,7 @@ async function _populateFactsForKind(kind) {
     return {inserted: inserted, errors: errors};
 }
 
-async function aiRegenerateWeek() {
-    var btn = document.getElementById('ai-fill-all-btn');
-    if (!btn) return;
-    if (!confirm('זה ייצר מקבץ מאוזן לשבוע: ~10 טיוטות (3 בוקר, 3 ערב, 4 שאלות אקראיות), 1 סיבוב טריוויה + warm-up, 1 חידת אמוג\'י, 2-3 שורות עובדות, וגדילת מאגרים. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
-
-    var origText = btn.innerHTML;
-    btn.innerHTML = '⏳ מייצר...';
-    btn.disabled = true;
-
-    // Hard cap so a hung server doesn't leave the button spinning
-    // forever. Same cap as the Day path; inner endpoint parallelises
-    // ~22 jobs in ~3–6 min wall time.
-    var weekController = new AbortController();
-    var weekHardTimeoutFired = false;
-    var weekHardTimeoutHandle = setTimeout(function() {
-        weekHardTimeoutFired = true;
-        weekController.abort('client_timeout');
-    }, AI_FILL_CLIENT_TIMEOUT_MS);
-
-    try {
-        // Scope: ONE week only. Earlier logic walked the whole calendar
-        // view (4-5 weeks in month view) which meant 88+ LLM calls per
-        // click and ~12 minute wall time — exceeding the 5-min client
-        // timeout the day-level button uses. We pick the week that
-        // contains the calendar's currentStart (FullCalendar's notion of
-        // "the visible week"). For month view that's the first week of
-        // the visible month; the user can navigate to a specific week
-        // and click again for non-current weeks.
-        var view = calendar.view;
-        var anchor = view.currentStart || view.activeStart;
-        var today = new Date();
-        var todaySunday = new Date(today);
-        todaySunday.setDate(today.getDate() - ((today.getDay()) % 7));
-        todaySunday.setHours(0,0,0,0);
-        var anchorSunday = new Date(anchor);
-        anchorSunday.setDate(anchor.getDate() - anchor.getDay());
-        anchorSunday.setHours(0,0,0,0);
-        var diffDays = Math.round((anchorSunday - todaySunday) / (1000*60*60*24));
-        var weekOffsets = [Math.round(diffDays / 7)];
-
-        // Phase 1: drafts (one week only — the inner endpoint is heavy).
-        var totalCreated = 0;
-        var totalSkipped = 0;
-        var totalDeleted = 0;
-        var totalErrors = 0;
-        var byType = {morning: 0, evening: 0, discussion: 0};
-        for (var i = 0; i < weekOffsets.length; i++) {
-            btn.innerHTML = '⏳ שבוע ' + (i+1) + '/' + weekOffsets.length;
-            try {
-                var resp = await fetch('/api/weekplan/ai-fill-regenerate', {
-                    method: 'POST',
-                    signal: weekController.signal,
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({week_offset: weekOffsets[i]})
-                });
-                var data = await resp.json();
-                console.log('[populate] week ' + weekOffsets[i] + ':', data);
-                if (!resp.ok) {
-                    totalErrors += 1;
-                    continue;
-                }
-                totalDeleted += (data.deleted || 0);
-                totalCreated += (data.created || 0);
-                totalSkipped += (data.skipped || 0);
-                totalErrors += ((data.errors && data.errors.length) || 0);
-                if (data.by_type) {
-                    for (var t in byType) {
-                        if (data.by_type[t] && typeof data.by_type[t].created === 'number') {
-                            byType[t] += data.by_type[t].created;
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('[populate] week ' + weekOffsets[i] + ' failed:', e);
-                totalErrors += 1;
-                if (e && e.name === 'AbortError' && weekHardTimeoutFired) {
-                    showToast('פסק זמן (10 דקות) — הקריאה נעצרה. בדוק את הלוגים בשרת.', 'error');
-                    return;
-                }
-            }
-        }
-
-        // Phase 2: pool growth + calendar rows for all auto-schedulable
-        // activity types in parallel. The first three calls grow content
-        // pools (emoji puzzles + facts) for future use; the last two
-        // schedule actual calendar rows for the week (trivia + pool-backed
-        // emoji/facts slots). Independent endpoints, ~10-15s saved vs
-        // sequential.
-        btn.innerHTML = '⏳ מאגרים + סלוטי לו"ז';
-        var emojiPoolInserted = 0;
-        var factsPoolInserted = 0;
-        var triviaInserted = 0;
-        var poolRowsInserted = 0;
-        var poolRowsByType = {};
-        try {
-            var poolResults = await Promise.all([
-                _populateEmojiPuzzles(),
-                _populateFactsForKind('tidbit'),
-                _populateFactsForKind('spooky'),
-                _populateTrivia(weekOffsets[0]),
-                _populatePoolRows(weekOffsets[0]),
-            ]);
-            emojiPoolInserted = poolResults[0].inserted;
-            factsPoolInserted = poolResults[1].inserted + poolResults[2].inserted;
-            triviaInserted = poolResults[3].inserted;
-            poolRowsInserted = poolResults[4].inserted;
-            poolRowsByType = poolResults[4].by_type || {};
-            totalErrors += poolResults[0].errors + poolResults[1].errors + poolResults[2].errors + poolResults[3].errors + poolResults[4].errors;
-        } catch (e) {
-            totalErrors += 1;
-        }
-
-        var emojiSlots = poolRowsByType.emoji_puzzle || 0;
-        var factSlots = (poolRowsByType.facts_tidbit || 0) + (poolRowsByType.facts_spooky || 0);
-        var details = '🌅' + byType.morning + ' · 🌙' + byType.evening + ' · 💬' + byType.discussion;
-        var totalCalendarRows = totalCreated + triviaInserted + poolRowsInserted;
-        var msg = 'טיוטות: ' + totalCreated + ' (' + details + ')';
-        msg += ' | בלו"ז: 🧠' + triviaInserted + '·🧩' + emojiSlots + '·🔎🕯' + factSlots;
-        msg += ' | מאגר: +' + emojiPoolInserted + ' חידות, +' + factsPoolInserted + ' עובדות';
-        if (totalSkipped > 0) msg += ' | דילוג: ' + totalSkipped;
-        if (totalErrors > 0) msg += ' (' + totalErrors + ' שגיאות)';
-        showToast(msg, totalErrors > 0 ? 'error' : 'success');
-        console.log('[populate] summary:', {drafts: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, calendarRows: totalCalendarRows, trivia: triviaInserted, poolRows: poolRowsByType, emojiPool: emojiPoolInserted, factsPool: factsPoolInserted, errors: totalErrors});
-        calendar.refetchEvents();
-    } finally {
-        clearTimeout(weekHardTimeoutHandle);
-        btn.innerHTML = origText;
-        btn.disabled = false;
-    }
-}
+// (legacy aiRegenerateWeek body removed — replaced by suggest+confirm
+// modal flow above)
 </script>
 {% endblock %}
