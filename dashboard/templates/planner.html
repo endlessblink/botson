@@ -3415,6 +3415,24 @@ async function _populateEmojiPuzzles() {
     }
 }
 
+async function _populateTrivia(weekOffset) {
+    try {
+        var resp = await fetch('/api/weekplan/ai-fill-trivia', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({week_offset: weekOffset || 0})
+        });
+        if (!resp.ok) return {inserted: 0, errors: 1};
+        var data = await resp.json();
+        return {
+            inserted: data.inserted || 0,
+            errors: (data.errors && data.errors.length) || 0,
+        };
+    } catch (e) {
+        return {inserted: 0, errors: 1};
+    }
+}
+
 async function _populateFactsForKind(kind) {
     var inserted = 0;
     var errors = 0;
@@ -3453,7 +3471,7 @@ async function _populateFactsForKind(kind) {
 async function aiRegenerateWeek() {
     var btn = document.getElementById('ai-fill-all-btn');
     if (!btn) return;
-    if (!confirm('זה ייצר טיוטות AI לשבוע הנוכחי בלבד (פחות זמן המתנה — ~3-6 דקות), וגם חידות אמוג\'י ועובדות חדשות. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
+    if (!confirm('זה ייצר מקבץ מאוזן לשבוע: ~6 טיוטות שיחה (בוקר/ערב + 2 שאלות אקראיות), חידת אמוג\'י, עובדות, וסיבוב טריוויה לסוף השבוע. טיוטות AI ישנות בשבוע הזה יוחלפו; שורות שערכת ידנית לא יימחקו. להמשיך?')) return;
 
     var origText = btn.innerHTML;
     btn.innerHTML = '⏳ מייצר...';
@@ -3532,32 +3550,35 @@ async function aiRegenerateWeek() {
             }
         }
 
-        // Phase 2 + 3: emoji puzzles AND facts in parallel (independent endpoints).
-        // Saves ~10-15s of wall time vs sequential.
-        btn.innerHTML = '⏳ חידות אמוג\'י + עובדות';
+        // Phase 2 + 3: emoji puzzles, facts, AND trivia in parallel
+        // (independent endpoints). Saves ~10-15s of wall time vs sequential.
+        btn.innerHTML = '⏳ חידות אמוג\'י + עובדות + טריוויה';
         var emojiInserted = 0;
         var factsInserted = 0;
+        var triviaInserted = 0;
         try {
             var poolResults = await Promise.all([
                 _populateEmojiPuzzles(),
                 _populateFactsForKind('tidbit'),
                 _populateFactsForKind('spooky'),
+                _populateTrivia(weekOffsets[0]),
             ]);
             emojiInserted = poolResults[0].inserted;
             factsInserted = poolResults[1].inserted + poolResults[2].inserted;
-            totalErrors += poolResults[0].errors + poolResults[1].errors + poolResults[2].errors;
+            triviaInserted = poolResults[3].inserted;
+            totalErrors += poolResults[0].errors + poolResults[1].errors + poolResults[2].errors + poolResults[3].errors;
         } catch (e) {
             totalErrors += 1;
         }
 
         var details = '🌅' + byType.morning + ' · 🌙' + byType.evening + ' · 💬' + byType.discussion;
         var msg = 'טיוטות: ' + totalCreated + ' (' + details + ')';
-        msg += ' | חידות: ' + emojiInserted + ' | עובדות: ' + factsInserted;
+        msg += ' | חידות: ' + emojiInserted + ' | עובדות: ' + factsInserted + ' | טריוויה: ' + triviaInserted;
         if (totalSkipped > 0) msg += ' | דילוג: ' + totalSkipped;
         if (factsInserted > 0) msg += ' · אמת מקורות';
         if (totalErrors > 0) msg += ' (' + totalErrors + ' שגיאות)';
         showToast(msg, totalErrors > 0 ? 'error' : 'success');
-        console.log('[populate] summary:', {created: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, emoji: emojiInserted, facts: factsInserted, errors: totalErrors});
+        console.log('[populate] summary:', {created: totalCreated, deleted: totalDeleted, skipped: totalSkipped, byType: byType, emoji: emojiInserted, facts: factsInserted, trivia: triviaInserted, errors: totalErrors});
         calendar.refetchEvents();
     } finally {
         clearTimeout(weekHardTimeoutHandle);

@@ -731,7 +731,7 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         # The aggregate toast must surface all three phase counts so a future
         # template edit can't quietly drop one.
         regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        block = self.html[regenerate_block_start:regenerate_block_start + 4000]
+        block = self.html[regenerate_block_start:regenerate_block_start + 6000]
         for keyword in ("טיוטות", "חידות", "עובדות"):
             self.assertIn(
                 keyword, block,
@@ -742,7 +742,7 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         # The phased spinner cycles through שבוע → חידות → עובדות. If a future
         # edit drops the phase labels the user sees a static spinner for 60s.
         regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        block = self.html[regenerate_block_start:regenerate_block_start + 4000]
+        block = self.html[regenerate_block_start:regenerate_block_start + 6000]
         self.assertIn(
             "⏳ שבוע", block,
             "weekly per-loop spinner phase missing",
@@ -756,7 +756,7 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         # Sanity check: the regenerate function fetches /api/weekplan/ai-fill-regenerate.
         # If a future refactor swaps the endpoint, that's a real concern — pin it.
         regenerate_block_start = self.html.index("async function aiRegenerateWeek()")
-        block = self.html[regenerate_block_start:regenerate_block_start + 4000]
+        block = self.html[regenerate_block_start:regenerate_block_start + 6000]
         self.assertIn(
             "/api/weekplan/ai-fill-regenerate", block,
             "Populate button must POST to /api/weekplan/ai-fill-regenerate",

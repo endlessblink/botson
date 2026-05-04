@@ -3300,11 +3300,15 @@ async def _ai_fill_weekplan_inner(
     skipped = 0
     errors: list[str] = []
 
-    # Build the (day, time, category) work list. For morning/evening, one job
-    # per scheduled slot. For discussion, one job PER ACTIVE CATEGORY per
-    # scheduled slot — so a click produces e.g. 14 discussion candidates
-    # (one per channel) instead of 2 cycled-category candidates. The user
-    # asked for "many more suggestions"; this is where they come from.
+    # Build the (day, time, category) work list. For morning/evening, one
+    # job per scheduled slot. For discussion, one job per RANDOMLY SAMPLED
+    # category per slot — capped by BOTSON_AI_FILL_MAX_DISCUSSION_CATS
+    # (default 2). With 8 active categories × 2 slots × 1 day, the old
+    # "all categories" loop produced 16 question drafts on Monday alone.
+    # That was too much; the user wants variety, not a flood. Each click
+    # gets a fresh random sample, so categories rotate naturally over
+    # repeated clicks across weeks.
+    disc_cap = max(1, int(os.environ.get("BOTSON_AI_FILL_MAX_DISCUSSION_CATS", "2")))
     jobs: list[tuple] = []  # (day_index, time_str, category_or_empty)
     for i in range(7):
         if target_day_index is not None and i != target_day_index:
@@ -3320,7 +3324,8 @@ async def _ai_fill_weekplan_inner(
                 if not active_categories:
                     errors.append(f"no active discussion categories for day {i}")
                     continue
-                for cat in active_categories:
+                chosen = random.sample(active_categories, min(disc_cap, len(active_categories)))
+                for cat in chosen:
                     jobs.append((i, t, cat))
             else:
                 jobs.append((i, t, ""))
@@ -3366,19 +3371,61 @@ async def _ai_fill_weekplan_inner(
                 scheduled_time=t,
             )
 
+        async def _gen_once(p: str) -> str:
+            try:
+                return await _generate_via_cli(p)
+            except Exception:
+                return await _generate_via_api(p)
+
+        def _clean(raw: str) -> str:
+            raw = raw.strip().replace('"', '').replace("'", "")
+            ln = [x.strip() for x in raw.split("\n") if x.strip()]
+            return ln[0] if ln else raw
+
         async with sem:
             try:
-                content = await _generate_via_cli(prompt)
-            except Exception:
-                try:
-                    content = await _generate_via_api(prompt)
-                except Exception as e:
-                    return {"ok": False, "error": f"day {day_index}: generation failed: {e}"}
+                content = _clean(await _gen_once(prompt))
+            except Exception as e:
+                return {"ok": False, "error": f"day {day_index}: generation failed: {e}"}
 
-        # Clean up: take first non-empty line, strip surrounding quotes
-        content = content.strip().replace('"', '').replace("'", "")
-        lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
-        content = lines[0] if lines else content
+            # Quality gate: lint against config/question_quality.md rules.
+            # On failure, retry once with a stricter suffix so the model
+            # gets a chance to self-correct without re-running the whole
+            # job. If it still fails: discussion gets a curated-pool
+            # fallback (config/discussions.yaml has 8-10 examples per
+            # category); morning/evening surface the failure.
+            failures = _validate_draft_text(content)
+            source = "ai-fill"
+            if failures:
+                logger.info("[weekplan.ai-fill] retry %s cat=%r reasons=%s",
+                            mtype, cat, failures)
+                try:
+                    retry_prompt = prompt + "\n\n(הניסיון הקודם נדחה: " + ", ".join(failures) + ". נסח שאלה ספציפית אחרת בעברית טבעית, ללא ז'רגון אנגלי, שאלה אחת בלבד.)"
+                    content = _clean(await _gen_once(retry_prompt))
+                    failures = _validate_draft_text(content)
+                except Exception as e:
+                    failures = [f"retry generation failed: {e}"]
+
+            if failures:
+                if mtype == "discussion":
+                    pool = discussions_pool.get(cat) or []
+                    if pool:
+                        content = _clean(random.choice(pool))
+                        source = "ai-fill-pool"
+                        logger.info("[weekplan.ai-fill] pool fallback cat=%r reasons=%s",
+                                    cat, failures)
+                    else:
+                        return {"ok": False, "error": f"day {day_index} cat={cat}: validation failed ({failures[0]}) and no pool available"}
+                else:
+                    return {"ok": False, "error": f"day {day_index} {mtype}: validation failed ({failures[0]})"}
+
+        # Topic-routing invariant: a discussion row's stored
+        # channel_topic_id MUST match topic_ids[cat]. Without this guard
+        # we have seen drafts land in unrelated channels (funny → ai_en).
+        if mtype == "discussion":
+            expected = topic_ids.get(cat)
+            if not expected or int(expected) != int(topic or 0):
+                return {"ok": False, "error": f"day {day_index} cat={cat}: topic mismatch expected={expected} got={topic}"}
 
         try:
             # Insert as 'draft' so they appear in the drafts panel for review
@@ -3393,11 +3440,11 @@ async def _ai_fill_weekplan_inner(
                 target_group="main",
                 scheduled_date=day_date.isoformat(),
                 scheduled_time=t,
-                created_by="ai-fill",
+                created_by=source,
                 status="draft",
             )
-            logger.info("[weekplan.ai-fill] created %s id=%d for %s %s cat=%r: %r",
-                        mtype, new_id, day_date.isoformat(), t, cat, content[:60])
+            logger.info("[weekplan.ai-fill] created %s id=%d for %s %s cat=%r src=%s: %r",
+                        mtype, new_id, day_date.isoformat(), t, cat, source, content[:60])
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": f"day {day_index}: db insert failed: {e}"}
@@ -3517,6 +3564,102 @@ async def ai_fill_regenerate(request: Request, db: Database = Depends(get_db)):
         "errors": total_errors,
         "by_type": by_type,
     }
+
+
+# ── AI fill: weekly trivia round ───────────────────────────
+
+# Default trivia destination when no theme channel matches. CLAUDE.md
+# "Trivia Round Scheduling" rules: warm-up + game both in botson_corner
+# (topic 4037) for a generic round. Theme-channel teasers are out of
+# scope here — Phase 2 candidate.
+_BOTSON_CORNER_TOPIC_ID = 4037
+
+
+async def _ai_fill_trivia_for_week(db: Database, week_offset: int) -> dict:
+    """Schedule one mixed-pool trivia round for the requested week.
+
+    Inserts two rows tagged `created_by='ai-fill-trivia'`:
+      - Saturday 20:25 — `discussion` warm-up in botson_corner
+      - Saturday 21:00 — `trivia_round` in botson_corner with mixed pool
+
+    Idempotent within a click: first wipes existing `ai-fill-trivia%` rows
+    in the target week, then inserts fresh. The broader `LIKE 'ai-fill%'`
+    wipe in `/api/weekplan/ai-fill-regenerate` also catches these.
+    """
+    today = date.today()
+    days_since_sunday = (today.weekday() + 1) % 7
+    sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
+    saturday = sunday + timedelta(days=6)
+
+    # Wipe any prior ai-fill-trivia rows in this week's window before inserting
+    try:
+        await db._db.execute(
+            "DELETE FROM scheduled_messages "
+            "WHERE created_by LIKE 'ai-fill-trivia%' "
+            "AND status IN ('scheduled', 'draft') "
+            "AND scheduled_date BETWEEN ? AND ?",
+            (sunday.isoformat(), saturday.isoformat()),
+        )
+        await db._db.commit()
+    except Exception as e:
+        logger.exception("[ai-fill-trivia] wipe failed")
+        return {"inserted": 0, "errors": [f"wipe failed: {e}"]}
+
+    inserted = 0
+    errors: list[str] = []
+    sat_iso = saturday.isoformat()
+
+    try:
+        warmup_text = "מתחממים לטריוויה 🧠 — בעוד 35 דקות מתחילים סיבוב כללי בפינה של בוטסון."
+        await db.create_scheduled_message(
+            text=warmup_text,
+            message_type="discussion",
+            channel_topic_id=_BOTSON_CORNER_TOPIC_ID,
+            target_group="main",
+            scheduled_date=sat_iso,
+            scheduled_time="20:25",
+            created_by="ai-fill-trivia",
+            status="draft",
+        )
+        inserted += 1
+    except Exception as e:
+        logger.exception("[ai-fill-trivia] warmup insert failed")
+        errors.append(f"warmup: {e}")
+
+    try:
+        poll_payload = {
+            "pre_roll_s": 30,
+            "theme_label": "כללי",
+            "categories": [],
+            "question_count": 5,
+        }
+        await db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה — 5 שאלות מהירות",
+            message_type="trivia_round",
+            channel_topic_id=_BOTSON_CORNER_TOPIC_ID,
+            target_group="main",
+            scheduled_date=sat_iso,
+            scheduled_time="21:00",
+            created_by="ai-fill-trivia",
+            status="draft",
+            poll_options=json.dumps(poll_payload, ensure_ascii=False),
+        )
+        inserted += 1
+    except Exception as e:
+        logger.exception("[ai-fill-trivia] round insert failed")
+        errors.append(f"round: {e}")
+
+    return {"inserted": inserted, "errors": errors, "scheduled_date": sat_iso}
+
+
+@app.post("/api/weekplan/ai-fill-trivia")
+async def ai_fill_trivia(request: Request, db: Database = Depends(get_db)):
+    """Schedule one weekly trivia round + warm-up. See `_ai_fill_trivia_for_week`."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    week_offset = int(data.get("week_offset", 0))
+    return await _ai_fill_trivia_for_week(db, week_offset)
 
 
 # ── AI fill: today-only, context-aware ─────────────────────
