@@ -90,6 +90,26 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.sent, [(123, 77)])
         self.assertEqual(db.failed, [])
 
+    async def test_emoji_announcement_text_stays_plain_message(self):
+        row = _base_row("discussion")
+        row["text"] = "🧩 מתחממים לחידת אימוג'י\nב-22:00 נפתח Emoji Night בנושא סרטים וסדרות."
+        row["channel_topic_id"] = 4037
+        row["target_group"] = "main"
+        db = FakeScheduledDb(row)
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+        sent = SimpleNamespace(message_id=789)
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "start_emoji_night", new=AsyncMock()) as start_emoji, \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        start_emoji.assert_not_awaited()
+        send_text.assert_awaited_once()
+        self.assertEqual(db.sent, [(123, 789)])
+        self.assertEqual(db.failed, [])
+
     async def test_emoji_puzzle_internal_row_keeps_existing_dispatch_path(self):
         row = _base_row("emoji_puzzle_round")
         db = FakeScheduledDb(row)

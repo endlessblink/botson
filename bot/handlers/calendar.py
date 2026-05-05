@@ -102,6 +102,15 @@ def _looks_like_trivia_launch(text: str) -> bool:
     return True
 
 
+def _looks_like_emoji_launch(text: str) -> bool:
+    compact = (text or "").lower()
+    if not ("emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact):
+        return False
+    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact or "נפתח" in compact:
+        return False
+    return True
+
+
 async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
     """Treat natural-language scheduled game rows as executable game launches."""
     message_type = msg.get("message_type") or "custom"
@@ -132,7 +141,7 @@ async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
                 payload["teaser_topic_id"] = int(original_topic)
         coerced["message_type"] = "trivia_round"
         coerced["poll_options"] = json.dumps(payload, ensure_ascii=False)
-    elif "emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact:
+    elif _looks_like_emoji_launch(text):
         routing = await db.get_handler_routing("emoji_puzzle")
         if target == "test":
             coerced["channel_topic_id"] = None

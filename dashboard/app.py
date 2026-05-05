@@ -12,6 +12,7 @@ import signal
 import time
 from pathlib import Path
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -996,6 +997,15 @@ def _looks_like_trivia_launch(text: str) -> bool:
     return True
 
 
+def _looks_like_emoji_launch(text: str) -> bool:
+    compact = (text or "").lower()
+    if not ("emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact):
+        return False
+    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact or "נפתח" in compact:
+        return False
+    return True
+
+
 def _coerce_game_message_fields(message_type: str, text: str, poll_options=None, teaser_topic_id: int | None = None) -> tuple[str, str | None]:
     """Turn natural-language game calendar items into executable launch rows."""
     mtype = (message_type or "custom").strip() or "custom"
@@ -1018,7 +1028,7 @@ def _coerce_game_message_fields(message_type: str, text: str, poll_options=None,
             payload["teaser_topic_id"] = int(teaser_topic_id)
         return "trivia_round", json.dumps(payload, ensure_ascii=False)
 
-    if "emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact:
+    if _looks_like_emoji_launch(body):
         return "emoji_puzzle", None
 
     return mtype, json.dumps(poll_options, ensure_ascii=False) if isinstance(poll_options, dict) else poll_options
@@ -4530,6 +4540,8 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
     data = await request.json()
     week_offset = int(data.get("week_offset", 0))
     target_date_raw = (data.get("target_date") or "").strip()
+    if target_date_raw.lower() == "today":
+        target_date_raw = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
     target_date: str | None = target_date_raw or None
     if target_date:
         try:

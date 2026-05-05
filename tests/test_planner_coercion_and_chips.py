@@ -15,8 +15,11 @@ import asyncio
 import re
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi import HTTPException
@@ -272,6 +275,19 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created[0]["message_type"], "emoji_puzzle")
         self.assertEqual(db.created[0]["poll_options"], '{"theme_label":"movies"}')
 
+    async def test_ai_suggest_today_token_uses_server_israel_date(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value={"ok": True})) as suggest:
+                res = await dashboard_app.ai_suggest(FakeCalendarRequest({"target_date": "today"}), db)
+        finally:
+            await db.close()
+
+        self.assertEqual(res, {"ok": True})
+        called_date = suggest.await_args.kwargs["target_date"]
+        self.assertRegex(called_date, r"^\d{4}-\d{2}-\d{2}$")
+
     async def test_planner_day_diagnostics_reports_scheduler_state(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
@@ -305,6 +321,67 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(row["message_type"], "emoji_puzzle")
                 self.assertTrue(row["topic_verified"])
                 self.assertEqual(row["payload"]["media_types"], ["movie", "tv"])
+            finally:
+                await db.close()
+
+    async def test_approved_emoji_populate_rows_are_due_and_dispatch_correctly(self):
+        now = datetime.now(ZoneInfo("Asia/Jerusalem"))
+        today = now.date().isoformat()
+        due_time = now.strftime("%H:%M")
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                await db.upsert_verified_forum_topic(4037, "הפינה של בוטסון", "botson_corner", "test")
+                await db.set_handler_routing("emoji_puzzle", 4037, [])
+                approved = [
+                    {
+                        "date": today,
+                        "time": due_time,
+                        "message_type": "discussion",
+                        "topic_id": 4037,
+                        "text": "🧩 מתחממים לחידת אימוג'י\nב-22:00 נפתח Emoji Night בנושא סרטים וסדרות.",
+                        "source": "ai-fill-emoji",
+                    },
+                    {
+                        "date": today,
+                        "time": due_time,
+                        "message_type": "emoji_puzzle",
+                        "topic_id": 4037,
+                        "text": "🧩 Emoji Night — סרטים וסדרות (5 חידות)",
+                        "source": "ai-fill-pool-row",
+                        "poll_options_json": json.dumps({
+                            "theme_label": "סרטים וסדרות",
+                            "media_types": ["movie", "tv"],
+                            "puzzle_count": 5,
+                        }, ensure_ascii=False),
+                    },
+                ]
+
+                commit = await dashboard_app.ai_suggest_commit(
+                    FakeCalendarRequest({"approved": approved}),
+                    db,
+                )
+                self.assertEqual(commit["inserted"], 2)
+                due = await db.get_due_messages(today, due_time)
+                self.assertEqual([row["message_type"] for row in due], ["discussion", "emoji_puzzle"])
+                self.assertTrue(all(row["status"] == "scheduled" for row in due))
+
+                context = SimpleNamespace(bot_data={"db": db}, bot=object())
+                sent = SimpleNamespace(message_id=9001)
+                with patch.dict(bot_calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
+                     patch("telegram.Bot", return_value=object()), \
+                     patch.object(bot_calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text, \
+                     patch.object(bot_calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji:
+                    await bot_calendar.check_and_send_due_messages(context)
+
+                send_text.assert_awaited_once()
+                start_emoji.assert_awaited_once_with(
+                    context, -1001, 4037, force=True,
+                    media_types=["movie", "tv"], theme_label="סרטים וסדרות",
+                )
+                rows = await db.get_scheduled_messages(today, today)
+                self.assertEqual({row["status"] for row in rows}, {"sent"})
             finally:
                 await db.close()
 
@@ -704,6 +781,11 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         self.assertIn("scheduled_date: card.getAttribute('data-review-date')", planner_html)
         self.assertIn("function formatLocalDate", planner_html)
         self.assertNotIn("toISOString().split('T')[0]", planner_html)
+
+    def test_fill_today_uses_server_today_token_not_stale_calendar_date(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        self.assertIn("var dateForCall = 'today';", planner_html)
+        self.assertIn("_aiSuggestFetch(iso, 'day');", planner_html)
 
     def test_content_inventory_scheduler_types_are_exposed(self):
         class FakeDb:

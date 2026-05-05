@@ -2784,7 +2784,7 @@ async function aiFillToday(targetDate) {
     // hits the DB until the user clicks Approve. The legacy direct-
     // insert behaviour at /api/weekplan/ai-fill-regenerate is still
     // exposed but no longer called from the UI.
-    var dateForCall = targetDate || todayIsoLocal();
+    var dateForCall = 'today';
     await _aiSuggestFetch(dateForCall, 'day');
 }
 
@@ -2804,7 +2804,7 @@ function aiFillSpecificDay() {
         alert('תאריך לא תקין. השתמש בפורמט YYYY-MM-DD');
         return;
     }
-    aiFillToday(iso);
+    _aiSuggestFetch(iso, 'day');
 }
 
 // Legacy direct-insert aiFillToday/aiRegenerateWeek removed — replaced by
