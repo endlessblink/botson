@@ -255,7 +255,15 @@ async def _pick_session_puzzles(
     db: Database, puzzle_count: int, media_types: list[str] | None = None,
 ) -> list[dict]:
     pool = await db.list_emoji_puzzles(enabled_only=True)
-    allowed = {str(m).strip() for m in (media_types or []) if str(m).strip()}
+    allowed: set[str] = set()
+    for media in media_types or []:
+        m = str(media).strip()
+        if not m:
+            continue
+        if m in {"tv", "series"}:
+            allowed.update({"tv", "series"})
+        else:
+            allowed.add(m)
     if allowed:
         pool = [p for p in pool if str(p.get("media_type") or "").strip() in allowed]
     if not pool:

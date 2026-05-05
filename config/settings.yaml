@@ -183,11 +183,12 @@ topic_routing:
   observation_days: 14
 trivia:
   populate_defaults:
-    pre_roll_s: 30
+    pre_roll_s: 120
     warmup_offset_min: 35
     theme_label: כללי
     categories: []
     question_count: 5
+    min_ready_players: 2
 topics:
   discussions:
     art: 347

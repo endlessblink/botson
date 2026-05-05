@@ -122,19 +122,31 @@ def _build_answer_markup(q_index: int, options: list[str]) -> InlineKeyboardMark
     return InlineKeyboardMarkup(rows)
 
 
-def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: int) -> str:
+def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: int,
+                         min_ready_players: int = 0) -> str:
     if pre_roll_s >= 60:
         minutes = max(1, pre_roll_s // 60)
         when = f"עוד {minutes} דקות"
     else:
         when = f"עוד {pre_roll_s} שניות"
     theme_emoji = "🇮🇱" if "ישראל" in theme_label else "🎬"
+    ready_line = ""
+    if min_ready_players > 0:
+        ready_line = (
+            f"\nכדי שהמשחק באמת יתחיל צריך לפחות {min_ready_players} משתתפים. "
+            "לחצו על הכפתור אם אתם בפנים."
+        )
     return (
         f"{theme_emoji} טריוויה: {theme_label}!\n\n"
         f"{question_count} שאלות מהירות · {QUESTION_TIMEOUT_S} שניות לכל אחת.\n"
-        f"תשובה נכונה = {POINTS_CORRECT} נק׳ · מקום ראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס 🏆\n\n"
+        f"תשובה נכונה = {POINTS_CORRECT} נק׳ · מקום ראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס 🏆\n"
+        f"{ready_line}\n\n"
         f"השאלה הראשונה יורדת {when} — תתחממו 🍿"
     )
+
+
+def _build_ready_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("אני בפנים 🎮", callback_data="trivready")]])
 
 
 _TIMER_BAR_BLOCKS = 10
@@ -262,6 +274,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
                       preferred_categories: set[str] | None = None,
                       theme_label: str | None = None,
                       question_count: int = QUESTION_COUNT,
+                      min_ready_players: int = 0,
                       teaser_topic_id: int | None = None,
                       teaser_text: str | None = None) -> None:
     """Drive a single round start → finish. Safe to cancel via STOP_FILE."""
@@ -286,7 +299,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             "Check that the questions saved in trivia.yaml have exactly one of these category tags."
         )
 
-    round_state = _create_round_state(questions, question_count)
+    round_state = _create_round_state(questions, question_count, min_ready_players=min_ready_players)
     _active_rounds[chat_id] = round_state
 
     try:
@@ -300,6 +313,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             question_count=question_count,
             teaser_topic_id=teaser_topic_id,
             teaser_text=teaser_text,
+            min_ready_players=min_ready_players,
         )
         await _continue_round_after_announcement(
             bot,
@@ -313,7 +327,8 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
         _active_rounds.pop(chat_id, None)
 
 
-def _create_round_state(questions: list[dict], question_count: int) -> dict:
+def _create_round_state(questions: list[dict], question_count: int,
+                        min_ready_players: int = 0) -> dict:
     return {
         "questions": questions,
         "question_count": question_count,
@@ -321,6 +336,9 @@ def _create_round_state(questions: list[dict], question_count: int) -> dict:
         "msg_id": None,
         "scores": {},  # user_id → {name, correct, points}
         "answers_this_q": {},  # user_id → answer_idx (for current question only)
+        "ready_users": {},  # user_id → display name during pre-roll
+        "accepting_ready": bool(min_ready_players),
+        "min_ready_players": max(0, int(min_ready_players or 0)),
         "aborted": False,
     }
 
@@ -329,7 +347,8 @@ async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, t
                                               *, pre_roll_s: int, theme_label: str,
                                               question_count: int,
                                               teaser_topic_id: int | None = None,
-                                              teaser_text: str | None = None) -> int:
+                                              teaser_text: str | None = None,
+                                              min_ready_players: int = 0) -> int:
     # Optional teaser in a theme-matched topic, fired BEFORE the main
     # announcement so the linked audience has time to jump over.
     if teaser_topic_id is not None and teaser_topic_id != thread_id:
@@ -360,7 +379,13 @@ async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, t
             db,
             "send_message",
             chat_id=chat_id,
-            text=_format_announcement(pre_roll_s, theme_label=theme_label, question_count=question_count),
+            text=_format_announcement(
+                pre_roll_s,
+                theme_label=theme_label,
+                question_count=question_count,
+                min_ready_players=min_ready_players,
+            ),
+            reply_markup=_build_ready_markup() if min_ready_players > 0 else None,
             message_thread_id=thread_id,
         )
     except UnverifiedTopicError as e:
@@ -385,6 +410,33 @@ async def _continue_round_after_announcement(bot, db: Database, chat_id: int, th
                 break
             await asyncio.sleep(step)
             slept += step
+
+        # Do not start a cold game. If the pre-roll requested a minimum ready
+        # count and not enough people clicked in, cancel before Q1 instead of
+        # burning a full round into an empty topic.
+        min_ready = int(round_state.get("min_ready_players") or 0)
+        if min_ready > 0:
+            round_state["accepting_ready"] = False
+            ready_count = len(round_state.get("ready_users") or {})
+            if ready_count < min_ready:
+                try:
+                    await safe_send(
+                        bot,
+                        db,
+                        "send_message",
+                        chat_id=chat_id,
+                        text=(
+                            f"🧠 הטריוויה לא מתחילה כרגע — רק {ready_count}/{min_ready} סימנו שהם בפנים.\n"
+                            "ננסה שוב כשיהיו מספיק שחקנים 🙂"
+                        ),
+                        message_thread_id=thread_id,
+                    )
+                except UnverifiedTopicError as e:
+                    logger.warning("trivia_round: not-enough-ready message refused by guard: %s", e)
+                except Exception as e:
+                    logger.warning("trivia_round: not-enough-ready send failed: %s", e)
+                await db.log_activity("trivia_round", f"סיבוב טריוויה בוטל — {ready_count}/{min_ready} מוכנים")
+                return
 
         # Kickoff message — makes it unambiguous that the round is starting now.
         try:
@@ -564,6 +616,23 @@ async def handle_round_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer(f"❌ לא נכון. התשובה: {q['options'][q['correct']]}")
 
 
+async def handle_ready_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle pre-roll readiness clicks before starting a trivia round."""
+    query = update.callback_query
+    if not query:
+        return
+    user = update.effective_user
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    state = _active_rounds.get(chat_id) if chat_id else None
+    if not user or not state or not state.get("accepting_ready"):
+        await query.answer("ההרשמה לסיבוב הזה כבר נסגרה")
+        return
+    ready_users = state.setdefault("ready_users", {})
+    ready_users[user.id] = get_display_name(user)
+    min_ready = int(state.get("min_ready_players") or 0)
+    await query.answer(f"נרשמת למשחק ✅ ({len(ready_users)}/{min_ready})")
+
+
 async def trivia_round_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/triviaround — start a round in current chat (admin only)."""
     if not update.effective_user or not update.message:
@@ -631,6 +700,7 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
     teaser_text_raw = payload.get("teaser_text")
     teaser_text = str(teaser_text_raw).strip() if teaser_text_raw else None
     pre_roll_s = int(payload.get("pre_roll_s", 30) or 30)
+    min_ready_players = max(0, int(payload.get("min_ready_players") or 0))
     theme_label = str(payload.get("theme_label") or "").strip() or None
     question_count = int(payload.get("question_count") or QUESTION_COUNT)
     raw_categories = payload.get("categories") or []
@@ -670,7 +740,7 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
             f"(found={len(questions)}, requested={question_count})"
         )
 
-    round_state = _create_round_state(questions, question_count)
+    round_state = _create_round_state(questions, question_count, min_ready_players=min_ready_players)
     _active_rounds[chat_id] = round_state
     try:
         announcement_id = await _send_round_teaser_and_announcement(
@@ -683,6 +753,7 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
             question_count=question_count,
             teaser_topic_id=teaser_topic_id,
             teaser_text=teaser_text,
+            min_ready_players=min_ready_players,
         )
     except Exception:
         _active_rounds.pop(chat_id, None)
@@ -740,6 +811,7 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
     teaser_text_raw = payload.get("teaser_text")
     teaser_text = str(teaser_text_raw).strip() if teaser_text_raw else None
     pre_roll_s = int(payload.get("pre_roll_s", 30))
+    min_ready_players = max(0, int(payload.get("min_ready_players") or 0))
     theme_label = str(payload.get("theme_label") or "").strip() or None
     question_count = int(payload.get("question_count") or QUESTION_COUNT)
     raw_categories = payload.get("categories") or []
@@ -771,6 +843,7 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
             preferred_categories=preferred_categories,
             theme_label=theme_label,
             question_count=question_count,
+            min_ready_players=min_ready_players,
             teaser_topic_id=teaser_topic_id,
             teaser_text=teaser_text,
         )
@@ -781,6 +854,7 @@ def register(app):
     """Register round handlers."""
     app.add_handler(CommandHandler("triviaround", trivia_round_command))
     app.add_handler(CommandHandler("endtriviaround", end_trivia_round_command))
+    app.add_handler(CallbackQueryHandler(handle_ready_click, pattern=r"^trivready$"))
     app.add_handler(CallbackQueryHandler(handle_round_answer, pattern=r"^trivround_\d+_\d+$"))
     # Trigger-file watcher — lets the dashboard kick off a round.
     if app.job_queue:

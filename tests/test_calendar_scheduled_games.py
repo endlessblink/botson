@@ -280,6 +280,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
             "theme_label": "גיימינג",
             "categories": ["גיימינג"],
             "question_count": 2,
+            "min_ready_players": 2,
         }, ensure_ascii=False)
         db = FakeScheduledDb(row)
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
@@ -288,13 +289,33 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         from bot.handlers import trivia_round
         with patch.object(trivia_round, "_pick_questions", side_effect=[[q], [dict(q), dict(q, text="q2")]]), \
              patch.object(trivia_round, "_top_up_scheduled_questions_if_possible", new=AsyncMock()) as topup, \
-             patch.object(trivia_round, "_send_round_teaser_and_announcement", new=AsyncMock(return_value=456)), \
+             patch.object(trivia_round, "_send_round_teaser_and_announcement", new=AsyncMock(return_value=456)) as send_announcement, \
              patch.object(trivia_round.asyncio, "create_task", side_effect=lambda coro: coro.close()) as create_task:
             result = await trivia_round.start_scheduled_trivia_round(context, row)
 
         self.assertEqual(result, 456)
         topup.assert_awaited_once()
         create_task.assert_called_once()
+        send_kwargs = send_announcement.await_args.kwargs
+        self.assertEqual(send_kwargs["min_ready_players"], 2)
+        trivia_round._active_rounds.pop(-1002, None)
+
+    async def test_trivia_ready_gate_cancels_before_first_question_when_no_players(self):
+        from bot.handlers import trivia_round
+        db = FakeScheduledDb(_base_row("trivia_round"))
+        q = {"text": "q", "options": ["a", "b", "c", "d"], "correct": 0}
+        state = trivia_round._create_round_state([q], 1, min_ready_players=2)
+        trivia_round._active_rounds[-1002] = state
+
+        with patch.object(trivia_round, "safe_send", new=AsyncMock(return_value=SimpleNamespace(message_id=999))) as safe_send, \
+             patch.object(trivia_round, "_post_question", new=AsyncMock()) as post_question:
+            await trivia_round._continue_round_after_announcement(
+                object(), db, -1002, 4037, pre_roll_s=1, round_state=state,
+            )
+
+        post_question.assert_not_awaited()
+        self.assertTrue(any("לא מתחילה" in call.kwargs.get("text", "") for call in safe_send.await_args_list))
+        self.assertTrue(any("בוטל" in activity[1] for activity in db.activities))
         trivia_round._active_rounds.pop(-1002, None)
 
     async def test_free_games_without_post_marks_failed_not_sent(self):

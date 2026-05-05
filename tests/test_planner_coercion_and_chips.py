@@ -156,13 +156,14 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
         await db.init()
-        for idx in range(5):
-            await db._db.execute(
-                """INSERT INTO emoji_puzzles
-                   (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-                ("🎬⭐", f"סרט {idx}", f"Movie {idx}", "[]", 2, "movie", 1),
-            )
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
         await db._db.commit()
         before = await self._scheduled_count(db)
         canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
@@ -186,13 +187,91 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
         self.assertTrue(emoji_rows)
         emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
-        self.assertEqual(emoji_payload["theme_label"], "סרטים וסדרות")
-        self.assertEqual(emoji_payload["media_types"], ["movie", "tv"])
+        self.assertIn(emoji_payload["theme_label"], {"סרטים", "סדרות"})
+        self.assertIn(emoji_payload["media_types"], (["movie"], ["series"]))
         self.assertTrue(any(
             s["message_type"] == "discussion" and s["source"] == "ai-fill-emoji"
             for s in result["suggestions"]
         ))
+        trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
+        self.assertTrue(trivia_rows)
+        trivia_payload = json.loads(trivia_rows[0]["poll_options_json"])
+        self.assertTrue(trivia_payload["theme_label"])
+        self.assertTrue(trivia_payload["categories"])
+        self.assertGreaterEqual(int(trivia_payload.get("min_ready_players", 0)), 0)
         self.assertLessEqual(len(result["suggestions"]), 12)
+
+    async def test_ai_suggest_calendar_rotates_emoji_subject_away_from_recent(self):
+        db = Database(":memory:")
+        await db.init()
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+        await db.create_scheduled_message(
+            text="🧩 Emoji Night — סרטים (5 חידות)",
+            message_type="emoji_puzzle",
+            channel_topic_id=4037,
+            target_group="main",
+            scheduled_date="2026-05-01",
+            scheduled_time="22:00",
+            poll_options=json.dumps({"theme_label": "סרטים", "media_types": ["movie"]}, ensure_ascii=False),
+            status="scheduled",
+        )
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+
+        await db.close()
+        emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
+        self.assertTrue(emoji_rows)
+        emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
+        self.assertEqual(emoji_payload["theme_label"], "סדרות")
+        self.assertEqual(emoji_payload["media_types"], ["series"])
+
+    async def test_ai_suggest_calendar_rotates_trivia_subject_away_from_recent(self):
+        db = Database(":memory:")
+        await db.init()
+        await db.create_scheduled_message(
+            text="🧠 סיבוב טריוויה — ישראל (5 שאלות)",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="main",
+            scheduled_date="2026-05-01",
+            scheduled_time="21:00",
+            poll_options=json.dumps({"theme_label": "ישראל", "categories": ["ישראל"], "question_count": 5}, ensure_ascii=False),
+            status="scheduled",
+        )
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+
+        await db.close()
+        trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
+        self.assertTrue(trivia_rows)
+        trivia_payload = json.loads(trivia_rows[0]["poll_options_json"])
+        self.assertNotEqual(trivia_payload["categories"], ["ישראל"])
+        self.assertEqual(trivia_payload["theme_label"], trivia_payload["categories"][0])
 
     async def test_ai_suggest_calendar_skips_past_times_today(self):
         db = Database(":memory:")
@@ -658,6 +737,8 @@ class TestPlannerTemplateExposure(unittest.TestCase):
             "פילר גנרי",
             "שיפחדו",
             "אוכלי בשר",
+            "היום הזה עוד לא הוחלט",
+            "יצור (ממשי או מהדמיון)",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, quality)

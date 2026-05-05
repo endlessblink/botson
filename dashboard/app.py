@@ -2512,6 +2512,9 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"מה נשאר (איתכם|אתכם)"), "rule11_generic_evening"),
     (re.compile(r"אחרי כל מה שהיה"), "rule11_generic_evening"),
     (re.compile(r"מה\s+ה\S*\s+הכי\s+מעריך"), "concrete_failure_bad_hebrew"),
+    (re.compile(r"היום הזה עוד לא הוחלט"), "concrete_failure_generic_morning"),
+    (re.compile(r"מה הדבר הכי שווה שאתם מכניסים אליו"), "concrete_failure_generic_morning"),
+    (re.compile(r"איזה יצור .*מהדמיון"), "concrete_failure_weird_creature_prompt"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -3789,6 +3792,7 @@ async def _ai_fill_trivia_for_week(
             "categories": list(trivia_defaults.get("categories") or []),
             "question_count": int(trivia_defaults.get("question_count") or 5),
             "warmup_offset_min": lead_minutes,
+            "min_ready_players": int(trivia_defaults.get("min_ready_players") or 0),
         }
         await db.create_scheduled_message(
             text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
@@ -4239,6 +4243,181 @@ async def _ai_suggest_calendar(
         "evening": await _fetch_recent_sent_for_dedup(db, "evening", limit=60),
     }
 
+    def _emoji_media_aliases(media_type: str) -> list[str]:
+        media = str(media_type or "").strip()
+        if media in {"tv", "series"}:
+            return ["tv", "series"]
+        return [media] if media else []
+
+    def _emoji_media_signature(media_types: list[str]) -> tuple[str, ...]:
+        canonical = []
+        for media in media_types:
+            m = str(media or "").strip()
+            if m == "tv":
+                m = "series"
+            if m and m not in canonical:
+                canonical.append(m)
+        return tuple(canonical)
+
+    async def _recent_emoji_signatures(limit: int = 12) -> list[tuple[str, ...]]:
+        out: list[tuple[str, ...]] = []
+        try:
+            async with db._db.execute(
+                """SELECT poll_options FROM scheduled_messages
+                   WHERE message_type = 'emoji_puzzle'
+                     AND poll_options IS NOT NULL AND poll_options != ''
+                     AND status IN ('sent', 'scheduled', 'draft')
+                   ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC
+                   LIMIT ?""",
+                (limit,),
+            ) as cur:
+                rows = await cur.fetchall()
+        except Exception:
+            rows = []
+        for row in rows:
+            try:
+                payload = json.loads(row[0] or "{}")
+            except Exception:
+                continue
+            sig = _emoji_media_signature(payload.get("media_types") or [])
+            if sig and sig not in out:
+                out.append(sig)
+        return out
+
+    async def _count_emoji_pool(media_types: list[str]) -> int:
+        aliases: list[str] = []
+        for media in media_types:
+            for alias in _emoji_media_aliases(media):
+                if alias and alias not in aliases:
+                    aliases.append(alias)
+        try:
+            if aliases:
+                placeholders = ",".join("?" for _ in aliases)
+                async with db._db.execute(
+                    f"SELECT COUNT(*) FROM emoji_puzzles WHERE enabled = 1 AND media_type IN ({placeholders})",
+                    tuple(aliases),
+                ) as cur:
+                    return int((await cur.fetchone())[0] or 0)
+            async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles WHERE enabled = 1") as cur:
+                return int((await cur.fetchone())[0] or 0)
+        except Exception:
+            return 0
+
+    async def _choose_emoji_subject(emoji_cfg: dict, puzzle_count: int,
+                                    recent_signatures: list[tuple[str, ...]],
+                                    used_signatures: set[tuple[str, ...]]) -> tuple[str, list[str], int]:
+        configured = [str(x).strip() for x in (emoji_cfg.get("media_types") or []) if str(x).strip()]
+        if not configured:
+            configured = ["movie", "series"]
+        configured = ["series" if x == "tv" else x for x in configured]
+        configured = list(dict.fromkeys(configured))
+        labels = {"movie": "סרטים", "series": "סדרות", "tv": "סדרות"}
+        choices: list[tuple[str, list[str], int, tuple[str, ...]]] = []
+        for media in configured:
+            pool_n = await _count_emoji_pool([media])
+            if pool_n >= puzzle_count:
+                sig = _emoji_media_signature([media])
+                choices.append((labels.get(media, str(emoji_cfg.get("theme_label") or media)), [media], pool_n, sig))
+        if not choices:
+            pool_n = await _count_emoji_pool(configured)
+            if pool_n >= puzzle_count:
+                sig = _emoji_media_signature(configured)
+                label = str(emoji_cfg.get("theme_label") or "סרטים וסדרות").strip() or "סרטים וסדרות"
+                choices.append((label, configured, pool_n, sig))
+        if not choices:
+            return "", [], 0
+        newest = recent_signatures[0] if recent_signatures else None
+        ranked = sorted(
+            choices,
+            key=lambda c: (
+                c[3] == newest,
+                c[3] in used_signatures,
+                recent_signatures.index(c[3]) if c[3] in recent_signatures else -1,
+                random.random(),
+            ),
+        )
+        theme, media_types, pool_n, sig = ranked[0]
+        used_signatures.add(sig)
+        return theme, media_types, pool_n
+
+    recent_emoji_signatures = await _recent_emoji_signatures()
+    used_emoji_signatures: set[tuple[str, ...]] = set()
+
+    def _trivia_category_counts() -> dict[str, int]:
+        try:
+            questions = (load_yaml("trivia.yaml") or {}).get("questions") or []
+        except Exception:
+            questions = []
+        counts_by_cat: dict[str, int] = {}
+        for q in questions:
+            cat = str((q or {}).get("category") or "").strip()
+            if cat:
+                counts_by_cat[cat] = counts_by_cat.get(cat, 0) + 1
+        return counts_by_cat
+
+    def _trivia_signature(categories: list[str]) -> tuple[str, ...]:
+        return tuple(str(c).strip() for c in categories if str(c).strip())
+
+    async def _recent_trivia_signatures(limit: int = 12) -> list[tuple[str, ...]]:
+        out: list[tuple[str, ...]] = []
+        try:
+            async with db._db.execute(
+                """SELECT poll_options FROM scheduled_messages
+                   WHERE message_type = 'trivia_round'
+                     AND poll_options IS NOT NULL AND poll_options != ''
+                     AND status IN ('sent', 'scheduled', 'draft')
+                   ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC
+                   LIMIT ?""",
+                (limit,),
+            ) as cur:
+                rows = await cur.fetchall()
+        except Exception:
+            rows = []
+        for row in rows:
+            try:
+                payload = json.loads(row[0] or "{}")
+            except Exception:
+                continue
+            sig = _trivia_signature(payload.get("categories") or [])
+            if sig and sig not in out:
+                out.append(sig)
+        return out
+
+    def _choose_trivia_subject(trivia_cfg: dict, question_count: int,
+                               counts_by_cat: dict[str, int],
+                               recent_signatures: list[tuple[str, ...]],
+                               used_signatures: set[tuple[str, ...]]) -> tuple[str, list[str], int]:
+        configured = [str(x).strip() for x in (trivia_cfg.get("categories") or []) if str(x).strip()]
+        eligible = [cat for cat, n in counts_by_cat.items() if n >= question_count]
+        pool = [cat for cat in configured if cat in eligible] if configured else eligible
+        if not pool:
+            fallback_categories = configured
+            fallback_theme = str(trivia_cfg.get("theme_label") or "כללי").strip() or "כללי"
+            fallback_count = min((counts_by_cat.get(c, 0) for c in fallback_categories), default=sum(counts_by_cat.values()))
+            return fallback_theme, fallback_categories, fallback_count
+        choices = []
+        for cat in pool:
+            sig = _trivia_signature([cat])
+            choices.append((cat, [cat], counts_by_cat.get(cat, 0), sig))
+        newest = recent_signatures[0] if recent_signatures else None
+        ranked = sorted(
+            choices,
+            key=lambda c: (
+                c[3] == newest,
+                c[3] in used_signatures,
+                recent_signatures.index(c[3]) if c[3] in recent_signatures else -1,
+                -c[2],
+                random.random(),
+            ),
+        )
+        theme, categories, count, sig = ranked[0]
+        used_signatures.add(sig)
+        return theme, categories, count
+
+    trivia_category_counts = _trivia_category_counts()
+    recent_trivia_signatures = await _recent_trivia_signatures()
+    used_trivia_signatures: set[tuple[str, ...]] = set()
+
     # ── Walk window, propose slots ────────────────────────────────
     # Random-but-spread day pick: shuffle once so suggestions aren't all
     # on day 0 first. Cap per type enforces variety.
@@ -4357,26 +4536,14 @@ async def _ai_suggest_calendar(
                 and _feature_on("emoji_puzzle")
                 and routed_topics.get("emoji_puzzle") is not None):
             emoji_cfg = (settings.get("schedule", {}) or {}).get("emoji_puzzle", {}) or {}
-            emoji_theme = str(emoji_cfg.get("theme_label") or "סרטים וסדרות").strip() or "סרטים וסדרות"
-            emoji_media_types = [str(x).strip() for x in (emoji_cfg.get("media_types") or []) if str(x).strip()]
             emoji_count = int(emoji_cfg.get("puzzle_count") or 5)
             try:
                 emoji_lead = int(emoji_cfg.get("announcement_lead_minutes") or 90)
             except (TypeError, ValueError):
                 emoji_lead = 90
-            try:
-                if emoji_media_types:
-                    placeholders = ",".join("?" for _ in emoji_media_types)
-                    async with db._db.execute(
-                        f"SELECT COUNT(*) FROM emoji_puzzles WHERE enabled = 1 AND media_type IN ({placeholders})",
-                        tuple(emoji_media_types),
-                    ) as cur:
-                        pool_n = (await cur.fetchone())[0] or 0
-                else:
-                    async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles WHERE enabled = 1") as cur:
-                        pool_n = (await cur.fetchone())[0] or 0
-            except Exception:
-                pool_n = 0
+            emoji_theme, emoji_media_types, pool_n = await _choose_emoji_subject(
+                emoji_cfg, emoji_count, recent_emoji_signatures, used_emoji_signatures,
+            )
             if pool_n >= emoji_count:
                 for t in emoji_t:
                     if not _slot_free(d_iso, t, "emoji_puzzle"):
@@ -4504,20 +4671,36 @@ async def _ai_suggest_calendar(
                     break
                 poll_payload = {
                     "pre_roll_s": int(trivia_cfg["pre_roll_s"]),
-                    "theme_label": str(trivia_cfg["theme_label"]),
-                    "categories": list(trivia_cfg.get("categories") or []),
                     "question_count": int(trivia_cfg["question_count"]),
+                    "min_ready_players": int(trivia_cfg.get("min_ready_players") or 0),
                 }
+                trivia_theme, trivia_categories, trivia_pool_n = _choose_trivia_subject(
+                    trivia_cfg,
+                    int(poll_payload["question_count"]),
+                    trivia_category_counts,
+                    recent_trivia_signatures,
+                    used_trivia_signatures,
+                )
+                poll_payload["theme_label"] = trivia_theme
+                poll_payload["categories"] = trivia_categories
+                if trivia_categories and trivia_pool_n < int(poll_payload["question_count"]):
+                    errors.append(
+                        f"trivia pool too small for {trivia_categories}: {trivia_pool_n}/{poll_payload['question_count']}"
+                    )
+                    continue
+                ready_note = ""
+                if int(poll_payload.get("min_ready_players") or 0) > 0:
+                    ready_note = f" צריך לפחות {poll_payload['min_ready_players']} שחקנים שמסמנים שהם בפנים."
                 if _slot_free(d_iso, warm_t, "discussion"):
                     _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
-                                    text=f"מתחממים לטריוויה 🧠 — בעוד {warmup_offset} דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.",
+                                    text=f"מתחממים לטריוויה 🧠 — בעוד {warmup_offset} דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.{ready_note}",
                                     source="ai-fill-trivia",
                                     rationale="חימום לסיבוב טריוויה",
                                     count_as=None)
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
-                                text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
+                                text=f"🧠 סיבוב טריוויה — {poll_payload['theme_label']} ({poll_payload['question_count']} שאלות)",
                                 source="ai-fill-trivia",
-                                rationale="סיבוב טריוויה שבועי",
+                                rationale=f"נושא: {poll_payload['theme_label']} · מאגר מתאים ({trivia_pool_n} שאלות)",
                                 poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
                 break
 

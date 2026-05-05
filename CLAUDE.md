@@ -67,10 +67,10 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 
 ## Planner AI Populate Rules
 
-- Populate must always use the suggest+confirm modal flow: `/api/weekplan/ai-suggest` returns candidate rows and writes nothing; `/api/weekplan/ai-suggest-commit` inserts only the approved checked rows as drafts.
+- Populate must always use the suggest+confirm modal flow: `/api/weekplan/ai-suggest` returns candidate rows and writes nothing; `/api/weekplan/ai-suggest-commit` inserts only the approved checked rows as scheduled rows.
 - Populate must suggest a balanced content mix, not a flood of discussion questions. The budgets live in `config/settings.yaml:ai_populate.caps`; adjust those values before changing Python.
 - Day-level Populate is intentionally free: it uses schedule-configured times but does **not** restrict candidates by `schedule.*.days`. A Friday click may suggest morning, evening, discussion, trivia, emoji, facts, and weekly rows if those types are configured, enabled, routable, and free.
-- Populate must never suggest slots before the current server time. For the current day/current week, skip past dates and past times; approval should only create future drafts.
+- Populate must never suggest slots before the current server time. For the current day/current week, skip past dates and past times; approval should only create future scheduled rows.
 - Emoji Night suggestions must include a separate announcement row before the executable `emoji_puzzle` row. The lead time and subject are admin-configurable in `schedule.emoji_puzzle.{announcement_lead_minutes,theme_label,media_types}`; the runtime must use the same payload so the actual puzzle pool matches the modal subject.
 - No hardcoded slot config in code. Times come from `schedule.*`, discussion topics from `topics.discussions`, executable bot content topics from `bot_message_routing`, and trivia poll/warm-up defaults from `trivia.populate_defaults`.
 - A `discussion` suggestion with a category must commit only to `settings.yaml.topics.discussions[category]`; reject mismatches instead of silently inserting into the wrong topic.
@@ -98,6 +98,36 @@ scripts/verify-sync.sh       # exits 0 if clean and in sync, 1 on drift
 `media/covers/`, `data/`, `.env`, `.doppler/`, `backups/` are in `.gitignore` and never touched by deploys.
 
 **Never use rsync from local working tree** — it captures unstaged changes and overwrites VPS file ownership (`botson` → `endlessblink`), breaking the systemd services. Always deploy from a committed git state via `deploy.sh`.
+
+## Hermes Operator Alias
+
+Hermes can be used as a local Botson operator assistant with the project-specific playbook preloaded.
+
+Run from anywhere:
+
+```bash
+botson-hermes
+```
+
+One-off prompt example:
+
+```bash
+botson-hermes chat -q "Check Botson status. Do not deploy."
+```
+
+Alias behavior:
+- Executes from the Botson repo: `/media/endlessblink/data/my-projects/ai-development/bots+automation/botson`
+- Preloads Hermes skill: `botson-operator-playbook`
+- Wrapper path: `~/.local/bin/botson-hermes`
+- Skill path: `~/.hermes/skills/software-development/botson-operator-playbook/SKILL.md`
+
+Operating plan:
+- Use Hermes for local repo inspection, local tests, read-only diagnostics, draft code changes, and suggested verification steps.
+- Require explicit approval before deploys, pushes, Telegram sends, production game starts, prod row cancellation/deletion, prod SQLite edits, secrets changes, or broad content-validator changes.
+- Prefer production read-only diagnostics over SSH+SQL for verification.
+- Never run `botson-hermes --yolo` for Botson production work.
+- Hermes must report status precisely: local-only, tested locally, committed, pushed, deployed, verified by production diagnostics, or verified in runtime logs.
+- For planner Populate work, Hermes must preserve the suggest+confirm modal invariant and run the focused Populate tests before claiming the flow works.
 
 VPS service users:
 - `botson.service` runs as `botson` (calls `run_bot.sh` → `python -m bot.main`)
