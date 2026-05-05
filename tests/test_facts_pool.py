@@ -9,10 +9,12 @@ Run with: .venv/bin/python -m unittest tests.test_facts_pool
 """
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import yaml
 
-from bot.handlers.facts import POOLS, load_facts_pool, pick_fact
+from bot.handlers import facts as facts_handler
+from bot.handlers.facts import POOLS, format_fact_message, load_facts_pool, pick_fact
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTS_PATH = ROOT / "config" / "facts.yaml"
@@ -99,7 +101,15 @@ class FactsPoolIntegrityTests(unittest.TestCase):
             items = load_facts_pool(pool)
             self.assertTrue(items)
             for item in items:
-                self.assertEqual(set(item.keys()), {"id", "text_he", "source"})
+                self.assertTrue({"id", "text_he", "source"}.issubset(set(item.keys())))
+
+    def test_format_fact_message_includes_source(self):
+        msg = format_fact_message({
+            "text_he": "עובדה מסקרנת",
+            "source": "Journal Example (2024).",
+        })
+        self.assertIn("עובדה מסקרנת", msg)
+        self.assertIn("מקור: Journal Example (2024).", msg)
 
     def test_pick_fact_excludes_recently_sent(self):
         items = load_facts_pool("tidbit")
@@ -120,6 +130,60 @@ class FactsPoolIntegrityTests(unittest.TestCase):
     def test_pick_fact_rejects_unknown_pool(self):
         with self.assertRaises(ValueError):
             load_facts_pool("not_a_real_pool")
+
+
+class FactsSendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_send_scheduled_fact_uses_photo_with_source_when_generation_available(self):
+        class FakeDb:
+            async def get_handler_routing(self, handler):
+                return None
+
+            async def log_activity(self, *args, **kwargs):
+                return None
+
+        picked = {
+            "id": "x",
+            "text_he": "עובדה מסקרנת עם מקור",
+            "source": "Science Example (2024).",
+        }
+        with patch.object(facts_handler, "pick_fact", return_value=picked), \
+             patch.dict("os.environ", {"KIE_API_KEY": "key"}), \
+             patch("bot.utils.kie_client.generate_image_sync", new=AsyncMock(return_value=(b"img", "png"))), \
+             patch.object(facts_handler, "safe_send", new=AsyncMock()) as safe_send:
+            sent = await facts_handler.send_scheduled_fact(
+                object(), FakeDb(), pool="tidbit", chat_id=-1001, thread_id=4037,
+            )
+
+        self.assertTrue(sent)
+        safe_send.assert_awaited_once()
+        kwargs = safe_send.await_args.kwargs
+        self.assertEqual(safe_send.await_args.args[2], "send_photo")
+        self.assertIn("מקור: Science Example (2024).", kwargs["caption"])
+        self.assertEqual(kwargs["message_thread_id"], 4037)
+
+    async def test_send_scheduled_fact_falls_back_to_text_with_source(self):
+        class FakeDb:
+            async def get_handler_routing(self, handler):
+                return None
+
+            async def log_activity(self, *args, **kwargs):
+                return None
+
+        picked = {
+            "id": "x",
+            "text_he": "עובדה מסקרנת עם מקור",
+            "source": "Science Example (2024).",
+        }
+        with patch.object(facts_handler, "pick_fact", return_value=picked), \
+             patch.dict("os.environ", {}, clear=True), \
+             patch.object(facts_handler, "safe_send", new=AsyncMock()) as safe_send:
+            sent = await facts_handler.send_scheduled_fact(
+                object(), FakeDb(), pool="spooky", chat_id=-1001, thread_id=4037,
+            )
+
+        self.assertTrue(sent)
+        self.assertEqual(safe_send.await_args.args[2], "send_message")
+        self.assertIn("מקור: Science Example (2024).", safe_send.await_args.kwargs["text"])
 
 
 if __name__ == "__main__":

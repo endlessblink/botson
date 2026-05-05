@@ -15,7 +15,9 @@ live (CLAUDE.md rule: never ship Hebrew text without dashboard approval).
 from __future__ import annotations
 
 import logging
+import os
 import random
+from io import BytesIO
 from typing import Iterable
 
 from ..database.db import Database
@@ -46,7 +48,14 @@ def load_facts_pool(pool: str) -> list[dict]:
         if not (item_id and text and source):
             logger.warning("facts.yaml: skipping incomplete entry: %s", entry)
             continue
-        items.append({"id": item_id, "text_he": text, "source": source})
+        image_prompt = str(entry.get("image_prompt") or "").strip()
+        image_url = str(entry.get("image_url") or "").strip()
+        item = {"id": item_id, "text_he": text, "source": source}
+        if image_prompt:
+            item["image_prompt"] = image_prompt
+        if image_url:
+            item["image_url"] = image_url
+        items.append(item)
     return items
 
 
@@ -65,6 +74,53 @@ def pick_fact(pool: str, recently_sent_ids: Iterable[str]) -> dict | None:
         )
         return None
     return random.choice(eligible)
+
+
+def format_fact_message(fact: dict) -> str:
+    """Render a fact with visible provenance for the Telegram post."""
+    text = str(fact.get("text_he") or "").rstrip()
+    source = str(fact.get("source") or "").strip()
+    return f"{text}\n\nמקור: {source}" if source else text
+
+
+def _build_fact_image_prompt(pool: str, fact: dict) -> str:
+    explicit = str(fact.get("image_prompt") or "").strip()
+    if explicit:
+        return explicit
+    mood = "cinematic mysterious editorial illustration" if pool == "spooky" else "curious science editorial illustration"
+    text = str(fact.get("text_he") or "").replace("\n", " ").strip()
+    return (
+        f"{mood}, 16:9, no text, no letters, no logos. "
+        f"Illustrate this Hebrew Telegram post concept visually: {text[:500]}"
+    )
+
+
+def _photo_caption_with_source(fact: dict) -> str:
+    """Telegram photo captions are limited; keep source visible."""
+    text = str(fact.get("text_he") or "").strip()
+    source_line = f"מקור: {str(fact.get('source') or '').strip()}"
+    budget = 1000 - len(source_line) - 2
+    if len(text) > budget:
+        text = text[:max(0, budget - 1)].rstrip() + "…"
+    return f"{text}\n\n{source_line}"
+
+
+async def _generate_fact_image(pool: str, fact: dict) -> tuple[BytesIO, str] | None:
+    api_key = os.getenv("KIE_API_KEY", "")
+    if not api_key:
+        return None
+    try:
+        from ..utils.kie_client import generate_image_sync
+        data, ext = await generate_image_sync(
+            api_key=api_key,
+            prompt=_build_fact_image_prompt(pool, fact),
+        )
+    except Exception as e:
+        logger.warning("facts: image generation failed; falling back to text: %s", e)
+        return None
+    photo = BytesIO(data)
+    photo.name = f"facts_{fact.get('id') or pool}.{ext or 'png'}"
+    return photo, _photo_caption_with_source(fact)
 
 
 async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
@@ -93,14 +149,25 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
     if fact is None:
         return False
 
-    body = fact["text_he"].rstrip()
+    body = format_fact_message(fact)
     try:
-        await safe_send(
-            bot, db, "send_message",
-            chat_id=chat_id,
-            text=body,
-            message_thread_id=thread_id,
-        )
+        generated = await _generate_fact_image(pool, fact)
+        if generated is not None:
+            photo, caption = generated
+            await safe_send(
+                bot, db, "send_photo",
+                chat_id=chat_id,
+                photo=photo,
+                caption=caption,
+                message_thread_id=thread_id,
+            )
+        else:
+            await safe_send(
+                bot, db, "send_message",
+                chat_id=chat_id,
+                text=body,
+                message_thread_id=thread_id,
+            )
     except UnverifiedTopicError as e:
         logger.error("facts: send refused by topic guard (%s/%s): %s", chat_id, thread_id, e)
         return False

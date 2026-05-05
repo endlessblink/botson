@@ -193,6 +193,16 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             s["message_type"] == "discussion" and s["source"] == "ai-fill-emoji"
             for s in result["suggestions"]
         ))
+        emoji_announcements = [
+            s for s in result["suggestions"]
+            if s["message_type"] == "discussion" and s["source"] == "ai-fill-emoji"
+        ]
+        self.assertTrue(emoji_announcements)
+        self.assertEqual(
+            emoji_announcements[0]["topic_id"],
+            341,
+            "Emoji Night warm-up announcements must go to welcome/updates",
+        )
         trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
         self.assertTrue(trivia_rows)
         trivia_payload = json.loads(trivia_rows[0]["poll_options_json"])

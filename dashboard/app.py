@@ -4107,6 +4107,7 @@ async def _ai_suggest_calendar(
     slot_map = _gather_schedule_slot_map(settings)
     topic_ids = settings.get("topics", {}).get("discussions", {}) or {}
     goals_topic = settings.get("topics", {}).get("goals")
+    welcome_topic = settings.get("topics", {}).get("welcome")
 
     # Existing rows in window — to avoid suggesting an occupied slot
     occupied: set = set()
@@ -4564,11 +4565,12 @@ async def _ai_suggest_calendar(
                         "announcement_lead_minutes": emoji_lead,
                         "puzzle_count": emoji_count,
                     }
+                    emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     _add_suggestion(
-                        d_iso, announce_t, "discussion", topic=routed_topics["emoji_puzzle"],
+                        d_iso, announce_t, "discussion", topic=emoji_announcement_topic,
                         text=_format_emoji_announcement(game_time=t, theme_label=emoji_theme, puzzle_count=emoji_count),
                         source="ai-fill-emoji",
-                        rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night",
+                        rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night — מצטרפים ועדכונים",
                         count_as=None,
                     )
                     _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
