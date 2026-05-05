@@ -909,6 +909,46 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "Populate must always open the suggestion modal without a pre-modal browser confirm",
         )
 
+    def test_specific_day_populate_uses_date_picker(self):
+        self.assertIn(
+            'id="ai-fill-day-date"', self.html,
+            "specific-day Populate must expose a date input",
+        )
+        self.assertIn(
+            'type="date"', self.html,
+            "specific-day Populate must use a native date picker",
+        )
+        specific_day_start = self.html.index("function aiFillSpecificDay()")
+        block = self.html[specific_day_start:specific_day_start + 700]
+        self.assertIn(
+            "showPicker", block,
+            "specific-day Populate should open the date picker when supported",
+        )
+        self.assertNotIn(
+            "prompt(", block,
+            "specific-day Populate must not use a browser prompt",
+        )
+
+    def test_date_click_drawer_can_populate_selected_day(self):
+        self.assertIn(
+            'id="drawer-ai-populate-day-wrap"', self.html,
+            "date-click drawer must expose the selected-day AI populate action",
+        )
+        self.assertIn(
+            "openedFromDateClick", self.html,
+            "drawer must distinguish calendar date clicks from generic new-message opens",
+        )
+        self.assertIn(
+            "function aiPopulateDrawerDate()", self.html,
+            "selected-day drawer AI populate handler missing",
+        )
+        handler_start = self.html.index("function aiPopulateDrawerDate()")
+        block = self.html[handler_start:handler_start + 500]
+        self.assertIn(
+            "_aiSuggestFetch(iso, 'day')", block,
+            "selected-day drawer action must use the suggest+confirm day flow",
+        )
+
     def test_pool_growth_buttons_removed_from_toolbar(self):
         # Pool growth (emoji puzzles, facts) folded INTO Populate — the
         # standalone toolbar buttons must be gone. Their JS handlers stay as

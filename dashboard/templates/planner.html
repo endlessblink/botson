@@ -433,6 +433,7 @@
             <button type="button" id="ai-fill-day-btn" onclick="aiFillSpecificDay()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 ✨ מלא יום ספציפי
             </button>
+            <input type="date" id="ai-fill-day-date" onchange="aiFillSpecificDaySelected(this.value)" class="sr-only" aria-label="בחר תאריך למילוי יום ספציפי">
             <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 ✕ בטל
             </button>
@@ -523,6 +524,12 @@
         <!-- Step 1: Type Picker -->
         <div id="wizard-step-1" class="wizard-step px-5 py-4">
             <p class="text-xs text-[#71717a] mb-3">בחר סוג הודעה</p>
+            <div id="drawer-ai-populate-day-wrap" class="hidden mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div class="text-xs text-amber-100 mb-2">למלא את היום שנבחר עם AI?</div>
+                <button type="button" id="drawer-ai-populate-day-btn" onclick="aiPopulateDrawerDate()" class="w-full text-xs text-amber-200 hover:text-amber-100 border border-amber-500/40 hover:border-amber-500/70 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-2 rounded-md cursor-pointer transition-colors">
+                    ✨ מלא את היום הזה ב-AI
+                </button>
+            </div>
             <div class="grid grid-cols-2 gap-2">
                 <div class="type-card" data-type="morning" onclick="selectType('morning')">
                     <span class="type-card-emoji">🌅</span>
@@ -1009,6 +1016,7 @@ var wizardState = {
     eventLocation: '', eventMaxAttendees: null,
     editingId: null,
     openedFromDraft: false,
+    openedFromDateClick: false,
     coverPath: null, coverUrl: null,
 };
 
@@ -1806,9 +1814,22 @@ function checkConflicts() {
 }
 
 // ─── Drawer Open/Close ───
+function updateDrawerDatePopulateAction() {
+    var wrap = document.getElementById('drawer-ai-populate-day-wrap');
+    var btn = document.getElementById('drawer-ai-populate-day-btn');
+    if (!wrap || !btn) return;
+    var show = !!(wizardState.openedFromDateClick && wizardState.date);
+    wrap.classList.toggle('hidden', !show);
+    if (show) btn.textContent = '✨ מלא את ' + wizardState.date + ' ב-AI';
+}
+
 function openDrawer(date) {
     resetWizard();
-    if (date) wizardState.date = date;
+    if (date) {
+        wizardState.date = date;
+        wizardState.openedFromDateClick = true;
+    }
+    updateDrawerDatePopulateAction();
     // Close mobile sidebar if open
     var mobileOverlay = document.getElementById('mobile-overlay');
     if (mobileOverlay) mobileOverlay.classList.add('hidden');
@@ -1989,6 +2010,7 @@ function resetWizard() {
     wizardState.eventMaxAttendees = null;
     wizardState.editingId = null;
     wizardState.openedFromDraft = false;
+    wizardState.openedFromDateClick = false;
     wizardState.coverPath = null;
     wizardState.coverUrl = null;
     var coverImg = document.getElementById('cover-preview');
@@ -2054,6 +2076,7 @@ function resetWizard() {
 
     // Hide conflict warning
     document.getElementById('conflict-warning').classList.add('hidden');
+    updateDrawerDatePopulateAction();
 
     // Go to step 1
     wizardGo(1);
@@ -2795,15 +2818,37 @@ async function aiRegenerateWeek() {
 }
 
 function aiFillSpecificDay() {
-    // Default to today's date in the prompt
-    var defaultIso = todayIsoLocal();
-    var iso = prompt('תאריך לייצור (YYYY-MM-DD):', defaultIso);
+    var input = document.getElementById('ai-fill-day-date');
+    if (!input) return;
+    input.value = input.value || todayIsoLocal();
+    try {
+        if (typeof input.showPicker === 'function') {
+            input.showPicker();
+        } else {
+            input.click();
+        }
+    } catch (e) {
+        input.click();
+    }
+}
+
+function aiFillSpecificDaySelected(iso) {
     if (!iso) return;
     iso = iso.trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-        alert('תאריך לא תקין. השתמש בפורמט YYYY-MM-DD');
+        showToast('תאריך לא תקין', 'error');
         return;
     }
+    _aiSuggestFetch(iso, 'day');
+}
+
+function aiPopulateDrawerDate() {
+    var iso = wizardState.date || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        showToast('תאריך לא תקין', 'error');
+        return;
+    }
+    closeDrawer();
     _aiSuggestFetch(iso, 'day');
 }
 
