@@ -8,6 +8,7 @@ from bot.database.db import Database
 SEEDED_HANDLERS = {
     "trivia_round",
     "trivia_scheduled",
+    "trivia_warmup",
     "emoji_puzzle",
     "free_games",
     "facts_tidbit",

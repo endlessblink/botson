@@ -58,6 +58,7 @@ class Database:
             "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
             "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
             "CREATE TABLE IF NOT EXISTS bot_message_routing (handler TEXT PRIMARY KEY, play_topic_id INTEGER, teaser_topic_ids TEXT NOT NULL DEFAULT '[]', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS trivia_interest_responses (scheduled_msg_id INTEGER NOT NULL, user_id INTEGER NOT NULL, display_name TEXT, responded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (scheduled_msg_id, user_id))",
         ]
         for sql in migrations:
             try:
@@ -79,6 +80,7 @@ class Database:
         defaults = [
             ("trivia_round", 4037),
             ("trivia_scheduled", 4037),
+            ("trivia_warmup", 341),
             ("emoji_puzzle", 4037),
             ("free_games", 4037),
             ("facts_tidbit", 4037),
@@ -1461,3 +1463,40 @@ class Database:
             results = await self.get_poll_results(poll["message_id"])
             poll["options_with_counts"] = {r["option_key"]: r for r in results}
         return polls
+
+    # ── Trivia Interest Check (warm-up RSVP) ─────────────────
+
+    async def add_trivia_interest_response(
+        self, scheduled_msg_id: int, user_id: int, display_name: str
+    ) -> tuple[int, bool]:
+        """Upsert an interest response. Returns (new_total_count, already_responded)."""
+        async with self._db.execute(
+            "SELECT 1 FROM trivia_interest_responses WHERE scheduled_msg_id=? AND user_id=?",
+            (scheduled_msg_id, user_id),
+        ) as cur:
+            already = await cur.fetchone() is not None
+        await self._db.execute(
+            """INSERT INTO trivia_interest_responses (scheduled_msg_id, user_id, display_name, responded_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(scheduled_msg_id, user_id) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   responded_at = excluded.responded_at""",
+            (scheduled_msg_id, user_id, display_name, _now_il()),
+        )
+        await self._db.commit()
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id=?",
+            (scheduled_msg_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        count = int(row["n"]) if row else 1
+        return count, already
+
+    async def get_trivia_interest_responses(self, scheduled_msg_id: int) -> list[dict]:
+        """All respondents for one warm-up message."""
+        async with self._db.execute(
+            """SELECT user_id, display_name, responded_at
+               FROM trivia_interest_responses WHERE scheduled_msg_id=? ORDER BY responded_at""",
+            (scheduled_msg_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]

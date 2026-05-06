@@ -1261,7 +1261,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     if text is None:
         return None
     try:
-        routing = await db.get_handler_routing("trivia_round")
+        routing = await db.get_handler_routing("trivia_warmup")
     except Exception:
         routing = None
     announcement_topic_id = payload.get("teaser_topic_id")
@@ -1269,6 +1269,13 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         announcement_topic_id = routing["play_topic_id"]
     if announcement_topic_id is None:
         announcement_topic_id = row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"]
+
+    warmup_poll_options = json.dumps({
+        "min_ready_players": min_ready,
+        "game_time": game_time,
+        "theme_label": theme,
+    })
+
     marker = f"trivia-announcement-draft:{game_id}"
     async with db._db.execute(
         "SELECT id FROM scheduled_messages WHERE created_by = ? AND status != 'cancelled' LIMIT 1",
@@ -1280,22 +1287,24 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         await db.update_scheduled_message(
             existing_id,
             text=text,
-            message_type="custom",
+            message_type="trivia_warmup_rsvp",
             channel_topic_id=announcement_topic_id,
             target_group="main",
             scheduled_date=announcement_dt.date().isoformat(),
             scheduled_time=announcement_dt.strftime("%H:%M"),
+            poll_options=warmup_poll_options,
             status="scheduled",
         )
         return existing_id
 
     return await db.create_scheduled_message(
         text=text,
-        message_type="custom",
+        message_type="trivia_warmup_rsvp",
         channel_topic_id=announcement_topic_id,
         target_group="main",
         scheduled_date=announcement_dt.date().isoformat(),
         scheduled_time=announcement_dt.strftime("%H:%M"),
+        poll_options=warmup_poll_options,
         created_by=marker,
         status="scheduled",
     )

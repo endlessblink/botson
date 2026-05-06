@@ -604,7 +604,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
                 self.assertEqual(warmup["scheduled_time"], "21:25")
-                self.assertNotEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["channel_topic_id"], 341)
                 self.assertIn("22:00", warmup["text"])
                 self.assertIn("35 דקות", warmup["text"])
             finally:
@@ -728,7 +728,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
                 self.assertEqual(warmup["scheduled_time"], "21:25")
-                self.assertNotEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["channel_topic_id"], 341)
                 self.assertEqual(warmup["created_by"], f"trivia-announcement-draft:{game_id}")
             finally:
                 await db.close()

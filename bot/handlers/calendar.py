@@ -455,6 +455,20 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("[events] failed to attach RSVP buttons to %d: %s", msg["id"], e)
                 # Persist message_id so the RSVP handler can edit this exact message.
                 await db.update_event(event_id_for_rsvp, message_id=sent.message_id)
+            elif msg.get("message_type") == "trivia_warmup_rsvp":
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                markup = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🙋 אני בפנים!", callback_data=f"trivint_{msg['id']}"),
+                ]])
+                sent = await safe_send(
+                    bot,
+                    db,
+                    "send_message",
+                    chat_id=group_id,
+                    text=msg["text"],
+                    message_thread_id=msg.get("channel_topic_id"),
+                    reply_markup=markup,
+                )
             else:
                 poll_options = _parse_poll_options(msg.get("poll_options"))
                 if msg.get("message_type") == "poll" and len(poll_options) >= 2:

@@ -221,4 +221,13 @@ CREATE TABLE IF NOT EXISTS poll_votes (
     PRIMARY KEY (message_id, option_key, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_poll_votes_msg ON poll_votes(message_id);
+
+CREATE TABLE IF NOT EXISTS trivia_interest_responses (
+    scheduled_msg_id INTEGER NOT NULL,
+    user_id          INTEGER NOT NULL,
+    display_name     TEXT,
+    responded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (scheduled_msg_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_trivia_interest_msg ON trivia_interest_responses(scheduled_msg_id);
 """
