@@ -34,7 +34,7 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                 self.assertIn(pool, self.raw, f"facts.yaml missing pool: {pool}")
                 self.assertTrue(self.raw[pool], f"pool {pool} is empty")
 
-    def test_every_item_has_id_text_source(self):
+    def test_every_item_has_id_text_source_and_image(self):
         for pool in POOLS:
             for entry in self.raw.get(pool, []):
                 with self.subTest(pool=pool, entry=entry.get("id", "?")):
@@ -43,6 +43,11 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                     self.assertTrue(
                         entry.get("source"),
                         "EVERY fact must cite a source — bar is 'would forward to a friend'",
+                    )
+                    self.assertTrue(entry.get("source_url"), "EVERY fact must include a source URL")
+                    self.assertTrue(
+                        entry.get("image_url") or entry.get("image_prompt"),
+                        "EVERY fact must have a relevant associated image_url or image_prompt",
                     )
 
     def test_ids_unique_within_pool(self):
@@ -90,26 +95,31 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                 with self.subTest(pool=pool, id=entry.get("id")):
                     has_year = bool(year_re.search(src))
                     has_venue = any(k in src for k in venue_keywords)
+                    source_url = entry.get("source_url", "")
                     has_url = any(m in src for m in url_markers)
                     self.assertTrue(
                         has_year or has_venue or has_url,
                         f"source looks like a placeholder, not a citation: {src!r}",
                     )
+                    self.assertRegex(source_url, r"^https?://", "source_url must point to an actual source")
 
     def test_load_facts_pool_returns_normalized_dicts(self):
         for pool in POOLS:
             items = load_facts_pool(pool)
             self.assertTrue(items)
             for item in items:
-                self.assertTrue({"id", "text_he", "source"}.issubset(set(item.keys())))
+                self.assertTrue({"id", "text_he", "source", "source_url"}.issubset(set(item.keys())))
+                self.assertTrue(item.get("image_url") or item.get("image_prompt"))
 
     def test_format_fact_message_includes_source(self):
         msg = format_fact_message({
             "text_he": "עובדה מסקרנת",
             "source": "Journal Example (2024).",
+            "source_url": "https://example.org/paper",
         })
         self.assertIn("עובדה מסקרנת", msg)
         self.assertIn("מקור: Journal Example (2024).", msg)
+        self.assertIn("https://example.org/paper", msg)
 
     def test_pick_fact_excludes_recently_sent(self):
         items = load_facts_pool("tidbit")
@@ -145,6 +155,8 @@ class FactsSendTests(unittest.IsolatedAsyncioTestCase):
             "id": "x",
             "text_he": "עובדה מסקרנת עם מקור",
             "source": "Science Example (2024).",
+            "source_url": "https://example.org/paper",
+            "image_prompt": "Relevant image of the fact, no text.",
         }
         with patch.object(facts_handler, "pick_fact", return_value=picked), \
              patch.dict("os.environ", {"KIE_API_KEY": "key"}), \
@@ -159,9 +171,10 @@ class FactsSendTests(unittest.IsolatedAsyncioTestCase):
         kwargs = safe_send.await_args.kwargs
         self.assertEqual(safe_send.await_args.args[2], "send_photo")
         self.assertIn("מקור: Science Example (2024).", kwargs["caption"])
+        self.assertIn("https://example.org/paper", kwargs["caption"])
         self.assertEqual(kwargs["message_thread_id"], 4037)
 
-    async def test_send_scheduled_fact_falls_back_to_text_with_source(self):
+    async def test_send_scheduled_fact_uses_curated_image_url_with_source(self):
         class FakeDb:
             async def get_handler_routing(self, handler):
                 return None
@@ -173,6 +186,8 @@ class FactsSendTests(unittest.IsolatedAsyncioTestCase):
             "id": "x",
             "text_he": "עובדה מסקרנת עם מקור",
             "source": "Science Example (2024).",
+            "source_url": "https://example.org/paper",
+            "image_url": "https://example.org/relevant-image.jpg",
         }
         with patch.object(facts_handler, "pick_fact", return_value=picked), \
              patch.dict("os.environ", {}, clear=True), \
@@ -182,9 +197,48 @@ class FactsSendTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(sent)
-        self.assertEqual(safe_send.await_args.args[2], "send_message")
-        self.assertIn("מקור: Science Example (2024).", safe_send.await_args.kwargs["text"])
+        self.assertEqual(safe_send.await_args.args[2], "send_photo")
+        self.assertEqual(safe_send.await_args.kwargs["photo"], "https://example.org/relevant-image.jpg")
+        self.assertIn("מקור: Science Example (2024).", safe_send.await_args.kwargs["caption"])
+        self.assertIn("https://example.org/paper", safe_send.await_args.kwargs["caption"])
+
+    async def test_send_scheduled_fact_skips_when_no_image_can_be_resolved(self):
+        class FakeDb:
+            async def get_handler_routing(self, handler):
+                return None
+
+            async def log_activity(self, *args, **kwargs):
+                raise AssertionError("activity should not be logged for skipped fact")
+
+        picked = {
+            "id": "x",
+            "text_he": "עובדה מסקרנת עם מקור",
+            "source": "Science Example (2024).",
+            "source_url": "https://example.org/paper",
+            "image_prompt": "Relevant image of the fact, no text.",
+        }
+        with patch.object(facts_handler, "pick_fact", return_value=picked), \
+             patch.dict("os.environ", {}, clear=True), \
+             patch.object(facts_handler, "safe_send", new=AsyncMock()) as safe_send:
+            sent = await facts_handler.send_scheduled_fact(
+                object(), FakeDb(), pool="spooky", chat_id=-1001, thread_id=4037,
+            )
+
+        self.assertFalse(sent)
+        safe_send.assert_not_awaited()
+
+    def test_loader_drops_fact_without_source_url_or_image(self):
+        sample = {
+            "tidbit": [
+                {"id": "no_source_url", "text_he": "עובדה בעברית מספיק ארוכה לבדיקה", "source": "Science Example (2024).", "image_prompt": "Relevant image"},
+                {"id": "no_image", "text_he": "עובדה בעברית מספיק ארוכה לבדיקה", "source": "Science Example (2024).", "source_url": "https://example.org/paper"},
+                {"id": "ok", "text_he": "עובדה בעברית מספיק ארוכה לבדיקה", "source": "Science Example (2024).", "source_url": "https://example.org/paper", "image_prompt": "Relevant image"},
+            ]
+        }
+        with patch.object(facts_handler, "load_yaml", return_value=sample):
+            self.assertEqual([item["id"] for item in load_facts_pool("tidbit")], ["ok"])
 
 
 if __name__ == "__main__":
     unittest.main()
+

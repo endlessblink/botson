@@ -32,8 +32,9 @@ DEFAULT_COOLDOWN_DAYS = 60  # don't repeat the same fact within ~2 months
 
 def load_facts_pool(pool: str) -> list[dict]:
     """Return the list of items from config/facts.yaml for the given pool.
-    Items missing required fields are dropped with a warning — the YAML is
-    hand-edited and a typo shouldn't crash the round."""
+    Items missing required citation/image fields are dropped with a warning —
+    the YAML is hand-edited and a typo shouldn't crash the round or publish
+    an uncited / imageless fact."""
     if pool not in POOLS:
         raise ValueError(f"unknown facts pool: {pool!r} (allowed: {POOLS})")
     data = load_yaml("facts.yaml") or {}
@@ -45,12 +46,13 @@ def load_facts_pool(pool: str) -> list[dict]:
         item_id = str(entry.get("id") or "").strip()
         text = str(entry.get("text_he") or "").strip()
         source = str(entry.get("source") or "").strip()
-        if not (item_id and text and source):
-            logger.warning("facts.yaml: skipping incomplete entry: %s", entry)
-            continue
+        source_url = str(entry.get("source_url") or "").strip()
         image_prompt = str(entry.get("image_prompt") or "").strip()
         image_url = str(entry.get("image_url") or "").strip()
-        item = {"id": item_id, "text_he": text, "source": source}
+        if not (item_id and text and source and source_url and (image_prompt or image_url)):
+            logger.warning("facts.yaml: skipping incomplete entry: %s", entry)
+            continue
+        item = {"id": item_id, "text_he": text, "source": source, "source_url": source_url}
         if image_prompt:
             item["image_prompt"] = image_prompt
         if image_url:
@@ -80,7 +82,12 @@ def format_fact_message(fact: dict) -> str:
     """Render a fact with visible provenance for the Telegram post."""
     text = str(fact.get("text_he") or "").rstrip()
     source = str(fact.get("source") or "").strip()
-    return f"{text}\n\nמקור: {source}" if source else text
+    source_url = str(fact.get("source_url") or "").strip()
+    if source and source_url:
+        return f"{text}\n\nמקור: {source}\n{source_url}"
+    if source:
+        return f"{text}\n\nמקור: {source}"
+    return text
 
 
 def _build_fact_image_prompt(pool: str, fact: dict) -> str:
@@ -98,7 +105,9 @@ def _build_fact_image_prompt(pool: str, fact: dict) -> str:
 def _photo_caption_with_source(fact: dict) -> str:
     """Telegram photo captions are limited; keep source visible."""
     text = str(fact.get("text_he") or "").strip()
-    source_line = f"מקור: {str(fact.get('source') or '').strip()}"
+    source = str(fact.get('source') or '').strip()
+    source_url = str(fact.get('source_url') or '').strip()
+    source_line = f"מקור: {source}\n{source_url}" if source_url else f"מקור: {source}"
     budget = 1000 - len(source_line) - 2
     if len(text) > budget:
         text = text[:max(0, budget - 1)].rstrip() + "…"
@@ -116,11 +125,26 @@ async def _generate_fact_image(pool: str, fact: dict) -> tuple[BytesIO, str] | N
             prompt=_build_fact_image_prompt(pool, fact),
         )
     except Exception as e:
-        logger.warning("facts: image generation failed; falling back to text: %s", e)
+        logger.warning("facts: image generation failed; skipping fact with no image: %s", e)
         return None
     photo = BytesIO(data)
     photo.name = f"facts_{fact.get('id') or pool}.{ext or 'png'}"
     return photo, _photo_caption_with_source(fact)
+
+
+async def _resolve_fact_photo(pool: str, fact: dict) -> tuple[object, str] | None:
+    """Return a send_photo payload or None when no relevant image exists.
+
+    Facts must never be pushed as text-only. A curator can attach an explicit
+    image_url, or provide image_prompt and rely on configured image generation.
+    """
+    image_url = str(fact.get("image_url") or "").strip()
+    if image_url:
+        return image_url, _photo_caption_with_source(fact)
+    if not str(fact.get("image_prompt") or "").strip():
+        logger.warning("facts: skipping %s because it has no associated image", fact.get("id"))
+        return None
+    return await _generate_fact_image(pool, fact)
 
 
 async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
@@ -149,25 +173,18 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
     if fact is None:
         return False
 
-    body = format_fact_message(fact)
     try:
-        generated = await _generate_fact_image(pool, fact)
-        if generated is not None:
-            photo, caption = generated
-            await safe_send(
-                bot, db, "send_photo",
-                chat_id=chat_id,
-                photo=photo,
-                caption=caption,
-                message_thread_id=thread_id,
-            )
-        else:
-            await safe_send(
-                bot, db, "send_message",
-                chat_id=chat_id,
-                text=body,
-                message_thread_id=thread_id,
-            )
+        resolved_photo = await _resolve_fact_photo(pool, fact)
+        if resolved_photo is None:
+            return False
+        photo, caption = resolved_photo
+        await safe_send(
+            bot, db, "send_photo",
+            chat_id=chat_id,
+            photo=photo,
+            caption=caption,
+            message_thread_id=thread_id,
+        )
     except UnverifiedTopicError as e:
         logger.error("facts: send refused by topic guard (%s/%s): %s", chat_id, thread_id, e)
         return False

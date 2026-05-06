@@ -124,6 +124,17 @@ schedule:
     times:
     - '18:00'
     - '21:00'
+  daily_activity_digest:
+    enabled: true
+    days:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    time: 09:30
   emoji_puzzle:
     days: []
     time: '22:00'

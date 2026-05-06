@@ -11,9 +11,11 @@
 #   tidbit  → weekday "did you know" slot
 #   spooky  → Saturday-night / Friday-night atmospheric slot
 #
-# Add new items at the bottom of each category. Don't auto-generate from
-# an LLM — every entry should have a citable source. Items without `source`
-# are rejected by tests/test_facts_pool.py.
+# Add new items at the bottom of each category. Don't auto-generate facts
+# from an LLM — every entry must have a visible citation (`source`), an
+# actual source URL (`source_url`), and a relevant image association
+# (`image_url` or `image_prompt`). Items missing any of these are skipped by
+# the runtime and rejected by tests/test_facts_pool.py.
 
 tidbit:
   - id: marmoset_names
@@ -22,6 +24,8 @@ tidbit:
       הם משתמשים בקריאות "פי" ספציפיות כדי לפנות לפרט מסוים — וענו אחרת כשהקריאה הייתה מופנית אליהם.
       עד אז ידעו רק על בני אדם, דולפינים ופילים שעושים את זה.
     source: "Oren et al., Science (2024). David Omer lab, Safra Center for Brain Sciences, Hebrew University."
+    source_url: "https://www.science.org/doi/10.1126/science.adp3757"
+    image_prompt: "Relevant editorial image of two common marmosets vocalizing to each other in a research setting, warm natural colors, documentary science style, no text, no logos."
 
   - id: roman_concrete_self_healing
     text_he: |
@@ -29,6 +33,8 @@ tidbit:
       מחקר של MIT והרווארד (2023) הראה שכשמופיע סדק זעיר, הסיד מגיב למים שחודרים פנימה ויוצר גביש סידן שסותם אותו תוך ימים.
       הבטון מתקן את עצמו.
     source: "Seymour et al., 'Hot Mixing: Mechanistic Insights into the Durability of Ancient Roman Concrete', Science Advances (2023)."
+    source_url: "https://www.science.org/doi/10.1126/sciadv.add1602"
+    image_prompt: "Relevant editorial image of ancient Roman concrete with lime clasts sealing a hairline crack as water enters, archaeological macro detail, no text, no logos."
 
   - id: octopus_active_sleep
     text_he: |
@@ -36,6 +42,8 @@ tidbit:
       החוקרים זיהו שהתבניות הללו כמעט זהות לתבניות שהתמנונים מציגים בערות.
       ייתכן — והדגש על ייתכן — שאנחנו רואים תמנון חולם.
     source: "Pophale et al., 'Wake-like skin patterning and neural activity during octopus sleep', Nature (2023)."
+    source_url: "https://www.nature.com/articles/s41586-023-05891-6"
+    image_prompt: "Relevant editorial image of an octopus sleeping while its skin patterns and colors change, underwater documentary style, no text, no logos."
 
   - id: heart_cockle_fiber_optics
     text_he: |
@@ -43,6 +51,8 @@ tidbit:
       בקליפה שלה יש "חלונות" זעירים ממינרל קלציט שמעבירים אור שמש פנימה לאצות פוטוסינתטיות שחיות בה.
       הצדפה עצמה נשארת מוגנת מתחת — זה אקווריום סולארי טבעי בן עשרות מיליוני שנים.
     source: "Li et al., 'Photonic structures in cardiid bivalves', Nature Communications (2024)."
+    source_url: "https://www.nature.com/articles/s41467-024-48819-6"
+    image_prompt: "Relevant editorial image of a heart cockle shell with translucent calcite windows channeling sunlight to algae, marine science macro, no text, no logos."
 
   - id: voynich_hidden_columns
     text_he: |
@@ -50,6 +60,8 @@ tidbit:
       התגלו שני טורי אותיות סמויים בעמוד הראשון, שנכתבו ככל הנראה ע"י בעליו במאה ה-17, יוהאנס מרקוס מרצי, רופא בפראג.
       ניסיון פענוח שכשל — כפי הנראה הראשון בכתב.
     source: "Lisa Fagin Davis (Manuscript Road Trip blog), multispectral imaging analysis (Sept 2024). Yale Beinecke Library MS 408."
+    source_url: "https://beinecke.library.yale.edu/article/voynich-manuscript"
+    image_prompt: "Relevant editorial image of a multispectral imaging setup examining the Voynich manuscript first page, medieval manuscript texture, no readable text, no logos."
 
   - id: dead_sea_scrolls_discovery
     text_he: |
@@ -57,6 +69,8 @@ tidbit:
       הוא זרק אבן לתוך מערה — ושמע שבירת חרס.
       בפנים נמצאו שבע מגילות עוטפות בפשתן בתוך כדים אטומים. אלה היו מגילות ים המלח, מהטקסטים העתיקים ביותר ששרדו מהמקרא, חבויים שם 2,000 שנה.
     source: "Library of Congress 'Scrolls from the Dead Sea' exhibition; deadseascrolls.org.il discovery archive."
+    source_url: "https://www.loc.gov/exhibits/scrolls/"
+    image_prompt: "Relevant editorial image of clay jars in a desert cave near the Dead Sea with linen-wrapped scrolls, archaeological documentary style, no text, no logos."
 
   - id: lascaux_seasonal_order
     text_he: |
@@ -64,6 +78,8 @@ tidbit:
       זה לא היה אוסף אקראי, זו הייתה מערכת.
       תיאוריה אחת קושרת חלק מהציורים לקבוצת כוכבים שנראתה אז בשמיים — כולל הפליאדות.
     source: "Lascaux interpretation guides, Ministry of Culture France (archeologie.culture.gouv.fr/lascaux). Multiple seasonal-order analyses."
+    source_url: "https://archeologie.culture.gouv.fr/lascaux/en"
+    image_prompt: "Relevant editorial image inspired by Lascaux cave paintings arranged as seasonal animals under a prehistoric night sky, no modern text, no logos."
 
   - id: pakal_sarcophagus_real_meaning
     text_he: |
@@ -71,6 +87,8 @@ tidbit:
       פיענוח אקדמי של האייקונוגרפיה מראה משהו אחר לגמרי: רגע מותו של פאקאל, ונפילתו אל העולם התחתון, מוקף בעץ-עולם וסימני שמש, ירח וכוכבים.
       קוסמולוגיה מאיה קלאסית, לא חליפת חלל.
     source: "Wikipedia 'Kʼinich Janaabʼ Pakal' summary of consensus epigraphy; National Geographic Palenque coverage."
+    source_url: "https://en.wikipedia.org/wiki/K%CA%BCinich_Janaab%CA%BC_Pakal"
+    image_prompt: "Relevant editorial image of the Palenque sarcophagus lid iconography with the Maya world tree and underworld symbolism, museum documentation style, no text, no logos."
 
   - id: pormpuraaw_cardinal
     text_he: |
@@ -78,6 +96,8 @@ tidbit:
       במקום זה משתמשים תמיד בכיווני שמיים: צפון, דרום, מזרח, מערב.
       התוצאה — דוברי השפה תמיד יודעים, באופן מיידי, איפה הצפון. גם בחדר חשוך, גם אחרי טיסה.
     source: "Lera Boroditsky, 'How Language Shapes Thought', Scientific American (2011). Original fieldwork: Levinson, Cognition (1997)."
+    source_url: "https://www.scientificamerican.com/article/how-language-shapes-thought/"
+    image_prompt: "Relevant editorial image of an Aboriginal Australian speaker navigating by cardinal directions in an open landscape, compass-like light cues, no text, no logos."
 
   - id: ashurbanipal_library
     text_he: |
@@ -85,6 +105,8 @@ tidbit:
       30,000 לוחות חרס שורדים, וביניהם הגרסה השלמה ביותר של עלילות גילגמש.
       היא נשרפה כשנינוה נפלה ב-612 לפנה"ס — והאש אפתה את הלוחות לתוך נצח, וכך שרדו.
     source: "British Museum Ashurbanipal collection; Frame & George, 'The Royal Libraries of Nineveh' (Iraq, 2005)."
+    source_url: "https://www.britishmuseum.org/collection/term/BIOG58120"
+    image_prompt: "Relevant editorial image of Assyrian clay tablets from Ashurbanipal library in Nineveh, warm museum lighting, no text, no logos."
 
 spooky:
   - id: dybbuk_origin
@@ -92,6 +114,8 @@ spooky:
       הדיבוק — נשמה של מת שלא עברה הלאה ונכנסה לגוף של אדם חי — הוא יצור פולקלורי שמופיע בכתבים יהודיים מהמאה ה-16 והלאה, במקביל לעליית הקבלה במזרח אירופה.
       פרופ' יוסי חיות' מאוניברסיטת חיפה (מרכז למחקר תרבויות יהודיות) מצביע על מקור יידישאי במילה עצמה, וכמעט תמיד הקורבן בסיפורים — אישה צעירה.
     source: "Yossi Chajes interview, Atlas Obscura (2018); 'The Power of a Tale: Stories from the Israel Folktale Archives' (Wayne State Univ. Press, 2019)."
+    source_url: "https://www.atlasobscura.com/articles/what-is-a-dybbuk"
+    image_prompt: "Relevant atmospheric editorial image of old Jewish folklore manuscripts and a shadowy figure in candlelight, respectful historical style, no text, no logos."
 
   - id: voynich_unread
     text_he: |
@@ -99,6 +123,8 @@ spooky:
       הטקסט נכתב בשפה לא ידועה, באלפבית לא ידוע, על קלף שמתוארך פחמנית למאה ה-15.
       600 שנה. מתמטיקאים, קריפטוגרפים של MI6 ו-NSA, אקדמאים. אף אחד לא קרא מילה.
     source: "Yale Beinecke Library MS 408. Multiple cipher attempts documented; Lisa Fagin Davis, Cipher Mysteries blog."
+    source_url: "https://collections.library.yale.edu/catalog/2002046"
+    image_prompt: "Relevant editorial image of the Voynich manuscript open to botanical and astronomical diagrams in a rare book library, no readable text, no logos."
 
   - id: dyatlov_pass
     text_he: |
@@ -106,18 +132,24 @@ spooky:
       לחלקם נמצאו שברים פנימיים בלי פציעה חיצונית, לאחת חסר היה הלשון. החקירה הסובייטית סגרה את התיק תחת "כוח טבע לא ידוע".
       ב-2021 מודל פיזיקלי משוויצריה הראה שמפולת שלג בלתי-רגילה במדרון שטוח דווקא יכולה להסביר את הפציעות. רוב הפרטים האחרים — עדיין לא.
     source: "Gaume & Puzrin, 'Mechanisms of slab avalanche release', Communications Earth & Environment (Nature, 2021); original Soviet inquest transcripts."
+    source_url: "https://www.nature.com/articles/s43247-020-00081-8"
+    image_prompt: "Relevant atmospheric editorial image of a torn expedition tent on a snowy Ural mountain pass at night, documentary mystery style, no text, no logos."
 
   - id: jerusalem_montefiore_ghost
     text_he: |
       בכיכר הטחנה בירושלים — מול משכנות שאננים שהקים משה מונטיפיורי במאה ה-19 — דיווחו תושבים לאורך עשרות שנים על דמותו של מונטיפיורי עומדת ליד כרכרתו הישנה בלילות.
       ב-1986 הכרכרה נשרפה כליל בהצתה. מאז — אין דיווחים נוספים על הצללית.
     source: "Jerusalem Post, 'Ghosts of Jerusalem' (Oct 2021); local oral tradition collected by Aardvark Israel."
+    source_url: "https://aardvarkisrael.com/ghost-stories-in-jerusalem/"
+    image_prompt: "Relevant atmospheric editorial image of the Montefiore windmill and carriage area in Jerusalem at night with a subtle historical silhouette, no text, no logos."
 
   - id: ari_sefardi_tzfat
     text_he: |
       בית הכנסת האר"י הספרדי בצפת בנוי ממש בקצה בית הקברות העתיק של העיר — קברי הקבליסטים של המאה ה-16, כולל האר"י ז"ל עצמו.
       מאות שנים של סיפורים על קולות תפילה ריקים שנשמעים בלילה מהאולם, על נרות שנדלקים בלי יד, ועל מבקרים שמספרים שראו דמות לבושה לבן יושבת באחד הספסלים אחרי הסגירה.
     source: "Safed-home.com historical records; Tzfat municipal heritage tour materials."
+    source_url: "https://en.wikipedia.org/wiki/Ari_Ashkenazi_Synagogue"
+    image_prompt: "Relevant atmospheric editorial image of an old stone synagogue in Safed near an ancient cemetery at night, candlelit folklore mood, no text, no logos."
 
   - id: hum_phenomenon
     text_he: |
@@ -125,6 +157,8 @@ spooky:
       צוותים מ-Los Alamos, מאוניברסיטת ניו מקסיקו ומ-Sandia ניסו למצוא מקור — ולא מצאו.
       חלק מהשומעים אומרים שזה גרם להם לאי-שינה כרוני. לא ברור אם זה תופעה אקוסטית, נוירולוגית, או שניהם.
     source: "Wikipedia 'The Hum' summary; original Taos Hum study by Mullins & Kelly, Los Alamos (1993); ongoing reports at thehum.info."
+    source_url: "https://en.wikipedia.org/wiki/The_Hum"
+    image_prompt: "Relevant editorial image of a quiet town at night visualized with low-frequency sound waves and a sleepless window, no text, no logos."
 
   - id: machane_yehuda_exorcism
     text_he: |
@@ -132,6 +166,8 @@ spooky:
       כביכול בוערות להבות יצאו מבוהן רגלה כשהדיבוק עזב.
       אין תיעוד רשמי. רק אנשים שהיו שם, שמספרים את אותו הסיפור עם אותם פרטים, כבר 30 שנה.
     source: "Aardvark Israel 'Jerusalem Ghost Stories' (collected oral history). No official documentation — included as classic urban-legend material with the source flagged."
+    source_url: "https://aardvarkisrael.com/ghost-stories-in-jerusalem/"
+    image_prompt: "Relevant atmospheric editorial image of Jerusalem Mahane Yehuda market after closing with folklore shadows and warm lamps, no text, no logos."
 
   - id: lilith_first_wife
     text_he: |
@@ -139,3 +175,6 @@ spooky:
       היא הפכה אז לדמות של שדת לידה שתוקפת תינוקות בלילה.
       לא בתורה, לא במשנה. רק בפולקלור — ועדיין נמצאת בקמיעות נגד עין הרע מהמאה ה-19 ברחבי העולם היהודי.
     source: "Alphabet of Ben Sira (medieval midrashic text); Raphael Patai, 'The Hebrew Goddess' (Wayne State Univ. Press, 1990)."
+    source_url: "https://jwa.org/encyclopedia/article/lilith"
+    image_prompt: "Relevant editorial image of medieval Jewish amulets and Lilith folklore motifs in a manuscript-inspired composition, respectful historical style, no text, no logos."
+

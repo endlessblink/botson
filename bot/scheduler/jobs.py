@@ -60,6 +60,7 @@ def setup_jobs(app: Application) -> None:
     from ..handlers.events import send_event_reminder
     from ..handlers.emoji_puzzle import reveal_unsolved_rounds_job, send_scheduled_emoji_night
     from ..handlers.free_games import send_free_games
+    from ..handlers.daily_activity_digest import send_daily_activity_digest
 
     jq = app.job_queue
     if not jq:
@@ -104,6 +105,19 @@ def setup_jobs(app: Application) -> None:
             days=fg_days,
             name="free_games",
         )
+
+    # ── Daily announcement-channel schedule digest ──
+    digest = _parse_schedule(schedule.get("daily_activity_digest", {"time": "09:30", "days": [0, 1, 2, 3, 4, 5, 6]}))
+    if digest.get("enabled", True):
+        digest_time = _parse_time(digest.get("time", "09:30"))
+        digest_days = _hebrew_to_python_days(digest.get("days", [0, 1, 2, 3, 4, 5, 6]))
+        if digest_days:
+            jq.run_daily(
+                send_daily_activity_digest,
+                time=digest_time,
+                days=digest_days,
+                name="daily_activity_digest",
+            )
 
     # ── Event reminders — daily at 09:00 ──
     jq.run_daily(
