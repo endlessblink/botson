@@ -10,9 +10,11 @@ import re
 import secrets
 import signal
 import time
+import html
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -2231,7 +2233,7 @@ async def create_puzzle(request: Request, db: Database = Depends(get_db)):
         answer_en=answer_en,
         aliases=json.dumps(aliases, ensure_ascii=False),
         difficulty=int(data.get("difficulty", 2) or 2),
-        media_type=str(data.get("media_type") or "movie").strip() or "movie",
+        media_type=str(data.get("media_type") or "general").strip() or "general",
     )
     if "enabled" in data:
         await db.update_emoji_puzzle(puzzle_id, enabled=1 if data.get("enabled") else 0)
@@ -2290,7 +2292,7 @@ async def save_puzzle_schedule(request: Request):
         "groups": [str(g) for g in data.get("groups", []) if str(g) in ("main", "test")],
     }
     existing_emoji_schedule = settings.get("schedule", {}).get("emoji_puzzle", {}) or {}
-    media_types_raw = data.get("media_types", existing_emoji_schedule.get("media_types", ["movie", "tv"]))
+    media_types_raw = data.get("media_types", existing_emoji_schedule.get("media_types", []))
     if isinstance(media_types_raw, str):
         media_types = [x.strip() for x in media_types_raw.split(",") if x.strip()]
     else:
@@ -2299,7 +2301,7 @@ async def save_puzzle_schedule(request: Request):
         "days": [int(d) for d in data.get("days", [])],
         "time": str(data.get("time") or "22:00").strip() or "22:00",
         "announcement_lead_minutes": int(data.get("announcement_lead_minutes") or existing_emoji_schedule.get("announcement_lead_minutes") or 90),
-        "theme_label": str(data.get("theme_label") or existing_emoji_schedule.get("theme_label") or "סרטים וסדרות").strip() or "סרטים וסדרות",
+        "theme_label": str(data.get("theme_label") or existing_emoji_schedule.get("theme_label") or "").strip(),
         "media_types": media_types,
         "puzzle_count": int(data.get("puzzle_count") or 5),
         "interval_seconds": int(data.get("interval_seconds") or 20),
@@ -2383,7 +2385,7 @@ async def start_trivia_round(request: Request, db: Database = Depends(get_db)):
     teaser_text = data.get("teaser_text")
     teaser_text = str(teaser_text).strip() if teaser_text else None
     topic_verification_source = str(data.get("topic_verification_source") or "").strip()
-    theme_label = str(data.get("theme_label") or "").strip() or "ישראל"
+    theme_label = str(data.get("theme_label") or "").strip()
     raw_categories = data.get("categories") or []
     if isinstance(raw_categories, str):
         categories = [part.strip() for part in raw_categories.split(",") if part.strip()]
@@ -4402,21 +4404,21 @@ async def _ai_suggest_calendar(
                                     used_signatures: set[tuple[str, ...]]) -> tuple[str, list[str], int]:
         configured = [str(x).strip() for x in (emoji_cfg.get("media_types") or []) if str(x).strip()]
         if not configured:
-            configured = ["movie", "series"]
+            return "", [], 0
         configured = ["series" if x == "tv" else x for x in configured]
         configured = list(dict.fromkeys(configured))
         labels = {"movie": "סרטים", "series": "סדרות", "tv": "סדרות"}
         choices: list[tuple[str, list[str], int, tuple[str, ...]]] = []
         for media in configured:
             pool_n = await _count_emoji_pool([media])
-            if pool_n >= puzzle_count:
+            if pool_n > 0:
                 sig = _emoji_media_signature([media])
                 choices.append((labels.get(media, str(emoji_cfg.get("theme_label") or media)), [media], pool_n, sig))
         if not choices:
             pool_n = await _count_emoji_pool(configured)
             if pool_n >= puzzle_count:
                 sig = _emoji_media_signature(configured)
-                label = str(emoji_cfg.get("theme_label") or "סרטים וסדרות").strip() or "סרטים וסדרות"
+                label = str(emoji_cfg.get("theme_label") or " + ".join(configured)).strip()
                 choices.append((label, configured, pool_n, sig))
         if not choices:
             return "", [], 0
@@ -4426,7 +4428,7 @@ async def _ai_suggest_calendar(
             key=lambda c: (
                 c[3] == newest,
                 c[3] in used_signatures,
-                recent_signatures.index(c[3]) if c[3] in recent_signatures else -1,
+                (recent_signatures.index(c[3]) + 1) if c[3] in recent_signatures else 0,
                 random.random(),
             ),
         )
@@ -4500,13 +4502,26 @@ async def _ai_suggest_calendar(
                 c[3] == newest,
                 c[3] in used_signatures,
                 recent_signatures.index(c[3]) if c[3] in recent_signatures else -1,
-                -c[2],
                 random.random(),
             ),
         )
         theme, categories, count, sig = ranked[0]
         used_signatures.add(sig)
         return theme, categories, count
+
+    def _preview_url(kind: str, **params) -> str:
+        clean = {k: v for k, v in params.items() if v not in (None, "", [])}
+        clean["kind"] = kind
+        return "/planner/suggestion-preview?" + urlencode(clean, doseq=True)
+
+    def _first_fact_preview(pool: str) -> dict | None:
+        try:
+            for item in (load_yaml("facts.yaml") or {}).get(pool) or []:
+                if isinstance(item, dict) and item.get("id") and item.get("text_he"):
+                    return item
+        except Exception:
+            return None
+        return None
 
     trivia_category_counts = _trivia_category_counts()
     recent_trivia_signatures = await _recent_trivia_signatures()
@@ -4529,6 +4544,7 @@ async def _ai_suggest_calendar(
                         source: str, rationale: str, category: str | None = None,
                         poll_options_json: str | None = None,
                         validation_failures: list | None = None,
+                        preview_url: str | None = None,
                         count_as: str | None = "__self__") -> None:
         if not _slot_future(d_iso, t):
             return
@@ -4544,6 +4560,7 @@ async def _ai_suggest_calendar(
             "rationale": rationale,
             "source": source,
             "poll_options_json": poll_options_json,
+            "preview_url": preview_url,
             "validation_failures": validation_failures or [],
         })
         if count_as == "__self__":
@@ -4679,6 +4696,12 @@ async def _ai_suggest_calendar(
                                     text="[internal:emoji_puzzle]",
                                     source="ai-fill-pool-row",
                                     rationale=f"נושא: {emoji_theme} · מאגר מתאים ({pool_n} פריטים)",
+                                    preview_url=_preview_url(
+                                        "emoji_puzzle",
+                                        theme=emoji_theme,
+                                        media=emoji_media_types,
+                                        count=emoji_count,
+                                    ),
                                     poll_options_json=json.dumps(payload, ensure_ascii=False))
                     break
 
@@ -4693,11 +4716,13 @@ async def _ai_suggest_calendar(
             for t in tidbit_t:
                 if not _slot_free(d_iso, t, "facts_tidbit"):
                     continue
+                preview_fact = _first_fact_preview("tidbit")
                 rationale = f"מאגר עובדות פעיל ({tn} פריטים)" if tn > 0 else "סלוט עובדה פנוי"
                 _add_suggestion(d_iso, t, "facts_tidbit", topic=routed_topics["facts_tidbit"],
-                                text="[internal:facts_tidbit]",
+                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else "[internal:facts_tidbit]"),
                                 source="ai-fill-pool-row",
-                                rationale=rationale)
+                                rationale=rationale,
+                                preview_url=(_preview_url("facts_tidbit", id=preview_fact.get("id")) if preview_fact else None))
                 break
 
         # Facts spooky (max 1)
@@ -4711,11 +4736,13 @@ async def _ai_suggest_calendar(
             for t in spooky_t:
                 if not _slot_free(d_iso, t, "facts_spooky"):
                     continue
+                preview_fact = _first_fact_preview("spooky")
                 rationale = f"מאגר ספוקי פעיל ({sn} פריטים)" if sn > 0 else "סלוט סיפור מסתורי פנוי"
                 _add_suggestion(d_iso, t, "facts_spooky", topic=routed_topics["facts_spooky"],
-                                text="[internal:facts_spooky]",
+                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else "[internal:facts_spooky]"),
                                 source="ai-fill-pool-row",
-                                rationale=rationale)
+                                rationale=rationale,
+                                preview_url=(_preview_url("facts_spooky", id=preview_fact.get("id")) if preview_fact else None))
                 break
 
         # Free games / live weekly bot-generated rows.
@@ -4821,6 +4848,12 @@ async def _ai_suggest_calendar(
                                 text="[internal:trivia_round]",
                                 source="ai-fill-trivia",
                                 rationale=f"נושא: {poll_payload['theme_label']} · מאגר מתאים ({trivia_pool_n} שאלות)",
+                                preview_url=_preview_url(
+                                    "trivia_round",
+                                    theme=poll_payload["theme_label"],
+                                    categories=poll_payload["categories"],
+                                    count=poll_payload["question_count"],
+                                ),
                                 poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
                 break
 
@@ -9018,8 +9051,83 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "grouped_channels": grouped_channels,
         "verified_topics": verified_topics,
         "trivia_default_play": trivia_default_play,
+        "trivia_populate_defaults": (settings_obj.get("trivia") or {}).get("populate_defaults") or {},
         "trivia_current_questions_text": trivia_current_questions_text,
     })
+
+
+@app.get("/planner/suggestion-preview", response_class=HTMLResponse)
+async def planner_suggestion_preview(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    qp = request.query_params
+    kind = str(qp.get("kind") or "").strip()
+    title = kind
+    body = ""
+
+    if kind in {"facts_tidbit", "facts_spooky"}:
+        pool = "tidbit" if kind == "facts_tidbit" else "spooky"
+        wanted_id = str(qp.get("id") or "").strip()
+        item = None
+        for candidate in (load_yaml("facts.yaml") or {}).get(pool) or []:
+            if isinstance(candidate, dict) and str(candidate.get("id") or "") == wanted_id:
+                item = candidate
+                break
+        if not item:
+            raise HTTPException(status_code=404, detail="preview fact not found")
+        title = "עובדה מעניינת" if pool == "tidbit" else "סיפור מסתורי"
+        image_url = str(item.get("image_url") or "").strip()
+        image_prompt = str(item.get("image_prompt") or "").strip()
+        image_block = f'<img src="{html.escape(image_url)}" alt="" class="preview-img">' if image_url else ""
+        if not image_block and image_prompt:
+            image_block = f'<div class="image-prompt">Image prompt:<br>{html.escape(image_prompt)}</div>'
+        text_html = html.escape(str(item.get("text_he") or "")).replace(chr(10), "<br>")
+        source = html.escape(str(item.get("source") or ""))
+        source_url = html.escape(str(item.get("source_url") or ""))
+        body = image_block + f'<div class="post-text">{text_html}</div><div class="source">מקור: {source}<br><a href="{source_url}" target="_blank" rel="noopener">{source_url}</a></div>'
+    elif kind == "emoji_puzzle":
+        media = [str(x).strip() for x in qp.getlist("media") if str(x).strip()]
+        aliases = []
+        for m in media:
+            aliases.extend(["tv", "series"] if m in {"tv", "series"} else [m])
+        title = f"Emoji Night — {qp.get('theme') or 'נושא'}"
+        rows = []
+        if aliases:
+            placeholders = ",".join("?" for _ in aliases)
+            async with db._db.execute(
+                f"SELECT emoji_prompt, answer_he, media_type FROM emoji_puzzles WHERE enabled = 1 AND media_type IN ({placeholders}) LIMIT 8",
+                tuple(aliases),
+            ) as cur:
+                rows = await cur.fetchall()
+        body = "".join(
+            f'<div class="sample"><b>{html.escape(str(r[0]))}</b><span>{html.escape(str(r[1]))} · {html.escape(str(r[2]))}</span></div>'
+            for r in rows
+        ) or '<div class="muted">אין דוגמאות זמינות לנושא הזה.</div>'
+    elif kind == "trivia_round":
+        cats = [str(x).strip() for x in qp.getlist("categories") if str(x).strip()]
+        count = int(qp.get("count") or 5)
+        title = f"טריוויה — {qp.get('theme') or ', '.join(cats) or 'כללי'}"
+        questions = (load_yaml("trivia.yaml") or {}).get("questions") or []
+        matching = [q for q in questions if not cats or str((q or {}).get("category") or "").strip() in cats]
+        random.shuffle(matching)
+        body = "".join(
+            f'<div class="sample"><b>{html.escape(str(q.get("text") or ""))}</b><span>{html.escape(str(q.get("category") or ""))}</span></div>'
+            for q in matching[:count]
+        ) or '<div class="muted">אין שאלות תואמות לתצוגה.</div>'
+    else:
+        raise HTTPException(status_code=400, detail="unknown preview kind")
+
+    page = f"""<!doctype html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(title)}</title><style>
+body{{margin:0;background:#09090b;color:#f4f4f5;font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:32px;line-height:1.55}}
+.wrap{{max-width:760px;margin:0 auto;background:#111318;border:1px solid #27272a;border-radius:16px;padding:24px}}
+h1{{margin:0 0 18px;font-size:24px}}.post-text{{font-size:18px;margin:16px 0}}.source{{color:#a1a1aa;border-top:1px solid #27272a;padding-top:14px;margin-top:18px;font-size:14px}}
+a{{color:#7dd3fc}}.preview-img{{width:100%;border-radius:12px;margin:8px 0 18px}}.image-prompt{{direction:ltr;text-align:left;background:#18181b;border:1px solid #3f3f46;border-radius:12px;padding:14px;color:#d4d4d8;margin:8px 0 18px}}
+.sample{{border:1px solid #27272a;border-radius:12px;padding:14px;margin:10px 0;background:#0b0d10}}.sample b{{display:block;font-size:17px;margin-bottom:6px}}.sample span,.muted{{color:#a1a1aa}}
+</style></head><body><main class="wrap"><h1>{html.escape(title)}</h1>{body}</main></body></html>"""
+    return HTMLResponse(page)
 
 
 # ── Members API ──────────────────────────────────────────
