@@ -58,6 +58,14 @@ class StaleContentCleanupTests(unittest.TestCase):
                     "scheduled",
                     "ai-fill",
                 ),
+                (
+                    "בוקר טוב 🌞 מה 3 הדברים שאתם רוצים לסמן כ-Done היום?",
+                    "morning",
+                    "2099-01-02",
+                    "09:00",
+                    "scheduled",
+                    "auto",
+                ),
             ],
         )
         conn.commit()
@@ -70,8 +78,9 @@ class StaleContentCleanupTests(unittest.TestCase):
 
         rows = find_stale_rows(path, from_date="2099-01-01")
 
-        self.assertEqual([row["message_type"] for row in rows], ["discussion"])
+        self.assertEqual([row["message_type"] for row in rows], ["discussion", "morning"])
         self.assertTrue(rows[0]["reasons"][0].startswith("forbidden fragment:"))
+        self.assertEqual(rows[1]["reasons"], ["copied static example"])
 
     def test_cancel_rows_requires_explicit_apply_path(self):
         tmp, path = self._db()
@@ -80,7 +89,7 @@ class StaleContentCleanupTests(unittest.TestCase):
 
         changed = cancel_rows(path, [int(row["id"]) for row in rows])
 
-        self.assertEqual(changed, 1)
+        self.assertEqual(changed, 2)
         conn = sqlite3.connect(path)
         try:
             statuses = conn.execute(
@@ -91,6 +100,7 @@ class StaleContentCleanupTests(unittest.TestCase):
         self.assertEqual(statuses[0][1], "cancelled")
         self.assertEqual(statuses[1][1], "scheduled")
         self.assertEqual(statuses[2][1], "scheduled")
+        self.assertEqual(statuses[3][1], "cancelled")
 
 
 if __name__ == "__main__":

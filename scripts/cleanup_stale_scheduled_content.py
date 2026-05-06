@@ -14,11 +14,26 @@ import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from bot.utils.freshness import stale_reasons_for_row  # noqa: E402
+
+
+def load_source_examples() -> set[str]:
+    examples: set[str] = set()
+    for name in ("prompts.yaml", "discussions.yaml"):
+        path = REPO / "config" / name
+        if not path.exists():
+            continue
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if isinstance(data, dict):
+            for values in data.values():
+                if isinstance(values, list):
+                    examples.update(str(v).strip() for v in values if str(v).strip())
+    return examples
 
 
 def _row_dict(cursor: sqlite3.Cursor, row: tuple) -> dict:
@@ -27,6 +42,7 @@ def _row_dict(cursor: sqlite3.Cursor, row: tuple) -> dict:
 
 def find_stale_rows(db_path: str, *, from_date: str | None = None) -> list[dict]:
     from_date = from_date or date.today().isoformat()
+    source_examples = load_source_examples()
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
@@ -42,7 +58,7 @@ def find_stale_rows(db_path: str, *, from_date: str | None = None) -> list[dict]
         matches = []
         for raw in cur.fetchall():
             row = _row_dict(cur, raw)
-            reasons = stale_reasons_for_row(row)
+            reasons = stale_reasons_for_row(row, source_examples=source_examples)
             if reasons:
                 row["reasons"] = reasons
                 matches.append(row)

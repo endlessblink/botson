@@ -100,9 +100,13 @@ def freshness_rejection(
     return None
 
 
-def stale_reasons_for_row(row: dict) -> list[str]:
+def stale_reasons_for_row(row: dict, *, source_examples: set[str] | None = None) -> list[str]:
     """Reasons a scheduled_messages row should be reviewed/cleaned."""
     text = str(row.get("text") or "")
     mtype = str(row.get("message_type") or "")
-    reason = freshness_rejection(text, allow_internal=mtype in EXECUTABLE_TYPES)
+    reason = freshness_rejection(
+        text,
+        source_examples=source_examples,
+        allow_internal=mtype in EXECUTABLE_TYPES,
+    )
     return [reason] if reason else []
