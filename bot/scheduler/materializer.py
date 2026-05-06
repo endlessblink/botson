@@ -1,24 +1,25 @@
-"""Shared schedule materializer — single source of truth for text-content scheduling.
+"""Fresh text materializer for recurring content slots.
 
-Both the bot and the dashboard call `compute_week_previews` to derive the set
-of morning/evening/discussion slots for a given week. The bot additionally
-calls `materialize_forward` on startup, on config reload, and once daily to
-upsert those slots into `scheduled_messages` with created_by='auto', so the
-calendar_checker job is the only code path that actually sends anything.
-
-This eliminates the prior dual-system drift where APScheduler cron jobs and
-the dashboard preview generator could disagree (e.g., the Hebrew-days bug).
+The schedule still auto-fills morning/evening/discussion rows, but it never
+copies static YAML pool entries directly. YAML pools are few-shot inspiration;
+the row text must be newly generated, or the slot is skipped.
 """
 
 from __future__ import annotations
 
 import logging
+import json
+import os
+import random
+import shutil
 from datetime import date, timedelta
 
 from ..database.db import Database
-from ..utils.config import load_yaml, get_settings, is_auto_blocked_on, is_feature_enabled
+from ..utils.config import get_settings, is_auto_blocked_on, is_feature_enabled, load_yaml
+from ..utils.freshness import freshness_rejection
 
 logger = logging.getLogger(__name__)
+_CLAUDE_CLI_TIMEOUT = 90
 
 
 def compute_week_previews(
@@ -27,118 +28,9 @@ def compute_week_previews(
     used_discussion_texts: set[str] | None = None,
     skipped_slots: set[tuple[str, str, str]] | None = None,
 ) -> list[dict]:
-    """Compute preview rows for a single week starting at sunday_iso (YYYY-MM-DD).
-
-    committed_index: dict keyed by (date_iso, "HH:MM", type) -> committed row,
-    used to skip slots already present in scheduled_messages.
-
-    used_discussion_texts: optional set of discussion question strings that have
-    already been sent or are still queued. Those are excluded from the
-    discussion pool before picking, so a question never repeats across weeks.
-    Morning/evening pools rotate deterministically and are unaffected — the
-    user wants those recurring.
-
-    skipped_slots: optional set of (date_iso, "HH:MM", type) keys that the user
-    has explicitly cleared via the skip-slot UI. Those slots produce no preview.
-
-    Returns list of dicts: {date, time, type, text, topic_id, category}.
-    """
-    sunday = date.fromisoformat(sunday_iso)
-    used_discussion_texts = used_discussion_texts or set()
-    skipped_slots = skipped_slots or set()
-
-    settings = get_settings()
-    schedule = settings.get("schedule", {})
-    topic_ids = settings.get("topics", {}).get("discussions", {})
-    goals_topic = settings.get("topics", {}).get("goals")
-
-    try:
-        prompts_pool = load_yaml("prompts.yaml")
-    except Exception:
-        prompts_pool = {}
-    try:
-        discussions_pool = load_yaml("discussions.yaml")
-    except Exception:
-        discussions_pool = {}
-
-    morning_queue = list(prompts_pool.get("morning", []))
-    evening_queue = list(prompts_pool.get("evening", []))
-    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
-
-    previews: list[dict] = []
-
-    # Content selection is SEEDED BY DATE, not by an in-call counter. This
-    # guarantees:
-    #   1. Same date always yields same content (idempotent rematerialize).
-    #   2. Consecutive days never share content (as long as pool > 1 item).
-    #   3. Already-committed days don't shift the rotation for other days.
-    for i in range(7):
-        day_date = sunday + timedelta(days=i)
-        day_iso = day_date.isoformat()
-        day_ord = day_date.toordinal()
-        auto_blocked = is_auto_blocked_on(day_iso)
-
-        # Morning
-        if (not auto_blocked) and i in schedule.get("morning_prompt", {}).get("days", []):
-            m_time = schedule["morning_prompt"].get("time", "09:00")
-            slot_key = (day_iso, m_time, "morning")
-            if (slot_key not in committed_index
-                    and slot_key not in skipped_slots
-                    and morning_queue):
-                text = morning_queue[day_ord % len(morning_queue)]
-                previews.append({
-                    "date": day_iso, "time": m_time, "type": "morning",
-                    "text": text, "topic_id": goals_topic, "category": None,
-                })
-
-        # Discussion (multiple times per day possible)
-        if (not auto_blocked) and i in schedule.get("discussion_prompt", {}).get("days", []):
-            times = schedule["discussion_prompt"].get("times", ["18:00"])
-            for time_idx, t in enumerate(times):
-                slot_key = (day_iso, t, "discussion")
-                if slot_key in committed_index or slot_key in skipped_slots:
-                    continue
-                if not active_categories or not discussions_pool:
-                    continue
-                # Deterministic slot sequence: unique per (date, time_slot).
-                slot_seq = day_ord * 10 + time_idx
-                cat = active_categories[slot_seq % len(active_categories)]
-                cat_questions = discussions_pool.get(cat, [])
-                # Filter out already-used questions so discussions never repeat.
-                # Uses stable-ordered list (YAML order) so the modulo pick is
-                # reproducible run-to-run.
-                if used_discussion_texts:
-                    cat_questions = [q for q in cat_questions if q not in used_discussion_texts]
-                if not cat_questions:
-                    logger.warning(
-                        "[materializer] discussion pool exhausted for category=%s on %s %s — "
-                        "add more questions to config/discussions.yaml",
-                        cat, day_iso, t,
-                    )
-                    continue
-                q_idx = (slot_seq // len(active_categories)) % len(cat_questions)
-                text = cat_questions[q_idx]
-                previews.append({
-                    "date": day_iso, "time": t, "type": "discussion",
-                    "text": text, "topic_id": topic_ids.get(cat),
-                    "category": cat,
-                })
-
-        # Evening — same date-seeded pick, offset from morning to avoid
-        # accidental alignment even if both queues happen to be same length.
-        if (not auto_blocked) and i in schedule.get("evening_prompt", {}).get("days", []):
-            e_time = schedule["evening_prompt"].get("time", "21:00")
-            slot_key = (day_iso, e_time, "evening")
-            if (slot_key not in committed_index
-                    and slot_key not in skipped_slots
-                    and evening_queue):
-                text = evening_queue[(day_ord + 3) % len(evening_queue)]
-                previews.append({
-                    "date": day_iso, "time": e_time, "type": "evening",
-                    "text": text, "topic_id": goals_topic, "category": None,
-                })
-
-    return previews
+    """Return no static previews in strict freshness mode."""
+    _ = (sunday_iso, committed_index, used_discussion_texts, skipped_slots)
+    return []
 
 
 def _feature_for_type(message_type: str) -> str:
@@ -178,32 +70,131 @@ async def _build_committed_index(
     return index, skipped
 
 
+async def _used_texts_for_type(db: Database, message_type: str) -> set[str]:
+    async with db._db.execute(
+        "SELECT DISTINCT text FROM scheduled_messages WHERE message_type = ? AND text IS NOT NULL AND text != ''",
+        (message_type,),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return {r[0] for r in rows if r[0]}
+
+
+def _extract_generated_text(raw: str) -> str | None:
+    text = (raw or "").strip()
+    try:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            parsed = json.loads(text[start:end + 1])
+            if isinstance(parsed, dict):
+                text = str(parsed.get("text") or "").strip()
+    except Exception:
+        pass
+    text = text.replace('"', '').replace("'", "").strip()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    text = "\n".join(lines[:2])
+    if len(text) > 220:
+        text = text[:217].rstrip() + "..."
+    return text if any("\u0590" <= ch <= "\u05ff" for ch in text) else None
+
+
+async def _generate_with_claude(prompt: str) -> str | None:
+    import asyncio
+
+    claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
+    if not claude_bin or not os.path.exists(claude_bin):
+        logger.warning("[materializer] claude CLI not found; skipping fresh slot generation")
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            claude_bin,
+            "-p",
+            prompt,
+            "--model",
+            "haiku",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_CLAUDE_CLI_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            logger.warning("[materializer] claude CLI timed out; skipping fresh slot")
+            return None
+        if proc.returncode != 0:
+            logger.warning("[materializer] claude CLI failed: %s", stderr.decode(errors="ignore")[:200])
+            return None
+        return stdout.decode(errors="ignore")
+    except Exception as e:
+        logger.warning("[materializer] fresh generation failed: %s", e)
+        return None
+
+
+async def _generate_fresh_text(
+    message_type: str,
+    *,
+    category: str | None,
+    examples: list[str],
+    used_texts: set[str],
+    scheduled_date: str,
+    scheduled_time: str,
+) -> str | None:
+    kind_he = {
+        "morning": "פתיחת יום",
+        "evening": "סגירת יום",
+        "discussion": f"שאלה לערוץ {category or 'דיון'}",
+    }.get(message_type, message_type)
+    sample = random.sample(examples, min(5, len(examples))) if examples else []
+    prompt = f"""כתוב טקסט חדש בעברית לטלגרם לקהילת מבוגרים ישראלית בלי ילדים.
+
+סוג: {kind_he}
+תאריך: {scheduled_date}
+שעה: {scheduled_time}
+
+דוגמאות השראה בלבד - אסור להעתיק או לפרפרז קרוב:
+{chr(10).join(f'- {x}' for x in sample) if sample else '- אין'}
+
+כבר נשלח או תוזמן - אסור לחזור:
+{chr(10).join(f'- {x}' for x in list(used_texts)[:25]) if used_texts else '- אין'}
+
+חוקים:
+- שורה אחת או שתיים, טבעי, ספציפי, לא גנרי.
+- בלי "מה עשה לכם את היום", בלי "ספרו על", בלי פילר לוח שנה.
+- לא להעתיק אף דוגמה.
+- בלי הבטחות לכפתורים או פעולות שאין בהודעה.
+- פלט JSON בלבד: {{"text":"..."}}
+"""
+    raw = await _generate_with_claude(prompt)
+    text = _extract_generated_text(raw or "")
+    if not text:
+        return None
+    normalized = text.strip()
+    rejection = freshness_rejection(
+        normalized,
+        avoid_texts={str(x).strip() for x in used_texts},
+        source_examples={str(x).strip() for x in examples},
+    )
+    if rejection:
+        logger.warning("[materializer] rejected generated text: %s", rejection)
+        return None
+    return normalized
+
+
 async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
-    """Upsert missing morning/evening/discussion slots for the next N days.
-
-    Only creates rows where:
-      - (date, time, type) is not already in scheduled_messages (any status except cancelled)
-      - the corresponding feature is enabled in settings.yaml
-
-    Rows are tagged created_by='auto' so they can be purged on config reload
-    without touching user-committed rows.
-
-    Returns the number of rows inserted.
-    """
-    from datetime import date as _date, datetime as _datetime
+    """Generate fresh morning/evening/discussion rows for the next N days."""
+    from datetime import datetime as _datetime
     from zoneinfo import ZoneInfo
-    _tz = ZoneInfo("Asia/Jerusalem")
-    now = _datetime.now(_tz)
+
+    tz = ZoneInfo("Asia/Jerusalem")
+    now = _datetime.now(tz)
     today = now.date()
     current_hhmm = now.strftime("%H:%M")
-    days_since_sunday = (today.weekday() + 1) % 7  # Python Mon=0, Hebrew Sun=0
+    days_since_sunday = (today.weekday() + 1) % 7
     first_sunday = today - timedelta(days=days_since_sunday)
     end_date = today + timedelta(days=days_ahead)
-
-    # Each week-iteration can touch up to sunday+6. The committed_index must
-    # cover every date the loop will look at so previously-materialized rows
-    # past `end_date` (from earlier runs) are still deduped — otherwise we'd
-    # insert duplicates on every restart.
     last_sunday = first_sunday
     while last_sunday + timedelta(days=7) <= end_date:
         last_sunday += timedelta(days=7)
@@ -212,62 +203,106 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
     committed_index, skipped_slots = await _build_committed_index(
         db, first_sunday.isoformat(), index_end.isoformat()
     )
+    settings = get_settings()
+    schedule = settings.get("schedule", {}) or {}
+    topics = settings.get("topics", {}) or {}
+    goals_topic = topics.get("goals")
+    topic_ids = topics.get("discussions", {}) or {}
+    try:
+        prompts_pool = load_yaml("prompts.yaml") or {}
+    except Exception:
+        prompts_pool = {}
+    try:
+        discussions_pool = load_yaml("discussions.yaml") or {}
+    except Exception:
+        discussions_pool = {}
 
-    # Load the set of discussion texts already sent or queued so we don't
-    # re-pick them when materializing new weeks.
-    used_discussion_texts = await db.get_used_discussion_texts()
-
+    used_by_type = {
+        "morning": await _used_texts_for_type(db, "morning"),
+        "evening": await _used_texts_for_type(db, "evening"),
+        "discussion": await db.get_used_discussion_texts(),
+    }
     inserted = 0
-    current_sunday = first_sunday
-    while current_sunday <= end_date:
-        previews = compute_week_previews(
-            current_sunday.isoformat(),
-            committed_index,
-            used_discussion_texts,
-            skipped_slots=skipped_slots,
-        )
-        for p in previews:
-            slot_date = _date.fromisoformat(p["date"])
-            # Skip past dates entirely.
-            if slot_date < today:
-                continue
-            # Skip today's slots whose time has already passed — otherwise
-            # calendar_checker would fire them immediately, sending prompts
-            # hours late.
-            if slot_date == today and p["time"] <= current_hhmm:
-                continue
+    day = today
+    while day <= end_date:
+        day_iso = day.isoformat()
+        day_idx = (day.weekday() + 1) % 7
+        if is_auto_blocked_on(day_iso):
+            day += timedelta(days=1)
+            continue
 
-            msg_type = p["type"]
+        candidates: list[dict] = []
+        if day_idx in (schedule.get("morning_prompt") or {}).get("days", []):
+            candidates.append({
+                "type": "morning",
+                "time": str((schedule.get("morning_prompt") or {}).get("time") or "09:00")[:5],
+                "topic": goals_topic,
+                "examples": list(prompts_pool.get("morning") or []),
+                "category": None,
+            })
+        if day_idx in (schedule.get("evening_prompt") or {}).get("days", []):
+            candidates.append({
+                "type": "evening",
+                "time": str((schedule.get("evening_prompt") or {}).get("time") or "21:00")[:5],
+                "topic": goals_topic,
+                "examples": list(prompts_pool.get("evening") or []),
+                "category": None,
+            })
+        if day_idx in (schedule.get("discussion_prompt") or {}).get("days", []):
+            active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+            times = (schedule.get("discussion_prompt") or {}).get("times") or ["18:00"]
+            for time_idx, time_s in enumerate(times):
+                if not active_categories:
+                    continue
+                cat = active_categories[(day.toordinal() * 10 + time_idx) % len(active_categories)]
+                candidates.append({
+                    "type": "discussion",
+                    "time": str(time_s)[:5],
+                    "topic": topic_ids.get(cat),
+                    "examples": list(discussions_pool.get(cat) or []),
+                    "category": cat,
+                })
+
+        for candidate in candidates:
+            msg_type = candidate["type"]
+            time_s = candidate["time"]
+            key = (day_iso, time_s, msg_type)
+            if key in committed_index or key in skipped_slots:
+                continue
+            if day == today and time_s <= current_hhmm:
+                continue
+            if not candidate.get("topic"):
+                continue
             if not is_feature_enabled(_feature_for_type(msg_type)):
                 continue
-
-            text = p["text"]
+            text = await _generate_fresh_text(
+                msg_type,
+                category=candidate.get("category"),
+                examples=candidate.get("examples") or [],
+                used_texts=used_by_type[msg_type],
+                scheduled_date=day_iso,
+                scheduled_time=time_s,
+            )
+            if not text:
+                continue
             msg_id = await db.create_scheduled_message(
                 text=text,
                 message_type=msg_type,
-                channel_topic_id=p.get("topic_id"),
+                channel_topic_id=candidate.get("topic"),
                 target_group="main",
-                scheduled_date=p["date"],
-                scheduled_time=p["time"],
+                scheduled_date=day_iso,
+                scheduled_time=time_s,
                 recurrence=None,
                 recurrence_days=None,
                 auto_pin=(msg_type == "morning"),
                 created_by="auto",
             )
-            # Track in index so subsequent weeks' previews respect it.
-            committed_index[(p["date"], p["time"], msg_type)] = {"id": msg_id}
-            # Track discussion texts so the next week doesn't re-pick the
-            # same question we just inserted for this week.
-            if msg_type == "discussion":
-                used_discussion_texts.add(text)
+            committed_index[key] = {"id": msg_id}
+            used_by_type[msg_type].add(text)
             inserted += 1
+        day += timedelta(days=1)
 
-        current_sunday += timedelta(days=7)
-
-    logger.info(
-        "[materializer] materialized %d rows (today..+%d days)",
-        inserted, days_ahead,
-    )
+    logger.info("[materializer] generated %d fresh auto rows (today..+%d days)", inserted, days_ahead)
     return inserted
 
 

@@ -9,17 +9,27 @@ import dashboard.app as dashboard_app
 
 
 class ReviewPendingHelpersTests(unittest.TestCase):
+    def test_review_page_has_no_demo_seed_source(self):
+        src = Path(dashboard_app.__file__).read_text(encoding="utf-8")
+        for forbidden in (
+            "emoji-puzzle-seed",
+            "Emoji Night seed review",
+            "פוסט קהילתי — למה בוטסון קיים",
+            "סלוט 1/5",
+            "trivia-israel-announce",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, src)
+
     def test_clear_all_keeps_pending_reviews_empty_after_reload(self):
         with tempfile.TemporaryDirectory() as tmp:
             pending_path = Path(tmp) / "pending_reviews.json"
             cleared_flag = Path(tmp) / ".pending_reviews_cleared"
-            emoji_flag = Path(tmp) / ".emoji_puzzle_reviews_seeded"
 
             with patch.object(dashboard_app, "PENDING_REVIEWS_PATH", pending_path), \
-                 patch.object(dashboard_app, "PENDING_REVIEWS_CLEARED_FLAG", cleared_flag), \
-                 patch.object(dashboard_app, "EMOJI_PUZZLE_REVIEW_FLAG", emoji_flag):
+                 patch.object(dashboard_app, "PENDING_REVIEWS_CLEARED_FLAG", cleared_flag):
                 seeded_items = dashboard_app._load_pending_reviews()
-                self.assertGreater(len(seeded_items), 0)
+                self.assertEqual(seeded_items, [])
 
                 dashboard_app._clear_all_pending_reviews()
 
@@ -33,11 +43,9 @@ class ReviewPendingApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pending_path = Path(tmp) / "pending_reviews.json"
             cleared_flag = Path(tmp) / ".pending_reviews_cleared"
-            emoji_flag = Path(tmp) / ".emoji_puzzle_reviews_seeded"
 
             with patch.object(dashboard_app, "PENDING_REVIEWS_PATH", pending_path), \
-                 patch.object(dashboard_app, "PENDING_REVIEWS_CLEARED_FLAG", cleared_flag), \
-                 patch.object(dashboard_app, "EMOJI_PUZZLE_REVIEW_FLAG", emoji_flag):
+                 patch.object(dashboard_app, "PENDING_REVIEWS_CLEARED_FLAG", cleared_flag):
                 dashboard_app._save_pending_reviews([
                     {
                         "id": "one",

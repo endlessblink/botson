@@ -106,7 +106,7 @@ def _looks_like_emoji_launch(text: str) -> bool:
     compact = (text or "").lower()
     if not ("emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact):
         return False
-    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact or "נפתח" in compact:
+    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact or "נפתח" in compact or "הערב ב" in compact:
         return False
     return True
 

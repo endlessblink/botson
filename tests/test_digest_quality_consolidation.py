@@ -72,6 +72,8 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("מה הספר הכי מעריך בעיניך?", "concrete_failure_bad_hebrew"),
             ("בוקר טוב 🌞 רביעי — היום הזה עוד לא הוחלט. מה הדבר הכי שווה שאתם מכניסים אליו? 🙋", "concrete_failure_generic_morning"),
             ("איזה יצור (ממשי או מהדמיון) הייתם רוצים שיחכה לכם הערב בבית? 🐾", "concrete_failure_weird_creature_prompt"),
+            ("רביעי בלילה — הגענו לאמצע השבוע. מה שיניתם בו ממה שתכננתם ביום ראשון?", "concrete_failure_calendar_filler"),
+            ("😂 באיזה רגע הפכתם בטעות למבוגר האחראי בסיטואציה שלא ביקשתם בכלל להיות בה?", "concrete_failure_vague_situation_cliche"),
         ]
         for text, expected in cases:
             with self.subTest(text=text):

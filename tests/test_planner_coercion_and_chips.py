@@ -26,6 +26,7 @@ from fastapi import HTTPException
 
 from bot.database.db import Database
 from bot.handlers import calendar as bot_calendar
+from bot.scheduler import materializer
 from bot.handlers.trivia_round import _pick_questions
 from dashboard import app as dashboard_app
 from dashboard.app import _CAL_TYPE_STYLE, _coerce_game_message_fields, _looks_like_trivia_launch
@@ -184,8 +185,20 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("facts_tidbit", types)
         self.assertIn("facts_spooky", types)
         self.assertIn("weekly_leaderboard", types)
+        banned_placeholders = (
+            "תיבחר מהמאגר בזמן השליחה",
+            "ייבחר מהמאגר בזמן השליחה",
+            "הבוט יבדוק וישלח אם נמצא משחק רלוונטי",
+            "יופק מנתוני הפעילות בזמן השליחה",
+            "תופק מנתוני הרמות בזמן השליחה",
+        )
+        for suggestion in result["suggestions"]:
+            for fragment in banned_placeholders:
+                with self.subTest(fragment=fragment, suggestion=suggestion):
+                    self.assertNotIn(fragment, suggestion["text"])
         emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
         self.assertTrue(emoji_rows)
+        self.assertTrue(all(row["text"].startswith("[internal:") for row in emoji_rows))
         emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
         self.assertIn(emoji_payload["theme_label"], {"סרטים", "סדרות"})
         self.assertIn(emoji_payload["media_types"], (["movie"], ["series"]))
@@ -377,6 +390,54 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         called_date = suggest.await_args.kwargs["target_date"]
         self.assertRegex(called_date, r"^\d{4}-\d{2}-\d{2}$")
 
+    async def test_calendar_api_does_not_render_static_pool_preview_events(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            events = await dashboard_app.get_calendar(
+                FakeQueryRequest({"start": "2099-01-04", "end": "2099-01-11"}),
+                db,
+            )
+        finally:
+            await db.close()
+
+        self.assertEqual(events, [])
+
+    async def test_bot_reload_materializer_generates_fresh_auto_content(self):
+        db = Database(":memory:")
+        await db.init()
+        counter = 0
+
+        async def fresh_response(_prompt):
+            nonlocal counter
+            counter += 1
+            return json.dumps({"text": f"טקסט חדש שנוצר אוטומטית מספר {counter}"}, ensure_ascii=False)
+
+        try:
+            with patch.object(materializer, "_generate_with_claude", new=AsyncMock(side_effect=fresh_response)):
+                inserted = await materializer.materialize_forward(db, days_ahead=14)
+            self.assertGreater(inserted, 0)
+            self.assertEqual(await self._scheduled_count(db), inserted)
+            async with db._db.execute(
+                "SELECT text, created_by FROM scheduled_messages WHERE status = 'scheduled'"
+            ) as cur:
+                rows = await cur.fetchall()
+            self.assertTrue(all(row["created_by"] == "auto" for row in rows))
+            static_sources = set()
+            prompts = dashboard_app.load_yaml("prompts.yaml") or {}
+            for values in prompts.values():
+                static_sources.update(str(v).strip() for v in values or [])
+            discussions = dashboard_app.load_yaml("discussions.yaml") or {}
+            for values in discussions.values():
+                static_sources.update(str(v).strip() for v in values or [])
+            for row in rows:
+                self.assertNotIn(row["text"].strip(), static_sources)
+
+            purged = await materializer.purge_future_auto_rows(db)
+            self.assertEqual(purged, inserted)
+        finally:
+            await db.close()
+
     async def test_planner_day_diagnostics_reports_scheduler_state(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
@@ -429,7 +490,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                         "time": due_time,
                         "message_type": "discussion",
                         "topic_id": 4037,
-                        "text": "🧩 מתחממים לחידת אימוג'י\nב-22:00 נפתח Emoji Night בנושא סרטים וסדרות.",
+                        "text": "🧩 הערב ב-22:00: חידת אימוג'י בנושא סרטים וסדרות.",
                         "source": "ai-fill-emoji",
                     },
                     {
@@ -523,6 +584,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     dashboard_app,
                     "_ensure_trivia_pool_ready_for_round",
                     new=AsyncMock(return_value={"generated": 0, "available": 10, "required": 10}),
+                ), patch.object(
+                    dashboard_app,
+                    "_generate_activity_copy",
+                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nבעוד 35 דקות מתחילים."),
                 ):
                     res = await dashboard_app.schedule_calendar_item(
                         game_id,
@@ -642,6 +707,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     dashboard_app,
                     "_ensure_trivia_pool_ready_for_round",
                     new=AsyncMock(return_value={"generated": 0, "available": 10, "required": 10}),
+                ), patch.object(
+                    dashboard_app,
+                    "_generate_activity_copy",
+                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nבעוד 35 דקות מתחילים."),
                 ):
                     res = await dashboard_app.schedule_calendar_item(
                         game_id,
@@ -749,9 +818,86 @@ class TestPlannerTemplateExposure(unittest.TestCase):
             "אוכלי בשר",
             "היום הזה עוד לא הוחלט",
             "יצור (ממשי או מהדמיון)",
+            "הגענו לאמצע השבוע",
+            "למבוגר האחראי בסיטואציה",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, quality)
+
+    def test_activity_warmups_are_not_static_templates(self):
+        src = Path("dashboard/app.py").read_text(encoding="utf-8")
+        banned_static_fragments = (
+            "מתחממים לחידת אימוג'י",
+            "נפתח Emoji Night בנושא",
+            "נקודות למהירים",
+            "מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון",
+            "חייבת להכיל את המילה \"מתחממים\" או \"בעוד\"",
+            "תיבחר מהמאגר בזמן השליחה",
+            "ייבחר מהמאגר בזמן השליחה",
+            "הבוט יבדוק וישלח אם נמצא משחק רלוונטי",
+            "יופק מנתוני הפעילות בזמן השליחה",
+        )
+        for fragment in banned_static_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, src)
+
+        self.assertIn(
+            "async def _generate_activity_copy", src,
+            "activity warm-up rows should be generated instead of static templates",
+        )
+        self.assertIn(
+            "כפתור \"אני בפנים\" יופיע בהודעת הפתיחה", src,
+            "ready-gate copy must explain the real signup button timing",
+        )
+
+    def test_static_prompt_pools_are_not_materialized_directly(self):
+        previews = materializer.compute_week_previews("2099-01-04", {}, set())
+
+        self.assertEqual(previews, [])
+
+    def test_materialize_forward_skips_when_generation_unavailable(self):
+        async def run():
+            db = Database(":memory:")
+            await db.init()
+            try:
+                with patch.object(materializer, "_generate_with_claude", new=AsyncMock(return_value=None)):
+                    inserted = await materializer.materialize_forward(db, days_ahead=14)
+                async with db._db.execute("SELECT COUNT(*) FROM scheduled_messages") as cur:
+                    count = (await cur.fetchone())[0]
+                return inserted, count
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(run()), (0, 0))
+
+    def test_activity_copy_generation_failure_skips_instead_of_fallback(self):
+        async def run():
+            with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=RuntimeError("cli down"))), \
+                 patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=RuntimeError("api down"))):
+                return await dashboard_app._generate_activity_copy(
+                    "trivia_warmup",
+                    fallback="טקסט סטטי שאסור לשלוח",
+                    game_time="22:00",
+                )
+
+        self.assertIsNone(asyncio.run(run()))
+
+    def test_activity_copy_rejects_repeated_and_misleading_ready_copy(self):
+        async def run(raw, avoid=None):
+            with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=raw)):
+                return await dashboard_app._generate_activity_copy(
+                    "trivia_warmup",
+                    game_time="21:00",
+                    warmup_offset_min=35,
+                    theme_label="ישראל",
+                    min_ready_players=2,
+                    avoid_texts=set(avoid or []),
+                )
+
+        repeated = '{"text":"עוד 35 דקות מתחילים סיבוב ישראל. צריך לפחות 2 שחקנים שמסמנים שהם בפנים."}'
+        self.assertIsNone(asyncio.run(run(repeated)))
+        original = "טקסט מקורי לאירוע הערב"
+        self.assertIsNone(asyncio.run(run(json.dumps({"text": original}, ensure_ascii=False), {original})))
 
     def test_activity_coverage_marks_relevant_future_slots_required(self):
         settings = {

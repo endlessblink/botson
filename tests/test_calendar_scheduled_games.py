@@ -92,7 +92,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_emoji_announcement_text_stays_plain_message(self):
         row = _base_row("discussion")
-        row["text"] = "🧩 מתחממים לחידת אימוג'י\nב-22:00 נפתח Emoji Night בנושא סרטים וסדרות."
+        row["text"] = "🧩 הערב ב-22:00: חידת אימוג'י בנושא סרטים וסדרות."
         row["channel_topic_id"] = 4037
         row["target_group"] = "main"
         db = FakeScheduledDb(row)

@@ -31,6 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
+from bot.utils.freshness import freshness_rejection
 from bot.utils.levels import get_level, get_progress
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
@@ -396,8 +397,8 @@ async def save_prompts(request: Request):
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(content, f, allow_unicode=True, default_flow_style=False)
 
-    # Prompt pools drive the materializer — reload so future auto rows pick
-    # up the fresh content.
+    # Prompt pools are few-shot/admin reference material in strict freshness mode.
+    # Reload so the bot sees config changes without auto-sending static entries.
     reloaded = _signal_bot_reload()
     return {"status": "ok", "bot_reloaded": reloaded}
 
@@ -1001,7 +1002,7 @@ def _looks_like_emoji_launch(text: str) -> bool:
     compact = (text or "").lower()
     if not ("emoji night" in compact or "חידת אימוג" in compact or "חידות אימוג" in compact):
         return False
-    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact or "נפתח" in compact:
+    if "בעוד" in compact or "תזכורת" in compact or "מתחממים" in compact or "נפתח" in compact or "הערב ב" in compact:
         return False
     return True
 
@@ -1053,23 +1054,69 @@ def _format_lead_time(minutes: int) -> str:
     return f"{minutes} דקות"
 
 
-def _format_trivia_announcement(*, game_time: str, payload: dict, lead_minutes: int) -> str:
-    theme = str(payload.get("theme_label") or "גיימינג").strip() or "גיימינג"
-    question_count = int(payload.get("question_count") or 10)
-    return (
-        f"🎮 מתחממים לטריוויה הערב\n"
-        f"בעוד {_format_lead_time(lead_minutes)}, ב-{game_time}, נפתח סיבוב טריוויה {theme} בפינה של בוטסון.\n"
-        f"{question_count} שאלות קצרות, ניקוד למהירים, ואפס צורך להירשם מראש. פשוט להגיע בזמן."
-    )
+def _clean_activity_copy(raw: str) -> str | None:
+    text = (raw or "").strip()
+    try:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            parsed = json.loads(text[start:end + 1])
+            if isinstance(parsed, dict):
+                text = str(parsed.get("text") or "").strip()
+    except Exception:
+        pass
+    text = text.replace('"', '').replace("'", "").strip()
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return None
+    text = "\n".join(lines[:3])
+    if len(text) > 280:
+        text = text[:277].rstrip() + "..."
+    return text if any("\u0590" <= ch <= "\u05ff" for ch in text) else None
 
 
-def _format_emoji_announcement(*, game_time: str, theme_label: str, puzzle_count: int) -> str:
-    theme = str(theme_label or "סרטים וסדרות").strip() or "סרטים וסדרות"
-    return (
-        "🧩 מתחממים לחידת אימוג'י\n"
-        f"ב-{game_time} נפתח Emoji Night בנושא {theme} בפינה של בוטסון.\n"
-        f"{puzzle_count} חידות קצרות, נקודות למהירים, ועונים ב-reply להודעת החידה."
-    )
+async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
+                                  avoid_texts: set[str] | None = None, **ctx) -> str | None:
+    prompt = f"""כתוב טקסט חדש בעברית להודעת פעילות בטלגרם לקהילת מבוגרים ישראלית.
+
+סוג פעילות: {kind}
+נתונים: {json.dumps(ctx, ensure_ascii=False)}
+
+חוקים:
+- לא להשתמש בנוסחים גנריים קבועים, סלוגנים חוזרים, או שם ערוץ קשיח.
+- 1-3 שורות קצרות, קריא RTL, טבעי ולא שיווקי מדי.
+- לא להבטיח פעולה שאין כפתור עבורה כרגע.
+- אם יש min_ready_players, כתוב שכפתור "אני בפנים" יופיע בהודעת הפתיחה של המשחק, לא בהודעת החימום.
+- בלי אנגלית אלא אם שם הפעילות עצמו באנגלית.
+
+פלט JSON בלבד: {{"text":"..."}}"""
+    try:
+        raw = await _generate_via_cli(prompt)
+    except Exception:
+        try:
+            raw = await _generate_via_api(prompt)
+        except Exception as e:
+            logger.info("[activity-copy] %s generation failed; skipping warm-up: %s", kind, e)
+            return None
+    text = _clean_activity_copy(raw)
+    if text is None:
+        logger.info("[activity-copy] %s returned unusable copy; skipping warm-up", kind)
+        return None
+    game_time = str(ctx.get("game_time") or "").strip()[:5]
+    if game_time and game_time not in text:
+        text = f"{text}\nמתחיל ב-{game_time}."
+    lead_minutes = ctx.get("lead_minutes", ctx.get("warmup_offset_min"))
+    try:
+        lead_minutes_int = int(lead_minutes)
+    except Exception:
+        lead_minutes_int = 0
+    if lead_minutes_int > 0 and str(lead_minutes_int) not in text and "דקות" not in text and "בעוד" not in text:
+        text = f"{text}\nבעוד {_format_lead_time(lead_minutes_int)} מתחילים."
+    rejection = freshness_rejection(text, avoid_texts=avoid_texts)
+    if rejection:
+        logger.info("[activity-copy] %s rejected generated copy: %s", kind, rejection)
+        return None
+    return text
 
 
 def _matching_trivia_questions(pool: list, categories: list[str]) -> list[dict]:
@@ -1179,7 +1226,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     but are ignored by the autonomous sender.
     """
     async with db._db.execute(
-        """SELECT id, scheduled_date, scheduled_time, message_type, status, poll_options, channel_topic_id
+        """SELECT id, text, scheduled_date, scheduled_time, message_type, status, poll_options, channel_topic_id
            FROM scheduled_messages WHERE id = ?""",
         (game_id,),
     ) as cur:
@@ -1200,7 +1247,19 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         lead_minutes = 35
     lead_minutes = max(1, min(24 * 60, lead_minutes))
     announcement_dt = game_dt - timedelta(minutes=lead_minutes)
-    text = _format_trivia_announcement(game_time=game_time, payload=payload, lead_minutes=lead_minutes)
+    theme = str(payload.get("theme_label") or "כללי").strip() or "כללי"
+    min_ready = int(payload.get("min_ready_players") or 0)
+    text = await _generate_activity_copy(
+        "trivia_warmup",
+        avoid_texts={str(row["text"] or "")},
+        game_time=game_time,
+        lead_minutes=lead_minutes,
+        theme_label=theme,
+        question_count=int(payload.get("question_count") or 5),
+        min_ready_players=min_ready,
+    )
+    if text is None:
+        return None
     try:
         routing = await db.get_handler_routing("trivia_round")
     except Exception:
@@ -2515,6 +2574,9 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"היום הזה עוד לא הוחלט"), "concrete_failure_generic_morning"),
     (re.compile(r"מה הדבר הכי שווה שאתם מכניסים אליו"), "concrete_failure_generic_morning"),
     (re.compile(r"איזה יצור .*מהדמיון"), "concrete_failure_weird_creature_prompt"),
+    (re.compile(r"הגענו לאמצע השבוע"), "concrete_failure_calendar_filler"),
+    (re.compile(r"מה שיניתם בו ממה שתכננתם ביום ראשון"), "concrete_failure_calendar_filler"),
+    (re.compile(r"באיזה רגע .*ל?מבוגר האחראי.*בסיטואציה"), "concrete_failure_vague_situation_cliche"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -3090,8 +3152,8 @@ async def update_features(request: Request):
     with open(settings_path, "w", encoding="utf-8") as f:
         yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
 
-    # Feature flags gate materialization — reload purges future auto rows for
-    # disabled features and refills for newly-enabled ones.
+    # Reload so the bot sees feature flag changes. Strict freshness mode does
+    # not refill static prompt rows automatically.
     reloaded = _signal_bot_reload()
     return {"status": "ok", "bot_reloaded": reloaded}
 
@@ -3769,7 +3831,17 @@ async def _ai_fill_trivia_for_week(
 
     try:
         theme_label = str(trivia_defaults.get("theme_label") or "כללי")
-        warmup_text = f"מתחממים לטריוויה 🧠 — בעוד {_format_lead_time(lead_minutes)} מתחילים סיבוב {theme_label} בפינה של בוטסון."
+        min_ready = int(trivia_defaults.get("min_ready_players") or 0)
+        warmup_text = await _generate_activity_copy(
+            "trivia_warmup",
+            avoid_texts=set(),
+            game_time=game_time,
+            lead_minutes=lead_minutes,
+            theme_label=theme_label,
+            min_ready_players=min_ready,
+        )
+        if warmup_text is None:
+            raise RuntimeError("activity copy generation failed")
         await db.create_scheduled_message(
             text=warmup_text,
             message_type="discussion",
@@ -3792,10 +3864,10 @@ async def _ai_fill_trivia_for_week(
             "categories": list(trivia_defaults.get("categories") or []),
             "question_count": int(trivia_defaults.get("question_count") or 5),
             "warmup_offset_min": lead_minutes,
-            "min_ready_players": int(trivia_defaults.get("min_ready_players") or 0),
+            "min_ready_players": min_ready,
         }
         await db.create_scheduled_message(
-            text=f"🧠 סיבוב טריוויה — {poll_payload['question_count']} שאלות מהירות",
+            text="[internal:trivia_round]",
             message_type="trivia_round",
             channel_topic_id=topic_id,
             target_group="main",
@@ -3904,14 +3976,14 @@ async def _ai_fill_pool_rows_for_week(
         tidbit_count = 0
         spooky_count = 0
 
-    slots: list[tuple[int, str, str, str]] = []  # (day_idx, time, mtype, placeholder)
+    slots: list[tuple[int, str, str, str]] = []  # (day_idx, time, mtype, internal label)
     if emoji_pool_count > 0:
-        slots.append((3, "22:00", "emoji_puzzle", "🧩 חידת אמוג'י של הערב"))
+        slots.append((3, "22:00", "emoji_puzzle", "[internal:emoji_puzzle]"))
     if tidbit_count > 0:
-        slots.append((2, "12:00", "facts_tidbit", "🔎 עובדה מעניינת"))
-        slots.append((4, "12:00", "facts_tidbit", "🔎 עובדה מעניינת"))
+        slots.append((2, "12:00", "facts_tidbit", "[internal:facts_tidbit]"))
+        slots.append((4, "12:00", "facts_tidbit", "[internal:facts_tidbit]"))
     if spooky_count > 0:
-        slots.append((6, "22:00", "facts_spooky", "🕯️ סיפור מסתורי"))
+        slots.append((6, "22:00", "facts_spooky", "[internal:facts_spooky]"))
 
     # Day-level scoping: only slots whose day matches target_date.
     if target_day_index is not None:
@@ -3921,12 +3993,12 @@ async def _ai_fill_pool_rows_for_week(
     by_type: dict = {}
     errors: list[str] = []
 
-    for day_idx, time_str, mtype, placeholder in slots:
+    for day_idx, time_str, mtype, label in slots:
         day_date = sunday + timedelta(days=day_idx)
         try:
             topic_id = await _handler_play_topic_or_error(db, mtype)
             await db.create_scheduled_message(
-                text=placeholder,
+                text=label,
                 message_type=mtype,
                 channel_topic_id=topic_id,
                 target_group="main",
@@ -4109,11 +4181,12 @@ async def _ai_suggest_calendar(
     goals_topic = settings.get("topics", {}).get("goals")
     welcome_topic = settings.get("topics", {}).get("welcome")
 
-    # Existing rows in window — to avoid suggesting an occupied slot
+    # Existing rows in window — to avoid suggesting occupied or repeated slots.
     occupied: set = set()
+    existing_activity_texts: set[str] = set()
     try:
         async with db._db.execute(
-            "SELECT scheduled_date, scheduled_time, message_type "
+            "SELECT scheduled_date, scheduled_time, message_type, text "
             "FROM scheduled_messages "
             "WHERE status IN ('scheduled', 'draft') "
             "AND scheduled_date BETWEEN ? AND ?",
@@ -4122,6 +4195,8 @@ async def _ai_suggest_calendar(
             rows = await cur.fetchall()
         for r in rows:
             occupied.add((r[0], (r[1] or "")[:5], r[2]))
+            if r[3]:
+                existing_activity_texts.add(str(r[3]))
     except Exception:
         pass
 
@@ -4160,6 +4235,7 @@ async def _ai_suggest_calendar(
 
     suggestions: list = []
     errors: list = []
+    generated_activity_texts: set[str] = set()
 
     def _slot_future(d_iso: str, t: str) -> bool:
         try:
@@ -4566,15 +4642,24 @@ async def _ai_suggest_calendar(
                         "puzzle_count": emoji_count,
                     }
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
-                    _add_suggestion(
-                        d_iso, announce_t, "discussion", topic=emoji_announcement_topic,
-                        text=_format_emoji_announcement(game_time=t, theme_label=emoji_theme, puzzle_count=emoji_count),
-                        source="ai-fill-emoji",
-                        rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night — מצטרפים ועדכונים",
-                        count_as=None,
+                    emoji_text = await _generate_activity_copy(
+                        "emoji_warmup",
+                        avoid_texts=existing_activity_texts | generated_activity_texts,
+                        game_time=t,
+                        theme_label=emoji_theme,
+                        puzzle_count=emoji_count,
                     )
+                    if emoji_text:
+                        generated_activity_texts.add(emoji_text)
+                        _add_suggestion(
+                            d_iso, announce_t, "discussion", topic=emoji_announcement_topic,
+                            text=emoji_text,
+                            source="ai-fill-emoji",
+                            rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night — מצטרפים ועדכונים",
+                            count_as=None,
+                        )
                     _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
-                                    text=f"🧩 Emoji Night — {emoji_theme} ({emoji_count} חידות)",
+                                    text="[internal:emoji_puzzle]",
                                     source="ai-fill-pool-row",
                                     rationale=f"נושא: {emoji_theme} · מאגר מתאים ({pool_n} פריטים)",
                                     poll_options_json=json.dumps(payload, ensure_ascii=False))
@@ -4593,7 +4678,7 @@ async def _ai_suggest_calendar(
                     continue
                 rationale = f"מאגר עובדות פעיל ({tn} פריטים)" if tn > 0 else "סלוט עובדה פנוי"
                 _add_suggestion(d_iso, t, "facts_tidbit", topic=routed_topics["facts_tidbit"],
-                                text="🔎 עובדה מעניינת (תיבחר מהמאגר בזמן השליחה)",
+                                text="[internal:facts_tidbit]",
                                 source="ai-fill-pool-row",
                                 rationale=rationale)
                 break
@@ -4611,7 +4696,7 @@ async def _ai_suggest_calendar(
                     continue
                 rationale = f"מאגר ספוקי פעיל ({sn} פריטים)" if sn > 0 else "סלוט סיפור מסתורי פנוי"
                 _add_suggestion(d_iso, t, "facts_spooky", topic=routed_topics["facts_spooky"],
-                                text="🕯️ סיפור מסתורי (ייבחר מהמאגר בזמן השליחה)",
+                                text="[internal:facts_spooky]",
                                 source="ai-fill-pool-row",
                                 rationale=rationale)
                 break
@@ -4624,7 +4709,7 @@ async def _ai_suggest_calendar(
                 if not _slot_free(d_iso, t, "free_games"):
                     continue
                 _add_suggestion(d_iso, t, "free_games", topic=routed_topics["free_games"],
-                                text="🎮 בדיקת משחקים חינם (הבוט יבדוק וישלח אם נמצא משחק רלוונטי)",
+                                text="[internal:free_games]",
                                 source="ai-fill-pool-row",
                                 rationale="סלוט משחקים חינם פנוי")
                 break
@@ -4636,7 +4721,7 @@ async def _ai_suggest_calendar(
                 if not _slot_free(d_iso, t, "weekly_roundup"):
                     continue
                 _add_suggestion(d_iso, t, "weekly_roundup", topic=routed_topics["weekly_roundup"],
-                                text="📊 סיכום שבועי (יופק מנתוני הפעילות בזמן השליחה)",
+                                text="[internal:weekly_roundup]",
                                 source="ai-fill-pool-row",
                                 rationale="סלוט סיכום שבועי פנוי")
                 break
@@ -4648,7 +4733,7 @@ async def _ai_suggest_calendar(
                 if not _slot_free(d_iso, t, "weekly_leaderboard"):
                     continue
                 _add_suggestion(d_iso, t, "weekly_leaderboard", topic=routed_topics["weekly_leaderboard"],
-                                text="🏆 טבלת רמות שבועית (תופק מנתוני הרמות בזמן השליחה)",
+                                text="[internal:weekly_leaderboard]",
                                 source="ai-fill-pool-row",
                                 rationale="סלוט טבלת רמות פנוי")
                 break
@@ -4690,17 +4775,26 @@ async def _ai_suggest_calendar(
                         f"trivia pool too small for {trivia_categories}: {trivia_pool_n}/{poll_payload['question_count']}"
                     )
                     continue
-                ready_note = ""
-                if int(poll_payload.get("min_ready_players") or 0) > 0:
-                    ready_note = f" צריך לפחות {poll_payload['min_ready_players']} שחקנים שמסמנים שהם בפנים."
                 if _slot_free(d_iso, warm_t, "discussion"):
-                    _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
-                                    text=f"מתחממים לטריוויה 🧠 — בעוד {warmup_offset} דקות מתחילים סיבוב {poll_payload['theme_label']} בפינה של בוטסון.{ready_note}",
-                                    source="ai-fill-trivia",
-                                    rationale="חימום לסיבוב טריוויה",
-                                    count_as=None)
+                    min_ready = int(poll_payload.get("min_ready_players") or 0)
+                    warmup_text = await _generate_activity_copy(
+                        "trivia_warmup",
+                        avoid_texts=existing_activity_texts | generated_activity_texts,
+                        game_time=t,
+                        warmup_offset_min=warmup_offset,
+                        theme_label=poll_payload["theme_label"],
+                        question_count=poll_payload["question_count"],
+                        min_ready_players=min_ready,
+                    )
+                    if warmup_text:
+                        generated_activity_texts.add(warmup_text)
+                        _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
+                                        text=warmup_text,
+                                        source="ai-fill-trivia",
+                                        rationale="חימום לסיבוב טריוויה",
+                                        count_as=None)
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
-                                text=f"🧠 סיבוב טריוויה — {poll_payload['theme_label']} ({poll_payload['question_count']} שאלות)",
+                                text="[internal:trivia_round]",
                                 source="ai-fill-trivia",
                                 rationale=f"נושא: {poll_payload['theme_label']} · מאגר מתאים ({trivia_pool_n} שאלות)",
                                 poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
@@ -6579,7 +6673,7 @@ async def trivia_round_suggest(request: Request, db: Database = Depends(get_db))
    אם בחרת נושא רחב — בחר 2-3 קטגוריות. אם נושא צר — אחת מספיקה. הקטגוריות חייבות להתאים ל-theme_label.
 3. question_count: 5, 7, או 10. בחר על פי האווירה — סיבוב קצר ומהיר (5), בינוני (7), או מלא (10).
 4. pre_roll_s: 30 או 60 (השהייה בשניות בין ההכרזה לשאלה הראשונה).
-5. warmup_text: שורה אחת קצרה (עד 140 תווים) שתשלח כהודעת חימום ב"הפינה של בוטסון" כ-30 דקות לפני המשחק. חייבת להכיל את המילה "מתחממים" או "בעוד" (כדי שהבוט יזהה אותה כהודעת חימום ולא כהפעלה). הזכר את ה-theme_label.
+5. warmup_text: שורה אחת קצרה (עד 140 תווים) להודעת חימום לפני המשחק. כתוב טבעי, לא תבנית קבועה, ואל תבטיח כפתורים או הרשמה מוקדמת. הזכר את ה-theme_label.
 
 עברית תקנית בלבד. אל תמציא ביטויים. אל תשלב מילים באנגלית באמצע משפט עברי.{avoid}{time_ctx}
 
@@ -6640,11 +6734,6 @@ async def trivia_round_suggest(request: Request, db: Database = Depends(get_db))
                 f"Got theme={theme_label!r} categories={raw_cats!r}"
             ),
         )
-
-    if "מתחממים" not in warmup_text and "בעוד" not in warmup_text:
-        # Calendar coercer expects this; surface a soft note rather than failing,
-        # so the operator can edit before saving.
-        logger.info("[trivia-suggest] warmup_text missing trigger word — operator must adjust")
 
     logger.info(
         "[trivia-suggest] theme=%r cats=%s qc=%d pre_roll=%d dropped=%s",
@@ -7455,126 +7544,14 @@ async def health_page(request: Request, db: Database = Depends(get_db)):
 
 PENDING_REVIEWS_PATH = Path(__file__).parent.parent / "data" / "pending_reviews.json"
 PENDING_REVIEWS_CLEARED_FLAG = Path(__file__).parent.parent / "data" / ".pending_reviews_cleared"
-EMOJI_PUZZLE_REVIEW_FLAG = Path(__file__).parent.parent / "data" / ".emoji_puzzle_reviews_seeded"
-
-
-def _emoji_puzzle_review_items():
-    try:
-        data = load_yaml("emoji_puzzles.yaml") or {}
-    except FileNotFoundError:
-        return []
-
-    puzzles = data.get("puzzles", []) or []
-    total = len(puzzles)
-    items = []
-    for idx, puzzle in enumerate(puzzles, start=1):
-        aliases = puzzle.get("aliases", []) or []
-        aliases_text = " | ".join(aliases[:4]) if aliases else "—"
-        items.append({
-            "id": f"emoji-puzzle-seed-{idx:02d}",
-            "title": f"🎬 Emoji Night — seed {idx:02d}/{total}",
-            "channel": "סרטים סדרות וכו (54)",
-            "when": "",
-            "preview": (
-                f"אימוג'ים: {puzzle.get('emoji_prompt', '')}\n"
-                f"עברית: {puzzle.get('answer_he', '')}\n"
-                f"English: {puzzle.get('answer_en', '')}\n"
-                f"כינויים לבדיקה: {aliases_text}"
-            ),
-            "note": (
-                f"Emoji Night seed review · {puzzle.get('media_type', 'movie')} · "
-                f"difficulty {puzzle.get('difficulty', 2)}"
-            ),
-        })
-    return items
-
-
-def _ensure_emoji_puzzle_reviews(items):
-    if EMOJI_PUZZLE_REVIEW_FLAG.exists():
-        return items
-
-    seeded = items + _emoji_puzzle_review_items()
-    EMOJI_PUZZLE_REVIEW_FLAG.parent.mkdir(parents=True, exist_ok=True)
-    EMOJI_PUZZLE_REVIEW_FLAG.write_text("seeded\n", encoding="utf-8")
-    _save_pending_reviews(seeded)
-    return seeded
 
 
 def _default_pending_reviews():
-    return [
-        {
-            "id": "community-post",
-            "title": "📝 פוסט קהילתי — למה בוטסון קיים",
-            "channel": "כללי (General)",
-            "when": "",
-            "preview": "להיות אל-הורי לבד זה לא הרבה. אבל להכיר עוד אנשים אל-הוריים — זה מרחיב את המרחב שבו אפשר להרגיש חופשי עם זה.\n\nעם חברים שהם הורים, יש פער — בזמינות, בנושאים, בפרספקטיבה. אז הרצון להכיר אנשים שחולקים את הבחירה הזו הגיוני.\n\nמה שלא עבד לי לפני: קבוצות פייסבוק — שיחות נשארות על פני השטח, אף פעם לא ממש יודע עם מי מדברים. לארגן מפגשים — מתיש, הכל נופל על אחד, ולהיות מופנם זה לא עוזר. קבוצות וואטסאפ אחרות — סגנון הניהול שם הוריד אותי מהקיר.\n\nהקבוצה הזו היא ניסיון לקחת את הטוב מכל אלה. להכיר אנשים דרך תחומי עניין משותפים, לא רק דרך תווית. ליצור מקום שממנו אפשר למצוא חיבורים אמיתיים — ואולי גם מפגשים שצומחים מהיכרות שכבר קיימת.\n\nזה יותר מזכיר צ'אטים של שנות ה-90 מאשר רשתות חברתיות של היום.\n\nאם אתם מכירים אנשים אל-הוריים שהמקום הזה יכול להתאים להם — שלחו אותם. 🙂",
-            "note": "פוסט אישי לקבוצה — לעיון לפני פרסום",
-        },
-        {
-            "id": "weekend-rec",
-            "title": "🎬 המלצת סופ״ש — סלוט 1/5",
-            "channel": "סרטים סדרות וכו (54)",
-            "when": "שישי 15:00 — רוטציה שבועית",
-            "preview": "🎬 המלצת סופ״ש\n\nסרט אחד שהייתם רוצים שמישהו אחר בקבוצה יראה — ויגיד לכם מה חשב.\n\nלא חייב להיות חדש. לא חייב להיות מושלם. משהו שעבד לכם ואתם סקרנים אם יעבוד גם למישהו אחר.",
-            "note": "רוטציה: סרטים → סדרות → משחקים → ספרים → פודקאסטים. סלוט ראשון בסופ״ש.",
-        },
-        {
-            "id": "weekend-plans",
-            "title": "🌙 סוף שבוע שקט — סלוט 2/5",
-            "channel": "כללי (General)",
-            "when": "שישי 20:00",
-            "preview": "🌙 סוף שבוע שקט\n\nיש לכם את כל הסופ״ש. מה אתם עושים איתו?\n\n• יוצאים\n• סדרה על הספה\n• פרויקט אישי / לימודים\n• שטויות ובטלה\n• אחר — ספרו\n\nאין כאן לוח זמנים של ילדים אחרים — אפשר סתם לבהות בתקרה וזה בסדר.",
-            "note": "Poll עם 5 אופציות + טקסט פתוח. מודד את ההזדהות עם הזווית האל-הורית.",
-        },
-        {
-            "id": "saturday-noon",
-            "title": "☀️ שבת בבוקר — סלוט 3/5",
-            "channel": "כל מה שחמוד (335)",
-            "when": "שבת 12:00",
-            "preview": "☀️ שבת בצהריים\n\nמה אתם אוכלים / צופים / קוראים / בוהים בו עכשיו?\n\nתמונה אחת, שורה אחת. רק עכשיו — לא מה עשיתם אתמול ולא מה תעשו מחר.",
-            "note": "Thread קצר ומיידי. אם לא נתפס אחרי 2 שבועות — מחליפים לטריוויה כפולה.",
-        },
-        {
-            "id": "trivia-launch",
-            "title": "🧠 טריוויה! — סלוט 4/5 (השקה)",
-            "channel": "כללי (General)",
-            "when": "שבת 17:00 — שבועי",
-            "preview": "🧠 טריוויה ב-17:00!\n\n5 שאלות. 30 שניות לכל אחת. תשובה נכונה = 12 נק׳. המקום הראשון = +20 בונוס.\n\nקטגוריות: גיאוגרפיה, מדע, סרטים, היסטוריה, ספורט, גיימינג.\n\nהשאלה הראשונה יורדת עוד 10 דקות — תישארו בצ׳אט.",
-            "note": "30 שאלות בבריכה, 5/שבוע = 6 שבועות תוכן. אחר־כך ליצור /triviapool חדשה עם GPT.",
-        },
-        {
-            "id": "weekly-roundup",
-            "title": "📊 סיכום שבועי + לידרבורד — סלוט 5/5",
-            "channel": "כללי (General)",
-            "when": "שבת 22:00",
-            "preview": "📊 השבוע בקבוצה\n\nהודעות: {total}\nחברים פעילים: {active}/{members}\nפוסט בולט: {top_post_link}\n\n🏆 טופ 5 השבוע:\n1. {u1} — {p1} נק׳\n2. {u2} — {p2} נק׳\n3. {u3} — {p3} נק׳\n4. {u4} — {p4} נק׳\n5. {u5} — {p5} נק׳\n\nשבוע טוב לכולם 🌿",
-            "note": "התבנית שהבוט כבר מחולל (weekly_roundup + weekly_leaderboard). להזיז מ-18:00 ל-22:00 כדי לסגור את הסופ״ש.",
-        },
-    ]
+    return []
 
 
 def _ensure_special_pending_reviews(items):
-    wanted_items = [
-        {
-            "id": "trivia-israel-announce-2026-04-22",
-            "title": "🇮🇱 תזכורת — טריוויה ליום העצמאות",
-            "channel": "כללי (General)",
-            "when": "רביעי 14:45",
-            "preview": "🇮🇱 היום ב-15:00 — טריוויה מיוחדת ליום העצמאות\n\n10 שאלות מהירות על ישראל: היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n\nתשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆\n\nהשאלה הראשונה יורדת ב-15:00 בדיוק — תהיו כאן.",
-            "note": "טיוטת הכרזה לפני סיבוב הטריוויה המתוזמן של מחר. אישור כאן ייצור טיוטת planner שאפשר לשלוח ממנו.",
-        },
-        {
-            "id": "trivia-israel-update-2026-04-22-1605",
-            "title": "🇮🇱 עדכון — טריוויה היום ב-16:15",
-            "channel": "ברוכים הבאים! מידע למצטרפים חדשים (341)",
-            "when": "רביעי 16:05",
-            "preview": "🇮🇱 היום ב-16:15 — טריוויה מיוחדת על ישראל\n\n10 שאלות מהירות על ישראל: היסטוריה, ספרות, קולנוע, מוזיקה ותרבות.\n\nתשובה נכונה = 12 נק׳ · מקום ראשון = +20 בונוס 🏆\n\nהשאלה הראשונה יורדת ב-16:15 בדיוק — תהיו כאן.",
-            "note": "טיוטת עדכון ל-topic 341 לפני סיבוב הטריוויה. אישור כאן ייצור טיוטת planner שאפשר לשלוח ממנו אחרי deploy.",
-        },
-    ]
-    existing_ids = {item.get("id") for item in items}
-    missing = [item for item in wanted_items if item["id"] not in existing_ids]
-    return items + missing
+    return items
 
 
 def _load_pending_reviews():
@@ -7592,12 +7569,12 @@ def _load_pending_reviews():
     if PENDING_REVIEWS_PATH.exists():
         try:
             items = json.loads(PENDING_REVIEWS_PATH.read_text(encoding="utf-8"))
-            return _ensure_special_pending_reviews(_ensure_emoji_puzzle_reviews(items))
+            return _ensure_special_pending_reviews(items)
         except Exception:
             logger.exception("[review] failed to read %s — reseeding", PENDING_REVIEWS_PATH)
     items = _default_pending_reviews()
     _save_pending_reviews(items)
-    return _ensure_special_pending_reviews(_ensure_emoji_puzzle_reviews(items))
+    return _ensure_special_pending_reviews(items)
 
 
 def _save_pending_reviews(items):
@@ -7983,8 +7960,8 @@ async def review_approve(request: Request, item_id: str, db: Database = Depends(
 
 # ── Content Calendar API ─────────────────────────────────
 
-# Preview computation lives in bot/scheduler/materializer.py so the dashboard
-# and the bot materializer share a single source of truth.
+# Static YAML pool previews are disabled in strict freshness mode; this import
+# remains a compatibility hook and should return no generated preview rows.
 from bot.scheduler.materializer import compute_week_previews
 
 

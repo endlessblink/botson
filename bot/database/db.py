@@ -248,7 +248,7 @@ class Database:
             await self._db.commit()
             return row[1]
 
-        return "☀️ בוקר טוב!" if prompt_type == "morning" else "🌙 ערב טוב!"
+        return ""
 
     # ── Spam Log ─────────────────────────────────────────────
 

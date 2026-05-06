@@ -356,8 +356,8 @@ async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, t
             teaser_body = teaser_text
         else:
             teaser_body = (
-                f"🧠 עוד רגע מתחיל סיבוב טריוויה ({theme_label}) בפינה של בוטסון — "
-                f"{question_count} שאלות. בואו לשחק!"
+                f"🧠 עוד רגע מתחיל סיבוב טריוויה: {theme_label}\n"
+                f"{question_count} שאלות. הודעת הפתיחה תופיע בערוץ המשחק."
             )
         try:
             await safe_send(
