@@ -2586,6 +2586,14 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"הגענו לאמצע השבוע"), "concrete_failure_calendar_filler"),
     (re.compile(r"מה שיניתם בו ממה שתכננתם ביום ראשון"), "concrete_failure_calendar_filler"),
     (re.compile(r"באיזה רגע .*ל?מבוגר האחראי.*בסיטואציה"), "concrete_failure_vague_situation_cliche"),
+    (re.compile(r"כמעט סוף שבוע"), "concrete_failure_time_filler"),
+    (re.compile(r"מה דבר אחד שאתם רוצים לסגור לפני שישי"), "concrete_failure_time_filler"),
+    (re.compile(r"עוד שעה אחת לפני שנגמר השבוע"), "concrete_failure_time_filler"),
+    (re.compile(r"מה אתם עושים איתה"), "concrete_failure_time_filler"),
+    (re.compile(r"שכולם חושבים שזה דאגבר"), "concrete_failure_bad_hebrew"),
+    (re.compile(r"ז'?אנר מסוים.*מגלים שזה משהו אחר לגמרי"), "concrete_failure_abstract_movie_bait"),
+    (re.compile(r"מי חטף פנים"), "concrete_failure_bad_hebrew"),
+    (re.compile(r"מי מוסיף פ[נפ]ים כזה"), "concrete_failure_bad_hebrew"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -4211,7 +4219,7 @@ async def _ai_suggest_calendar(
 
     routed_topics: dict[str, int] = {}
     for handler in (
-        "trivia_round", "emoji_puzzle", "free_games", "facts_tidbit",
+        "trivia_round", "trivia_warmup", "emoji_puzzle", "free_games", "facts_tidbit",
         "facts_spooky", "weekly_roundup", "weekly_leaderboard",
     ):
         topic = await _resolve_routing_topic(db, handler)
@@ -4784,7 +4792,7 @@ async def _ai_suggest_calendar(
                         f"trivia pool too small for {trivia_categories}: {trivia_pool_n}/{poll_payload['question_count']}"
                     )
                     continue
-                if _slot_free(d_iso, warm_t, "discussion"):
+                if _slot_free(d_iso, warm_t, "trivia_warmup_rsvp"):
                     min_ready = int(poll_payload.get("min_ready_players") or 0)
                     warmup_text = await _generate_activity_copy(
                         "trivia_warmup",
@@ -4795,12 +4803,19 @@ async def _ai_suggest_calendar(
                         question_count=poll_payload["question_count"],
                         min_ready_players=min_ready,
                     )
+                    warmup_topic = routed_topics.get("trivia_warmup") or routed_topics["trivia_round"]
+                    warmup_poll_json = json.dumps({
+                        "min_ready_players": min_ready,
+                        "game_time": t,
+                        "theme_label": poll_payload["theme_label"],
+                    }, ensure_ascii=False)
                     if warmup_text:
                         generated_activity_texts.add(warmup_text)
-                        _add_suggestion(d_iso, warm_t, "discussion", topic=routed_topics["trivia_round"],
+                        _add_suggestion(d_iso, warm_t, "trivia_warmup_rsvp", topic=warmup_topic,
                                         text=warmup_text,
                                         source="ai-fill-trivia",
-                                        rationale="חימום לסיבוב טריוויה",
+                                        rationale="חימום לסיבוב טריוויה — מצטרפים חדשים",
+                                        poll_options_json=warmup_poll_json,
                                         count_as=None)
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
                                 text="[internal:trivia_round]",
@@ -4817,6 +4832,20 @@ async def _ai_suggest_calendar(
     }
 
 
+async def _read_json_object_body(request: Request, log_prefix: str) -> dict:
+    raw = await request.body()
+    if not raw or not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        logger.warning("[%s] invalid JSON body: %s", log_prefix, e)
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+    return data
+
+
 @app.post("/api/weekplan/ai-suggest")
 async def ai_suggest(request: Request, db: Database = Depends(get_db)):
     """Build calendar-fill suggestions for review. Does NOT touch the DB.
@@ -4825,8 +4854,11 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    data = await request.json()
-    week_offset = int(data.get("week_offset", 0))
+    data = await _read_json_object_body(request, "weekplan.ai-suggest")
+    try:
+        week_offset = int(data.get("week_offset", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Invalid week_offset: {data.get('week_offset')!r}")
     target_date_raw = (data.get("target_date") or "").strip()
     if target_date_raw.lower() == "today":
         target_date_raw = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
@@ -4835,8 +4867,15 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
         try:
             date.fromisoformat(target_date)
         except ValueError:
+            logger.warning("[weekplan.ai-suggest] invalid target_date=%r body=%s", target_date, data)
             raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
-    return await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
+    try:
+        return await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("[weekplan.ai-suggest] failed target_date=%r week_offset=%s", target_date, week_offset)
+        raise HTTPException(status_code=500, detail=f"AI suggest failed: {type(e).__name__}: {e}")
 
 
 @app.post("/api/weekplan/ai-suggest-commit")
@@ -4852,13 +4891,14 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    data = await request.json()
+    data = await _read_json_object_body(request, "weekplan.ai-suggest-commit")
     approved = data.get("approved") or []
     if not isinstance(approved, list):
+        logger.warning("[weekplan.ai-suggest-commit] approved is not list: %r", type(approved).__name__)
         raise HTTPException(status_code=400, detail="approved must be a list")
 
     valid_types = {
-        "morning", "evening", "discussion", "trivia_round",
+        "morning", "evening", "discussion", "trivia_round", "trivia_warmup_rsvp",
         "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky",
         "weekly_roundup", "weekly_leaderboard",
     }
