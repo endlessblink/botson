@@ -67,21 +67,30 @@ def find_stale_rows(db_path: str, *, from_date: str | None = None) -> list[dict]
         conn.close()
 
 
-def cancel_rows(db_path: str, ids: list[int]) -> int:
+def mutate_rows(db_path: str, ids: list[int], *, action: str) -> int:
     if not ids:
         return 0
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
         placeholders = ",".join("?" for _ in ids)
-        cur.execute(
-            f"UPDATE scheduled_messages SET status = 'cancelled', error_message = 'stale-content-cleanup' WHERE id IN ({placeholders})",
-            ids,
-        )
+        if action == "delete":
+            cur.execute(f"DELETE FROM scheduled_messages WHERE id IN ({placeholders})", ids)
+        elif action == "cancel":
+            cur.execute(
+                f"UPDATE scheduled_messages SET status = 'cancelled', error_message = 'stale-content-cleanup' WHERE id IN ({placeholders})",
+                ids,
+            )
+        else:
+            raise ValueError(f"unsupported action: {action}")
         conn.commit()
         return int(cur.rowcount or 0)
     finally:
         conn.close()
+
+
+def cancel_rows(db_path: str, ids: list[int]) -> int:
+    return mutate_rows(db_path, ids, action="cancel")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", default=os.getenv("DB_PATH", str(REPO / "data" / "bot.db")))
     parser.add_argument("--from-date", default=date.today().isoformat())
     parser.add_argument("--apply", action="store_true", help="Actually mutate matching rows")
-    parser.add_argument("--action", choices=("cancel",), default="cancel")
+    parser.add_argument("--action", choices=("cancel", "delete"), default="cancel")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     args = parser.parse_args(argv)
 
@@ -112,9 +121,9 @@ def main(argv: list[str] | None = None) -> int:
             print("Dry-run only. Re-run with --apply --action cancel after review.")
         return 0
 
-    changed = cancel_rows(args.db, [int(row["id"]) for row in rows])
+    changed = mutate_rows(args.db, [int(row["id"]) for row in rows], action=args.action)
     if not args.json:
-        print(f"Cancelled rows: {changed}")
+        print(f"Changed rows: {changed} ({args.action})")
     return 0
 
 

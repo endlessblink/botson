@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.cleanup_stale_scheduled_content import cancel_rows, find_stale_rows
+from scripts.cleanup_stale_scheduled_content import cancel_rows, find_stale_rows, mutate_rows
 
 
 SCHEMA = """
@@ -101,6 +101,21 @@ class StaleContentCleanupTests(unittest.TestCase):
         self.assertEqual(statuses[1][1], "scheduled")
         self.assertEqual(statuses[2][1], "scheduled")
         self.assertEqual(statuses[3][1], "cancelled")
+
+    def test_delete_action_removes_rows_so_materializer_can_refill(self):
+        tmp, path = self._db()
+        self.addCleanup(tmp.cleanup)
+        rows = find_stale_rows(path, from_date="2099-01-01")
+
+        changed = mutate_rows(path, [int(row["id"]) for row in rows], action="delete")
+
+        self.assertEqual(changed, 2)
+        conn = sqlite3.connect(path)
+        try:
+            remaining = conn.execute("SELECT COUNT(*) FROM scheduled_messages").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(remaining, 2)
 
 
 if __name__ == "__main__":

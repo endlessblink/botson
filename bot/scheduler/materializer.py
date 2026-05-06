@@ -102,34 +102,64 @@ def _extract_generated_text(raw: str) -> str | None:
 
 async def _generate_with_claude(prompt: str) -> str | None:
     import asyncio
+    import pwd
 
     claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
-    if not claude_bin or not os.path.exists(claude_bin):
-        logger.warning("[materializer] claude CLI not found; skipping fresh slot generation")
+    if claude_bin and os.path.exists(claude_bin):
+        try:
+            try:
+                real_home = pwd.getpwuid(os.geteuid()).pw_dir
+            except Exception:
+                real_home = os.path.expanduser("~")
+            env = {**os.environ, "HOME": real_home}
+            proc = await asyncio.create_subprocess_exec(
+                claude_bin,
+                "-p",
+                prompt,
+                "--model",
+                "haiku",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_CLAUDE_CLI_TIMEOUT)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.warning("[materializer] claude CLI timed out; trying API fallback")
+            else:
+                if proc.returncode == 0 and stdout.decode(errors="ignore").strip():
+                    return stdout.decode(errors="ignore")
+                logger.warning("[materializer] claude CLI failed: %s", stderr.decode(errors="ignore")[:200])
+        except Exception as e:
+            logger.warning("[materializer] claude CLI generation failed: %s", e)
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        logger.warning("[materializer] no Claude CLI/API available; skipping fresh slot generation")
         return None
     try:
-        proc = await asyncio.create_subprocess_exec(
-            claude_bin,
-            "-p",
-            prompt,
-            "--model",
-            "haiku",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_CLAUDE_CLI_TIMEOUT)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            logger.warning("[materializer] claude CLI timed out; skipping fresh slot")
-            return None
-        if proc.returncode != 0:
-            logger.warning("[materializer] claude CLI failed: %s", stderr.decode(errors="ignore")[:200])
-            return None
-        return stdout.decode(errors="ignore")
+        import httpx
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1024,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["content"][0]["text"].strip()
     except Exception as e:
-        logger.warning("[materializer] fresh generation failed: %s", e)
+        logger.warning("[materializer] API generation failed: %s", e)
         return None
 
 
