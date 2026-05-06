@@ -1,8 +1,8 @@
 """Trivia warm-up interest-check handler.
 
-Handles the "🙋 אני בפנים!" inline button on trivia_warmup_rsvp messages sent to
-topic 341 (מצטרפים חדשים ועדכונים). Tracks responses in trivia_interest_responses
-and fires a confirmation message to the same topic when the threshold is met.
+Handles the "🙋 אני בפנים!" inline button on trivia_warmup_rsvp messages.
+Tracks responses in trivia_interest_responses and fires a confirmation message
+to the topic defined by the trivia_warmup routing row when the threshold is met.
 """
 
 import json
@@ -17,8 +17,6 @@ from ..utils.helpers import get_display_name
 from ..utils.topic_guard import safe_send
 
 logger = logging.getLogger(__name__)
-
-_WARMUP_TOPIC_ID = 341
 
 
 async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,17 +84,26 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
         f"כולם מוזמנים! 🎮"
     )
     try:
+        routing = await db.get_handler_routing("trivia_warmup")
+    except Exception:
+        routing = None
+    warmup_topic_id = (routing or {}).get("play_topic_id")
+    if not warmup_topic_id:
+        logger.warning("trivia_interest: no trivia_warmup routing — skipping confirmation")
+        return
+
+    try:
         await safe_send(
             context.bot,
             db,
             "send_message",
             chat_id=GROUP_ID,
             text=confirmation,
-            message_thread_id=_WARMUP_TOPIC_ID,
+            message_thread_id=warmup_topic_id,
         )
         logger.info(
             "trivia_interest: threshold %d reached for msg %d — confirmation sent to topic %d",
-            threshold, scheduled_msg_id, _WARMUP_TOPIC_ID,
+            threshold, scheduled_msg_id, warmup_topic_id,
         )
     except Exception as e:
         logger.error("trivia_interest: failed to send confirmation: %s", e)
