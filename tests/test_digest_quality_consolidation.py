@@ -80,6 +80,8 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("😂 באיזה רגע הפכתם בטעות למבוגר האחראי בסיטואציה שלא ביקשתם בכלל להיות בה?", "concrete_failure_vague_situation_cliche"),
             ("חמישי — בוקר שהוא כבר כמעט סוף שבוע, אבל עוד לא. מה דבר אחד שאתם רוצים לסגור לפני שישי? ☀️", "concrete_failure_time_filler"),
             ("יום חמישי בערב — עוד שעה אחת לפני שנגמר השבוע שלכם. מה אתם עושים איתה? 🌙", "concrete_failure_time_filler"),
+            ("יום חמישי — הרגע הכי עוד קצת ואז כבר סוף שבוע. איך אתם מנצלים את האנרגיה הזו?! ☀️", "concrete_failure_generic_energy"),
+            ("🕯️ חמישי בלילה — מה הריטואל שסוגר לכם את השבוע?", "concrete_failure_generic_ritual"),
             ("🍿 סרט שכולם חושבים שזה דאגבר מסוים, ומגלים שזה משהו אחר לגמרי — מי חטף פנים כזה בערב שישי?", "concrete_failure_bad_hebrew"),
             ("🍿 סרט שכולם חושבים שזה ז'אנר מסוים, ומגלים שזה משהו אחר לגמרי — מי מוסיף פנים כזה בערב שישי?", "concrete_failure_abstract_movie_bait"),
         ]
