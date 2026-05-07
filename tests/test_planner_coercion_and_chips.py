@@ -172,10 +172,17 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 )
         await db._db.commit()
         before = await self._scheduled_count(db)
-        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+        # Distinct strings per call so the freshness guard doesn't reject
+        # follow-up generations (e.g. the warmup_reminder paired with each
+        # trivia_warmup_rsvp announcement).
+        call_counter = {"n": 0}
 
-        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
-             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+        async def distinct_canned(*args, **kwargs):
+            call_counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
             result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
 
@@ -222,6 +229,25 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             341,
             "Emoji Night warm-up announcements must go to welcome/updates",
         )
+        # T-126: every RSVP announcement should be paired with a warmup_reminder
+        # carrying the same warmup_marker.
+        reminder_rows = [
+            s for s in result["suggestions"] if s["message_type"] == "warmup_reminder"
+        ]
+        self.assertTrue(reminder_rows, "populate must emit warmup_reminder rows")
+        for ann in (
+            s for s in result["suggestions"] if s["message_type"] == "trivia_warmup_rsvp"
+        ):
+            ann_marker = json.loads(ann["poll_options_json"]).get("warmup_marker")
+            self.assertTrue(ann_marker, f"announcement {ann} missing warmup_marker")
+            paired = [
+                r for r in reminder_rows
+                if json.loads(r["poll_options_json"]).get("warmup_marker") == ann_marker
+            ]
+            self.assertEqual(
+                len(paired), 1,
+                f"announcement marker {ann_marker} should have exactly one reminder",
+            )
         trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
         self.assertTrue(trivia_rows)
         self.assertTrue(all(row.get("preview_url") for row in trivia_rows))
@@ -828,6 +854,31 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(reminder["scheduled_time"], "21:40")
             finally:
                 await db.close()
+
+    async def test_reminder_prompt_uses_reminder_aware_rules(self):
+        """T-126 LLM rules: reminder kinds must instruct the LLM that the
+        button lives on the original announcement (not on this message)."""
+        captured = {}
+
+        async def capture_cli(prompt: str) -> str:
+            captured["prompt"] = prompt
+            return "תזכורת קצרה"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=capture_cli)):
+            result = await dashboard_app._generate_activity_copy(
+                "trivia_warmup_reminder",
+                game_time="22:00",
+                reminder_offset_min=20,
+                theme_label="גיימינג",
+                activity_label="הטריוויה על גיימינג",
+                min_ready_players=2,
+                is_reminder=True,
+            )
+        self.assertIsNotNone(result)
+        prompt = captured["prompt"]
+        self.assertIn("ההודעה המקורית", prompt)
+        self.assertIn("הכפתור בהודעה המקורית", prompt)
+        self.assertNotIn("הכפתור מופיע מתחת לטקסט", prompt)
 
     async def test_warmup_reminder_skipped_when_threshold_met(self):
         """T-126 dispatch: reminder short-circuits to status=skipped when
