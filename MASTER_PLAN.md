@@ -119,7 +119,7 @@
 | T-118 | 21 | Audit + rewrite 7 flagged questions in config/discussions.yaml (English jargon: ironic/autocorrect/overrated/underrated/red flag/green flag; 1 stacked question in cute) | DONE | P2 | — |
 | T-123 | 23 | Planner AI Populate mixed suggestions | DONE | P0 | T-080 |
 | T-124 | 23 | Fix emoji subject bias: remove hardcoded fallback, pool filter, sort key | DONE | P0 | — |
-| T-125 | 23 | Extend RSVP buttons to remaining activity types (morning/evening/discussion/facts/free_games/weekly_*) with global toggle | TODO | P1 | T-128 |
+| ~~T-125~~ | 23 | ~~Extend RSVP buttons to remaining activity types + global toggle~~ → RSVP stays opt-in per-feature; no global toggle | WONT-FIX | P3 | — |
 | T-126 | 23 | Second warm-up reminder: schedule a reminder row, skip dispatch if threshold already met (trivia + emoji) | DONE | P1 | T-128 |
 | T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached (no point running if no one signed up) | DONE | P1 | T-126 |
 | T-128 | 23 | Emoji Night announcement uses trivia_warmup_rsvp type so it gets the RSVP button at dispatch | DONE | P0 | T-124 |
@@ -1125,6 +1125,13 @@ Added `status='skipped'` for legitimate no-op activities so the calendar disting
 Added a per-row async lock around trivia top-up generation so concurrent approval/retry requests for the same scheduled game cannot duplicate generated questions or race on `config/trivia.yaml` writes.
 
 **Files:** `dashboard/app.py`.
+
+---
+
+#### T-125: RSVP extension — closed as won't-fix (2026-05-07)
+**Phase:** 23 — RSVP system | **Priority:** P3 | **Status:** WONT-FIX | **Deps:** —
+
+Originally proposed extending RSVP buttons to morning/evening/discussion/facts/free_games/weekly_* with a global toggle. That framing was the inverse of how the feature should grow: it assumed RSVP was a default-on capability for every activity type that operators would opt out of via toggle. The actual rule is the opposite — RSVP is opt-in per-feature, only for activities that genuinely need an attendance commitment to work (synchronous, time-boxed). Today that's `trivia_round` and `emoji_puzzle`, both shipped in T-126/T-127. The other types listed (passive prompts, share-and-react content, scheduled summaries) don't have RSVP semantics, so adding a button there would be a feature in search of a problem. Future activity types that genuinely need RSVP can plug in by re-using `poll_options.warmup_marker` + `min_ready_players` + the dispatch gate at `bot/handlers/calendar.py:_enforce_warmup_rsvp_gate` — no master switch needed. The forward-looking rule lives in `CLAUDE.md` under "Warm-up RSVP system" → "RSVP is opt-in per-feature".
 
 ---
 
