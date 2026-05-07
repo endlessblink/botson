@@ -163,6 +163,11 @@ class NoHardcodedContentDefaultsTests(unittest.TestCase):
         self.assertIn('"fact_id"', text)
         self.assertIn("/planner/suggestion-preview", text)
 
+    def test_fact_preview_does_not_show_raw_english_image_prompt(self):
+        text = (ROOT / "dashboard/app.py").read_text(encoding="utf-8")
+        self.assertNotIn("Image prompt:<br>", text)
+        self.assertIn("תמונה תיווצר בזמן השליחה", text)
+
 
 class ValidatorPoolFalsePositiveSweepTests(unittest.TestCase):
     """Run every regex against the live discussions.yaml + prompts.yaml pools.

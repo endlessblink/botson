@@ -4904,8 +4904,12 @@ async def _ai_suggest_calendar(
                         announce_t = f"{announce_total // 60:02d}:{announce_total % 60:02d}"
                     except Exception:
                         continue
-                    if not _slot_free(d_iso, announce_t, "trivia_warmup_rsvp"):
-                        continue
+                    # Announcement is paired-but-optional. If its slot is in
+                    # the past (or otherwise occupied), skip JUST the
+                    # announcement — still emit the game row below so the
+                    # operator gets a usable Populate suggestion when they
+                    # click late in the day.
+                    announce_slot_available = _slot_free(d_iso, announce_t, "trivia_warmup_rsvp")
                     emoji_min_ready = int(((settings.get("trivia") or {}).get("populate_defaults") or {}).get("min_ready_players") or 2)
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
@@ -4915,10 +4919,10 @@ async def _ai_suggest_calendar(
                         theme_label=emoji_theme,
                         puzzle_count=emoji_count,
                         min_ready_players=emoji_min_ready,
-                    )
+                    ) if announce_slot_available else None
                     emoji_announcement_emitted = False
                     emoji_warmup_marker = None
-                    if emoji_text:
+                    if emoji_text and announce_slot_available:
                         emoji_warmup_marker = f"warmup-rsvp:emoji:{d_iso}:{t}"
                         emoji_announce_poll = json.dumps({
                             "min_ready_players": emoji_min_ready,
@@ -9391,7 +9395,7 @@ async def planner_suggestion_preview(request: Request, db: Database = Depends(ge
         image_prompt = str(item.get("image_prompt") or "").strip()
         image_block = f'<img src="{html.escape(image_url)}" alt="" class="preview-img">' if image_url else ""
         if not image_block and image_prompt:
-            image_block = f'<div class="image-prompt">Image prompt:<br>{html.escape(image_prompt)}</div>'
+            image_block = '<div class="image-prompt">תמונה תיווצר בזמן השליחה לפי הנחיה אוצרת. הטקסט והמקור למטה הם התוכן לאישור.</div>'
         text_html = html.escape(str(item.get("text_he") or "")).replace(chr(10), "<br>")
         source = html.escape(str(item.get("source") or ""))
         source_url = html.escape(str(item.get("source_url") or ""))

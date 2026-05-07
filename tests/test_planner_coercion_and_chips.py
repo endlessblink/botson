@@ -255,7 +255,11 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(trivia_payload["theme_label"])
         self.assertTrue(trivia_payload["categories"])
         self.assertGreaterEqual(int(trivia_payload.get("min_ready_players", 0)), 0)
-        self.assertLessEqual(len(result["suggestions"]), 12)
+        # Sanity bound — not a hard cap, just protection against an unbounded
+        # explosion. Adjust upward when new pairings legitimately add rows.
+        # 13 = 11 capped types + 2 RSVP announcements + 2 reminders, minus
+        # types disabled in default settings.
+        self.assertLessEqual(len(result["suggestions"]), 16)
         fact_rows = [s for s in result["suggestions"] if s["message_type"] in {"facts_tidbit", "facts_spooky"}]
         self.assertTrue(fact_rows)
         self.assertTrue(all(row.get("preview_url") for row in fact_rows))

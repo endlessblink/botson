@@ -141,15 +141,15 @@ spooky:
     source_url: "https://www.nature.com/articles/s43247-020-00081-8"
     image_prompt: "Relevant atmospheric editorial image of a torn expedition tent on a snowy Ural mountain pass at night, documentary mystery style, no text, no logos."
 
-  - id: jerusalem_montefiore_ghost
+  - id: dancing_plague_1518
     text_he: |
-      ליד טחנת הרוח של מונטיפיורי בירושלים עמדה במשך שנים הכרכרה המקורית שלו — סמל תיירותי מאוד ביום, וקצת פחות נעים בלילה.
-      לפי מסורות ירושלמיות מקומיות, תושבים סיפרו שראו דמות מבוגרת בלבוש תקופתי עומדת ליד הכרכרה אחרי שהאזור התרוקן, כאילו עדיין בודקת את הדרך אל משכנות שאננים.
-      ב-1986 הכרכרה נשרפה בהצתה, והסיפור קיבל סוף מוזר: מאז, לפי אותו פולקלור מקומי, גם הדמות הפסיקה להופיע.
-      אין כאן תיק משטרה על רוח רפאים — רק אגדה עירונית שמחזיקה כי היא קשורה לחפץ אמיתי, מקום אמיתי, ואירוע שריפה אמיתי.
-    source: "Jerusalem Post, 'Ghosts of Jerusalem' (Oct 2021); local oral tradition collected by Aardvark Israel."
-    source_url: "https://aardvarkisrael.com/ghost-stories-in-jerusalem/"
-    image_prompt: "Relevant atmospheric editorial image of the Montefiore windmill and carriage area in Jerusalem at night with a subtle historical silhouette, no text, no logos."
+      ביולי 1518 אישה בשם פראו טרופאה יצאה לרחוב בשטרסבורג והתחילה לרקוד. לא חגיגה, לא מופע — היא פשוט לא הפסיקה.
+      בתוך ימים הצטרפו אליה עשרות. לפי כרוניקות העיר, חלקם רקדו עד שהתמוטטו; רופאים מקומיים קבעו אז שמדובר ב"דם חם" והמליצו דווקא לתת להם עוד מוזיקה ועוד מקום לרקוד.
+      ההסבר המודרני לא סגור: היסטוריונים קושרים את ההתפרצות לרעב, מגפות ולחץ קיצוני; תאוריות אחרות מדברות על הרעלה מפטרייה בדגן, אבל זה פחות מתאים לפרטים הידועים.
+      מה שנשאר מטריד הוא לא שהאנשים "השתגעו" — אלא שעיר שלמה ניסתה לטפל במגפה של ריקוד בכך שהגבירה את המוזיקה.
+    source: "John Waller, 'A Time to Dance, A Time to Die' (Icon Books, 2008); Encyclopaedia Britannica, 'Dancing plague of 1518'."
+    source_url: "https://www.britannica.com/event/dancing-plague-of-1518"
+    image_prompt: "Atmospheric historical editorial image of a narrow 16th-century Strasbourg street during the dancing plague, exhausted townspeople moving under torchlight, respectful documentary mood, no gore, no text, no logos."
 
   - id: ari_sefardi_tzfat
     text_he: |
