@@ -61,13 +61,15 @@ def load_facts_pool(pool: str) -> list[dict]:
     return items
 
 
-def pick_fact(pool: str, recently_sent_ids: Iterable[str]) -> dict | None:
+def pick_fact(pool: str, recently_sent_ids: Iterable[str], *, fact_id: str | None = None) -> dict | None:
     """Pick one fact from the pool that hasn't been sent recently.
     Returns None if the pool is empty or every item is on cooldown — in
     that case the caller should log + skip rather than send a repeat."""
     items = load_facts_pool(pool)
     if not items:
         return None
+    if fact_id:
+        return next((i for i in items if i["id"] == fact_id), None)
     recent = {str(i) for i in recently_sent_ids}
     eligible = [i for i in items if i["id"] not in recent]
     if not eligible:
@@ -148,7 +150,7 @@ async def _resolve_fact_photo(pool: str, fact: dict) -> tuple[object, str] | Non
 
 
 async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
-                              thread_id: int | None) -> bool:
+                              thread_id: int | None, fact_id: str | None = None) -> bool:
     """Pick + post one fact. Returns True if a message was actually sent.
 
     The caller (scheduler / calendar handler) is responsible for:
@@ -169,7 +171,7 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
         except Exception as e:  # pragma: no cover — defensive
             logger.debug("facts: recent-subjects lookup failed: %s", e)
 
-    fact = pick_fact(pool, recent_ids)
+    fact = pick_fact(pool, recent_ids, fact_id=fact_id)
     if fact is None:
         return False
 

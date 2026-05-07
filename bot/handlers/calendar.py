@@ -403,12 +403,19 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 sent = SimpleNamespace(message_id=1)
             elif msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
                 pool = msg.get("message_type", "").removeprefix("facts_")
+                fact_id = None
+                try:
+                    payload = json.loads(msg.get("poll_options") or "{}")
+                    fact_id = str(payload.get("fact_id") or "").strip() or None
+                except Exception:
+                    fact_id = None
                 sent_ok = await send_scheduled_fact(
                     bot,
                     db,
                     pool=pool,
                     chat_id=group_id,
                     thread_id=msg.get("channel_topic_id"),
+                    fact_id=fact_id,
                 )
                 if not sent_ok:
                     raise RuntimeError(f"facts {pool} did not send")

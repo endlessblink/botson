@@ -213,7 +213,7 @@ class Database:
                     puzzle["answer_en"],
                     json.dumps(aliases, ensure_ascii=False),
                     int(puzzle.get("difficulty", 2)),
-                    puzzle.get("media_type", "movie"),
+                    puzzle.get("media_type", "general"),
                     1 if puzzle.get("enabled", True) else 0,
                     _now_il(),
                 ),
@@ -989,7 +989,7 @@ class Database:
         answer_en: str,
         aliases: str = "[]",
         difficulty: int = 2,
-        media_type: str = "movie",
+        media_type: str = "general",
     ) -> int:
         """Insert a new puzzle into the pool. `aliases` is a JSON-encoded list of strings."""
         async with self._db.execute(

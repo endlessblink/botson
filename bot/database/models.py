@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS emoji_puzzles (
     answer_en TEXT NOT NULL,
     aliases TEXT DEFAULT '[]',
     difficulty INTEGER DEFAULT 2,
-    media_type TEXT DEFAULT 'movie',
+    media_type TEXT DEFAULT 'general',
     enabled INTEGER DEFAULT 1,
     times_used INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

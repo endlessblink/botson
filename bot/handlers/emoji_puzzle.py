@@ -41,14 +41,13 @@ def get_enabled_emoji_targets(settings: dict | None = None) -> list[tuple[int, i
         return []
 
     groups = feature.get("groups", []) or []
-    topics = settings.get("topics", {}) or {}
-    discussion_topics = topics.get("discussions", {}) or {}
-    movies_topic = discussion_topics.get("movies")
+    thread_id = (settings.get("schedule", {}).get("emoji_puzzle", {}) or {}).get("topic_id")
+    thread_id = int(thread_id) if thread_id else None
     targets: list[tuple[int, int | None]] = []
 
     for group in groups:
         if group == "main" and GROUP_ID:
-            targets.append((GROUP_ID, movies_topic))
+            targets.append((GROUP_ID, thread_id))
         elif group == "test" and TEST_GROUP_ID:
             targets.append((TEST_GROUP_ID, None))
     return targets
@@ -57,21 +56,21 @@ def get_enabled_emoji_targets(settings: dict | None = None) -> list[tuple[int, i
 def resolve_emoji_target(target: str, settings: dict | None = None) -> tuple[int | None, int | None]:
     """Resolve one dashboard target name to chat/thread ids."""
     settings = settings or get_settings()
-    topics = settings.get("topics", {}) or {}
-    discussion_topics = topics.get("discussions", {}) or {}
-    movies_topic = discussion_topics.get("movies")
+    thread_id = (settings.get("schedule", {}).get("emoji_puzzle", {}) or {}).get("topic_id")
+    thread_id = int(thread_id) if thread_id else None
     if target == "main":
-        return GROUP_ID or None, movies_topic
+        return GROUP_ID or None, thread_id
     if target == "test":
         return TEST_GROUP_ID or None, None
     return None, None
 
 
 def _format_intro_text(puzzle_count: int, theme_label: str | None = None) -> str:
-    theme = str(theme_label or "סרטים וסדרות").strip() or "סרטים וסדרות"
+    theme = str(theme_label or "").strip()
+    theme_line = f" בנושא {theme}" if theme else ""
     return (
-        "🎬 Emoji Night מתחיל!\n\n"
-        f"מחכות לכם {puzzle_count} חידות אימוג'י בנושא {theme}.\n"
+        "🧩 Emoji Night מתחיל!\n\n"
+        f"מחכות לכם {puzzle_count} חידות אימוג'י{theme_line}.\n"
         "הראשונ/ה שעונ/ה נכון על כל חידה מקבל/ת 5 נקודות מיד.\n\n"
         "עונים ב-reply להודעת החידה. אפשר לענות גם על חידות קודמות עד סוף המשחק, ובסוף נחשוף את מה שלא נפתר."
     )
@@ -90,11 +89,11 @@ def _format_wrap_text(leaderboard: list[dict], total: int, unsolved_rounds: list
     unsolved_rounds = unsolved_rounds or []
     if not leaderboard:
         lines = [
-            "🎬 Emoji Night הסתיים!\n\n"
+            "🧩 Emoji Night הסתיים!\n\n"
             f"{total} חידות יצאו, אבל אף אחת עוד לא נפתרה. אולי בפעם הבאה."
         ]
     else:
-        lines = ["🎬 Emoji Night הסתיים!", "", "טבלת הזוכים:"]
+        lines = ["🧩 Emoji Night הסתיים!", "", "טבלת הזוכים:"]
         medals = ["🥇", "🥈", "🥉"]
         for idx, row in enumerate(leaderboard, start=1):
             badge = medals[idx - 1] if idx <= len(medals) else f"{idx}."

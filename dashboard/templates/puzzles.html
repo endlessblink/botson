@@ -83,11 +83,11 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                     <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">נושא המשחק</label>
-                    <input id="ep-theme" type="text" value="{{ puzzle_sched.theme_label or 'סרטים וסדרות' }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                    <input id="ep-theme" type="text" value="{{ puzzle_sched.theme_label or '' }}" placeholder="אופציונלי — למשל נושא הערב" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
                 </div>
                 <div>
                     <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">סוגי מאגר</label>
-                    <input id="ep-media-types" type="text" value="{{ (puzzle_sched.media_types or ['movie','tv'])|join(',') }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]" placeholder="movie,tv,book,song">
+                    <input id="ep-media-types" type="text" value="{{ (puzzle_sched.media_types or [])|join(',') }}" class="w-full bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]" placeholder="ריק = כל המאגר, או movie,tv,book,song">
                 </div>
                 <div>
                     <label class="text-sm text-[#a1a1aa] font-medium mb-1.5 block">הכרזה לפני (דק')</label>
@@ -140,7 +140,7 @@
         <input id="new-aliases" type="text" placeholder="aliases, separated, by commas" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]" dir="ltr">
         <div class="flex gap-2">
             <select id="new-difficulty" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="1">קל</option><option value="2" selected>בינוני</option><option value="3">קשה</option></select>
-            <select id="new-media" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="movie">סרט</option><option value="series">סדרה</option></select>
+            <select id="new-media" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="general">כללי</option><option value="movie">סרט</option><option value="series">סדרה</option><option value="book">ספר</option><option value="song">שיר</option></select>
         </div>
         <button id="new-create" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#d4d4d8] h-9 px-4 rounded-md text-sm font-medium transition-colors">הוסף</button>
     </div>
@@ -186,8 +186,11 @@
                     </td>
                     <td class="px-4 py-3">
                         <select class="puzzle-media bg-[#111111] border border-[#272727] rounded-md h-8 px-2 text-[#fafafa]">
+                            <option value="general" {% if puzzle.media_type == 'general' %}selected{% endif %}>כללי</option>
                             <option value="movie" {% if puzzle.media_type == 'movie' %}selected{% endif %}>סרט</option>
                             <option value="series" {% if puzzle.media_type == 'series' %}selected{% endif %}>סדרה</option>
+                            <option value="book" {% if puzzle.media_type == 'book' %}selected{% endif %}>ספר</option>
+                            <option value="song" {% if puzzle.media_type == 'song' %}selected{% endif %}>שיר</option>
                         </select>
                     </td>
                     <td class="px-4 py-3 text-[#a1a1aa] stat-number">{{ puzzle.times_used }}</td>

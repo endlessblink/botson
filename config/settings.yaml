@@ -139,10 +139,8 @@ schedule:
     days: []
     time: '22:00'
     announcement_lead_minutes: 90
-    theme_label: סרטים וסדרות
-    media_types:
-    - movie
-    - tv
+    theme_label: ''
+    media_types: []
     puzzle_count: 5
     interval_seconds: 20
     interval_minutes: 1

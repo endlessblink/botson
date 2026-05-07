@@ -156,11 +156,29 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
                     await calendar.check_and_send_due_messages(context)
 
                 send_fact.assert_awaited_once_with(
-                    bot, db, pool=pool, chat_id=-1002, thread_id=4037
+                    bot, db, pool=pool, chat_id=-1002, thread_id=4037, fact_id=None
                 )
                 send_text.assert_not_awaited()
                 self.assertEqual(db.sent, [(123, 1)])
                 self.assertEqual(db.failed, [])
+
+    async def test_fact_rows_pass_pinned_preview_fact_id(self):
+        row = _base_row("facts_tidbit")
+        row["channel_topic_id"] = 4037
+        row["poll_options"] = json.dumps({"fact_id": "roman_concrete_self_healing"})
+        db = FakeScheduledDb(row)
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+        bot = object()
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=bot), \
+             patch.object(calendar, "send_scheduled_fact", new=AsyncMock(return_value=True)) as send_fact:
+            await calendar.check_and_send_due_messages(context)
+
+        send_fact.assert_awaited_once_with(
+            bot, db, pool="tidbit", chat_id=-1002, thread_id=4037,
+            fact_id="roman_concrete_self_healing",
+        )
 
     async def test_weekly_roundup_row_runs_existing_handler_without_plain_send(self):
         db = FakeScheduledDb(_base_row("weekly_roundup"))

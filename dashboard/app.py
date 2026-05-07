@@ -924,7 +924,7 @@ _CAL_TYPE_STYLE = {
     "discussion": {"emoji": "💬", "label": "שיחה",  "css": "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"},
     "trivia":     {"emoji": "🧠", "label": "טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
     "trivia_round": {"emoji": "🧠", "label": "סיבוב טריוויה", "css": "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40"},
-    "emoji_puzzle": {"emoji": "🎬", "label": "Emoji Night", "css": "bg-pink-500/20 text-pink-200 border-pink-500/40"},
+    "emoji_puzzle": {"emoji": "🧩", "label": "Emoji Night", "css": "bg-pink-500/20 text-pink-200 border-pink-500/40"},
     "free_games": {"emoji": "🎮", "label": "משחקים חינם", "css": "bg-sky-500/20 text-sky-200 border-sky-500/40"},
     "facts_tidbit": {"emoji": "🔎", "label": "עובדה מעניינת", "css": "bg-cyan-500/20 text-cyan-200 border-cyan-500/40"},
     "facts_spooky": {"emoji": "🕯️", "label": "סיפור מסתורי", "css": "bg-purple-500/20 text-purple-200 border-purple-500/40"},
@@ -3288,7 +3288,7 @@ async def _build_activities_context(db: Database) -> dict:
         item("שאלות ערב", "🌙", "evening_prompt", "שיחות ופרומפטים", "סגירת יום ושיתוף התקדמות", "/prompts", count=len(prompts.get("evening", []) or []), scheduler_types=["evening"]),
         item("שאלות לדיון", "💬", "discussions", "שיחות ופרומפטים", "מאגר שאלות לפי ערוצים ונושאים", "/prompts", count=_count_pool_items(discussions), schedule_key="discussion_prompt", scheduler_types=["discussion"]),
         item("טריוויה", "🧠", "trivia", "משחקים", "סיבובי טריוויה, שאלות וניקוד", "/planner", count=len(trivia.get("questions", []) or []), routing_key="trivia_round", detail="ניהול ההרצה נמצא במגירת התכנון", scheduler_types=["trivia_round"]),
-        item("חידות אימוג'י", "🎬", "emoji_puzzle", "משחקים", "Emoji Night וסבבי חידות", "/puzzles", count=len(emoji_puzzles), routing_key="emoji_puzzle", scheduler_types=["emoji_puzzle"]),
+        item("חידות אימוג'י", "🧩", "emoji_puzzle", "משחקים", "Emoji Night וסבבי חידות", "/puzzles", count=len(emoji_puzzles), routing_key="emoji_puzzle", scheduler_types=["emoji_puzzle"]),
         item("משחקים חינם", "🎮", "free_games", "משחקים", "RSS של מבצעי משחקים חינמיים", "/free-games", count=len(recent_free_games), routing_key="free_games", scheduler_types=["free_games"]),
         item("עובדות מעניינות", "🔎", None, "תוכן מעניין", "מאגר tidbit ו-spooky מתוך facts.yaml", "/planner", count=_count_pool_items(facts), routing_key="facts_tidbit", detail="זמין לתזמון ידני ולמילוי AI כעובדה או סיפור מסתורי", scheduler_types=["facts_tidbit", "facts_spooky"]),
         item("סיכום שבועי", "📊", "roundup", "תוכן מעניין", "סיכום פעילות ותוכן סוף שבוע", "/planner", schedule_key="weekly_roundup", routing_key="weekly_roundup", scheduler_types=["weekly_roundup"]),
@@ -4399,19 +4399,33 @@ async def _ai_suggest_calendar(
         except Exception:
             return 0
 
+    async def _emoji_media_types_from_pool() -> list[str]:
+        try:
+            async with db._db.execute(
+                "SELECT DISTINCT media_type FROM emoji_puzzles WHERE enabled = 1 AND media_type IS NOT NULL AND media_type != ''"
+            ) as cur:
+                rows = await cur.fetchall()
+            return list(dict.fromkeys(
+                "series" if str(row[0]).strip() == "tv" else str(row[0]).strip()
+                for row in rows
+                if str(row[0]).strip()
+            ))
+        except Exception:
+            return []
+
     async def _choose_emoji_subject(emoji_cfg: dict, puzzle_count: int,
                                     recent_signatures: list[tuple[str, ...]],
                                     used_signatures: set[tuple[str, ...]]) -> tuple[str, list[str], int]:
         configured = [str(x).strip() for x in (emoji_cfg.get("media_types") or []) if str(x).strip()]
         if not configured:
-            return "", [], 0
+            configured = await _emoji_media_types_from_pool()
         configured = ["series" if x == "tv" else x for x in configured]
         configured = list(dict.fromkeys(configured))
         labels = {"movie": "סרטים", "series": "סדרות", "tv": "סדרות"}
         choices: list[tuple[str, list[str], int, tuple[str, ...]]] = []
         for media in configured:
             pool_n = await _count_emoji_pool([media])
-            if pool_n > 0:
+            if pool_n >= puzzle_count:
                 sig = _emoji_media_signature([media])
                 choices.append((labels.get(media, str(emoji_cfg.get("theme_label") or media)), [media], pool_n, sig))
         if not choices:
@@ -4514,14 +4528,15 @@ async def _ai_suggest_calendar(
         clean["kind"] = kind
         return "/planner/suggestion-preview?" + urlencode(clean, doseq=True)
 
-    def _first_fact_preview(pool: str) -> dict | None:
+    def _choose_fact_preview(pool: str) -> dict | None:
         try:
-            for item in (load_yaml("facts.yaml") or {}).get(pool) or []:
-                if isinstance(item, dict) and item.get("id") and item.get("text_he"):
-                    return item
+            items = [
+                item for item in (load_yaml("facts.yaml") or {}).get(pool) or []
+                if isinstance(item, dict) and item.get("id") and item.get("text_he")
+            ]
+            return random.choice(items) if items else None
         except Exception:
             return None
-        return None
 
     trivia_category_counts = _trivia_category_counts()
     recent_trivia_signatures = await _recent_trivia_signatures()
@@ -4716,12 +4731,14 @@ async def _ai_suggest_calendar(
             for t in tidbit_t:
                 if not _slot_free(d_iso, t, "facts_tidbit"):
                     continue
-                preview_fact = _first_fact_preview("tidbit")
+                preview_fact = _choose_fact_preview("tidbit")
+                fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
                 rationale = f"מאגר עובדות פעיל ({tn} פריטים)" if tn > 0 else "סלוט עובדה פנוי"
                 _add_suggestion(d_iso, t, "facts_tidbit", topic=routed_topics["facts_tidbit"],
                                 text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else "[internal:facts_tidbit]"),
                                 source="ai-fill-pool-row",
                                 rationale=rationale,
+                                poll_options_json=fact_payload,
                                 preview_url=(_preview_url("facts_tidbit", id=preview_fact.get("id")) if preview_fact else None))
                 break
 
@@ -4736,12 +4753,14 @@ async def _ai_suggest_calendar(
             for t in spooky_t:
                 if not _slot_free(d_iso, t, "facts_spooky"):
                     continue
-                preview_fact = _first_fact_preview("spooky")
+                preview_fact = _choose_fact_preview("spooky")
+                fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
                 rationale = f"מאגר ספוקי פעיל ({sn} פריטים)" if sn > 0 else "סלוט סיפור מסתורי פנוי"
                 _add_suggestion(d_iso, t, "facts_spooky", topic=routed_topics["facts_spooky"],
                                 text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else "[internal:facts_spooky]"),
                                 source="ai-fill-pool-row",
                                 rationale=rationale,
+                                poll_options_json=fact_payload,
                                 preview_url=(_preview_url("facts_spooky", id=preview_fact.get("id")) if preview_fact else None))
                 break
 
@@ -4755,6 +4774,7 @@ async def _ai_suggest_calendar(
                 _add_suggestion(d_iso, t, "free_games", topic=routed_topics["free_games"],
                                 text="[internal:free_games]",
                                 source="ai-fill-pool-row",
+                                preview_url=_preview_url("free_games"),
                                 rationale="סלוט משחקים חינם פנוי")
                 break
 
@@ -4767,6 +4787,7 @@ async def _ai_suggest_calendar(
                 _add_suggestion(d_iso, t, "weekly_roundup", topic=routed_topics["weekly_roundup"],
                                 text="[internal:weekly_roundup]",
                                 source="ai-fill-pool-row",
+                                preview_url=_preview_url("weekly_roundup"),
                                 rationale="סלוט סיכום שבועי פנוי")
                 break
 
@@ -4779,6 +4800,7 @@ async def _ai_suggest_calendar(
                 _add_suggestion(d_iso, t, "weekly_leaderboard", topic=routed_topics["weekly_leaderboard"],
                                 text="[internal:weekly_leaderboard]",
                                 source="ai-fill-pool-row",
+                                preview_url=_preview_url("weekly_leaderboard"),
                                 rationale="סלוט טבלת רמות פנוי")
                 break
 
@@ -6849,9 +6871,9 @@ async def pool_emoji_puzzles_suggest(request: Request, db: Database = Depends(ge
         count = max(1, min(int(data.get("count", 5)), 20))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid count")
-    media_type = (data.get("media_type") or "movie").strip().lower()
+    media_type = (data.get("media_type") or "").strip().lower()
     if media_type not in ("movie", "tv", "book", "song"):
-        raise HTTPException(status_code=400, detail="Invalid media_type")
+        raise HTTPException(status_code=400, detail="media_type is required (movie, tv, book, or song)")
 
     media_he = {
         "movie": "סרט", "tv": "סדרת טלוויזיה", "book": "ספר", "song": "שיר",
@@ -9115,6 +9137,14 @@ async def planner_suggestion_preview(request: Request, db: Database = Depends(ge
             f'<div class="sample"><b>{html.escape(str(q.get("text") or ""))}</b><span>{html.escape(str(q.get("category") or ""))}</span></div>'
             for q in matching[:count]
         ) or '<div class="muted">אין שאלות תואמות לתצוגה.</div>'
+    elif kind in {"free_games", "weekly_roundup", "weekly_leaderboard"}:
+        labels = {
+            "free_games": "משחקים חינם",
+            "weekly_roundup": "סיכום שבועי",
+            "weekly_leaderboard": "טבלת רמות שבועית",
+        }
+        title = labels[kind]
+        body = '<div class="muted">תוכן זה מחושב בזמן השליחה ממידע חי. אין טקסט דמו או נושא מוסתר; אישור הסלוט מאשר רק את זמן ההרצה והערוץ.</div>'
     else:
         raise HTTPException(status_code=400, detail="unknown preview kind")
 

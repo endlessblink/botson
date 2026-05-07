@@ -11,9 +11,13 @@ Pinned by `~/.claude/plans/low-quality-wording-and-foamy-planet.md`. Covers:
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from dashboard import app as dashboard_app
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class QualityRulesShortLoaderTests(unittest.TestCase):
@@ -74,6 +78,10 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("איזה יצור (ממשי או מהדמיון) הייתם רוצים שיחכה לכם הערב בבית? 🐾", "concrete_failure_weird_creature_prompt"),
             ("רביעי בלילה — הגענו לאמצע השבוע. מה שיניתם בו ממה שתכננתם ביום ראשון?", "concrete_failure_calendar_filler"),
             ("😂 באיזה רגע הפכתם בטעות למבוגר האחראי בסיטואציה שלא ביקשתם בכלל להיות בה?", "concrete_failure_vague_situation_cliche"),
+            ("חמישי — בוקר שהוא כבר כמעט סוף שבוע, אבל עוד לא. מה דבר אחד שאתם רוצים לסגור לפני שישי? ☀️", "concrete_failure_time_filler"),
+            ("יום חמישי בערב — עוד שעה אחת לפני שנגמר השבוע שלכם. מה אתם עושים איתה? 🌙", "concrete_failure_time_filler"),
+            ("🍿 סרט שכולם חושבים שזה דאגבר מסוים, ומגלים שזה משהו אחר לגמרי — מי חטף פנים כזה בערב שישי?", "concrete_failure_bad_hebrew"),
+            ("🍿 סרט שכולם חושבים שזה ז'אנר מסוים, ומגלים שזה משהו אחר לגמרי — מי מוסיף פנים כזה בערב שישי?", "concrete_failure_abstract_movie_bait"),
         ]
         for text, expected in cases:
             with self.subTest(text=text):
@@ -105,6 +113,53 @@ class ValidateDraftTextTests(unittest.TestCase):
         text = "א" * 250
         failures = dashboard_app._validate_draft_text(text)
         self.assertTrue(any(f.startswith("length>200") for f in failures))
+
+
+class NoHardcodedContentDefaultsTests(unittest.TestCase):
+    """Guard against hidden content/theme defaults in UI and runtime code."""
+
+    def test_no_hidden_israel_or_movie_theme_defaults_in_content_code(self):
+        files = [
+            "dashboard/app.py",
+            "dashboard/templates/planner.html",
+            "dashboard/templates/puzzles.html",
+            "dashboard/trivia_admin.py",
+            "bot/handlers/trivia_round.py",
+            "bot/handlers/emoji_puzzle.py",
+            "bot/handlers/calendar.py",
+            "bot/database/db.py",
+            "bot/database/models.py",
+            "config/settings.yaml",
+        ]
+        forbidden = [
+            'value="ישראל"',
+            'or "ישראל"',
+            "or 'ישראל'",
+            'theme_label": "ישראל"',
+            'categories": ["ישראל"]',
+            'PREFERRED_CATEGORIES = {"סרטים", "טלוויזיה"}',
+            'THEME_LABEL = "סרטים וטלוויזיה"',
+            "סרטים וסדרות",
+            "['movie','tv']",
+            '["movie", "tv"]',
+            "return 'movie'",
+            "return 'tv'",
+            "DEFAULT 'movie'",
+            "media_type: str = \"movie\"",
+        ]
+        offenders = []
+        for rel in files:
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            for fragment in forbidden:
+                if fragment in text:
+                    offenders.append((rel, fragment))
+        self.assertEqual(offenders, [])
+
+    def test_internal_executable_labels_are_never_final_review_content(self):
+        text = (ROOT / "dashboard/app.py").read_text(encoding="utf-8")
+        self.assertIn("preview_url", text)
+        self.assertIn('"fact_id"', text)
+        self.assertIn("/planner/suggestion-preview", text)
 
 
 class ValidatorPoolFalsePositiveSweepTests(unittest.TestCase):

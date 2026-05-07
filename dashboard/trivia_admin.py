@@ -164,10 +164,7 @@ def build_round_trigger_payload(
         raise TriviaVerificationError(f"No chat id configured for target '{normalized_target}'")
 
     normalized_categories = [str(category).strip() for category in categories if str(category).strip()]
-    if not normalized_categories:
-        raise TriviaVerificationError("At least one trivia category is required")
-
-    theme = str(theme_label or "").strip() or normalized_categories[0]
+    theme = str(theme_label or "").strip() or (normalized_categories[0] if normalized_categories else "כללי")
     preroll = max(5, min(3600, int(pre_roll_s)))
     count = max(1, min(20, int(question_count)))
 

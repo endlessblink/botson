@@ -27,9 +27,7 @@ POINTS_FIRST_PLACE_BONUS = 20
 QUESTION_COUNT = 10
 QUESTION_TIMEOUT_S = 15
 
-# Round theme — filter the question pool.
-PREFERRED_CATEGORIES = {"סרטים", "טלוויזיה"}
-THEME_LABEL = "סרטים וטלוויזיה"
+GENERAL_THEME_LABEL = "כללי"
 
 # Trigger file polled every 10s so dashboard can kick off a round without HTTP.
 TRIGGER_FILE = Path(__file__).resolve().parents[2] / "data" / "trivia_round_trigger.json"
@@ -129,7 +127,7 @@ def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: i
         when = f"עוד {minutes} דקות"
     else:
         when = f"עוד {pre_roll_s} שניות"
-    theme_emoji = "🇮🇱" if "ישראל" in theme_label else "🎬"
+    theme_emoji = "🧠"
     ready_line = ""
     if min_ready_players > 0:
         ready_line = (
@@ -285,7 +283,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
     # No fallback to a fixed legacy category. If the announcement specified a
     # theme, strict mode kicks in. Otherwise (preferred_categories=None) the
     # picker pulls from the entire pool — that's what "general" means.
-    theme_label = theme_label or THEME_LABEL
+    theme_label = theme_label or GENERAL_THEME_LABEL
     question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
 
     questions = _pick_questions(question_count, preferred_categories)
@@ -717,15 +715,15 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
         chat_id,
         thread_id,
         pre_roll_s,
-        theme_label or THEME_LABEL,
-        sorted(preferred_categories or PREFERRED_CATEGORIES),
+        theme_label or GENERAL_THEME_LABEL,
+        sorted(preferred_categories) if preferred_categories else ["(general — full pool)"],
         question_count,
     )
 
     if chat_id in _active_rounds:
         raise RuntimeError(f"trivia_round: round already active in chat {chat_id}")
 
-    theme_label = theme_label or THEME_LABEL
+    theme_label = theme_label or GENERAL_THEME_LABEL
     question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
     questions = _pick_questions(question_count, preferred_categories)
     if len(questions) < question_count:
@@ -780,8 +778,8 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
           "chat_id": -1003747545764,
           "thread_id": null,
           "pre_roll_s": 30,
-          "theme_label": "ישראל",
-          "categories": ["ישראל"],
+          "theme_label": "<optional display label>",
+          "categories": ["<optional strict category>"],
           "question_count": 5
         }
     Dashboard writes this file; bot consumes and deletes it.
@@ -829,8 +827,8 @@ async def trigger_watcher(context: ContextTypes.DEFAULT_TYPE):
         "trivia_round: trigger launching round chat=%s pre_roll=%ss theme=%s categories=%s count=%s",
         chat_id,
         pre_roll_s,
-        theme_label or THEME_LABEL,
-        sorted(preferred_categories or PREFERRED_CATEGORIES),
+        theme_label or GENERAL_THEME_LABEL,
+        sorted(preferred_categories) if preferred_categories else ["(general — full pool)"],
         question_count,
     )
     asyncio.create_task(

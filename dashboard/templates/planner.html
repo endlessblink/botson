@@ -782,12 +782,12 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-xs text-[#71717a] mb-1 block">כותרת נושא</label>
-                        <input id="trivia-theme" type="text" value="ישראל"
+                        <input id="trivia-theme" type="text" value="{{ trivia_populate_defaults.theme_label or 'כללי' }}"
                             class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                     </div>
                     <div>
                         <label class="text-xs text-[#71717a] mb-1 block">קטגוריות (פסיק)</label>
-                        <input id="trivia-categories" type="text" value="ישראל"
+                        <input id="trivia-categories" type="text" value="{{ (trivia_populate_defaults.categories or []) | join(', ') }}"
                             class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                     </div>
                 </div>
@@ -1062,7 +1062,7 @@ var TYPE_PLACEHOLDERS = {
 
 var TYPE_DEFAULT_TEXT = {
     trivia_round: '🧠 סיבוב טריוויה מתוזמן',
-    emoji_puzzle: '🎬 Emoji Night מתוזמן',
+    emoji_puzzle: '🧩 Emoji Night מתוזמן',
     free_games: '🎮 בדיקת משחקים חינם',
     facts_tidbit: '🔎 עובדה מעניינת מתוזמנת',
     facts_spooky: '🕯️ סיפור מסתורי מתוזמן',
@@ -1974,7 +1974,7 @@ function openEditDrawer(id, props, start) {
     var typeLabels = {morning:'🌅 הודעת בוקר', evening:'🌙 הודעת ערב', discussion:'💬 שאלה לדיון',
                        poll:'📊 סקר', event:'🎮 אירוע', digest:'🔁 סיכום שבועי',
                        custom:'⚡ הודעה חופשית', trivia:'🧠 טריוויה', trivia_round:'🧠 סיבוב טריוויה',
-                       emoji_puzzle:'🎬 Emoji Night', free_games:'🎮 משחקים חינם', facts_tidbit:'🔎 עובדה מעניינת', facts_spooky:'🕯️ סיפור מסתורי',
+                       emoji_puzzle:'🧩 Emoji Night', free_games:'🎮 משחקים חינם', facts_tidbit:'🔎 עובדה מעניינת', facts_spooky:'🕯️ סיפור מסתורי',
                        weekly_roundup:'📊 סיכום שבועי', weekly_leaderboard:'🏆 טבלת רמות'};
     var indicator = document.getElementById('edit-type-indicator');
     var label = document.getElementById('edit-type-label');
@@ -2326,7 +2326,7 @@ document.addEventListener('DOMContentLoaded', function() {
         eventContent: function(arg) {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
-            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',trivia_warmup_rsvp:'🙋',emoji_puzzle:'🎬',free_games:'🎮',facts_tidbit:'🔎',facts_spooky:'🕯️',weekly_roundup:'📊',weekly_leaderboard:'🏆'}[props.messageType] || '📌';
+            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',trivia_warmup_rsvp:'🙋',emoji_puzzle:'🧩',free_games:'🎮',facts_tidbit:'🔎',facts_spooky:'🕯️',weekly_roundup:'📊',weekly_leaderboard:'🏆'}[props.messageType] || '📌';
             var leadingMark = props.isPreview
                 ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="טיוטה">✎</span>'
                 : '<span class="event-status ' + statusClass + '"></span>';
@@ -2670,6 +2670,23 @@ function _aiSuggestIsChecked(s) {
     return cb.checked;
 }
 
+function _formatApiError(data, fallback) {
+    if (!data) return fallback;
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) {
+        return data.detail.map(function(item) {
+            if (typeof item === 'string') return item;
+            var loc = Array.isArray(item.loc) ? item.loc.join('.') : '';
+            var msg = item.msg || item.message || JSON.stringify(item);
+            return loc ? (loc + ': ' + msg) : msg;
+        }).join('\n');
+    }
+    if (data.detail) return JSON.stringify(data.detail);
+    if (Array.isArray(data.errors) && data.errors.length) return data.errors.join('\n');
+    if (data.error) return String(data.error);
+    return fallback;
+}
+
 function _aiSuggestRenderRow(s) {
     var checked = _aiSuggestState.checked[s.key] !== false;
     var emoji = _aiSuggestRowEmoji(s.message_type);
@@ -2678,6 +2695,9 @@ function _aiSuggestRenderRow(s) {
     var rationale = s.rationale ? ' · ' + s.rationale : '';
     var failTag = (s.validation_failures && s.validation_failures.length)
         ? '<span class="text-[10px] text-amber-400 ml-1">⚠️ ' + s.validation_failures[0] + '</span>'
+        : '';
+    var previewLink = s.preview_url
+        ? '<a href="' + s.preview_url + '" target="_blank" rel="noopener" class="text-[11px] text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 rounded px-2 py-0.5">פתח תצוגה מקדימה</a>'
         : '';
     var card = document.createElement('div');
     card.className = 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3';
@@ -2693,6 +2713,7 @@ function _aiSuggestRenderRow(s) {
                 '<span class="text-sky-300">' + topicLabel + '</span>' +
                 '<span class="text-[10px] text-[#52525b]">' + s.message_type + catLabel + rationale + '</span>' +
                 failTag +
+                previewLink +
             '</div>' +
             '<div class="text-sm text-[#e4e4e7] whitespace-pre-wrap">' + safeText + '</div>' +
         '</div>'
@@ -2733,7 +2754,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
         });
         if (!resp.ok) {
             var err = await resp.json().catch(function(){return {};});
-            throw new Error(err.detail || ('HTTP ' + resp.status));
+            throw new Error(_formatApiError(err, 'HTTP ' + resp.status));
         }
         var data = await resp.json();
         _aiSuggestState.suggestions = data.suggestions || [];
@@ -2786,7 +2807,7 @@ async function aiSuggestApprove() {
             body: JSON.stringify({approved: approved}),
         });
         var data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+        if (!resp.ok) throw new Error(_formatApiError(data, 'HTTP ' + resp.status));
         var n = data.inserted || 0;
         var errs = (data.errors && data.errors.length) || 0;
         showToast(n + ' טיוטות נוצרו' + (errs > 0 ? ' (' + errs + ' שגיאות)' : ''),
@@ -3359,7 +3380,7 @@ async function aiSuggestEmojiPuzzles() {
         showToast('הזן מספר בין 1 ל-20', 'error');
         return;
     }
-    var mediaType = prompt('סוג? (movie / tv / book / song)', 'movie');
+    var mediaType = prompt('סוג? (movie / tv / book / song)', '');
     if (mediaType === null) return;
     mediaType = (mediaType || '').trim().toLowerCase();
     if (['movie', 'tv', 'book', 'song'].indexOf(mediaType) === -1) {
@@ -3566,14 +3587,9 @@ async function aiSuggestTriviaRound() {
     }
 }
 
-// Weighted random media_type for emoji-puzzle generation. The live pool
-// skews movie-heavy; this distribution nudges variety without hard rules.
 function _pickEmojiMediaType() {
-    var r = Math.random();
-    if (r < 0.40) return 'movie';
-    if (r < 0.70) return 'tv';
-    if (r < 0.85) return 'book';
-    return 'song';
+    var types = ['movie', 'tv', 'book', 'song'];
+    return types[Math.floor(Math.random() * types.length)];
 }
 
 async function _populateEmojiPuzzles() {

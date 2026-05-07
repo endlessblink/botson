@@ -133,6 +133,11 @@ class FakeCalendarRequest:
     async def json(self):
         return self._body
 
+    async def body(self):
+        if self._body is None:
+            return b""
+        return json.dumps(self._body).encode("utf-8")
+
 
 class FakeQueryRequest:
     session = {"authenticated": True}
@@ -199,6 +204,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
         self.assertTrue(emoji_rows)
         self.assertTrue(all(row["text"].startswith("[internal:") for row in emoji_rows))
+        self.assertTrue(all(row.get("preview_url") for row in emoji_rows))
         emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
         self.assertIn(emoji_payload["theme_label"], {"סרטים", "סדרות"})
         self.assertIn(emoji_payload["media_types"], (["movie"], ["series"]))
@@ -218,11 +224,23 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         )
         trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
         self.assertTrue(trivia_rows)
+        self.assertTrue(all(row.get("preview_url") for row in trivia_rows))
         trivia_payload = json.loads(trivia_rows[0]["poll_options_json"])
         self.assertTrue(trivia_payload["theme_label"])
         self.assertTrue(trivia_payload["categories"])
         self.assertGreaterEqual(int(trivia_payload.get("min_ready_players", 0)), 0)
         self.assertLessEqual(len(result["suggestions"]), 12)
+        fact_rows = [s for s in result["suggestions"] if s["message_type"] in {"facts_tidbit", "facts_spooky"}]
+        self.assertTrue(fact_rows)
+        self.assertTrue(all(row.get("preview_url") for row in fact_rows))
+        self.assertTrue(all(not row["text"].startswith("[internal:") for row in fact_rows))
+        self.assertTrue(all(json.loads(row["poll_options_json"]).get("fact_id") for row in fact_rows))
+        executable_rows = [
+            s for s in result["suggestions"]
+            if s["message_type"] in {"trivia_round", "emoji_puzzle", "facts_tidbit", "facts_spooky", "free_games", "weekly_roundup", "weekly_leaderboard"}
+        ]
+        self.assertTrue(executable_rows)
+        self.assertTrue(all(row.get("preview_url") for row in executable_rows))
 
     async def test_ai_suggest_calendar_rotates_emoji_subject_away_from_recent(self):
         db = Database(":memory:")
@@ -389,6 +407,19 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res, {"ok": True})
         called_date = suggest.await_args.kwargs["target_date"]
         self.assertRegex(called_date, r"^\d{4}-\d{2}-\d{2}$")
+
+    async def test_ai_suggest_empty_body_uses_defaults(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value={"ok": True})) as suggest:
+                res = await dashboard_app.ai_suggest(FakeCalendarRequest(None), db)
+        finally:
+            await db.close()
+
+        self.assertEqual(res, {"ok": True})
+        self.assertIsNone(suggest.await_args.kwargs["target_date"])
+        self.assertEqual(suggest.await_args.kwargs["week_offset"], 0)
 
     async def test_calendar_api_does_not_render_static_pool_preview_events(self):
         db = Database(":memory:")
@@ -819,6 +850,10 @@ class TestPlannerTemplateExposure(unittest.TestCase):
             "היום הזה עוד לא הוחלט",
             "יצור (ממשי או מהדמיון)",
             "הגענו לאמצע השבוע",
+            "כמעט סוף שבוע",
+            "עוד שעה אחת לפני שנגמר השבוע",
+            "ז'אנר מסוים... משהו אחר לגמרי",
+            "מי חטף/מוסיף פנים כזה",
             "למבוגר האחראי בסיטואציה",
         ):
             with self.subTest(marker=marker):
@@ -1249,6 +1284,20 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "'/api/weekplan/ai-suggest-commit'", self.html,
             "suggest-commit endpoint url missing in JS",
         )
+
+    def test_trivia_form_defaults_not_hardcoded_to_israel(self):
+        self.assertNotIn('id="trivia-theme" type="text" value="ישראל"', self.html)
+        self.assertNotIn('id="trivia-categories" type="text" value="ישראל"', self.html)
+
+    def test_internal_suggestions_link_to_preview_render(self):
+        self.assertIn("s.preview_url", self.html)
+        self.assertIn("/planner/suggestion-preview", Path("dashboard/app.py").read_text(encoding="utf-8"))
+        self.assertIn("פתח תצוגה מקדימה", self.html)
+
+    def test_ai_suggest_errors_format_non_string_details(self):
+        self.assertIn("function _formatApiError", self.html)
+        self.assertIn("Array.isArray(data.detail)", self.html)
+        self.assertIn("JSON.stringify(data.detail)", self.html)
 
     def test_approve_reads_live_checkbox_state(self):
         approve_start = self.html.index("async function aiSuggestApprove()")
