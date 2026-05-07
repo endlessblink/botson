@@ -193,7 +193,8 @@ topic_routing:
 trivia:
   populate_defaults:
     pre_roll_s: 120
-    warmup_offset_min: 35
+    warmup_offset_min: 60
+    warmup_reminder_offset_min: 20
     theme_label: כללי
     categories: []
     question_count: 5

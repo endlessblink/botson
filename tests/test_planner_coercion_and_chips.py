@@ -209,12 +209,12 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn(emoji_payload["theme_label"], {"סרטים", "סדרות"})
         self.assertIn(emoji_payload["media_types"], (["movie"], ["series"]))
         self.assertTrue(any(
-            s["message_type"] == "discussion" and s["source"] == "ai-fill-emoji"
+            s["message_type"] == "trivia_warmup_rsvp" and s["source"] == "ai-fill-emoji"
             for s in result["suggestions"]
         ))
         emoji_announcements = [
             s for s in result["suggestions"]
-            if s["message_type"] == "discussion" and s["source"] == "ai-fill-emoji"
+            if s["message_type"] == "trivia_warmup_rsvp" and s["source"] == "ai-fill-emoji"
         ]
         self.assertTrue(emoji_announcements)
         self.assertEqual(
@@ -618,7 +618,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ), patch.object(
                     dashboard_app,
                     "_generate_activity_copy",
-                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nבעוד 35 דקות מתחילים."),
+                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nבעוד 60 דקות מתחילים."),
                 ):
                     res = await dashboard_app.schedule_calendar_item(
                         game_id,
@@ -634,10 +634,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ) as cur:
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
-                self.assertEqual(warmup["scheduled_time"], "21:25")
+                self.assertEqual(warmup["scheduled_time"], "21:00")
                 self.assertEqual(warmup["channel_topic_id"], 341)
                 self.assertIn("22:00", warmup["text"])
-                self.assertIn("35 דקות", warmup["text"])
+                self.assertIn("60 דקות", warmup["text"])
             finally:
                 await db.close()
 
@@ -741,7 +741,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ), patch.object(
                     dashboard_app,
                     "_generate_activity_copy",
-                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nבעוד 35 דקות מתחילים."),
+                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nבעוד 60 דקות מתחילים."),
                 ):
                     res = await dashboard_app.schedule_calendar_item(
                         game_id,
@@ -758,7 +758,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ) as cur:
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
-                self.assertEqual(warmup["scheduled_time"], "21:25")
+                self.assertEqual(warmup["scheduled_time"], "21:00")
                 self.assertEqual(warmup["channel_topic_id"], 341)
                 self.assertEqual(warmup["created_by"], f"trivia-announcement-draft:{game_id}")
             finally:
@@ -881,8 +881,8 @@ class TestPlannerTemplateExposure(unittest.TestCase):
             "activity warm-up rows should be generated instead of static templates",
         )
         self.assertIn(
-            "כפתור \"אני בפנים\" יופיע בהודעת הפתיחה", src,
-            "ready-gate copy must explain the real signup button timing",
+            "אני בפנים", src,
+            "ready-gate copy must mention the RSVP button",
         )
 
     def test_static_prompt_pools_are_not_materialized_directly(self):

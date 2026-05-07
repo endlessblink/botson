@@ -1088,7 +1088,7 @@ async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
 - לא להשתמש בנוסחים גנריים קבועים, סלוגנים חוזרים, או שם ערוץ קשיח.
 - 1-3 שורות קצרות, קריא RTL, טבעי ולא שיווקי מדי.
 - לא להבטיח פעולה שאין כפתור עבורה כרגע.
-- אם יש min_ready_players, כתוב שכפתור "אני בפנים" יופיע בהודעת הפתיחה של המשחק, לא בהודעת החימום.
+- אם יש min_ready_players, הבהר שיש ללחוץ על כפתור "🙋 אני בפנים" בהודעה הזו כדי לאשר השתתפות — הכפתור מופיע מתחת לטקסט.
 - בלי אנגלית אלא אם שם הפעילות עצמו באנגלית.
 
 פלט JSON בלבד: {{"text":"..."}}"""
@@ -1276,6 +1276,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         "min_ready_players": min_ready,
         "game_time": game_time,
         "theme_label": theme,
+        "activity_label": f"הטריוויה על {theme}",
     })
 
     marker = f"trivia-announcement-draft:{game_id}"
@@ -4682,14 +4683,18 @@ async def _ai_suggest_calendar(
                         announce_t = f"{announce_total // 60:02d}:{announce_total % 60:02d}"
                     except Exception:
                         continue
-                    if not _slot_free(d_iso, announce_t, "discussion"):
+                    if not _slot_free(d_iso, announce_t, "trivia_warmup_rsvp"):
                         continue
-                    payload = {
+                    emoji_min_ready = int(((settings.get("trivia") or {}).get("populate_defaults") or {}).get("min_ready_players") or 2)
+                    emoji_announce_poll = json.dumps({
+                        "min_ready_players": emoji_min_ready,
+                        "game_time": t,
                         "theme_label": emoji_theme,
+                        "activity_label": f"Emoji Night על {emoji_theme}",
                         "media_types": emoji_media_types,
                         "announcement_lead_minutes": emoji_lead,
                         "puzzle_count": emoji_count,
-                    }
+                    }, ensure_ascii=False)
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
                         "emoji_warmup",
@@ -4697,14 +4702,16 @@ async def _ai_suggest_calendar(
                         game_time=t,
                         theme_label=emoji_theme,
                         puzzle_count=emoji_count,
+                        min_ready_players=emoji_min_ready,
                     )
                     if emoji_text:
                         generated_activity_texts.add(emoji_text)
                         _add_suggestion(
-                            d_iso, announce_t, "discussion", topic=emoji_announcement_topic,
+                            d_iso, announce_t, "trivia_warmup_rsvp", topic=emoji_announcement_topic,
                             text=emoji_text,
                             source="ai-fill-emoji",
                             rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night — מצטרפים ועדכונים",
+                            poll_options_json=emoji_announce_poll,
                             count_as=None,
                         )
                     _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
@@ -4717,7 +4724,11 @@ async def _ai_suggest_calendar(
                                         media=emoji_media_types,
                                         count=emoji_count,
                                     ),
-                                    poll_options_json=json.dumps(payload, ensure_ascii=False))
+                                    poll_options_json=json.dumps({
+                                        "theme_label": emoji_theme,
+                                        "media_types": emoji_media_types,
+                                        "puzzle_count": emoji_count,
+                                    }, ensure_ascii=False))
                     break
 
         # Facts tidbit (max cap)
@@ -4857,6 +4868,7 @@ async def _ai_suggest_calendar(
                         "min_ready_players": min_ready,
                         "game_time": t,
                         "theme_label": poll_payload["theme_label"],
+                        "activity_label": f"הטריוויה על {poll_payload['theme_label']}",
                     }, ensure_ascii=False)
                     if warmup_text:
                         generated_activity_texts.add(warmup_text)

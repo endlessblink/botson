@@ -76,11 +76,12 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
 
     game_time = str(payload.get("game_time") or "")
     theme = str(payload.get("theme_label") or "כללי").strip() or "כללי"
+    activity_label = str(payload.get("activity_label") or f"הטריוויה על {theme}").strip()
 
     time_part = f" ב-{game_time}" if game_time else ""
     confirmation = (
         f"✅ הגענו למינימום! {count} אנשים בפנים —\n"
-        f"הטריוויה על {theme} תתקיים היום{time_part}.\n"
+        f"{activity_label} תתקיים היום{time_part}.\n"
         f"כולם מוזמנים! 🎮"
     )
     try:

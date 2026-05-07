@@ -120,6 +120,8 @@
 | T-123 | 23 | Planner AI Populate mixed suggestions | DONE | P0 | T-080 |
 | T-124 | 23 | Fix emoji subject bias: remove hardcoded fallback, pool filter, sort key | DONE | P0 | — |
 | T-125 | 23 | RSVP interest-check buttons on all activity types with global toggle | TODO | P1 | — |
+| T-126 | 23 | Second warm-up reminder: skip dispatch if threshold already met (trivia + emoji) | TODO | P1 | T-124 |
+| T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached | TODO | P1 | T-126 |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
