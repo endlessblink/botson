@@ -83,12 +83,13 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 Trivia and Emoji Night announcements use **`message_type="trivia_warmup_rsvp"`**. Calendar dispatch attaches an inline `🙋 אני בפנים!` button (callback `trivint_<scheduled_msg_id>`). Clicks are written to `trivia_interest_responses(scheduled_msg_id, user_id)`; when the count reaches `poll_options.min_ready_players`, a confirmation message fires in the warm-up topic.
 
 - **Topic**: warm-up topic comes from the `trivia_warmup` row in `bot_message_routing` (seeded as topic 341 — מצטרפים חדשים + עדכונים). Never hardcode 341.
-- **Default lead time**: `trivia.populate_defaults.warmup_offset_min: 60` (was 35 before 2026-05-07). `warmup_reminder_offset_min: 20` is a settings placeholder for T-126 (second reminder) — not yet wired in code.
+- **Default lead time**: `trivia.populate_defaults.warmup_offset_min: 60` (was 35 before 2026-05-07). `warmup_reminder_offset_min: 20` is wired (T-126 ✅ 2026-05-07): a paired `warmup_reminder` row fires 20 min before kickoff, `reply_to`-anchored to the announcement; if the RSVP count already meets `min_ready_players`, dispatch marks the reminder `skipped` and sends nothing.
 - **Generic confirmation copy**: `poll_options.activity_label` makes the confirmation text type-agnostic (`"הטריוויה על {theme}"`, `"Emoji Night על {theme}"`, etc.). Falls back to `"הטריוויה על {theme}"` if missing.
 - **LLM prompt**: `_generate_activity_copy` instructs the model to tell users to click the button on THIS warm-up message. If you change the prompt, keep that instruction.
 - **Distinct from in-game ready gate**: the warm-up RSVP fires ~60 min before the game. The pre-roll ready button on the trivia_round announcement (callback `trivready`) is a separate mechanism. Don't conflate them.
-- **Code paths**: `dashboard/app.py:_ensure_trivia_announcement_scheduled` (manual schedule), `dashboard/app.py:_ai_suggest_calendar` (Populate), `bot/handlers/calendar.py` (dispatch branch), `bot/handlers/trivia_interest.py` (callback handler).
-- **Open follow-ups in `MASTER_PLAN.md`**: T-125 (RSVP buttons on remaining activity types + global toggle), T-126 (second reminder; skip if threshold met), T-127 (cancel game at fire time if RSVP < `min_ready_players`).
+- **Code paths**: `dashboard/app.py:_ensure_trivia_announcement_scheduled` + `_ensure_warmup_reminder_scheduled` (manual schedule), `dashboard/app.py:_ai_suggest_calendar` + `_maybe_add_warmup_reminder_suggestion` (Populate), `bot/handlers/calendar.py` (dispatch branches for `trivia_warmup_rsvp` and `warmup_reminder`), `bot/handlers/trivia_interest.py` (callback handler).
+- **Reminder pairing**: announcement and reminder share `poll_options.warmup_marker`. Dispatch resolves the marker → announcement row in Python (no `json_extract`) so it works on any SQLite. Reminder is sent as `reply_to_message_id` of the announcement, no extra button.
+- **Open follow-ups in `MASTER_PLAN.md`**: T-125 (RSVP buttons on remaining activity types + global toggle), T-127 (cancel game at fire time if RSVP < `min_ready_players`).
 
 ## Deploy
 

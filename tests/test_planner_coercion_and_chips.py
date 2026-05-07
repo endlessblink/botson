@@ -764,6 +764,256 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_turning_trivia_live_creates_warmup_reminder_with_shared_marker(self):
+        """T-126: announcement + reminder share warmup_marker; reminder fires
+        warmup_reminder_offset_min before game time."""
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_id = await db.create_scheduled_message(
+                    text="🧠 סיבוב טריוויה גיימינג! 10 שאלות",
+                    message_type="trivia_round",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    poll_options=json.dumps({
+                        "pre_roll_s": 30,
+                        "theme_label": "גיימינג",
+                        "categories": ["גיימינג"],
+                        "question_count": 10,
+                        "min_ready_players": 2,
+                    }, ensure_ascii=False),
+                    status="draft",
+                )
+
+                with patch.object(
+                    dashboard_app, "_ensure_trivia_pool_ready_for_round",
+                    new=AsyncMock(return_value={"generated": 0, "available": 10, "required": 10}),
+                ), patch.object(
+                    dashboard_app, "_generate_activity_copy",
+                    new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nלחצו על הכפתור."),
+                ):
+                    res = await dashboard_app.schedule_calendar_item(
+                        game_id, FakeCalendarRequest({}), db,
+                    )
+
+                self.assertEqual(res["status"], "ok")
+                announcement_id = res["announcement_draft_id"]
+                async with db._db.execute(
+                    "SELECT poll_options FROM scheduled_messages WHERE id = ?",
+                    (announcement_id,),
+                ) as cur:
+                    ann = await cur.fetchone()
+                ann_payload = json.loads(ann["poll_options"] or "{}")
+                self.assertEqual(ann_payload["warmup_marker"], f"warmup-rsvp:{game_id}")
+
+                async with db._db.execute(
+                    """SELECT id, message_type, scheduled_time, channel_topic_id,
+                              status, created_by, poll_options
+                       FROM scheduled_messages
+                       WHERE created_by = ?""",
+                    (f"warmup-reminder-draft:{game_id}",),
+                ) as cur:
+                    reminder = await cur.fetchone()
+                self.assertIsNotNone(reminder, "warmup_reminder row was not created")
+                self.assertEqual(reminder["message_type"], "warmup_reminder")
+                self.assertEqual(reminder["status"], "scheduled")
+                self.assertEqual(reminder["channel_topic_id"], 341)
+                rem_payload = json.loads(reminder["poll_options"] or "{}")
+                self.assertEqual(rem_payload["warmup_marker"], ann_payload["warmup_marker"])
+                self.assertEqual(rem_payload["min_ready_players"], 2)
+                # game 22:00 minus 20 min default reminder offset = 21:40
+                self.assertEqual(reminder["scheduled_time"], "21:40")
+            finally:
+                await db.close()
+
+    async def test_warmup_reminder_skipped_when_threshold_met(self):
+        """T-126 dispatch: reminder short-circuits to status=skipped when
+        trivia_interest count already meets min_ready_players."""
+        from bot.handlers import calendar as bot_calendar
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                marker = "warmup-rsvp:test-1"
+                ann_id = await db.create_scheduled_message(
+                    text="חימום טריוויה — לחצו אני בפנים",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=341,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="21:00",
+                    poll_options=json.dumps({
+                        "min_ready_players": 2,
+                        "warmup_marker": marker,
+                        "game_time": "22:00",
+                    }, ensure_ascii=False),
+                    status="scheduled",
+                )
+                # Mark announcement as sent so dispatch finds it
+                await db._db.execute(
+                    "UPDATE scheduled_messages SET status='sent', sent_message_id=? WHERE id=?",
+                    (5050, ann_id),
+                )
+                # Two responses → threshold met
+                await db.add_trivia_interest_response(ann_id, 111, "user-a")
+                await db.add_trivia_interest_response(ann_id, 222, "user-b")
+                await db._db.commit()
+
+                # Build a synthetic due reminder row
+                reminder_row = {
+                    "id": 9001,
+                    "scheduled_date": "2099-01-01",
+                    "scheduled_time": "21:40",
+                    "message_type": "warmup_reminder",
+                    "target_group": "main",
+                    "channel_topic_id": 341,
+                    "status": "scheduled",
+                    "text": "תזכורת — עדיין אפשר להצטרף",
+                    "created_by": f"warmup-reminder-draft:{marker}",
+                    "auto_pin": False,
+                    "poll_options": json.dumps({
+                        "min_ready_players": 2,
+                        "warmup_marker": marker,
+                        "game_time": "22:00",
+                    }, ensure_ascii=False),
+                    "poll_duration": None,
+                    "cover_path": None,
+                    "recurrence": None,
+                    "recurrence_days": None,
+                }
+
+                skipped: list = []
+                sent: list = []
+                original_get_due = db.get_due_messages
+
+                async def fake_get_due(*args, **kwargs):
+                    return [reminder_row]
+
+                async def capture_skipped(msg_id, reason):
+                    skipped.append((msg_id, reason))
+
+                async def capture_sent(msg_id, sent_message_id):
+                    sent.append((msg_id, sent_message_id))
+
+                db.get_due_messages = fake_get_due  # type: ignore[assignment]
+                db.mark_message_skipped = capture_skipped  # type: ignore[assignment]
+                db.mark_message_sent = capture_sent  # type: ignore[assignment]
+                async def noop_failed(msg_id, error):
+                    pass
+                db.mark_message_failed = noop_failed  # type: ignore[assignment]
+
+                context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+                with patch.dict(bot_calendar.os.environ,
+                                {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
+                                 "TEST_GROUP_ID": "-1002", "STALE_DROP_MINUTES": "0"}), \
+                     patch("telegram.Bot", return_value=object()), \
+                     patch.object(bot_calendar, "safe_send", new=AsyncMock()) as ss:
+                    await bot_calendar.check_and_send_due_messages(context)
+
+                ss.assert_not_awaited()
+                self.assertEqual(len(skipped), 1)
+                self.assertEqual(skipped[0][0], 9001)
+                self.assertIn("threshold", skipped[0][1])
+                self.assertEqual(sent, [])
+            finally:
+                db.get_due_messages = original_get_due  # type: ignore[assignment]
+                await db.close()
+
+    async def test_warmup_reminder_sends_when_under_threshold(self):
+        """T-126 dispatch: reminder fires (as reply to announcement) when
+        responses < min_ready_players."""
+        from bot.handlers import calendar as bot_calendar
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                marker = "warmup-rsvp:test-2"
+                ann_id = await db.create_scheduled_message(
+                    text="חימום",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=341,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="21:00",
+                    poll_options=json.dumps({
+                        "min_ready_players": 3,
+                        "warmup_marker": marker,
+                        "game_time": "22:00",
+                    }, ensure_ascii=False),
+                    status="scheduled",
+                )
+                await db._db.execute(
+                    "UPDATE scheduled_messages SET status='sent', sent_message_id=? WHERE id=?",
+                    (4242, ann_id),
+                )
+                await db.add_trivia_interest_response(ann_id, 111, "only-one")
+                await db._db.commit()
+
+                reminder_row = {
+                    "id": 9002,
+                    "scheduled_date": "2099-01-01",
+                    "scheduled_time": "21:40",
+                    "message_type": "warmup_reminder",
+                    "target_group": "main",
+                    "channel_topic_id": 341,
+                    "status": "scheduled",
+                    "text": "עוד מקום פנוי — לחצו אני בפנים בהודעה למעלה",
+                    "created_by": "warmup-reminder-draft:t-2",
+                    "auto_pin": False,
+                    "poll_options": json.dumps({
+                        "min_ready_players": 3,
+                        "warmup_marker": marker,
+                        "game_time": "22:00",
+                    }, ensure_ascii=False),
+                    "poll_duration": None,
+                    "cover_path": None,
+                    "recurrence": None,
+                    "recurrence_days": None,
+                }
+
+                skipped: list = []
+                sent: list = []
+                async def fake_get_due(*args, **kwargs):
+                    return [reminder_row]
+                async def capture_skipped(msg_id, reason):
+                    skipped.append((msg_id, reason))
+                async def capture_sent(msg_id, sent_message_id):
+                    sent.append((msg_id, sent_message_id))
+                async def noop_failed(msg_id, error):
+                    raise AssertionError(f"unexpected failure: {error}")
+
+                db.get_due_messages = fake_get_due  # type: ignore[assignment]
+                db.mark_message_skipped = capture_skipped  # type: ignore[assignment]
+                db.mark_message_sent = capture_sent  # type: ignore[assignment]
+                db.mark_message_failed = noop_failed  # type: ignore[assignment]
+
+                context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+                fake_sent = SimpleNamespace(message_id=7777)
+                with patch.dict(bot_calendar.os.environ,
+                                {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
+                                 "TEST_GROUP_ID": "-1002", "STALE_DROP_MINUTES": "0"}), \
+                     patch("telegram.Bot", return_value=object()), \
+                     patch.object(bot_calendar, "safe_send",
+                                  new=AsyncMock(return_value=fake_sent)) as ss:
+                    await bot_calendar.check_and_send_due_messages(context)
+
+                self.assertEqual(skipped, [])
+                self.assertEqual(sent, [(9002, 7777)])
+                ss.assert_awaited_once()
+                kwargs = ss.await_args.kwargs
+                self.assertEqual(kwargs["chat_id"], -1001)
+                self.assertEqual(kwargs["reply_to_message_id"], 4242)
+                self.assertEqual(kwargs["message_thread_id"], 341)
+            finally:
+                await db.close()
+
     async def test_trivia_topup_generates_reviews_and_persists_missing_questions(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)

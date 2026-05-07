@@ -2326,7 +2326,7 @@ document.addEventListener('DOMContentLoaded', function() {
         eventContent: function(arg) {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
-            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',trivia_warmup_rsvp:'🙋',emoji_puzzle:'🧩',free_games:'🎮',facts_tidbit:'🔎',facts_spooky:'🕯️',weekly_roundup:'📊',weekly_leaderboard:'🏆'}[props.messageType] || '📌';
+            var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',trivia_warmup_rsvp:'🙋',warmup_reminder:'⏰',emoji_puzzle:'🧩',free_games:'🎮',facts_tidbit:'🔎',facts_spooky:'🕯️',weekly_roundup:'📊',weekly_leaderboard:'🏆'}[props.messageType] || '📌';
             var leadingMark = props.isPreview
                 ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="טיוטה">✎</span>'
                 : '<span class="event-status ' + statusClass + '"></span>';

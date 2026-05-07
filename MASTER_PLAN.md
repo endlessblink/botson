@@ -120,7 +120,7 @@
 | T-123 | 23 | Planner AI Populate mixed suggestions | DONE | P0 | T-080 |
 | T-124 | 23 | Fix emoji subject bias: remove hardcoded fallback, pool filter, sort key | DONE | P0 | — |
 | T-125 | 23 | Extend RSVP buttons to remaining activity types (morning/evening/discussion/facts/free_games/weekly_*) with global toggle | TODO | P1 | T-128 |
-| T-126 | 23 | Second warm-up reminder: schedule a reminder row, skip dispatch if threshold already met (trivia + emoji) | TODO | P1 | T-128 |
+| T-126 | 23 | Second warm-up reminder: schedule a reminder row, skip dispatch if threshold already met (trivia + emoji) | DONE | P1 | T-128 |
 | T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached (no point running if no one signed up) | TODO | P1 | T-126 |
 | T-128 | 23 | Emoji Night announcement uses trivia_warmup_rsvp type so it gets the RSVP button at dispatch | DONE | P0 | T-124 |
 | T-129 | 23 | Fix LLM prompt for warm-up copy: say button is on THIS message (was telling users to wait for game opening) | DONE | P0 | — |
@@ -1125,6 +1125,25 @@ Added `status='skipped'` for legitimate no-op activities so the calendar disting
 Added a per-row async lock around trivia top-up generation so concurrent approval/retry requests for the same scheduled game cannot duplicate generated questions or race on `config/trivia.yaml` writes.
 
 **Files:** `dashboard/app.py`.
+
+---
+
+#### T-126: Second warm-up reminder (✅ DONE 2026-05-07)
+**Phase:** 23 — RSVP system | **Priority:** P1 | **Status:** DONE | **Deps:** T-128
+
+Wired the second warm-up reminder so under-RSVP'd trivia/Emoji Night announcements get a follow-up nudge `warmup_reminder_offset_min` minutes before kickoff (default 20). When the RSVP count already meets `min_ready_players` at dispatch, the reminder short-circuits to `status='skipped'` and no message is sent.
+
+- New `message_type='warmup_reminder'`. Reminder rows are paired to their announcement via a shared `warmup_marker` in `poll_options` ('warmup-rsvp:<game_id>' for the manual trivia turn-live path, 'warmup-rsvp:<kind>:<date>:<time>' for Populate). Dispatch resolves the marker → announcement row → counts `trivia_interest_responses` for the *announcement* id, not the reminder's.
+- Reminder button is omitted by design — when threshold is unmet, the reminder posts as a `reply_to_message_id` of the original announcement so users see the existing 🙋 button right above. Avoids the live-count drift between two messages with the same callback.
+- Manual path: `_ensure_trivia_announcement_scheduled` now also creates/updates a paired reminder row via `_ensure_warmup_reminder_scheduled`. Marker lives on both rows.
+- Populate path: `_ai_suggest_calendar` adds a `warmup_reminder` suggestion right after each `trivia_warmup_rsvp` announcement (trivia + emoji blocks). Slot-free guard, math validation (`reminder_offset < lead`), and LLM copy generation match the announcement flow.
+- LLM prompt: `_generate_activity_copy` detects `is_reminder` and switches rules — copy explains the button is on the original announcement, not on this reminder.
+- Dispatch: `bot/handlers/calendar.py` adds a `warmup_reminder` branch that filters announcement rows by marker in Python (no `json_extract` dependency) for VPS-version-agnostic behavior.
+- Calendar UI: `_CAL_TYPE_STYLE` and `planner.html` typeEmoji map both gain `warmup_reminder` (⏰ "תזכורת RSVP") plus the previously-missing `trivia_warmup_rsvp` (🙋 "הכרזת RSVP") entries.
+
+Verification: `tests/test_planner_coercion_and_chips.py::TestSchedulerTypeExposure::{test_turning_trivia_live_creates_warmup_reminder_with_shared_marker,test_warmup_reminder_skipped_when_threshold_met,test_warmup_reminder_sends_when_under_threshold}` (3 new tests, all green; full file 67 → 70 tests pass; `test_calendar_scheduled_games.py` 19 tests still pass).
+
+**Files:** `dashboard/app.py`, `dashboard/templates/planner.html`, `bot/handlers/calendar.py`, `tests/test_planner_coercion_and_chips.py`.
 
 ---
 

@@ -476,6 +476,50 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     message_thread_id=msg.get("channel_topic_id"),
                     reply_markup=markup,
                 )
+            elif msg.get("message_type") == "warmup_reminder":
+                payload = _parse_payload(msg.get("poll_options"))
+                marker = str(payload.get("warmup_marker") or "").strip()
+                if not marker:
+                    raise SkippedActivity("warmup_reminder: missing warmup_marker")
+                async with db._db.execute(
+                    """SELECT id, sent_message_id, poll_options
+                       FROM scheduled_messages
+                       WHERE message_type = 'trivia_warmup_rsvp' AND status = 'sent'
+                       ORDER BY id DESC""",
+                ) as cur:
+                    candidates = await cur.fetchall()
+                ann = None
+                for cand in candidates:
+                    try:
+                        cand_payload = json.loads(cand["poll_options"] or "{}")
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if str(cand_payload.get("warmup_marker") or "") == marker:
+                        ann = cand
+                        break
+                if not ann:
+                    raise SkippedActivity(f"warmup_reminder: parent announcement not sent for marker={marker}")
+                announcement_id = int(ann["id"])
+                threshold = int(payload.get("min_ready_players") or 0)
+                async with db._db.execute(
+                    "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id = ?",
+                    (announcement_id,),
+                ) as cur:
+                    crow = await cur.fetchone()
+                rsvp_count = int(crow["n"]) if crow else 0
+                if threshold > 0 and rsvp_count >= threshold:
+                    raise SkippedActivity(
+                        f"warmup_reminder: threshold {threshold} already met (count={rsvp_count})"
+                    )
+                ann_message_id = ann["sent_message_id"]
+                kwargs = {
+                    "chat_id": group_id,
+                    "text": msg["text"],
+                    "message_thread_id": msg.get("channel_topic_id"),
+                }
+                if ann_message_id:
+                    kwargs["reply_to_message_id"] = int(ann_message_id)
+                sent = await safe_send(bot, db, "send_message", **kwargs)
             else:
                 poll_options = _parse_poll_options(msg.get("poll_options"))
                 if msg.get("message_type") == "poll" and len(poll_options) >= 2:

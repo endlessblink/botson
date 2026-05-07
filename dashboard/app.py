@@ -932,6 +932,8 @@ _CAL_TYPE_STYLE = {
     "weekly_leaderboard": {"emoji": "🏆", "label": "טבלת רמות", "css": "bg-yellow-500/20 text-yellow-200 border-yellow-500/40"},
     "weekly":     {"emoji": "📊", "label": "סיכום", "css": "bg-violet-500/20 text-violet-200 border-violet-500/40"},
     "event":      {"emoji": "🎉", "label": "אירוע", "css": "bg-rose-500/20 text-rose-200 border-rose-500/40"},
+    "trivia_warmup_rsvp": {"emoji": "🙋", "label": "הכרזת RSVP", "css": "bg-teal-500/20 text-teal-200 border-teal-500/40"},
+    "warmup_reminder":    {"emoji": "⏰", "label": "תזכורת RSVP", "css": "bg-teal-500/20 text-teal-200 border-teal-500/40"},
 }
 
 
@@ -1079,17 +1081,30 @@ def _clean_activity_copy(raw: str) -> str | None:
 
 async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
                                   avoid_texts: set[str] | None = None, **ctx) -> str | None:
+    is_reminder = bool(ctx.get("is_reminder")) or kind.endswith("_reminder")
+    if is_reminder:
+        rules = (
+            "- 1-2 שורות קצרות בעברית טבעית, RTL, ללא שיווק.\n"
+            '- זה תזכורת — ההודעה המקורית עם הכפתור "🙋 אני בפנים" כבר נשלחה למעלה.\n'
+            '- הסבר שעדיין אפשר להצטרף בלחיצה על הכפתור בהודעה המקורית (לא בהודעה הזו).\n'
+            "- ציין את min_ready_players ואת זמן הפעילות בקצרה.\n"
+            "- ללא חזרה על הטקסט המקורי; לא לסלוגנים גנריים."
+        )
+    else:
+        rules = (
+            "- לא להשתמש בנוסחים גנריים קבועים, סלוגנים חוזרים, או שם ערוץ קשיח.\n"
+            "- 1-3 שורות קצרות, קריא RTL, טבעי ולא שיווקי מדי.\n"
+            "- לא להבטיח פעולה שאין כפתור עבורה כרגע.\n"
+            '- אם יש min_ready_players, הבהר שיש ללחוץ על כפתור "🙋 אני בפנים" בהודעה הזו כדי לאשר השתתפות — הכפתור מופיע מתחת לטקסט.\n'
+            "- בלי אנגלית אלא אם שם הפעילות עצמו באנגלית."
+        )
     prompt = f"""כתוב טקסט חדש בעברית להודעת פעילות בטלגרם לקהילת מבוגרים ישראלית.
 
 סוג פעילות: {kind}
 נתונים: {json.dumps(ctx, ensure_ascii=False)}
 
 חוקים:
-- לא להשתמש בנוסחים גנריים קבועים, סלוגנים חוזרים, או שם ערוץ קשיח.
-- 1-3 שורות קצרות, קריא RTL, טבעי ולא שיווקי מדי.
-- לא להבטיח פעולה שאין כפתור עבורה כרגע.
-- אם יש min_ready_players, הבהר שיש ללחוץ על כפתור "🙋 אני בפנים" בהודעה הזו כדי לאשר השתתפות — הכפתור מופיע מתחת לטקסט.
-- בלי אנגלית אלא אם שם הפעילות עצמו באנגלית.
+{rules}
 
 פלט JSON בלבד: {{"text":"..."}}"""
     try:
@@ -1272,11 +1287,13 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     if announcement_topic_id is None:
         announcement_topic_id = row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"]
 
+    warmup_marker = f"warmup-rsvp:{game_id}"
     warmup_poll_options = json.dumps({
         "min_ready_players": min_ready,
         "game_time": game_time,
         "theme_label": theme,
         "activity_label": f"הטריוויה על {theme}",
+        "warmup_marker": warmup_marker,
     })
 
     marker = f"trivia-announcement-draft:{game_id}"
@@ -1298,17 +1315,125 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
             poll_options=warmup_poll_options,
             status="scheduled",
         )
+        announcement_id = existing_id
+    else:
+        announcement_id = await db.create_scheduled_message(
+            text=text,
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=announcement_topic_id,
+            target_group="main",
+            scheduled_date=announcement_dt.date().isoformat(),
+            scheduled_time=announcement_dt.strftime("%H:%M"),
+            poll_options=warmup_poll_options,
+            created_by=marker,
+            status="scheduled",
+        )
+
+    await _ensure_warmup_reminder_scheduled(
+        db,
+        parent_id=game_id,
+        warmup_marker=warmup_marker,
+        game_dt=game_dt,
+        game_time=game_time,
+        announcement_dt=announcement_dt,
+        announcement_topic_id=announcement_topic_id,
+        theme_label=theme,
+        activity_label=f"הטריוויה על {theme}",
+        min_ready=min_ready,
+        kind="trivia_warmup_reminder",
+    )
+
+    return announcement_id
+
+
+async def _ensure_warmup_reminder_scheduled(
+    db: Database,
+    *,
+    parent_id: int | str,
+    warmup_marker: str,
+    game_dt: datetime,
+    game_time: str,
+    announcement_dt: datetime,
+    announcement_topic_id: int | None,
+    theme_label: str,
+    activity_label: str,
+    min_ready: int,
+    kind: str,
+) -> int | None:
+    """Create or update the second warm-up reminder row for an RSVP announcement.
+
+    Reminder fires `warmup_reminder_offset_min` before game time (must be strictly
+    after the announcement). Dispatch checks `trivia_interest_responses` against
+    `min_ready_players` and short-circuits to `skipped` if the threshold is met.
+    """
+    if min_ready <= 0:
+        return None
+    trivia_defaults = (get_settings().get("trivia") or {}).get("populate_defaults") or {}
+    try:
+        reminder_offset = int(trivia_defaults.get("warmup_reminder_offset_min") or 0)
+    except (TypeError, ValueError):
+        reminder_offset = 0
+    if reminder_offset <= 0:
+        return None
+    reminder_dt = game_dt - timedelta(minutes=reminder_offset)
+    if reminder_dt <= announcement_dt:
+        logger.info(
+            "[warmup-reminder] reminder offset (%d) >= lead, skipping reminder for %s",
+            reminder_offset, warmup_marker,
+        )
+        return None
+
+    text = await _generate_activity_copy(
+        kind,
+        avoid_texts=None,
+        game_time=game_time,
+        reminder_offset_min=reminder_offset,
+        theme_label=theme_label,
+        activity_label=activity_label,
+        min_ready_players=min_ready,
+        is_reminder=True,
+    )
+    if text is None:
+        return None
+
+    reminder_poll_options = json.dumps({
+        "min_ready_players": min_ready,
+        "game_time": game_time,
+        "theme_label": theme_label,
+        "activity_label": activity_label,
+        "warmup_marker": warmup_marker,
+        "reminder_offset_min": reminder_offset,
+    }, ensure_ascii=False)
+    reminder_marker = f"warmup-reminder-draft:{parent_id}"
+    async with db._db.execute(
+        "SELECT id FROM scheduled_messages WHERE created_by = ? AND status != 'cancelled' LIMIT 1",
+        (reminder_marker,),
+    ) as cur:
+        existing = await cur.fetchone()
+    if existing:
+        existing_id = int(existing["id"])
+        await db.update_scheduled_message(
+            existing_id,
+            text=text,
+            message_type="warmup_reminder",
+            channel_topic_id=announcement_topic_id,
+            target_group="main",
+            scheduled_date=reminder_dt.date().isoformat(),
+            scheduled_time=reminder_dt.strftime("%H:%M"),
+            poll_options=reminder_poll_options,
+            status="scheduled",
+        )
         return existing_id
 
     return await db.create_scheduled_message(
         text=text,
-        message_type="trivia_warmup_rsvp",
+        message_type="warmup_reminder",
         channel_topic_id=announcement_topic_id,
         target_group="main",
-        scheduled_date=announcement_dt.date().isoformat(),
-        scheduled_time=announcement_dt.strftime("%H:%M"),
-        poll_options=warmup_poll_options,
-        created_by=marker,
+        scheduled_date=reminder_dt.date().isoformat(),
+        scheduled_time=reminder_dt.strftime("%H:%M"),
+        poll_options=reminder_poll_options,
+        created_by=reminder_marker,
         status="scheduled",
     )
 
@@ -4145,6 +4270,84 @@ async def _resolve_routing_topic(db: Database, handler: str) -> int | None:
     return None
 
 
+async def _maybe_add_warmup_reminder_suggestion(
+    *,
+    _add_suggestion,
+    slot_free,
+    generated_activity_texts: set,
+    d_iso: str,
+    game_time: str,
+    announce_t: str,
+    announce_lead: int,
+    topic: int,
+    warmup_marker: str,
+    theme_label: str,
+    activity_label: str,
+    min_ready: int,
+    kind: str,
+    source: str,
+    settings: dict,
+) -> None:
+    """Append a `warmup_reminder` suggestion paired to an RSVP announcement.
+
+    No-op when reminder offset is invalid, the slot is occupied, or the LLM
+    copy generation fails. Reminder time = game_time - reminder_offset_min and
+    must be strictly between announcement and game time.
+    """
+    if min_ready <= 0:
+        return
+    trivia_defaults = (settings.get("trivia") or {}).get("populate_defaults") or {}
+    try:
+        reminder_offset = int(trivia_defaults.get("warmup_reminder_offset_min") or 0)
+    except (TypeError, ValueError):
+        return
+    if reminder_offset <= 0 or reminder_offset >= int(announce_lead):
+        return
+    try:
+        gh, gm = [int(x) for x in str(game_time).split(":")]
+        total = gh * 60 + gm - reminder_offset
+        if total < 0:
+            total += 24 * 60
+        reminder_t = f"{total // 60:02d}:{total % 60:02d}"
+    except Exception:
+        return
+    if reminder_t == announce_t:
+        return
+    if not slot_free(d_iso, reminder_t, "warmup_reminder"):
+        return
+
+    text = await _generate_activity_copy(
+        kind,
+        avoid_texts=generated_activity_texts,
+        game_time=game_time,
+        reminder_offset_min=reminder_offset,
+        theme_label=theme_label,
+        activity_label=activity_label,
+        min_ready_players=min_ready,
+        is_reminder=True,
+    )
+    if not text:
+        return
+    generated_activity_texts.add(text)
+    poll = json.dumps({
+        "min_ready_players": min_ready,
+        "game_time": game_time,
+        "theme_label": theme_label,
+        "activity_label": activity_label,
+        "warmup_marker": warmup_marker,
+        "reminder_offset_min": reminder_offset,
+    }, ensure_ascii=False)
+    _add_suggestion(
+        d_iso, reminder_t, "warmup_reminder",
+        topic=topic,
+        text=text,
+        source=source,
+        rationale=f"תזכורת RSVP — {reminder_offset} דקות לפני תחילת הפעילות",
+        poll_options_json=poll,
+        count_as=None,
+    )
+
+
 async def _ai_suggest_calendar(
     db: Database, target_date: str | None = None, week_offset: int = 0,
 ) -> dict:
@@ -4689,6 +4892,7 @@ async def _ai_suggest_calendar(
                     if not _slot_free(d_iso, announce_t, "trivia_warmup_rsvp"):
                         continue
                     emoji_min_ready = int(((settings.get("trivia") or {}).get("populate_defaults") or {}).get("min_ready_players") or 2)
+                    emoji_warmup_marker = f"warmup-rsvp:emoji:{d_iso}:{t}"
                     emoji_announce_poll = json.dumps({
                         "min_ready_players": emoji_min_ready,
                         "game_time": t,
@@ -4697,6 +4901,7 @@ async def _ai_suggest_calendar(
                         "media_types": emoji_media_types,
                         "announcement_lead_minutes": emoji_lead,
                         "puzzle_count": emoji_count,
+                        "warmup_marker": emoji_warmup_marker,
                     }, ensure_ascii=False)
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
@@ -4716,6 +4921,23 @@ async def _ai_suggest_calendar(
                             rationale=f"הכרזה {emoji_lead} דקות לפני Emoji Night — מצטרפים ועדכונים",
                             poll_options_json=emoji_announce_poll,
                             count_as=None,
+                        )
+                        await _maybe_add_warmup_reminder_suggestion(
+                            _add_suggestion=_add_suggestion,
+                            slot_free=_slot_free,
+                            generated_activity_texts=generated_activity_texts,
+                            d_iso=d_iso,
+                            game_time=t,
+                            announce_t=announce_t,
+                            announce_lead=emoji_lead,
+                            topic=emoji_announcement_topic,
+                            warmup_marker=emoji_warmup_marker,
+                            theme_label=emoji_theme,
+                            activity_label=f"Emoji Night על {emoji_theme}",
+                            min_ready=emoji_min_ready,
+                            kind="emoji_warmup_reminder",
+                            source="ai-fill-emoji",
+                            settings=settings,
                         )
                     _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
                                     text="[internal:emoji_puzzle]",
@@ -4867,11 +5089,13 @@ async def _ai_suggest_calendar(
                         min_ready_players=min_ready,
                     )
                     warmup_topic = routed_topics.get("trivia_warmup") or routed_topics["trivia_round"]
+                    trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
                     warmup_poll_json = json.dumps({
                         "min_ready_players": min_ready,
                         "game_time": t,
                         "theme_label": poll_payload["theme_label"],
                         "activity_label": f"הטריוויה על {poll_payload['theme_label']}",
+                        "warmup_marker": trivia_warmup_marker,
                     }, ensure_ascii=False)
                     if warmup_text:
                         generated_activity_texts.add(warmup_text)
@@ -4881,6 +5105,23 @@ async def _ai_suggest_calendar(
                                         rationale="חימום לסיבוב טריוויה — מצטרפים חדשים",
                                         poll_options_json=warmup_poll_json,
                                         count_as=None)
+                        await _maybe_add_warmup_reminder_suggestion(
+                            _add_suggestion=_add_suggestion,
+                            slot_free=_slot_free,
+                            generated_activity_texts=generated_activity_texts,
+                            d_iso=d_iso,
+                            game_time=t,
+                            announce_t=warm_t,
+                            announce_lead=warmup_offset,
+                            topic=warmup_topic,
+                            warmup_marker=trivia_warmup_marker,
+                            theme_label=poll_payload["theme_label"],
+                            activity_label=f"הטריוויה על {poll_payload['theme_label']}",
+                            min_ready=min_ready,
+                            kind="trivia_warmup_reminder",
+                            source="ai-fill-trivia",
+                            settings=settings,
+                        )
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
                                 text="[internal:trivia_round]",
                                 source="ai-fill-trivia",
@@ -4969,6 +5210,7 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
 
     valid_types = {
         "morning", "evening", "discussion", "trivia_round", "trivia_warmup_rsvp",
+        "warmup_reminder",
         "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky",
         "weekly_roundup", "weekly_leaderboard",
     }
