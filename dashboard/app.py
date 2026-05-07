@@ -1288,11 +1288,13 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         announcement_topic_id = row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"]
 
     warmup_marker = f"warmup-rsvp:{game_id}"
+    question_count = int(payload.get("question_count") or 5)
+    activity_label_with_count = f"הטריוויה על {theme} ({question_count} שאלות)"
     warmup_poll_options = json.dumps({
         "min_ready_players": min_ready,
         "game_time": game_time,
         "theme_label": theme,
-        "activity_label": f"הטריוויה על {theme}",
+        "activity_label": activity_label_with_count,
         "warmup_marker": warmup_marker,
     })
 
@@ -1338,7 +1340,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         announcement_dt=announcement_dt,
         announcement_topic_id=announcement_topic_id,
         theme_label=theme,
-        activity_label=f"הטריוויה על {theme}",
+        activity_label=activity_label_with_count,
         min_ready=min_ready,
         kind="trivia_warmup_reminder",
     )
@@ -2740,6 +2742,9 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"ז'?אנר מסוים.*מגלים שזה משהו אחר לגמרי"), "concrete_failure_abstract_movie_bait"),
     (re.compile(r"מי חטף פנים"), "concrete_failure_bad_hebrew"),
     (re.compile(r"מי מוסיף פ[נפ]ים כזה"), "concrete_failure_bad_hebrew"),
+    (re.compile(r"אחרי שבוע.*הנושא הפוליטי.*(עלה|בראש השולחן|הסכמה)"), "concrete_failure_generic_politics_report"),
+    (re.compile(r"רשות מלאה לעשות בדיוק מה שבא לכם"), "concrete_failure_generic_permission_fantasy"),
+    (re.compile(r"בלי תוכניות גדולות.*ניצחון או ויתור"), "concrete_failure_generic_stay_home_judgment"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -4904,13 +4909,13 @@ async def _ai_suggest_calendar(
                         announce_t = f"{announce_total // 60:02d}:{announce_total % 60:02d}"
                     except Exception:
                         continue
-                    # Announcement is paired-but-optional. If its slot is in
-                    # the past (or otherwise occupied), skip JUST the
-                    # announcement — still emit the game row below so the
-                    # operator gets a usable Populate suggestion when they
-                    # click late in the day.
-                    announce_slot_available = _slot_free(d_iso, announce_t, "trivia_warmup_rsvp")
                     emoji_min_ready = int(((settings.get("trivia") or {}).get("populate_defaults") or {}).get("min_ready_players") or 2)
+                    # Invariant: when min_ready_players > 0, the game MUST be
+                    # paired with a warmup announcement. If the announcement
+                    # slot is past/occupied, skip the whole emoji slot — never
+                    # emit a naked emoji_puzzle without RSVP plumbing.
+                    if emoji_min_ready > 0 and not _slot_free(d_iso, announce_t, "trivia_warmup_rsvp"):
+                        continue
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
                         "emoji_warmup",
@@ -4919,16 +4924,22 @@ async def _ai_suggest_calendar(
                         theme_label=emoji_theme,
                         puzzle_count=emoji_count,
                         min_ready_players=emoji_min_ready,
-                    ) if announce_slot_available else None
+                    ) if emoji_min_ready > 0 else None
+                    # Same invariant on LLM failure: if RSVP is required and
+                    # we can't generate the announcement copy, skip the game
+                    # too rather than scheduling it naked.
+                    if emoji_min_ready > 0 and not emoji_text:
+                        continue
                     emoji_announcement_emitted = False
                     emoji_warmup_marker = None
-                    if emoji_text and announce_slot_available:
+                    emoji_activity_label = f"Emoji Night על {emoji_theme} ({emoji_count} חידות)"
+                    if emoji_text:
                         emoji_warmup_marker = f"warmup-rsvp:emoji:{d_iso}:{t}"
                         emoji_announce_poll = json.dumps({
                             "min_ready_players": emoji_min_ready,
                             "game_time": t,
                             "theme_label": emoji_theme,
-                            "activity_label": f"Emoji Night על {emoji_theme}",
+                            "activity_label": emoji_activity_label,
                             "media_types": emoji_media_types,
                             "announcement_lead_minutes": emoji_lead,
                             "puzzle_count": emoji_count,
@@ -4968,6 +4979,7 @@ async def _ai_suggest_calendar(
                         "theme_label": emoji_theme,
                         "media_types": emoji_media_types,
                         "puzzle_count": emoji_count,
+                        "activity_label": emoji_activity_label,
                     }
                     if emoji_announcement_emitted and emoji_warmup_marker:
                         emoji_game_poll["min_ready_players"] = emoji_min_ready
@@ -5106,9 +5118,17 @@ async def _ai_suggest_calendar(
                         f"trivia pool too small for {trivia_categories}: {trivia_pool_n}/{poll_payload['question_count']}"
                     )
                     continue
+                min_ready = int(poll_payload.get("min_ready_players") or 0)
+                trivia_activity_label = f"הטריוויה על {poll_payload['theme_label']} ({poll_payload['question_count']} שאלות)"
+                # Invariant: when min_ready_players > 0, trivia_round MUST be
+                # paired with a warmup announcement + reminder. If the warm-up
+                # slot is past/occupied OR the LLM rejects the copy, skip the
+                # game entirely — never schedule a naked trivia_round without
+                # RSVP plumbing.
                 trivia_warmup_marker = None
-                if _slot_free(d_iso, warm_t, "trivia_warmup_rsvp"):
-                    min_ready = int(poll_payload.get("min_ready_players") or 0)
+                if min_ready > 0:
+                    if not _slot_free(d_iso, warm_t, "trivia_warmup_rsvp"):
+                        continue
                     warmup_text = await _generate_activity_copy(
                         "trivia_warmup",
                         avoid_texts=existing_activity_texts | generated_activity_texts,
@@ -5118,43 +5138,46 @@ async def _ai_suggest_calendar(
                         question_count=poll_payload["question_count"],
                         min_ready_players=min_ready,
                     )
+                    if not warmup_text:
+                        continue
                     warmup_topic = routed_topics.get("trivia_warmup") or routed_topics["trivia_round"]
-                    if warmup_text:
-                        trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
-                        warmup_poll_json = json.dumps({
-                            "min_ready_players": min_ready,
-                            "game_time": t,
-                            "theme_label": poll_payload["theme_label"],
-                            "activity_label": f"הטריוויה על {poll_payload['theme_label']}",
-                            "warmup_marker": trivia_warmup_marker,
-                        }, ensure_ascii=False)
-                        generated_activity_texts.add(warmup_text)
-                        _add_suggestion(d_iso, warm_t, "trivia_warmup_rsvp", topic=warmup_topic,
-                                        text=warmup_text,
-                                        source="ai-fill-trivia",
-                                        rationale="חימום לסיבוב טריוויה — מצטרפים חדשים",
-                                        poll_options_json=warmup_poll_json,
-                                        count_as=None)
-                        await _maybe_add_warmup_reminder_suggestion(
-                            _add_suggestion=_add_suggestion,
-                            slot_free=_slot_free,
-                            generated_activity_texts=generated_activity_texts,
-                            d_iso=d_iso,
-                            game_time=t,
-                            announce_t=warm_t,
-                            announce_lead=warmup_offset,
-                            topic=warmup_topic,
-                            warmup_marker=trivia_warmup_marker,
-                            theme_label=poll_payload["theme_label"],
-                            activity_label=f"הטריוויה על {poll_payload['theme_label']}",
-                            min_ready=min_ready,
-                            kind="trivia_warmup_reminder",
-                            source="ai-fill-trivia",
-                            settings=settings,
-                        )
-                # T-127: stamp marker on game row only when an announcement was
-                # actually emitted, so the dispatch-time RSVP gate can find the
-                # paired RSVP responses (or stay a no-op if none).
+                    trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
+                    warmup_poll_json = json.dumps({
+                        "min_ready_players": min_ready,
+                        "game_time": t,
+                        "theme_label": poll_payload["theme_label"],
+                        "activity_label": trivia_activity_label,
+                        "warmup_marker": trivia_warmup_marker,
+                    }, ensure_ascii=False)
+                    generated_activity_texts.add(warmup_text)
+                    _add_suggestion(d_iso, warm_t, "trivia_warmup_rsvp", topic=warmup_topic,
+                                    text=warmup_text,
+                                    source="ai-fill-trivia",
+                                    rationale="חימום לסיבוב טריוויה — מצטרפים חדשים",
+                                    poll_options_json=warmup_poll_json,
+                                    count_as=None)
+                    await _maybe_add_warmup_reminder_suggestion(
+                        _add_suggestion=_add_suggestion,
+                        slot_free=_slot_free,
+                        generated_activity_texts=generated_activity_texts,
+                        d_iso=d_iso,
+                        game_time=t,
+                        announce_t=warm_t,
+                        announce_lead=warmup_offset,
+                        topic=warmup_topic,
+                        warmup_marker=trivia_warmup_marker,
+                        theme_label=poll_payload["theme_label"],
+                        activity_label=trivia_activity_label,
+                        min_ready=min_ready,
+                        kind="trivia_warmup_reminder",
+                        source="ai-fill-trivia",
+                        settings=settings,
+                    )
+                # T-127: stamp marker on game row when an announcement was
+                # emitted (always when min_ready > 0 by the invariant above).
+                # Always include activity_label so threshold-met confirmation
+                # and dispatch-cancel notice mention the question count.
+                poll_payload["activity_label"] = trivia_activity_label
                 if trivia_warmup_marker:
                     poll_payload["warmup_marker"] = trivia_warmup_marker
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],

@@ -255,6 +255,32 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(trivia_payload["theme_label"])
         self.assertTrue(trivia_payload["categories"])
         self.assertGreaterEqual(int(trivia_payload.get("min_ready_players", 0)), 0)
+        # T-127 invariant: every trivia_round / emoji_puzzle suggestion with
+        # min_ready_players > 0 must come with a paired warmup announcement
+        # (matched on warmup_marker) so the dispatch-time RSVP gate has data.
+        emoji_game_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
+        ann_markers = {
+            json.loads(s["poll_options_json"]).get("warmup_marker")
+            for s in result["suggestions"] if s["message_type"] == "trivia_warmup_rsvp"
+        }
+        for game in trivia_rows + emoji_game_rows:
+            payload = json.loads(game["poll_options_json"])
+            if int(payload.get("min_ready_players") or 0) > 0:
+                marker = payload.get("warmup_marker")
+                self.assertTrue(
+                    marker,
+                    f"{game['message_type']} with min_ready>0 must carry warmup_marker: {game}",
+                )
+                self.assertIn(
+                    marker, ann_markers,
+                    f"{game['message_type']} marker {marker} has no paired announcement",
+                )
+            # activity_label must include the count fact (T-127 follow-up).
+            label = payload.get("activity_label") or ""
+            self.assertRegex(
+                label, r"\(\d+ (חידות|שאלות)\)",
+                f"{game['message_type']} activity_label missing count: {label}",
+            )
         # Sanity bound — not a hard cap, just protection against an unbounded
         # explosion. Adjust upward when new pairings legitimately add rows.
         # 13 = 11 capped types + 2 RSVP announcements + 2 reminders, minus
@@ -1434,6 +1460,10 @@ class TestPlannerTemplateExposure(unittest.TestCase):
             "ז'אנר מסוים... משהו אחר לגמרי",
             "מי חטף/מוסיף פנים כזה",
             "למבוגר האחראי בסיטואציה",
+            "בראש השולחן",
+            "רשות מלאה",
+            "בלי תוכניות גדולות",
+            "פוליטיקה צריכה טריגר חד וקונקרטי",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, quality)
