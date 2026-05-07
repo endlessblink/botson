@@ -76,6 +76,35 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                         "fact too short to be substantive (curation bar)",
                     )
 
+    def test_spooky_items_have_context_not_just_atmosphere(self):
+        """Spooky posts are mini-articles, not one-line ghost bait.
+
+        They need enough setup to explain where the story comes from, and they
+        must separate documented facts from folklore/uncertainty.
+        """
+        grounding_markers = (
+            "לפי", "אין תיעוד", "לא ברור", "מסורת", "פולקלור",
+            "מחקר", "החקירה", "ספריית", "פרופ", "מתוארך", "ב-",
+        )
+        banned_shallow_phrases = (
+            "מאות שנים של סיפורים",
+            "דיווחו תושבים לאורך עשרות שנים",
+        )
+        for entry in self.raw.get("spooky", []):
+            text = entry.get("text_he", "")
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            with self.subTest(id=entry.get("id")):
+                self.assertGreaterEqual(
+                    len(lines), 3,
+                    "spooky item needs setup + story + caveat/context, not a short claim dump",
+                )
+                self.assertTrue(
+                    any(marker in text for marker in grounding_markers),
+                    "spooky item must include a source/folklore/uncertainty marker in the Hebrew text",
+                )
+                for phrase in banned_shallow_phrases:
+                    self.assertNotIn(phrase, text)
+
     def test_source_looks_like_real_citation(self):
         """A real citation has at least one of: author surname, year (4 digits),
         journal/venue/library name, or URL. Not bulletproof — meant to catch

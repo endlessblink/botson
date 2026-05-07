@@ -2,6 +2,10 @@
 # from primary or near-primary sources. Bar: would a curious adult want to
 # forward this? If it reads like a viral listicle, replace it.
 #
+# Spooky items especially need context before atmosphere: where are we,
+# why should the reader care, what is documented vs. only folklore, and
+# what specific detail makes the story worth opening in Telegram.
+#
 # Each item ships with a `source` line so future-Claude (or anyone) can
 # verify before re-writing. Hebrew is the audience language; English is
 # kept here for translator/editor reference only — the bot posts the
@@ -111,8 +115,10 @@ tidbit:
 spooky:
   - id: dybbuk_origin
     text_he: |
-      הדיבוק — נשמה של מת שלא עברה הלאה ונכנסה לגוף של אדם חי — הוא יצור פולקלורי שמופיע בכתבים יהודיים מהמאה ה-16 והלאה, במקביל לעליית הקבלה במזרח אירופה.
-      פרופ' יוסי חיות' מאוניברסיטת חיפה (מרכז למחקר תרבויות יהודיות) מצביע על מקור יידישאי במילה עצמה, וכמעט תמיד הקורבן בסיפורים — אישה צעירה.
+      הדיבוק לא התחיל כמפלצת קולנועית, אלא כרעיון קבלי: נשמה שלא מצאה תיקון ונאחזת בגוף חי כדי להשלים משהו שנשאר פתוח.
+      במאות ה-16 וה-17 הסיפורים האלה התחילו לקבל צורה ברורה בקהילות יהודיות, עם טקסים, עדים, ורבנים שניסו להוציא את הנשמה בדיבור ולא בכוח.
+      פרופ' יוסי חיות מאוניברסיטת חיפה מציין שגם המילה עצמה באה מיידיש — "דיבוק" כמשהו שנדבק — וברוב הסיפורים הקלאסיים מי שנושאת את הקול הזר היא אישה צעירה.
+      זה מפחיד דווקא כי הוא לא מתאר שד מבחוץ, אלא קול של מת שמדבר מתוך מישהו שהכרתם רגע קודם.
     source: "Yossi Chajes interview, Atlas Obscura (2018); 'The Power of a Tale: Stories from the Israel Folktale Archives' (Wayne State Univ. Press, 2019)."
     source_url: "https://www.atlasobscura.com/articles/what-is-a-dybbuk"
     image_prompt: "Relevant atmospheric editorial image of old Jewish folklore manuscripts and a shadowy figure in candlelight, respectful historical style, no text, no logos."
@@ -137,19 +143,23 @@ spooky:
 
   - id: jerusalem_montefiore_ghost
     text_he: |
-      בכיכר הטחנה בירושלים — מול משכנות שאננים שהקים משה מונטיפיורי במאה ה-19 — דיווחו תושבים לאורך עשרות שנים על דמותו של מונטיפיורי עומדת ליד כרכרתו הישנה בלילות.
-      ב-1986 הכרכרה נשרפה כליל בהצתה. מאז — אין דיווחים נוספים על הצללית.
+      ליד טחנת הרוח של מונטיפיורי בירושלים עמדה במשך שנים הכרכרה המקורית שלו — סמל תיירותי מאוד ביום, וקצת פחות נעים בלילה.
+      לפי מסורות ירושלמיות מקומיות, תושבים סיפרו שראו דמות מבוגרת בלבוש תקופתי עומדת ליד הכרכרה אחרי שהאזור התרוקן, כאילו עדיין בודקת את הדרך אל משכנות שאננים.
+      ב-1986 הכרכרה נשרפה בהצתה, והסיפור קיבל סוף מוזר: מאז, לפי אותו פולקלור מקומי, גם הדמות הפסיקה להופיע.
+      אין כאן תיק משטרה על רוח רפאים — רק אגדה עירונית שמחזיקה כי היא קשורה לחפץ אמיתי, מקום אמיתי, ואירוע שריפה אמיתי.
     source: "Jerusalem Post, 'Ghosts of Jerusalem' (Oct 2021); local oral tradition collected by Aardvark Israel."
     source_url: "https://aardvarkisrael.com/ghost-stories-in-jerusalem/"
     image_prompt: "Relevant atmospheric editorial image of the Montefiore windmill and carriage area in Jerusalem at night with a subtle historical silhouette, no text, no logos."
 
   - id: ari_sefardi_tzfat
     text_he: |
-      בית הכנסת האר"י הספרדי בצפת בנוי ממש בקצה בית הקברות העתיק של העיר — קברי הקבליסטים של המאה ה-16, כולל האר"י ז"ל עצמו.
-      מאות שנים של סיפורים על קולות תפילה ריקים שנשמעים בלילה מהאולם, על נרות שנדלקים בלי יד, ועל מבקרים שמספרים שראו דמות לבושה לבן יושבת באחד הספסלים אחרי הסגירה.
-    source: "Safed-home.com historical records; Tzfat municipal heritage tour materials."
-    source_url: "https://en.wikipedia.org/wiki/Ari_Ashkenazi_Synagogue"
-    image_prompt: "Relevant atmospheric editorial image of an old stone synagogue in Safed near an ancient cemetery at night, candlelit folklore mood, no text, no logos."
+      בית הכנסת האר"י הספרדי בצפת יושב על קו התפר הכי טעון בעיר: סמטאות הרובע העתיק מצד אחד, ובית הקברות העתיק של מקובלי צפת ממש מתחתיו.
+      לפי המסורת המקומית, האר"י היה יורד למערה שבמקום כדי ללמוד קבלה עם אליהו הנביא; רק אחר כך הפך המקום לבית כנסת שנושא את שמו.
+      לכן הסיפורים עליו נשמעים פחות כמו "בית רדוף" ויותר כמו מקום שנשאר פתוח בין עולמות: תפילה באולם ריק, אור נר שלא ברור מי הדליק, ודמות לבנה שנעלמת כשמתקרבים לספסלים אחרי הסגירה.
+      אין תיעוד רשמי לרוחות. יש אתר קדוש, בית קברות סמוך, ומסורת צפתית שמסרבת להפוך לסיפור תיירים רגיל.
+    source: "Israel Ministry of Tourism / Go Israel, Ari Sephardi Synagogue visitor page; Tzfat municipal heritage tour materials; local Safed oral tradition."
+    source_url: "https://www.goisrael.com/en/attraction/ari-sephardi-synagogue"
+    image_prompt: "Relevant atmospheric editorial image of the Ari Sephardi synagogue in old Safed above the ancient cemetery, narrow stone alleys, one candlelit bench, respectful folklore mood, no text, no logos."
 
   - id: hum_phenomenon
     text_he: |
