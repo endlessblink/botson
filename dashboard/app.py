@@ -1343,6 +1343,21 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         kind="trivia_warmup_reminder",
     )
 
+    # T-127: stamp warmup_marker on the trivia_round game row so the
+    # dispatch-time RSVP gate can find this announcement and count responses.
+    if min_ready > 0:
+        try:
+            game_payload = dict(payload)
+            game_payload["warmup_marker"] = warmup_marker
+            await db.update_scheduled_message(
+                game_id, poll_options=json.dumps(game_payload, ensure_ascii=False),
+            )
+        except Exception as e:
+            logger.warning(
+                "[trivia-rsvp] failed to stamp warmup_marker on game row %s: %s",
+                game_id, e,
+            )
+
     return announcement_id
 
 
@@ -4892,17 +4907,6 @@ async def _ai_suggest_calendar(
                     if not _slot_free(d_iso, announce_t, "trivia_warmup_rsvp"):
                         continue
                     emoji_min_ready = int(((settings.get("trivia") or {}).get("populate_defaults") or {}).get("min_ready_players") or 2)
-                    emoji_warmup_marker = f"warmup-rsvp:emoji:{d_iso}:{t}"
-                    emoji_announce_poll = json.dumps({
-                        "min_ready_players": emoji_min_ready,
-                        "game_time": t,
-                        "theme_label": emoji_theme,
-                        "activity_label": f"Emoji Night על {emoji_theme}",
-                        "media_types": emoji_media_types,
-                        "announcement_lead_minutes": emoji_lead,
-                        "puzzle_count": emoji_count,
-                        "warmup_marker": emoji_warmup_marker,
-                    }, ensure_ascii=False)
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
                         "emoji_warmup",
@@ -4912,7 +4916,20 @@ async def _ai_suggest_calendar(
                         puzzle_count=emoji_count,
                         min_ready_players=emoji_min_ready,
                     )
+                    emoji_announcement_emitted = False
+                    emoji_warmup_marker = None
                     if emoji_text:
+                        emoji_warmup_marker = f"warmup-rsvp:emoji:{d_iso}:{t}"
+                        emoji_announce_poll = json.dumps({
+                            "min_ready_players": emoji_min_ready,
+                            "game_time": t,
+                            "theme_label": emoji_theme,
+                            "activity_label": f"Emoji Night על {emoji_theme}",
+                            "media_types": emoji_media_types,
+                            "announcement_lead_minutes": emoji_lead,
+                            "puzzle_count": emoji_count,
+                            "warmup_marker": emoji_warmup_marker,
+                        }, ensure_ascii=False)
                         generated_activity_texts.add(emoji_text)
                         _add_suggestion(
                             d_iso, announce_t, "trivia_warmup_rsvp", topic=emoji_announcement_topic,
@@ -4922,6 +4939,7 @@ async def _ai_suggest_calendar(
                             poll_options_json=emoji_announce_poll,
                             count_as=None,
                         )
+                        emoji_announcement_emitted = True
                         await _maybe_add_warmup_reminder_suggestion(
                             _add_suggestion=_add_suggestion,
                             slot_free=_slot_free,
@@ -4939,6 +4957,17 @@ async def _ai_suggest_calendar(
                             source="ai-fill-emoji",
                             settings=settings,
                         )
+                    # T-127: stamp marker on game row only when an announcement
+                    # was actually emitted, so the dispatch-time gate has a
+                    # paired RSVP pool to count (or stays a no-op if absent).
+                    emoji_game_poll = {
+                        "theme_label": emoji_theme,
+                        "media_types": emoji_media_types,
+                        "puzzle_count": emoji_count,
+                    }
+                    if emoji_announcement_emitted and emoji_warmup_marker:
+                        emoji_game_poll["min_ready_players"] = emoji_min_ready
+                        emoji_game_poll["warmup_marker"] = emoji_warmup_marker
                     _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
                                     text="[internal:emoji_puzzle]",
                                     source="ai-fill-pool-row",
@@ -4949,11 +4978,7 @@ async def _ai_suggest_calendar(
                                         media=emoji_media_types,
                                         count=emoji_count,
                                     ),
-                                    poll_options_json=json.dumps({
-                                        "theme_label": emoji_theme,
-                                        "media_types": emoji_media_types,
-                                        "puzzle_count": emoji_count,
-                                    }, ensure_ascii=False))
+                                    poll_options_json=json.dumps(emoji_game_poll, ensure_ascii=False))
                     break
 
         # Facts tidbit (max cap)
@@ -5077,6 +5102,7 @@ async def _ai_suggest_calendar(
                         f"trivia pool too small for {trivia_categories}: {trivia_pool_n}/{poll_payload['question_count']}"
                     )
                     continue
+                trivia_warmup_marker = None
                 if _slot_free(d_iso, warm_t, "trivia_warmup_rsvp"):
                     min_ready = int(poll_payload.get("min_ready_players") or 0)
                     warmup_text = await _generate_activity_copy(
@@ -5089,15 +5115,15 @@ async def _ai_suggest_calendar(
                         min_ready_players=min_ready,
                     )
                     warmup_topic = routed_topics.get("trivia_warmup") or routed_topics["trivia_round"]
-                    trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
-                    warmup_poll_json = json.dumps({
-                        "min_ready_players": min_ready,
-                        "game_time": t,
-                        "theme_label": poll_payload["theme_label"],
-                        "activity_label": f"הטריוויה על {poll_payload['theme_label']}",
-                        "warmup_marker": trivia_warmup_marker,
-                    }, ensure_ascii=False)
                     if warmup_text:
+                        trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
+                        warmup_poll_json = json.dumps({
+                            "min_ready_players": min_ready,
+                            "game_time": t,
+                            "theme_label": poll_payload["theme_label"],
+                            "activity_label": f"הטריוויה על {poll_payload['theme_label']}",
+                            "warmup_marker": trivia_warmup_marker,
+                        }, ensure_ascii=False)
                         generated_activity_texts.add(warmup_text)
                         _add_suggestion(d_iso, warm_t, "trivia_warmup_rsvp", topic=warmup_topic,
                                         text=warmup_text,
@@ -5122,6 +5148,11 @@ async def _ai_suggest_calendar(
                             source="ai-fill-trivia",
                             settings=settings,
                         )
+                # T-127: stamp marker on game row only when an announcement was
+                # actually emitted, so the dispatch-time RSVP gate can find the
+                # paired RSVP responses (or stay a no-op if none).
+                if trivia_warmup_marker:
+                    poll_payload["warmup_marker"] = trivia_warmup_marker
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
                                 text="[internal:trivia_round]",
                                 source="ai-fill-trivia",

@@ -121,7 +121,7 @@
 | T-124 | 23 | Fix emoji subject bias: remove hardcoded fallback, pool filter, sort key | DONE | P0 | — |
 | T-125 | 23 | Extend RSVP buttons to remaining activity types (morning/evening/discussion/facts/free_games/weekly_*) with global toggle | TODO | P1 | T-128 |
 | T-126 | 23 | Second warm-up reminder: schedule a reminder row, skip dispatch if threshold already met (trivia + emoji) | DONE | P1 | T-128 |
-| T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached (no point running if no one signed up) | TODO | P1 | T-126 |
+| T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached (no point running if no one signed up) | DONE | P1 | T-126 |
 | T-128 | 23 | Emoji Night announcement uses trivia_warmup_rsvp type so it gets the RSVP button at dispatch | DONE | P0 | T-124 |
 | T-129 | 23 | Fix LLM prompt for warm-up copy: say button is on THIS message (was telling users to wait for game opening) | DONE | P0 | — |
 | T-130 | 23 | Generic activity_label in trivia_interest poll_options so confirmation text works for any activity (not only trivia) | DONE | P1 | T-128 |
@@ -1125,6 +1125,22 @@ Added `status='skipped'` for legitimate no-op activities so the calendar disting
 Added a per-row async lock around trivia top-up generation so concurrent approval/retry requests for the same scheduled game cannot duplicate generated questions or race on `config/trivia.yaml` writes.
 
 **Files:** `dashboard/app.py`.
+
+---
+
+#### T-127: Cancel underfilled trivia/emoji games at dispatch (✅ DONE 2026-05-07)
+**Phase:** 23 — RSVP system | **Priority:** P1 | **Status:** DONE | **Deps:** T-126
+
+Added a dispatch-time RSVP gate so trivia/Emoji Night games don't burn a full launch into an empty topic. Before `start_scheduled_trivia_round` / `start_emoji_night` runs, the gate counts `trivia_interest_responses` against the paired warm-up announcement (looked up by `poll_options.warmup_marker`). If the count is below `min_ready_players`, the game row is marked `skipped` and a Hebrew "lo yotse laderech ha'pa'am — only N/M signed up" notice posts in the warm-up topic as a `reply_to` of the original announcement.
+
+- New `_enforce_warmup_rsvp_gate(db, msg, bot, group_id)` in `bot/handlers/calendar.py`. Raises `SkippedActivity` to short-circuit; the existing exception handler marks the row `skipped` (T-121's status pattern).
+- Marker stamped on the game row only when an announcement is actually emitted: manual path updates the `trivia_round` poll_options after `_ensure_trivia_announcement_scheduled`; populate path adds it to the trivia poll_payload and the emoji_puzzle poll_options. Emoji_puzzle's poll_options also gains `min_ready_players` so the gate has a threshold to compare against.
+- Legacy rows (no `warmup_marker` or `min_ready_players=0`) bypass the gate entirely — the existing in-game pre-roll ready gate (`trivready` callback) is still the safety net for those.
+- Cancel notice send is wrapped in try/except + UnverifiedTopicError handling so a guard rejection or network blip can't let the launch through.
+
+Verification: 4 new regression tests in `tests/test_planner_coercion_and_chips.py::TestSchedulerTypeExposure` covering: cancel-when-under-threshold (1/3 RSVPs), proceed-when-met (2/2 RSVPs), legacy-row-no-marker pass-through, and emoji-cancel-when-under (0/2). Full suite: 91 pass, 115 subtests.
+
+**Files:** `dashboard/app.py`, `bot/handlers/calendar.py`, `tests/test_planner_coercion_and_chips.py`.
 
 ---
 

@@ -89,7 +89,8 @@ Trivia and Emoji Night announcements use **`message_type="trivia_warmup_rsvp"`**
 - **Distinct from in-game ready gate**: the warm-up RSVP fires ~60 min before the game. The pre-roll ready button on the trivia_round announcement (callback `trivready`) is a separate mechanism. Don't conflate them.
 - **Code paths**: `dashboard/app.py:_ensure_trivia_announcement_scheduled` + `_ensure_warmup_reminder_scheduled` (manual schedule), `dashboard/app.py:_ai_suggest_calendar` + `_maybe_add_warmup_reminder_suggestion` (Populate), `bot/handlers/calendar.py` (dispatch branches for `trivia_warmup_rsvp` and `warmup_reminder`), `bot/handlers/trivia_interest.py` (callback handler).
 - **Reminder pairing**: announcement and reminder share `poll_options.warmup_marker`. Dispatch resolves the marker → announcement row in Python (no `json_extract`) so it works on any SQLite. Reminder is sent as `reply_to_message_id` of the announcement, no extra button.
-- **Open follow-ups in `MASTER_PLAN.md`**: T-125 (RSVP buttons on remaining activity types + global toggle), T-127 (cancel game at fire time if RSVP < `min_ready_players`).
+- **Dispatch-time RSVP gate (T-127 ✅ 2026-05-07)**: trivia/emoji games stamp the same `warmup_marker` on their poll_options. At dispatch, `_enforce_warmup_rsvp_gate` (`bot/handlers/calendar.py`) counts responses; if below `min_ready_players` the game row is marked `skipped` and a Hebrew cancel notice posts in the warm-up topic as a reply to the announcement. Legacy rows (no marker / threshold 0) bypass the gate.
+- **Open follow-ups in `MASTER_PLAN.md`**: T-125 (RSVP buttons on remaining activity types + global toggle).
 
 ## Deploy
 

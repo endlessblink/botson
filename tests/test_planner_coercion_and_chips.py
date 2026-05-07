@@ -1065,6 +1065,278 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def _run_gated_trivia_dispatch(self, *, threshold, num_responses, marker):
+        """Helper for T-127 trivia gate tests. Builds a DB with a sent
+        announcement carrying `marker`, seeds N interest responses, then runs
+        check_and_send_due_messages with a synthetic trivia_round row that
+        carries the same marker. Returns (skipped, sent, start_trivia_calls,
+        cancel_send_calls)."""
+        from bot.handlers import calendar as bot_calendar
+
+        db = Database(":memory:")
+        await db.init()
+        try:
+            ann_id = await db.create_scheduled_message(
+                text="חימום",
+                message_type="trivia_warmup_rsvp",
+                channel_topic_id=341,
+                target_group="main",
+                scheduled_date="2099-01-01",
+                scheduled_time="21:00",
+                poll_options=json.dumps({
+                    "min_ready_players": threshold,
+                    "warmup_marker": marker,
+                    "game_time": "22:00",
+                }, ensure_ascii=False),
+                status="scheduled",
+            )
+            await db._db.execute(
+                "UPDATE scheduled_messages SET status='sent', sent_message_id=? WHERE id=?",
+                (4242, ann_id),
+            )
+            for uid in range(1, num_responses + 1):
+                await db.add_trivia_interest_response(ann_id, 1000 + uid, f"u{uid}")
+            await db._db.commit()
+
+            game_row = {
+                "id": 9100,
+                "scheduled_date": "2099-01-01",
+                "scheduled_time": "22:00",
+                "message_type": "trivia_round",
+                "target_group": "main",
+                "channel_topic_id": 4037,
+                "status": "scheduled",
+                "text": "🧠 סיבוב טריוויה",
+                "created_by": "dashboard",
+                "auto_pin": False,
+                "poll_options": json.dumps({
+                    "min_ready_players": threshold,
+                    "warmup_marker": marker,
+                    "theme_label": "גיימינג",
+                    "categories": ["גיימינג"],
+                    "question_count": 5,
+                    "activity_label": "הטריוויה על גיימינג",
+                }, ensure_ascii=False),
+                "poll_duration": None,
+                "cover_path": None,
+                "recurrence": None,
+                "recurrence_days": None,
+            }
+
+            skipped: list = []
+            sent: list = []
+
+            async def fake_get_due(*a, **k):
+                return [game_row]
+            async def cap_skipped(msg_id, reason):
+                skipped.append((msg_id, reason))
+            async def cap_sent(msg_id, sent_message_id):
+                sent.append((msg_id, sent_message_id))
+            async def noop_failed(msg_id, error):
+                raise AssertionError(f"unexpected failure: {error}")
+
+            db.get_due_messages = fake_get_due  # type: ignore[assignment]
+            db.mark_message_skipped = cap_skipped  # type: ignore[assignment]
+            db.mark_message_sent = cap_sent  # type: ignore[assignment]
+            db.mark_message_failed = noop_failed  # type: ignore[assignment]
+
+            context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+            with patch.dict(bot_calendar.os.environ,
+                            {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
+                             "TEST_GROUP_ID": "-1002"}), \
+                 patch("telegram.Bot", return_value=object()), \
+                 patch.object(bot_calendar, "start_scheduled_trivia_round",
+                              new=AsyncMock(return_value=555)) as start_trivia, \
+                 patch.object(bot_calendar, "safe_send",
+                              new=AsyncMock(return_value=SimpleNamespace(message_id=999))) as ss:
+                await bot_calendar.check_and_send_due_messages(context)
+
+            return skipped, sent, start_trivia, ss
+        finally:
+            await db.close()
+
+    async def test_trivia_round_cancelled_when_warmup_rsvp_under_threshold(self):
+        """T-127: when only 1/3 RSVP'd, the trivia_round is skipped, the game
+        is not launched, and a Hebrew cancel notice is sent as a reply to the
+        announcement in the warm-up topic."""
+        marker = "warmup-rsvp:t127-under"
+        skipped, sent, start_trivia, ss = await self._run_gated_trivia_dispatch(
+            threshold=3, num_responses=1, marker=marker,
+        )
+        start_trivia.assert_not_awaited()
+        self.assertEqual(sent, [])
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("warmup_rsvp_gate", skipped[0][1])
+        self.assertIn("1/3", skipped[0][1])
+        # Cancel notice is sent (the only safe_send call in this branch is the
+        # cancellation reply).
+        ss.assert_awaited()
+        cancel_kwargs = ss.await_args.kwargs
+        self.assertEqual(cancel_kwargs["chat_id"], -1001)
+        self.assertEqual(cancel_kwargs["message_thread_id"], 341)
+        self.assertEqual(cancel_kwargs["reply_to_message_id"], 4242)
+        self.assertIn("1/3", cancel_kwargs["text"])
+
+    async def test_trivia_round_proceeds_when_warmup_rsvp_meets_threshold(self):
+        """T-127: when RSVP count equals or exceeds the threshold, the gate
+        is a no-op and the trivia round launches as before."""
+        marker = "warmup-rsvp:t127-met"
+        skipped, sent, start_trivia, ss = await self._run_gated_trivia_dispatch(
+            threshold=2, num_responses=2, marker=marker,
+        )
+        start_trivia.assert_awaited_once()
+        self.assertEqual(skipped, [])
+        self.assertEqual(sent, [(9100, 555)])
+        ss.assert_not_awaited()  # no cancel notice
+
+    async def test_legacy_trivia_round_without_marker_proceeds(self):
+        """T-127: rows that predate the RSVP system (no warmup_marker) launch
+        unchanged — the gate must not break legacy schedules."""
+        from bot.handlers import calendar as bot_calendar
+
+        db = Database(":memory:")
+        await db.init()
+        try:
+            game_row = {
+                "id": 9101,
+                "scheduled_date": "2099-01-01",
+                "scheduled_time": "22:00",
+                "message_type": "trivia_round",
+                "target_group": "main",
+                "channel_topic_id": 4037,
+                "status": "scheduled",
+                "text": "🧠 סיבוב",
+                "created_by": "dashboard",
+                "auto_pin": False,
+                "poll_options": json.dumps({
+                    "theme_label": "כללי",
+                    "categories": [],
+                    "question_count": 5,
+                }, ensure_ascii=False),
+                "poll_duration": None,
+                "cover_path": None,
+                "recurrence": None,
+                "recurrence_days": None,
+            }
+            sent: list = []
+            async def fake_get_due(*a, **k):
+                return [game_row]
+            async def cap_sent(msg_id, sent_message_id):
+                sent.append((msg_id, sent_message_id))
+            async def noop_skipped(msg_id, reason):
+                raise AssertionError(f"unexpected skip: {reason}")
+            async def noop_failed(msg_id, error):
+                raise AssertionError(f"unexpected failure: {error}")
+
+            db.get_due_messages = fake_get_due  # type: ignore[assignment]
+            db.mark_message_sent = cap_sent  # type: ignore[assignment]
+            db.mark_message_skipped = noop_skipped  # type: ignore[assignment]
+            db.mark_message_failed = noop_failed  # type: ignore[assignment]
+
+            context = SimpleNamespace(bot_data={"db": db}, bot=object())
+            with patch.dict(bot_calendar.os.environ,
+                            {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
+                             "TEST_GROUP_ID": "-1002"}), \
+                 patch("telegram.Bot", return_value=object()), \
+                 patch.object(bot_calendar, "start_scheduled_trivia_round",
+                              new=AsyncMock(return_value=777)) as start_trivia, \
+                 patch.object(bot_calendar, "safe_send", new=AsyncMock()) as ss:
+                await bot_calendar.check_and_send_due_messages(context)
+
+            start_trivia.assert_awaited_once()
+            self.assertEqual(sent, [(9101, 777)])
+            ss.assert_not_awaited()
+        finally:
+            await db.close()
+
+    async def test_emoji_puzzle_cancelled_when_warmup_rsvp_under_threshold(self):
+        """T-127 emoji branch: same gate fires before start_emoji_night."""
+        from bot.handlers import calendar as bot_calendar
+
+        marker = "warmup-rsvp:t127-emoji"
+        db = Database(":memory:")
+        await db.init()
+        try:
+            ann_id = await db.create_scheduled_message(
+                text="חימום emoji",
+                message_type="trivia_warmup_rsvp",
+                channel_topic_id=341,
+                target_group="main",
+                scheduled_date="2099-01-01",
+                scheduled_time="20:30",
+                poll_options=json.dumps({
+                    "min_ready_players": 2,
+                    "warmup_marker": marker,
+                    "game_time": "22:00",
+                    "activity_label": "Emoji Night על סרטים",
+                }, ensure_ascii=False),
+                status="scheduled",
+            )
+            await db._db.execute(
+                "UPDATE scheduled_messages SET status='sent', sent_message_id=? WHERE id=?",
+                (8888, ann_id),
+            )
+            await db._db.commit()  # 0 RSVPs
+
+            game_row = {
+                "id": 9200,
+                "scheduled_date": "2099-01-01",
+                "scheduled_time": "22:00",
+                "message_type": "emoji_puzzle",
+                "target_group": "main",
+                "channel_topic_id": 4037,
+                "status": "scheduled",
+                "text": "🧩 emoji night",
+                "created_by": "ai-fill-pool-row",
+                "auto_pin": False,
+                "poll_options": json.dumps({
+                    "theme_label": "סרטים",
+                    "media_types": ["movie"],
+                    "puzzle_count": 5,
+                    "min_ready_players": 2,
+                    "warmup_marker": marker,
+                    "activity_label": "Emoji Night על סרטים",
+                }, ensure_ascii=False),
+                "poll_duration": None,
+                "cover_path": None,
+                "recurrence": None,
+                "recurrence_days": None,
+            }
+            skipped: list = []
+            async def fake_get_due(*a, **k):
+                return [game_row]
+            async def cap_skipped(msg_id, reason):
+                skipped.append((msg_id, reason))
+            async def noop_sent(msg_id, sent_message_id):
+                raise AssertionError(f"unexpected send for {msg_id}")
+            async def noop_failed(msg_id, error):
+                raise AssertionError(f"unexpected failure: {error}")
+            db.get_due_messages = fake_get_due  # type: ignore[assignment]
+            db.mark_message_skipped = cap_skipped  # type: ignore[assignment]
+            db.mark_message_sent = noop_sent  # type: ignore[assignment]
+            db.mark_message_failed = noop_failed  # type: ignore[assignment]
+
+            context = SimpleNamespace(bot_data={"db": db}, bot=object())
+            with patch.dict(bot_calendar.os.environ,
+                            {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
+                             "TEST_GROUP_ID": "-1002"}), \
+                 patch("telegram.Bot", return_value=object()), \
+                 patch.object(bot_calendar, "start_emoji_night",
+                              new=AsyncMock(return_value=99)) as start_emoji, \
+                 patch.object(bot_calendar, "safe_send",
+                              new=AsyncMock(return_value=SimpleNamespace(message_id=1))) as ss:
+                await bot_calendar.check_and_send_due_messages(context)
+
+            start_emoji.assert_not_awaited()
+            self.assertEqual(len(skipped), 1)
+            self.assertIn("0/2", skipped[0][1])
+            ss.assert_awaited()
+            cancel_kwargs = ss.await_args.kwargs
+            self.assertIn("Emoji Night על סרטים", cancel_kwargs["text"])
+        finally:
+            await db.close()
+
     async def test_trivia_topup_generates_reviews_and_persists_missing_questions(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)

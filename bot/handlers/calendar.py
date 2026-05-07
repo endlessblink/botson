@@ -53,6 +53,76 @@ class SkippedActivity(RuntimeError):
     """Scheduled activity made an intentional no-op decision."""
 
 
+async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int) -> None:
+    """T-127: Cancel a trivia/emoji game launch if the paired warm-up RSVP
+    count is below `min_ready_players`. No-op when the row has no
+    `warmup_marker` or threshold is 0 — preserves legacy rows.
+
+    Raises SkippedActivity to short-circuit the dispatch loop. The existing
+    exception handler in check_and_send_due_messages marks the row 'skipped'.
+    """
+    payload = _parse_payload(msg.get("poll_options"))
+    marker = str(payload.get("warmup_marker") or "").strip()
+    threshold = int(payload.get("min_ready_players") or 0)
+    if not marker or threshold <= 0:
+        return
+
+    async with db._db.execute(
+        """SELECT id, sent_message_id, channel_topic_id, poll_options
+           FROM scheduled_messages
+           WHERE message_type = 'trivia_warmup_rsvp' AND status = 'sent'
+           ORDER BY id DESC""",
+    ) as cur:
+        candidates = await cur.fetchall()
+    ann = None
+    for cand in candidates:
+        try:
+            cand_payload = json.loads(cand["poll_options"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if str(cand_payload.get("warmup_marker") or "") == marker:
+            ann = cand
+            break
+    if not ann:
+        # Announcement never sent — leave the game alone, the existing
+        # in-game ready-gate is still the safety net.
+        return
+
+    async with db._db.execute(
+        "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id = ?",
+        (int(ann["id"]),),
+    ) as cur:
+        crow = await cur.fetchone()
+    rsvp_count = int(crow["n"]) if crow else 0
+    if rsvp_count >= threshold:
+        return
+
+    activity_label = str(payload.get("activity_label") or "").strip() or "המשחק"
+    cancel_text = (
+        f"❌ {activity_label} לא יוצא לדרך הפעם — רק {rsvp_count}/{threshold} סימנו שהם בפנים.\n"
+        "ננסה שוב בתאריך הבא 🙂"
+    )
+    ann_topic = ann["channel_topic_id"]
+    ann_message_id = ann["sent_message_id"]
+    try:
+        kwargs = {
+            "chat_id": group_id,
+            "text": cancel_text,
+            "message_thread_id": int(ann_topic) if ann_topic else None,
+        }
+        if ann_message_id:
+            kwargs["reply_to_message_id"] = int(ann_message_id)
+        await safe_send(bot, db, "send_message", **kwargs)
+    except UnverifiedTopicError as e:
+        logger.warning("warmup_rsvp_gate: cancel notice refused by guard: %s", e)
+    except Exception as e:
+        logger.warning("warmup_rsvp_gate: cancel notice send failed: %s", e)
+
+    raise SkippedActivity(
+        f"warmup_rsvp_gate: {rsvp_count}/{threshold} ready, cancelling launch"
+    )
+
+
 _TRIVIA_CATEGORY_NEEDLES = (
     ("מוזיק", "מוזיקה"),
     ("סרט", "סרטים"),
@@ -375,6 +445,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             msg["_resolved_chat_id"] = group_id
             event_id_for_rsvp: int | None = None
             if msg.get("message_type") == "trivia_round":
+                await _enforce_warmup_rsvp_gate(db, msg, bot, group_id)
                 sent = SimpleNamespace(
                     message_id=_require_message_id(
                         await start_scheduled_trivia_round(context, msg),
@@ -382,6 +453,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     )
                 )
             elif msg.get("message_type") == "emoji_puzzle":
+                await _enforce_warmup_rsvp_gate(db, msg, bot, group_id)
                 payload = _parse_payload(msg.get("poll_options"))
                 session_id = await start_emoji_night(
                     context,
