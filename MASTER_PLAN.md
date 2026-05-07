@@ -119,9 +119,14 @@
 | T-118 | 21 | Audit + rewrite 7 flagged questions in config/discussions.yaml (English jargon: ironic/autocorrect/overrated/underrated/red flag/green flag; 1 stacked question in cute) | DONE | P2 | — |
 | T-123 | 23 | Planner AI Populate mixed suggestions | DONE | P0 | T-080 |
 | T-124 | 23 | Fix emoji subject bias: remove hardcoded fallback, pool filter, sort key | DONE | P0 | — |
-| T-125 | 23 | RSVP interest-check buttons on all activity types with global toggle | TODO | P1 | — |
-| T-126 | 23 | Second warm-up reminder: skip dispatch if threshold already met (trivia + emoji) | TODO | P1 | T-124 |
-| T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached | TODO | P1 | T-126 |
+| T-125 | 23 | Extend RSVP buttons to remaining activity types (morning/evening/discussion/facts/free_games/weekly_*) with global toggle | TODO | P1 | T-128 |
+| T-126 | 23 | Second warm-up reminder: schedule a reminder row, skip dispatch if threshold already met (trivia + emoji) | TODO | P1 | T-128 |
+| T-127 | 23 | Cancel trivia/emoji game at dispatch time if min_ready_players not reached (no point running if no one signed up) | TODO | P1 | T-126 |
+| T-128 | 23 | Emoji Night announcement uses trivia_warmup_rsvp type so it gets the RSVP button at dispatch | DONE | P0 | T-124 |
+| T-129 | 23 | Fix LLM prompt for warm-up copy: say button is on THIS message (was telling users to wait for game opening) | DONE | P0 | — |
+| T-130 | 23 | Generic activity_label in trivia_interest poll_options so confirmation text works for any activity (not only trivia) | DONE | P1 | T-128 |
+| T-131 | 23 | Bump warm-up lead time from 35 → 60 min in settings; add warmup_reminder_offset_min: 20 placeholder | DONE | P1 | — |
+| T-132 | 23 | Hardcoded content audit: remove "ישראל" trivia form default, drop "movie/tv" fallbacks in emoji schedule, drop pool-size primary sort key in trivia category selector | DONE | P0 | T-124 |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
