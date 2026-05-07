@@ -71,10 +71,24 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 - Populate must suggest a balanced content mix, not a flood of discussion questions. The budgets live in `config/settings.yaml:ai_populate.caps`; adjust those values before changing Python.
 - Day-level Populate is intentionally free: it uses schedule-configured times but does **not** restrict candidates by `schedule.*.days`. A Friday click may suggest morning, evening, discussion, trivia, emoji, facts, and weekly rows if those types are configured, enabled, routable, and free.
 - Populate must never suggest slots before the current server time. For the current day/current week, skip past dates and past times; approval should only create future scheduled rows.
-- Emoji Night suggestions must include a separate announcement row before the executable `emoji_puzzle` row. The lead time and subject are admin-configurable in `schedule.emoji_puzzle.{announcement_lead_minutes,theme_label,media_types}`; the runtime must use the same payload so the actual puzzle pool matches the modal subject.
+- Emoji Night suggestions must include a separate announcement row before the executable `emoji_puzzle` row. The lead time and subject are admin-configurable in `schedule.emoji_puzzle.{announcement_lead_minutes,theme_label,media_types}`; the runtime must use the same payload so the actual puzzle pool matches the modal subject. **The Emoji Night announcement row uses `message_type="trivia_warmup_rsvp"` (not `discussion`) so it gets the RSVP button.**
 - No hardcoded slot config in code. Times come from `schedule.*`, discussion topics from `topics.discussions`, executable bot content topics from `bot_message_routing`, and trivia poll/warm-up defaults from `trivia.populate_defaults`.
+- **Defaults that steer outcomes count as hardcoded.** `value="ישראל"` on a form, sort-by-pool-size when the largest pool correlates with one topic, `media_types=["movie","tv"]` fallback in emoji schedule — all rejected. Defaults must be blank, random, or operator-configured. Use random tiebreaks (`random.random()`).
+- **Verify before claiming "all X cleaned".** Grep the full codebase before reporting a category-of-fix done. If scope uncertain, say "fixed the instances I found" with an explicit list. Premature completion claims are treated as overclaim.
 - A `discussion` suggestion with a category must commit only to `settings.yaml.topics.discussions[category]`; reject mismatches instead of silently inserting into the wrong topic.
 - Keep regression coverage for the production failure class: the suggest engine must return mixed types and must not write to `scheduled_messages` before approval.
+
+## Warm-up RSVP system
+
+Trivia and Emoji Night announcements use **`message_type="trivia_warmup_rsvp"`**. Calendar dispatch attaches an inline `🙋 אני בפנים!` button (callback `trivint_<scheduled_msg_id>`). Clicks are written to `trivia_interest_responses(scheduled_msg_id, user_id)`; when the count reaches `poll_options.min_ready_players`, a confirmation message fires in the warm-up topic.
+
+- **Topic**: warm-up topic comes from the `trivia_warmup` row in `bot_message_routing` (seeded as topic 341 — מצטרפים חדשים + עדכונים). Never hardcode 341.
+- **Default lead time**: `trivia.populate_defaults.warmup_offset_min: 60` (was 35 before 2026-05-07). `warmup_reminder_offset_min: 20` is a settings placeholder for T-126 (second reminder) — not yet wired in code.
+- **Generic confirmation copy**: `poll_options.activity_label` makes the confirmation text type-agnostic (`"הטריוויה על {theme}"`, `"Emoji Night על {theme}"`, etc.). Falls back to `"הטריוויה על {theme}"` if missing.
+- **LLM prompt**: `_generate_activity_copy` instructs the model to tell users to click the button on THIS warm-up message. If you change the prompt, keep that instruction.
+- **Distinct from in-game ready gate**: the warm-up RSVP fires ~60 min before the game. The pre-roll ready button on the trivia_round announcement (callback `trivready`) is a separate mechanism. Don't conflate them.
+- **Code paths**: `dashboard/app.py:_ensure_trivia_announcement_scheduled` (manual schedule), `dashboard/app.py:_ai_suggest_calendar` (Populate), `bot/handlers/calendar.py` (dispatch branch), `bot/handlers/trivia_interest.py` (callback handler).
+- **Open follow-ups in `MASTER_PLAN.md`**: T-125 (RSVP buttons on remaining activity types + global toggle), T-126 (second reminder; skip if threshold met), T-127 (cancel game at fire time if RSVP < `min_ready_players`).
 
 ## Deploy
 
