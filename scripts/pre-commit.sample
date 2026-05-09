@@ -1,0 +1,32 @@
+#!/bin/bash
+# Hardcoded-content guardian — git pre-commit hook (advisory).
+#
+# Install:
+#   ln -s ../../scripts/pre-commit.sample .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# Runs the guardian against the WHOLE repo (rules are cross-file). On
+# failure: prints the violations and warns, but does NOT block the
+# commit. After Phase D lands and all xfails are removed, change
+# `MODE=advisory` to `MODE=blocking` below.
+#
+# Bypass for one commit:
+#   git commit --no-verify
+
+MODE="advisory"   # advisory | blocking
+
+if ! command -v .venv/bin/pytest >/dev/null 2>&1; then
+  exit 0  # no venv, nothing we can run
+fi
+
+if ! .venv/bin/pytest tests/test_no_hardcoded_content.py -q --tb=line; then
+  echo
+  echo "⚠️  Hardcoded-content guardian failed. See CLAUDE.md → \"No Hardcoded User-Facing Content\"."
+  if [ "$MODE" = "blocking" ]; then
+    echo "❌ pre-commit blocking — fix violations or rerun with --no-verify."
+    exit 1
+  fi
+  echo "(advisory mode — commit proceeds. Set MODE=blocking after Phase D.)"
+fi
+
+exit 0

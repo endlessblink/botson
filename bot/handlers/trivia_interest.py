@@ -1,3 +1,6 @@
+# All user-facing Hebrew strings in this file must be loaded from config
+# (settings.yaml or a sibling YAML). Inline literals are allowed only as
+# explicit `# noqa: hardcoded-content` fallbacks — see CLAUDE.md.
 """Trivia warm-up interest-check handler.
 
 Handles the "🙋 אני בפנים!" inline button on trivia_warmup_rsvp messages.

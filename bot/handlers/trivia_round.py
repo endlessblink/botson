@@ -1,3 +1,6 @@
+# All user-facing Hebrew strings in this file must be loaded from config
+# (settings.yaml or a sibling YAML). Inline literals are allowed only as
+# explicit `# noqa: hardcoded-content` fallbacks — see CLAUDE.md.
 """Trivia round — 5 questions, 30s timer each, +12 correct, +20 first-place bonus.
 
 Separate from the single-question `trivia.py` handler. Uses a distinct callback

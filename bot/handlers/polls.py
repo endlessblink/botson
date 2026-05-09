@@ -1,3 +1,6 @@
+# All user-facing Hebrew strings in this file must be loaded from config
+# (settings.yaml or a sibling YAML). Inline literals are allowed only as
+# explicit `# noqa: hardcoded-content` fallbacks — see CLAUDE.md.
 """Inline button polls with vote tracking.
 
 Handles callback_data starting with 'poll_'. Tracks votes in-memory AND

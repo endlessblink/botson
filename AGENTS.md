@@ -18,3 +18,35 @@
 - Open RSVP follow-ups in `MASTER_PLAN.md`: **T-125** (RSVP buttons on remaining activity types + global toggle), **T-126** (second warm-up reminder; skip if threshold met), **T-127** (cancel game at fire time if no signups).
 - Before claiming this flow works, run `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py tests/test_digest_quality_consolidation.py tests/test_calendar_scheduled_games.py -q` and a stubbed suggest flow equivalent to `/tmp/e2e_suggest.py`.
 - Push only after showing/understanding the diff. Deploy only after explicit deploy approval.
+
+## No Hardcoded User-Facing Content (HARD RULE)
+
+Every Hebrew string a user sees, every magic number that shapes UX, every fallback must be sourced from a config file the operator can edit. Code carries no user-visible Hebrew except as an explicit `[copy missing]`-style placeholder for graceful degradation when the config key is absent.
+
+**Forbidden in production code (`bot/handlers/**`, `bot/utils/**`, `bot/scheduler/**`, `dashboard/app.py`, `dashboard/templates/**`):**
+- Hebrew string literals not passed through a config-read helper or `# noqa: hardcoded-content (reason)`'d.
+- Hardcoded `chat_id=-100…` or `message_thread_id=<int>` literals (route through `bot_message_routing` or env).
+- Hardcoded LLM-prompt thresholds (`עד 140 תווים`, `1-3 שורות`, `5-8` generation counts) — must come from `config/settings.yaml:llm.prompt_rules.*`.
+- Module-level `_DEFAULT_*` / `_FALLBACK_*` constants holding user-facing Hebrew.
+- `[internal:*]` placeholder strings stored in `scheduled_messages.text`.
+- English mid-Hebrew prompt strings, English admin-DM tags, English image-prompt mood/instruction strings.
+- `selected` attribute on `<option>` defaults that bias content choice without an `{% if %}` operator-state gate.
+
+**Where things live:**
+- `config/settings.yaml` — UX thresholds, gamification, schedule, LLM prompt rules, `bot.community_context`, `copy.*` namespace.
+- `config/copy/*.yaml` — long-form templates (welcome, events, etc.) when settings.yaml gets too dense.
+- `config/freshness.yaml` — content-validation rejection fragments (canonical ban list shared with the guardian test).
+- `bot_message_routing` table — chat/topic ids per handler.
+- Env vars — secrets, model versions, API endpoints.
+
+**Enforcement:**
+- `tests/test_no_hardcoded_content.py` — guardian test runs the full pattern set. Failures list every offending file:line. The test is the live spec.
+- `scripts/deploy.sh` — runs the guardian as a pre-deploy step. Regressions block deploy unless explicitly bypassed (`SKIP_HARDCODED_GUARDIAN=1 ./deploy.sh`, audit-logged).
+- `scripts/pre-commit.sample` — optional pre-commit hook (advisory until guardian fully green, then blocking).
+- Saved feedback memory `feedback_hardcoded_content_enforcement.md` — flags this rule for every future Claude session.
+
+**Reading user-facing copy from code**: use `bot.utils.copy.load_copy(namespace, key, **fmt)` — never read `settings["copy"]` directly in handler code. The helper centralizes the missing-key warning and the placeholder fallback.
+
+**Escape hatch**: `# noqa: hardcoded-content (specific reason)` on the offending line. The reason is non-empty and audit-able. Use sparingly — preferably never in handler code.
+
+**Cross-references**: this rule consolidates and supersedes the narrower memories `feedback_no_hardcoded_slot_config.md` (slot config), `feedback_no_content_bias.md` (defaults bias), `feedback_no_default_toggles.md` (toggle bloat), `feedback_verify_before_claiming_done.md` (incomplete audits). Those remain as historical context; this section is the active rule.

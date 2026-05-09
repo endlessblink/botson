@@ -1,3 +1,6 @@
+# All user-facing Hebrew strings in this file must be loaded from config
+# (settings.yaml or a sibling YAML). Inline literals are allowed only as
+# explicit `# noqa: hardcoded-content` fallbacks — see CLAUDE.md.
 """Daily 'did you know' / spooky-folklore poster.
 
 Pulls from config/facts.yaml — a hand-curated pool with citation per item.

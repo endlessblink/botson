@@ -1,8 +1,20 @@
-"""Shared freshness checks for generated community-facing content."""
+"""Shared freshness checks for generated community-facing content.
+
+Ban-list source of truth lives in ``config/freshness.yaml``. Both this
+runtime validator and the hardcoded-content guardian test
+(``tests/test_no_hardcoded_content.py``) load from that file so there's no
+parallel copy in code. When new stale phrasing slips through, edit the
+YAML — no code change required.
+"""
 
 from __future__ import annotations
 
+import logging
 import re
+
+from .config import load_yaml
+
+logger = logging.getLogger(__name__)
 
 
 TEXT_CONTENT_TYPES = {"morning", "evening", "discussion", "custom"}
@@ -16,44 +28,29 @@ EXECUTABLE_TYPES = {
     "weekly_leaderboard",
 }
 
-STALE_FRAGMENTS = (
-    "מתחממים לחידת אימוג'י",
-    "נפתח Emoji Night בנושא",
-    "נקודות למהירים",
-    "מתחילים סיבוב",
-    "בפינה של בוטסון",
-    "תיבחר מהמאגר בזמן השליחה",
-    "ייבחר מהמאגר בזמן השליחה",
-    "הבוט יבדוק וישלח אם נמצא משחק רלוונטי",
-    "יופק מנתוני הפעילות בזמן השליחה",
-    "תופק מנתוני הרמות בזמן השליחה",
-    "חידת אמוג'י של הערב",
-    "פוסט קהילתי — למה בוטסון קיים",
-    "סלוט 1/5",
-    "trivia-israel-announce",
-    "Emoji Night seed review",
-    "emoji-puzzle-seed",
-)
 
-MISLEADING_READY_FRAGMENTS = (
-    "מסמנים שהם בפנים",
-    "שמסמנים שהם בפנים",
-    "צריך לפחות",
-)
+def _load_fragment_lists() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Read fragment lists from ``config/freshness.yaml``.
 
-GENERIC_FRAGMENTS = (
-    "מה עשה לכם את היום",
-    "מה טוב היום",
-    "היום הזה עוד לא הוחלט",
-    "הגענו לאמצע השבוע",
-    "מבוגר האחראי בסיטואציה",
-    "כמעט סוף שבוע",
-    "עוד שעה אחת לפני שנגמר השבוע",
-    "עוד קצת ואז כבר סוף שבוע",
-    "הריטואל שסוגר לכם את השבוע",
-    "האנרגיה הזו",
-    "מגלים שזה משהו אחר לגמרי",
-)
+    Falls back to empty tuples + a logged warning when the file is missing
+    or malformed; this disables freshness rejection rather than crashing,
+    so a config typo doesn't take the bot offline.
+    """
+    try:
+        data = load_yaml("freshness.yaml") or {}
+    except FileNotFoundError:
+        logger.warning("freshness: config/freshness.yaml missing — fragment list empty")
+        return (), (), ()
+    except Exception as e:
+        logger.warning("freshness: failed to load config/freshness.yaml: %s", e)
+        return (), (), ()
+    stale = tuple(str(x) for x in (data.get("stale_fragments") or []))
+    misleading = tuple(str(x) for x in (data.get("misleading_ready_fragments") or []))
+    generic = tuple(str(x) for x in (data.get("generic_fragments") or []))
+    return stale, misleading, generic
+
+
+STALE_FRAGMENTS, MISLEADING_READY_FRAGMENTS, GENERIC_FRAGMENTS = _load_fragment_lists()
 
 
 def normalize_text(text: str) -> str:

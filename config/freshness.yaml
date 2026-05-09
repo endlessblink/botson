@@ -1,0 +1,51 @@
+# Canonical ban list for freshness rejection.
+#
+# Loaded at module init by `bot/utils/freshness.py` and consulted by both
+# the runtime validator (every scheduled-message text passes through
+# `freshness_rejection()`) and the guardian test
+# `tests/test_no_hardcoded_content.py` so there's only one source of truth.
+#
+# When new generated content keeps slipping through with stale phrasing,
+# add the offending fragment here — no code change required.
+
+# Strings that betray a placeholder or stale draft. Reject outright.
+stale_fragments:
+  - "מתחממים לחידת אימוג'י"
+  - "נפתח Emoji Night בנושא"
+  - "נקודות למהירים"
+  - "מתחילים סיבוב"
+  - "בפינה של בוטסון"
+  - "תיבחר מהמאגר בזמן השליחה"
+  - "ייבחר מהמאגר בזמן השליחה"
+  - "הבוט יבדוק וישלח אם נמצא משחק רלוונטי"
+  - "יופק מנתוני הפעילות בזמן השליחה"
+  - "תופק מנתוני הרמות בזמן השליחה"
+  - "חידת אמוג'י של הערב"
+  - "פוסט קהילתי — למה בוטסון קיים"
+  - "סלוט 1/5"
+  - "trivia-israel-announce"
+  - "Emoji Night seed review"
+  - "emoji-puzzle-seed"
+
+# Strings that promise an RSVP-style behavior the runtime won't actually
+# deliver. Reject so we don't tell users to "click the button" when there
+# isn't one.
+misleading_ready_fragments:
+  - "מסמנים שהם בפנים"
+  - "שמסמנים שהם בפנים"
+  - "צריך לפחות"
+
+# Generic filler phrases the LLM gravitates toward when it has nothing
+# specific to say. Reject so prompts stay substantive.
+generic_fragments:
+  - "מה עשה לכם את היום"
+  - "מה טוב היום"
+  - "היום הזה עוד לא הוחלט"
+  - "הגענו לאמצע השבוע"
+  - "מבוגר האחראי בסיטואציה"
+  - "כמעט סוף שבוע"
+  - "עוד שעה אחת לפני שנגמר השבוע"
+  - "עוד קצת ואז כבר סוף שבוע"
+  - "הריטואל שסוגר לכם את השבוע"
+  - "האנרגיה הזו"
+  - "מגלים שזה משהו אחר לגמרי"

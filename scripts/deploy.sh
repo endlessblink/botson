@@ -45,6 +45,26 @@ else
   fi
 fi
 
+# Hardcoded-content guardian gate. See CLAUDE.md → "No Hardcoded
+# User-Facing Content". Bypass with SKIP_HARDCODED_GUARDIAN=1 for
+# emergencies; the bypass is logged audibly so it shows up in deploy
+# output for after-the-fact review.
+if [ "${SKIP_HARDCODED_GUARDIAN:-0}" != "1" ]; then
+  if [ -x .venv/bin/pytest ] && [ -f tests/test_no_hardcoded_content.py ]; then
+    echo
+    echo "=== Hardcoded-content guardian ==="
+    if ! sudo -u "$SERVICE_USER" -H .venv/bin/pytest tests/test_no_hardcoded_content.py -q --tb=line; then
+      echo
+      echo "❌ Guardian failed — blocking deploy. Fix the violations above"
+      echo "   or rerun with SKIP_HARDCODED_GUARDIAN=1 if this is an emergency."
+      exit 1
+    fi
+  fi
+else
+  echo
+  echo "⚠️  SKIP_HARDCODED_GUARDIAN=1 — bypassing guardian (logged for audit)."
+fi
+
 echo
 echo "=== Restarting services ==="
 for svc in "${SERVICES[@]}"; do
