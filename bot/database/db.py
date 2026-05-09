@@ -566,6 +566,36 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+    async def get_recent_activity_subjects(
+        self, *, action_type: str, days: int, key: str = "fact_id"
+    ) -> list[str]:
+        """Return ids embedded in activity_log descriptions for a given
+        action_type within the last ``days`` days.
+
+        Handlers that want anti-repeat behavior log per-item identifiers in
+        the description as ``<key>:<id>`` markers (e.g. ``fact_id:dybbuk_origin``);
+        this method parses them out so ``pick_*`` functions can exclude
+        recently-sent items. Phase A.1.1 wires this for facts; emoji and
+        discussion handlers can reuse with their own ``key`` values.
+        """
+        if days <= 0:
+            return []
+        cutoff = (datetime.now(_IL_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            "SELECT description FROM activity_log WHERE action_type = ? AND timestamp >= ?",
+            (action_type, cutoff),
+        ) as cur:
+            rows = await cur.fetchall()
+        import re as _re
+        pattern = _re.compile(rf"\b{_re.escape(key)}:([A-Za-z0-9_\-]+)")
+        ids: list[str] = []
+        for row in rows:
+            desc = str(row["description"] or "")
+            m = pattern.search(desc)
+            if m:
+                ids.append(m.group(1))
+        return ids
+
     # ── Blocked Users ────────────────────────────────────────
 
     async def block_user(self, user_id: int, blocked_by: str = "", reason: str = ""):
@@ -1236,6 +1266,20 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def get_recent_emoji_puzzle_ids(self, *, days: int = 30) -> set[int]:
+        """Return puzzle_ids that appeared in any round started in the last
+        ``days`` days. Used by the session picker to exclude recently-played
+        puzzles so the pool feels fresh — Phase A.1.2."""
+        if days <= 0:
+            return set()
+        cutoff = (datetime.now(_IL_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            "SELECT DISTINCT puzzle_id FROM emoji_puzzle_rounds WHERE sent_at >= ?",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return {int(r["puzzle_id"]) for r in rows if r["puzzle_id"] is not None}
 
     async def start_emoji_round(
         self,

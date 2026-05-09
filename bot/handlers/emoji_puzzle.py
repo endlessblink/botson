@@ -271,6 +271,25 @@ async def _pick_session_puzzles(
     if not pool:
         return []
 
+    # Phase A.1.2: exclude puzzles that ran in any round within the last
+    # 30 days so the same emoji set doesn't repeat. Soft exclusion — if
+    # the filter leaves too few candidates, allow repeats so the session
+    # still launches (the alternative is a cancelled emoji night, which
+    # is worse than a familiar one).
+    try:
+        recent_ids = await db.get_recent_emoji_puzzle_ids(days=30)
+    except Exception as e:
+        logger.warning("emoji_puzzle: recent-ids lookup failed: %s", e)
+        recent_ids = set()
+    fresh_pool = [p for p in pool if int(p["id"]) not in recent_ids]
+    if len(fresh_pool) >= puzzle_count:
+        pool = fresh_pool
+    elif recent_ids:
+        logger.info(
+            "emoji_puzzle: only %d fresh puzzles after 30-day exclusion (need %d) — allowing repeats",
+            len(fresh_pool), puzzle_count,
+        )
+
     picked: list[dict] = []
     picked_ids: set[int] = set()
     targets = _difficulty_targets(puzzle_count)

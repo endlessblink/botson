@@ -249,11 +249,11 @@ def test_dedup_methods_referenced_actually_exist():
     missing: dict[str, list[str]] = {
         name: sites for name, sites in referenced.items() if name not in methods
     }
-    if missing:
-        # Phase A.1.1 adds get_recent_activity_subjects; until then this
-        # documents the gap as xfail to avoid blocking other work.
-        msg = "; ".join(f"{n} @ {sites}" for n, sites in sorted(missing.items()))
-        pytest.xfail(f"Phase A.1.1 will add missing Database methods: {msg}")
+    assert not missing, (
+        "Database methods referenced by handlers but not defined "
+        "(silent-hasattr bug class — see CLAUDE.md):\n"
+        + "\n".join(f"  {n}: {sites}" for n, sites in sorted(missing.items()))
+    )
 
 
 def test_no_specific_banned_literals_outside_config():

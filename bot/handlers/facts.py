@@ -162,17 +162,19 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
       - logging the activity row after a successful send
     """
     handler_name = f"facts_{pool}"
-    routing = await db.get_handler_routing(handler_name) if hasattr(db, "get_handler_routing") else None
-    recent_ids = []
-    if hasattr(db, "get_recent_activity_subjects"):
-        # If the project later grows a per-fact dedup table, point to it
-        # here. For now, the activity log carries the id in `description`.
-        try:
-            recent_ids = await db.get_recent_activity_subjects(
-                action_type=handler_name, days=DEFAULT_COOLDOWN_DAYS,
-            ) or []
-        except Exception as e:  # pragma: no cover — defensive
-            logger.debug("facts: recent-subjects lookup failed: %s", e)
+    routing = await db.get_handler_routing(handler_name)
+    # 60-day cooldown — every prior send for this pool stamped its fact_id
+    # into the activity_log description; we exclude those so the same item
+    # doesn't repeat within ~2 months. Wrapped in try/except for defense
+    # against a corrupt activity_log row, NOT to mask a missing method
+    # (the silent-hasattr pattern that hid this bug for weeks).
+    try:
+        recent_ids = await db.get_recent_activity_subjects(
+            action_type=handler_name, days=DEFAULT_COOLDOWN_DAYS,
+        ) or []
+    except Exception as e:
+        logger.warning("facts: recent-subjects lookup failed: %s", e)
+        recent_ids = []
 
     fact = pick_fact(pool, recent_ids, fact_id=fact_id)
     if fact is None:
@@ -197,15 +199,17 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
         logger.error("facts: send failed: %s", e)
         return False
 
-    if hasattr(db, "log_activity"):
-        try:
-            await db.log_activity(
-                handler_name,
-                fact["id"],  # store the id so dedup can find it later
-                target_channel=str(thread_id) if thread_id else None,
-            )
-        except Exception as e:  # pragma: no cover
-            logger.debug("facts: activity log failed: %s", e)
+    # Stamp fact_id into the description so get_recent_activity_subjects
+    # can parse it on the next pick. The `fact_id:` prefix is the contract
+    # the cooldown query relies on.
+    try:
+        await db.log_activity(
+            handler_name,
+            f"fact_id:{fact['id']}",
+            target_channel=str(thread_id) if thread_id else None,
+        )
+    except Exception as e:
+        logger.warning("facts: activity log failed: %s", e)
     # Routing field reserved for future per-pool channel splits — read here
     # so its absence in the table doesn't surface as an unused-import noise.
     _ = routing
