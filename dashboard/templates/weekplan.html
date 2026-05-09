@@ -176,6 +176,9 @@
                                 {% if act.get('committed', False) %}
                                     <span class="shrink-0 text-[10px] text-emerald-400" title="מתוכנן">✓</span>
                                 {% endif %}
+                                {% if act.get('engagement') and act.engagement.distinct_reactors > 0 %}
+                                    <span class="shrink-0 text-[10px] text-pink-300" title="תגובות אימוג׳י">👍 {{ act.engagement.distinct_reactors }}</span>
+                                {% endif %}
                                 {% if act.get('channel') %}
                                     <span class="text-[10px] text-[#52525b] truncate">{{ act.channel }}</span>
                                 {% endif %}
@@ -273,6 +276,9 @@
                                     {% endif %}
                                     {% if act.get('committed', False) %}
                                         <span class="shrink-0 text-[10px] text-emerald-400" title="מתוכנן">✓</span>
+                                    {% endif %}
+                                    {% if act.get('engagement') and act.engagement.distinct_reactors > 0 %}
+                                        <span class="shrink-0 text-[10px] text-pink-300" title="תגובות אימוג׳י">👍 {{ act.engagement.distinct_reactors }}</span>
                                     {% endif %}
                                     {% if act.get('channel') %}
                                         <span class="text-[10px] text-[#52525b] truncate">{{ act.channel }}</span>

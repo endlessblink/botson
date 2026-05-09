@@ -12,7 +12,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions
 from .handlers.calendar import check_and_send_due_messages
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_emoji_puzzles, get_prompts
@@ -292,6 +292,7 @@ def main():
     daily_activity_digest.register(app)  # Daily schedule digest buttons
     calendar_pop.register(app)   # Calendar popup demo (option-3 prototype)
     trivia_interest.register(app)  # Trivia warm-up RSVP interest check
+    reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 
     # Setup scheduled jobs (uses built-in JobQueue)
@@ -300,7 +301,7 @@ def main():
     logger.info("Bot starting... (polling mode)")
     app.run_polling(
         drop_pending_updates=False,
-        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
+        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member", "message_reaction"],
     )
 
 

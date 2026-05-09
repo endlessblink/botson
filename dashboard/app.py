@@ -3247,6 +3247,33 @@ async def activity_page(request: Request, db: Database = Depends(get_db)):
     return templates.TemplateResponse(request, name="activity.html", context={"log": log, "settings": settings})
 
 
+@app.get("/api/engagement/recent")
+async def engagement_recent(request: Request, limit: int = 30, db: Database = Depends(get_db)):
+    """Phase B diagnostic: recent sent scheduled_messages with reaction counts.
+
+    Answers "is anyone seeing the bot's posts?" without leaving the dashboard.
+    Read-only.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    capped = max(1, min(int(limit), 200))
+    async with db._db.execute(
+        """SELECT sm.id, sm.scheduled_date, sm.scheduled_time, sm.message_type,
+                  sm.channel_topic_id, sm.text, sm.sent_message_id,
+                  COALESCE(me.reactions, 0) AS reactions,
+                  COALESCE(me.distinct_reactors, 0) AS distinct_reactors,
+                  me.last_updated
+           FROM scheduled_messages sm
+           LEFT JOIN message_engagement me ON me.scheduled_msg_id = sm.id
+           WHERE sm.status = 'sent'
+           ORDER BY sm.scheduled_date DESC, sm.scheduled_time DESC
+           LIMIT ?""",
+        (capped,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
 @app.post("/api/settings/gamification")
 async def update_gamification(request: Request):
     if not request.session.get("authenticated"):
@@ -7827,6 +7854,28 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
             })
 
     logger.info("[weekplan.render] day→discussion map for week starting %s: %s", sunday, day_to_category_map)
+
+    # Phase B: attach reaction-count badges to each committed row.
+    # Read-only display; no behaviour change. Bulk-fetch first so the
+    # per-activity loop is O(1) lookups.
+    try:
+        scheduled_ids = [
+            int(act["scheduled_id"])
+            for day in week_days
+            for act in day.get("activities", [])
+            if act.get("scheduled_id")
+        ]
+        engagement_map = await db.list_message_engagement(scheduled_ids) if scheduled_ids else {}
+        for day in week_days:
+            for act in day.get("activities", []):
+                sid = act.get("scheduled_id")
+                if sid and sid in engagement_map:
+                    act["engagement"] = {
+                        "reactions": engagement_map[sid]["reactions"],
+                        "distinct_reactors": engagement_map[sid]["distinct_reactors"],
+                    }
+    except Exception as e:
+        logger.warning("[weekplan.render] engagement enrichment failed: %s", e)
 
     return templates.TemplateResponse(request, name="weekplan.html", context={
         "settings": settings,

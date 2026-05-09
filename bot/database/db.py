@@ -59,6 +59,9 @@ class Database:
             "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
             "CREATE TABLE IF NOT EXISTS bot_message_routing (handler TEXT PRIMARY KEY, play_topic_id INTEGER, teaser_topic_ids TEXT NOT NULL DEFAULT '[]', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
             "CREATE TABLE IF NOT EXISTS trivia_interest_responses (scheduled_msg_id INTEGER NOT NULL, user_id INTEGER NOT NULL, display_name TEXT, responded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (scheduled_msg_id, user_id))",
+            "CREATE TABLE IF NOT EXISTS message_engagement (scheduled_msg_id INTEGER PRIMARY KEY, telegram_message_id INTEGER NOT NULL, channel_topic_id INTEGER, reactions INTEGER NOT NULL DEFAULT 0, distinct_reactors INTEGER NOT NULL DEFAULT 0, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE INDEX IF NOT EXISTS idx_message_engagement_tg_id ON message_engagement(telegram_message_id, channel_topic_id)",
+            "CREATE TABLE IF NOT EXISTS message_reactors (scheduled_msg_id INTEGER NOT NULL, user_id INTEGER NOT NULL, reaction_type TEXT, reacted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (scheduled_msg_id, user_id))",
         ]
         for sql in migrations:
             try:
@@ -1544,3 +1547,119 @@ class Database:
             (scheduled_msg_id,),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+    # ── Message engagement (Phase B reaction tracking) ────────
+
+    async def find_scheduled_id_by_telegram_message(
+        self, telegram_message_id: int, channel_topic_id: int | None
+    ) -> int | None:
+        """Resolve a Telegram (chat-thread, message_id) tuple to our scheduled_messages.id.
+
+        The reaction handler receives only the Telegram message id; we map it
+        back to the row that produced it via `sent_message_id`. Returns None
+        when the reacted-to message wasn't sent by the bot's calendar.
+        """
+        sql = "SELECT id FROM scheduled_messages WHERE sent_message_id = ?"
+        params: list = [int(telegram_message_id)]
+        if channel_topic_id is not None:
+            sql += " AND channel_topic_id = ?"
+            params.append(int(channel_topic_id))
+        sql += " ORDER BY id DESC LIMIT 1"
+        async with self._db.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return int(row["id"]) if row else None
+
+    async def record_reaction_update(
+        self,
+        scheduled_msg_id: int,
+        *,
+        telegram_message_id: int,
+        channel_topic_id: int | None,
+        user_id: int,
+        new_reaction_type: str | None,
+    ) -> dict:
+        """Apply one reaction delta and recompute engagement totals.
+
+        ``new_reaction_type`` is the user's *current* reaction emoji (or
+        first reaction type if the user used multiple) after the change.
+        Pass None when the user removed their reaction. We track at most
+        one reaction per (message, user) — sufficient for the "did this
+        resonate" signal without modeling every emoji separately.
+
+        Returns the post-update aggregate row.
+        """
+        if new_reaction_type:
+            await self._db.execute(
+                """INSERT INTO message_reactors (scheduled_msg_id, user_id, reaction_type, reacted_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(scheduled_msg_id, user_id) DO UPDATE SET
+                       reaction_type = excluded.reaction_type,
+                       reacted_at = excluded.reacted_at""",
+                (int(scheduled_msg_id), int(user_id), new_reaction_type, _now_il()),
+            )
+        else:
+            await self._db.execute(
+                "DELETE FROM message_reactors WHERE scheduled_msg_id=? AND user_id=?",
+                (int(scheduled_msg_id), int(user_id)),
+            )
+
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM message_reactors WHERE scheduled_msg_id=?",
+            (int(scheduled_msg_id),),
+        ) as cur:
+            row = await cur.fetchone()
+        distinct = int(row["n"]) if row else 0
+        # We track one reaction per user → reactions == distinct_reactors.
+        # Kept as separate columns so a future change (multi-emoji per user)
+        # doesn't require a schema migration.
+        reactions = distinct
+
+        await self._db.execute(
+            """INSERT INTO message_engagement
+                   (scheduled_msg_id, telegram_message_id, channel_topic_id,
+                    reactions, distinct_reactors, last_updated)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(scheduled_msg_id) DO UPDATE SET
+                   telegram_message_id = excluded.telegram_message_id,
+                   channel_topic_id = excluded.channel_topic_id,
+                   reactions = excluded.reactions,
+                   distinct_reactors = excluded.distinct_reactors,
+                   last_updated = excluded.last_updated""",
+            (
+                int(scheduled_msg_id),
+                int(telegram_message_id),
+                int(channel_topic_id) if channel_topic_id is not None else None,
+                reactions,
+                distinct,
+                _now_il(),
+            ),
+        )
+        await self._db.commit()
+        return {
+            "scheduled_msg_id": int(scheduled_msg_id),
+            "reactions": reactions,
+            "distinct_reactors": distinct,
+        }
+
+    async def get_message_engagement(self, scheduled_msg_id: int) -> dict | None:
+        async with self._db.execute(
+            """SELECT scheduled_msg_id, telegram_message_id, channel_topic_id,
+                      reactions, distinct_reactors, last_updated
+               FROM message_engagement WHERE scheduled_msg_id = ?""",
+            (int(scheduled_msg_id),),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_message_engagement(self, scheduled_msg_ids: list[int]) -> dict[int, dict]:
+        """Bulk-read for dashboard rendering. Returns {scheduled_msg_id: row}."""
+        if not scheduled_msg_ids:
+            return {}
+        placeholders = ",".join("?" for _ in scheduled_msg_ids)
+        async with self._db.execute(
+            f"""SELECT scheduled_msg_id, reactions, distinct_reactors, last_updated
+                FROM message_engagement WHERE scheduled_msg_id IN ({placeholders})""",
+            [int(x) for x in scheduled_msg_ids],
+        ) as cur:
+            rows = await cur.fetchall()
+        return {int(r["scheduled_msg_id"]): dict(r) for r in rows}
