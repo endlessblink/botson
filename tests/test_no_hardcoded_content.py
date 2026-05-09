@@ -322,6 +322,47 @@ def test_milestone_array_not_hardcoded_in_handlers():
         pytest.xfail(f"Phase A.2.4 moves milestones to settings.yaml: {hits}")
 
 
+def test_calendar_dispatch_distinguishes_skipped_from_failed():
+    """A.1.4 boundary guardrail. Every place in calendar.py's dispatch
+    branches that converts a falsy return value into a RuntimeError must
+    also have a skip path — either a pre-flight check that raises
+    SkippedActivity, or a structured return value distinguishing no-op
+    from failure.
+
+    The bug class (verified 2026-05-09): pool-exhaustion in facts +
+    emoji caused `RuntimeError("X did not send")` → mark_message_failed,
+    even though the legit pattern (T-121) is `mark_message_skipped` for
+    no-ops. Without this guardrail, future handler additions repeat the
+    same pattern.
+
+    Implementation: scan calendar.py for `raise RuntimeError("... did
+    not ...")` lines and verify each has a SkippedActivity-raising
+    pre-flight or counterpart in the same elif block.
+    """
+    cal = (ROOT / "bot" / "handlers" / "calendar.py").read_text(encoding="utf-8")
+    runtime_lines = [
+        i + 1 for i, line in enumerate(cal.splitlines())
+        if 'raise RuntimeError(' in line and ('did not' in line or 'failed' in line.lower())
+    ]
+    assert runtime_lines, (
+        "Sanity check failed: expected to find 'raise RuntimeError(...did not...)' "
+        "lines in calendar.py — did the dispatch structure change?"
+    )
+    # For each runtime-error site, the preceding 30 lines should mention
+    # SkippedActivity (a pre-flight) OR the handler itself raises it.
+    lines = cal.splitlines()
+    missing_preflight: list[str] = []
+    for ln in runtime_lines:
+        window = "\n".join(lines[max(0, ln - 30):ln])
+        if "SkippedActivity" not in window:
+            missing_preflight.append(f"calendar.py:{ln}")
+    assert not missing_preflight, (
+        "Calendar dispatch sites that map a falsy return to RuntimeError "
+        "without a SkippedActivity pre-flight (bug class A.1.4):\n  "
+        + "\n  ".join(missing_preflight)
+    )
+
+
 def test_anthropic_api_url_not_hardcoded():
     """Anthropic API URL must come from settings.yaml:llm.anthropic.api_url —
     Phase B5 externalizes the hardcoded `https://api.anthropic.com/v1/messages`."""

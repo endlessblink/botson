@@ -15,13 +15,14 @@ from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes
 
 from ..database.db import Database
-from .emoji_puzzle import send_scheduled_emoji_message, start_emoji_night
+from .emoji_puzzle import emoji_skip_reason, send_scheduled_emoji_message, start_emoji_night
 from .trivia_round import start_scheduled_trivia_round
 from .free_games import send_free_games
 from .facts import send_scheduled_fact
 from .levels import send_weekly_leaderboard
 from .roundup import send_weekly_roundup
 from ..utils.config import should_skip_scheduled_message
+from ..utils.scheduling_errors import SkippedActivity
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
@@ -50,10 +51,6 @@ def _parse_payload(raw) -> dict:
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-class SkippedActivity(RuntimeError):
-    """Scheduled activity made an intentional no-op decision."""
 
 
 async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int) -> None:
@@ -458,6 +455,17 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             elif msg.get("message_type") == "emoji_puzzle":
                 await _enforce_warmup_rsvp_gate(db, msg, bot, group_id)
                 payload = _parse_payload(msg.get("poll_options"))
+                # A.1.4 pre-flight: distinguish "pool exhausted by cooldown
+                # or media-type filter" (legit skip) from "real launch
+                # failure" (e.g. bot instance missing). Without this, both
+                # collapse to RuntimeError → mark_message_failed, which
+                # the user/operator can't tell apart from actual bugs.
+                _emoji_skip = await emoji_skip_reason(
+                    db, group_id, msg.get("channel_topic_id"),
+                    media_types=payload.get("media_types") or None,
+                )
+                if _emoji_skip:
+                    raise SkippedActivity(f"emoji_puzzle: {_emoji_skip}")
                 session_id = await start_emoji_night(
                     context,
                     group_id,

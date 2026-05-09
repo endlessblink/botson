@@ -309,6 +309,54 @@ async def _pick_session_puzzles(
     return picked[:puzzle_count]
 
 
+async def emoji_skip_reason(
+    db: Database, chat_id: int, thread_id: int | None,
+    *, media_types: list[str] | None = None,
+) -> str | None:
+    """Pre-flight: return a reason this session should be SKIPPED (legit
+    no-op), or None if it should proceed.
+
+    Mirrors the no-op cases in ``start_emoji_night`` (active session,
+    pool too small after media-type filter and 30-day cooldown
+    exclusion). Doesn't actually pick puzzles — just counts eligibility —
+    so the real launch still gets fresh randomness.
+
+    Used by the calendar dispatcher (A.1.4) to distinguish "pool
+    exhausted by cooldown" from "genuine bug". Without this, the dispatch
+    path raises ``RuntimeError("Emoji Night did not start")`` for the
+    cooldown-exhaustion case and the row gets marked ``failed`` instead
+    of ``skipped`` — same bug class as facts (verified 2026-05-09)."""
+    if await db.get_active_session(chat_id, thread_id):
+        return "active session in this thread"
+    _, schedule = _emoji_settings()
+    puzzle_count = int(schedule.get("puzzle_count", 5) or 5)
+    pool = await db.list_emoji_puzzles(enabled_only=True)
+    if media_types:
+        allowed: set[str] = set()
+        for media in media_types:
+            m = str(media).strip()
+            if not m:
+                continue
+            if m in {"tv", "series"}:
+                allowed.update({"tv", "series"})
+            else:
+                allowed.add(m)
+        pool = [p for p in pool if str(p.get("media_type") or "").strip() in allowed]
+    try:
+        recent_ids = await db.get_recent_emoji_puzzle_ids(days=30)
+    except Exception:
+        recent_ids = set()
+    fresh_pool = [p for p in pool if int(p["id"]) not in recent_ids]
+    eligible = len(fresh_pool) if len(fresh_pool) >= puzzle_count else len(pool)
+    if eligible < puzzle_count:
+        return (
+            f"pool too small ({eligible}/{puzzle_count}) for "
+            f"media_types={media_types or 'any'} — "
+            "consider growing emoji_puzzles or relaxing filters"
+        )
+    return None
+
+
 async def start_emoji_night(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,

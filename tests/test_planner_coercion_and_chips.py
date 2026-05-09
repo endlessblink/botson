@@ -609,6 +609,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 with patch.dict(bot_calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
                      patch("telegram.Bot", return_value=object()), \
                      patch.object(bot_calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text, \
+                     patch.object(bot_calendar, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
                      patch.object(bot_calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji:
                     await bot_calendar.check_and_send_due_messages(context)
 

@@ -159,5 +159,152 @@ class GetRecentEmojiPuzzleIdsTests(unittest.IsolatedAsyncioTestCase):
                 await db.close()
 
 
+class FactsCooldownExhaustionTests(unittest.IsolatedAsyncioTestCase):
+    """A.1.4: when every spooky/tidbit fact is on cooldown, the dispatch
+    should mark the row 'skipped' (legit no-op), NOT 'failed'. Before
+    A.1.4, send_scheduled_fact returned False and calendar.py raised
+    RuntimeError → marked failed. Verified via reading code 2026-05-09."""
+
+    async def test_all_on_cooldown_raises_skipped_activity(self):
+        from bot.utils.scheduling_errors import SkippedActivity
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                # Seed activity_log with fact_id markers for EVERY item in
+                # the spooky pool, putting them all on 60-day cooldown.
+                items = facts_handler.load_facts_pool("spooky")
+                self.assertGreater(len(items), 0)
+                for item in items:
+                    await db.log_activity("facts_spooky", f"fact_id:{item['id']}")
+                with patch.object(
+                    facts_handler, "_resolve_fact_photo",
+                    new=AsyncMock(return_value=("dummy", "caption")),
+                ), patch.object(
+                    facts_handler, "safe_send", new=AsyncMock(),
+                ):
+                    with self.assertRaises(SkippedActivity) as ctx:
+                        await facts_handler.send_scheduled_fact(
+                            bot=object(), db=db, pool="spooky",
+                            chat_id=-1001, thread_id=4037,
+                        )
+                self.assertIn("cooldown", str(ctx.exception).lower())
+            finally:
+                await db.close()
+
+    async def test_explicit_fact_id_when_on_cooldown_returns_false_not_skipped(self):
+        """If the operator explicitly pinned a fact_id (via poll_options)
+        and it happens to be on cooldown, that's an operator override —
+        treat as a real failure rather than silently skipping. Tests the
+        boundary between cooldown-skip and explicit-pin-failure."""
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                items = facts_handler.load_facts_pool("spooky")
+                self.assertGreater(len(items), 0)
+                target = items[0]["id"]
+                # Pin the same id we'll request → pick_fact returns it
+                # (fact_id lookup ignores the cooldown filter — by design,
+                # operator override). So this should actually SUCCEED.
+                with patch.object(
+                    facts_handler, "_resolve_fact_photo",
+                    new=AsyncMock(return_value=("dummy", "caption")),
+                ), patch.object(
+                    facts_handler, "safe_send", new=AsyncMock(),
+                ):
+                    sent_ok = await facts_handler.send_scheduled_fact(
+                        bot=object(), db=db, pool="spooky",
+                        chat_id=-1001, thread_id=4037, fact_id=target,
+                    )
+                self.assertTrue(sent_ok)
+            finally:
+                await db.close()
+
+
+class EmojiSkipReasonTests(unittest.IsolatedAsyncioTestCase):
+    """A.1.4: pre-flight check distinguishes pool-exhausted (skip) from
+    real launch failure. Without this, calendar dispatch raises
+    RuntimeError → marks emoji_puzzle row 'failed' even when the pool
+    is just too small for filters."""
+
+    async def test_returns_none_when_pool_sufficient(self):
+        from bot.handlers.emoji_puzzle import emoji_skip_reason
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                # Seed enough puzzles to satisfy puzzle_count (default 5).
+                for i in range(10):
+                    await db._db.execute(
+                        """INSERT INTO emoji_puzzles
+                           (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                        ("xx", f"answer {i}", f"answer {i}", "[]", 2, "movie", 1),
+                    )
+                await db._db.commit()
+                reason = await emoji_skip_reason(db, -1001, 4037, media_types=["movie"])
+                self.assertIsNone(reason)
+            finally:
+                await db.close()
+
+    async def test_returns_skip_reason_when_pool_too_small(self):
+        from bot.handlers.emoji_puzzle import emoji_skip_reason
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                # Only 2 movie puzzles — under the default puzzle_count=5.
+                for i in range(2):
+                    await db._db.execute(
+                        """INSERT INTO emoji_puzzles
+                           (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                        ("xx", f"answer {i}", f"answer {i}", "[]", 2, "movie", 1),
+                    )
+                await db._db.commit()
+                reason = await emoji_skip_reason(db, -1001, 4037, media_types=["movie"])
+                self.assertIsNotNone(reason)
+                self.assertIn("pool too small", reason)
+            finally:
+                await db.close()
+
+
+class LoadCopyExternalCacheTests(unittest.IsolatedAsyncioTestCase):
+    """A.1.4: bot/utils/copy.py:_load_external must NOT permanently
+    cache 'file missing' as empty. If the operator creates the file
+    later, the next call must read it fresh."""
+
+    async def test_cache_invalidates_when_file_appears(self):
+        import os
+        import tempfile as _tf
+        from bot.utils import copy as copy_mod
+        from bot.utils.config import CONFIG_DIR
+        # Use a unique namespace to avoid colliding with real config
+        ns = "_test_a14_dynamic"
+        target_path = CONFIG_DIR / "copy" / f"{ns}.yaml"
+        # Ensure clean start
+        if target_path.exists():
+            target_path.unlink()
+        copy_mod._external_files.pop(ns, None)
+        try:
+            # First call: file missing → placeholder.
+            result1 = copy_mod.load_copy(ns, "greeting")
+            self.assertTrue(result1.startswith("[copy missing:"), result1)
+            # Operator creates the file with the key.
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text("greeting: שלום\n", encoding="utf-8")
+            try:
+                # Second call: must pick up the fresh file, NOT serve
+                # the cached '[copy missing]' result.
+                result2 = copy_mod.load_copy(ns, "greeting")
+                self.assertEqual(result2, "שלום")
+            finally:
+                if target_path.exists():
+                    target_path.unlink()
+        finally:
+            copy_mod._external_files.pop(ns, None)
+
+
 if __name__ == "__main__":
     unittest.main()

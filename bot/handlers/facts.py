@@ -178,6 +178,18 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
 
     fact = pick_fact(pool, recent_ids, fact_id=fact_id)
     if fact is None:
+        # Distinguish "pool exhausted by cooldown" (legit skip) from
+        # "pool empty / fact_id unknown" (real failure). Without this,
+        # every send after the cooldown rotates through the pool would
+        # mark the row `failed` instead of `skipped` once the YAML pool
+        # is fully consumed (T-A.1.4 — verified bug class).
+        items = load_facts_pool(pool)
+        if items and not fact_id:
+            from ..utils.scheduling_errors import SkippedActivity
+            raise SkippedActivity(
+                f"facts {pool}: every item is within {DEFAULT_COOLDOWN_DAYS}-day cooldown "
+                f"({len(items)} items, all recently sent) — consider growing the pool"
+            )
         return False
 
     try:

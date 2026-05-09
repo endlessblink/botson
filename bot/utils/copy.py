@@ -23,23 +23,36 @@ from .config import CONFIG_DIR, get_settings, load_yaml
 logger = logging.getLogger(__name__)
 
 _warned_keys: set[str] = set()
-_external_files: dict[str, dict] = {}
+# (namespace) -> (mtime_ns_or_None_when_missing, parsed_dict). Caching by
+# mtime means a freshly-created file is picked up on the next call instead
+# of being permanently shadowed by an empty-dict cache.
+_external_files: dict[str, tuple[int | None, dict]] = {}
 
 
 def _load_external(namespace: str) -> dict:
-    """Lazy-load `config/copy/<namespace>.yaml` if present, else {}."""
-    if namespace in _external_files:
-        return _external_files[namespace]
+    """Lazy-load ``config/copy/<namespace>.yaml`` if present, else ``{}``.
+
+    Cache invalidates when the file's mtime changes, OR when a previously-
+    missing file is created. Without this, ``_external_files[ns] = {}`` was
+    permanent: an operator who later created the file saw stale cache
+    until the next process restart (verified bug A.1.4)."""
     path = CONFIG_DIR / "copy" / f"{namespace}.yaml"
-    if not path.exists():
-        _external_files[namespace] = {}
+    try:
+        mtime: int | None = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        mtime = None
+    cached = _external_files.get(namespace)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    if mtime is None:
+        _external_files[namespace] = (None, {})
         return {}
     try:
         data = load_yaml(f"copy/{namespace}.yaml") or {}
     except Exception as e:
         logger.warning("copy: failed to load %s: %s", path, e)
         data = {}
-    _external_files[namespace] = data
+    _external_files[namespace] = (mtime, data)
     return data
 
 

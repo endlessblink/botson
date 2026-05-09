@@ -79,6 +79,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
              patch.object(calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
