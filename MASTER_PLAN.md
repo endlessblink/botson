@@ -127,6 +127,9 @@
 | T-130 | 23 | Generic activity_label in trivia_interest poll_options so confirmation text works for any activity (not only trivia) | DONE | P1 | T-128 |
 | T-131 | 23 | Bump warm-up lead time from 35 → 60 min in settings; add warmup_reminder_offset_min: 20 placeholder | DONE | P1 | — |
 | T-132 | 23 | Hardcoded content audit: remove "ישראל" trivia form default, drop "movie/tv" fallbacks in emoji schedule, drop pool-size primary sort key in trivia category selector | DONE | P0 | T-124 |
+| T-133 | 24 | Grow content pools 🌱 — facts.yaml spooky/tidbit ≥40 each, discussions.yaml every category ≥25 (use Hermes botson-question-pool + hebrew-content-qa) | TODO | P1 | — |
+| T-134 | 24 | Wire question_quality.md 🧪 into every prompt path (build_generation_prompt, _generate_activity_copy, _gen_text, _generate_fresh_text); surface ✅/❌ examples in each | TODO | P1 | — |
+| T-135 | 24 | Quality gate 🔧 — generate 3 candidates, pick first that passes freshness; if all fail raise SkippedActivity (rule-based first; LLM-judge as T-135b if needed) | TODO | P2 | T-134 |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
@@ -135,6 +138,20 @@
 | T-108 | 17 | Emoji Night: dashboard-driven scheduler (cron from settings) | DONE | P1 | T-105, T-107 |
 | T-109 | 17 | Emoji Night: dashboard /puzzles page + sidebar both blocks | DONE | P1 | T-107 |
 | T-110 | 17 | Emoji Night: cleanup + dry-run in Den | TODO | P2 | T-108, T-109 |
+
+## Lanes (active queues)
+
+Three parallel work tracks. Tasks in different lanes don't block each other; tasks within a lane run sequentially. Use `grep '🌱'` / `grep '🔧'` / `grep '🧪'` over this file to pull a queue.
+
+### 🌱 Content lane (curation, no code)
+- **T-133** — Grow content pools (TODO, P1) — facts.yaml + discussions.yaml. Hermes `botson-question-pool` + `hebrew-content-qa` skills.
+
+### 🔧 Code lane (Python/template changes, no curation)
+- **T-135** — Quality gate: generate-3-pick-best (TODO, P2, blocked by T-134).
+- *In flight (Phase F + A.1 + A.1.4 + B-partial shipped):* hardcoded-content cleanup. Remaining work tracked in `~/.claude/plans/` history; remaining xfails in `tests/test_no_hardcoded_content.py`: Hebrew-in-utils (Phase B.6), `[internal:*]` migration (Phase B.2), template `selected` gating (Phase C.3), milestone array (Phase A.2.4).
+
+### 🧪 Hybrid lane (Code + Content together)
+- **T-134** — Wire `config/question_quality.md` into every prompt path; surface ✅/❌ examples (TODO, P1).
 
 ## Detailed Tasks
 
@@ -1189,6 +1206,78 @@ Fixed the production AI Populate flow so it opens the suggest+confirm modal firs
 Verification: `python3 -m py_compile dashboard/app.py`, `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`, and `/tmp/e2e_suggest.py` stubbed flow. Deployed to prod as `28ce1b4`; user confirmed the production behavior looked much better.
 
 **Files:** `dashboard/app.py`, `dashboard/templates/planner.html`, `config/settings.yaml`, `tests/test_planner_coercion_and_chips.py`.
+
+---
+
+#### T-133: Grow content pools 🌱
+**Phase:** 24 — Content quality & freshness | **Priority:** P1 | **Status:** TODO | **Deps:** —
+
+The mechanical repetition problem (broken dedup) was fixed in Phase A.1 / A.1.4 — facts won't repeat for 60 days, emoji for 30. But pools are too small for dedup to help: 8 spooky + 8 tidbit facts means full cycling within 8 weeks no matter what. Discussion seeds are similarly thin (~10 per category). This task grows the pools so dedup has room to work.
+
+Targets:
+- `config/facts.yaml:spooky` — 8 → 40 items.
+- `config/facts.yaml:tidbit` — 8 → 40 items.
+- `config/discussions.yaml` — every category ≥ 25 items (currently ~10).
+
+Tooling: use the Hermes `botson-question-pool` skill for discussion generation, then run each batch through the `hebrew-content-qa` skill before commit. Every fact must carry a real `source` and `source_url` per the existing schema in `config/facts.yaml`.
+
+This is a **content task** — no Python changes. The bot doesn't change.
+
+**Verification:**
+- `pytest tests/test_facts_pool.py -q` — existing curation tests pass.
+- Add a count assertion: every category in `discussions.yaml` has ≥ 25 items; `facts.yaml:spooky` and `:tidbit` each have ≥ 40 items. Test fails loudly if pool shrinks below threshold.
+
+**Files:** `config/facts.yaml`, `config/discussions.yaml`, `tests/test_facts_pool.py` (extend with count assertion).
+
+---
+
+#### T-134: Wire question_quality.md into every prompt path 🧪
+**Phase:** 24 — Content quality & freshness | **Priority:** P1 | **Status:** TODO | **Deps:** —
+
+`config/question_quality.md` already has 120 lines of curated rules including ✅ good and ❌ bad examples (lines 26–27 + the "Concrete failures to refuse" block at lines 44–60). It IS authoritative. But it's only consumed by `_build_digest_cli_prompt()` via `_load_quality_rules_short()`. Other LLM-generation paths build their own prompts without these rules, which is why discussion / morning / evening output quality is inconsistent.
+
+Audit (read-only, do first):
+- `dashboard/app.py:build_generation_prompt` — does it include the rules?
+- `dashboard/app.py:_generate_activity_copy` — used by warm-up announcements + reminders; rules absent today.
+- `dashboard/app.py:_gen_text` — populate single-row helper; rules absent.
+- `bot/scheduler/materializer.py:_generate_fresh_text` — batch refill; rules absent.
+- Any other `build_*_prompt` builder.
+
+Fix per path:
+- Add the `_load_quality_rules_short()` block (or full version where the CLI timeout budget allows).
+- Surface ✅ / ❌ examples explicitly in the prompt so the LLM has anchors, not abstract rules.
+
+Content side (the **content** half of the hybrid lane): `config/question_quality.md` may need 2–3 more positive ✅ examples per discussion category. We currently have one ❌/✅ pair at the abstract level and no category-level positive examples. Hermes `hebrew-content-qa` output can seed these.
+
+**Verification:**
+- Regression test: for each prompt builder, the output prompt string must contain "❌" and "✅" markers (proves the examples flowed through).
+- Smoke test: calling `_generate_activity_copy` with the rules block stripped fails — catches future regressions where someone bypasses the rules.
+
+**Files:** `dashboard/app.py` (multiple prompt-builder sites), `bot/scheduler/materializer.py`, `config/question_quality.md` (more positive examples), `tests/` (new prompt-content assertions).
+
+---
+
+#### T-135: Quality gate — generate-3-pick-best 🔧
+**Phase:** 24 — Content quality & freshness | **Priority:** P2 | **Status:** TODO | **Deps:** T-134
+
+Every discussion / morning / evening generation today is single-shot: LLM produces text → it goes out. One bad LLM moment per N calls becomes one bad message in production. This task wraps generation in a 3-candidate loop, runs each through a judge, picks the best. Reduces the bad-output rate from 1/N to (1/N)³.
+
+Two judge approaches:
+- **Rule-based (recommended start):** apply `freshness_rejection()` from `bot/utils/freshness.py` to all 3 candidates; pick the first that passes; if all fail, raise `SkippedActivity` (reuses the Phase A.1.4 skipped-vs-failed pattern). Free, fast, builds on existing machinery.
+- **LLM-judge (T-135b if quality still weak after T-133+T-134):** second LLM call rates each candidate 1–10 against `question_quality.md` rules, pick the highest. ~4× LLM calls per slot, better quality, more cost.
+
+Boundary cases (per the boundary checklist applied to A.1.4):
+- All 3 candidates rejected → `SkippedActivity("all 3 candidates failed quality gate")`. Calendar dispatch marks the row `skipped` with the reason visible in the activity log.
+- LLM-judge times out (T-135b) → fall back to rule-based.
+- One candidate passes, two fail → first-pass behavior; no LLM-judge needed.
+
+The boundary guardian (`test_calendar_dispatch_distinguishes_skipped_from_failed`, shipped in A.1.4) catches any regression where we accidentally raise `RuntimeError` on the all-fail case instead of `SkippedActivity`.
+
+**Verification:**
+- New tests: simulate "all 3 reject", "1/3 pass", "3/3 pass". Each verifies the right outcome (skipped / sent / sent).
+- Confirm the marker passes through to `mark_message_skipped` with a clear reason for the all-fail case.
+
+**Files:** `dashboard/app.py:_gen_text`, `dashboard/app.py:_generate_activity_copy`, `bot/scheduler/materializer.py:_generate_fresh_text`, new `tests/test_quality_gate.py`.
 
 ---
 
