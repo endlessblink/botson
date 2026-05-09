@@ -78,7 +78,8 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     game_time = str(payload.get("game_time") or "")
-    theme = str(payload.get("theme_label") or "כללי").strip() or "כללי"
+    from ..utils.copy import default_theme_label
+    theme = str(payload.get("theme_label") or "").strip() or default_theme_label()
     activity_label = str(payload.get("activity_label") or f"הטריוויה על {theme}").strip()
 
     time_part = f" ב-{game_time}" if game_time else ""

@@ -257,25 +257,25 @@ def test_dedup_methods_referenced_actually_exist():
 
 
 def test_no_specific_banned_literals_outside_config():
-    """A small fixed list of literals must NEVER appear in production code.
-    These are the ones we've explicitly ruled out in past incidents."""
+    """A small fixed list of literals must NEVER appear in production code
+    without a justified `# noqa: hardcoded-content` comment. Shipped
+    Phase B.1 (2026-05-09): facts.py image-prompt mood/intro/suffix
+    moved to settings.yaml:copy.facts.image_prompt_*."""
     BANNED = (
         "cinematic mysterious editorial",
         "Illustrate this Hebrew",
     )
     hits: list[str] = []
-    for path, source in _python_files(
-        "bot/**/*.py", "dashboard/app.py",
-    ):
-        if "/handlers/facts.py" in str(path):
-            # Phase B1 moves this; suppress until then via xfail aggregation
-            pass
+    for path, source in _python_files("bot/**/*.py", "dashboard/app.py"):
         lines = source.splitlines()
         for i, line in enumerate(lines, start=1):
             if any(b in line for b in BANNED) and not _has_noqa(lines, i):
                 hits.append(f"{path.relative_to(ROOT)}:{i}")
-    if hits:
-        pytest.xfail(f"Phase B1 removes the English image-prompt literals: {hits}")
+    assert not hits, (
+        "Banned image-prompt literals found in code (must come from "
+        "settings.yaml:copy.facts.* or carry a noqa with reason):\n  "
+        + "\n  ".join(hits)
+    )
 
 
 def test_template_option_selected_must_be_gated():
@@ -364,13 +364,16 @@ def test_calendar_dispatch_distinguishes_skipped_from_failed():
 
 
 def test_anthropic_api_url_not_hardcoded():
-    """Anthropic API URL must come from settings.yaml:llm.anthropic.api_url —
-    Phase B5 externalizes the hardcoded `https://api.anthropic.com/v1/messages`."""
+    """Anthropic API URL must come from settings.yaml:llm.anthropic.api_url
+    via bot/utils/config.py:get_anthropic_config — never inline.
+    Shipped Phase B.5 (2026-05-09)."""
     needle = "https://api.anthropic.com/v1/messages"
     hits: list[str] = []
     for path, source in _python_files("bot/**/*.py", "dashboard/app.py"):
         for i, line in enumerate(source.splitlines(), start=1):
             if needle in line:
                 hits.append(f"{path.relative_to(ROOT)}:{i}")
-    if hits:
-        pytest.xfail(f"Phase B5 moves Anthropic URL to settings: {hits}")
+    assert not hits, (
+        "Hardcoded Anthropic URL — must read from settings via "
+        "get_anthropic_config():\n  " + "\n  ".join(hits)
+    )

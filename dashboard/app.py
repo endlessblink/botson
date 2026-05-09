@@ -1264,7 +1264,8 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
         lead_minutes = 35
     lead_minutes = max(1, min(24 * 60, lead_minutes))
     announcement_dt = game_dt - timedelta(minutes=lead_minutes)
-    theme = str(payload.get("theme_label") or "כללי").strip() or "כללי"
+    from bot.utils.copy import default_theme_label
+    theme = str(payload.get("theme_label") or "").strip() or default_theme_label()
     min_ready = int(payload.get("min_ready_players") or 0)
     text = await _generate_activity_copy(
         "trivia_warmup",
@@ -2745,6 +2746,8 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"אחרי שבוע.*הנושא הפוליטי.*(עלה|בראש השולחן|הסכמה)"), "concrete_failure_generic_politics_report"),
     (re.compile(r"רשות מלאה לעשות בדיוק מה שבא לכם"), "concrete_failure_generic_permission_fantasy"),
     (re.compile(r"בלי תוכניות גדולות.*ניצחון או ויתור"), "concrete_failure_generic_stay_home_judgment"),
+    (re.compile(r"החלטתם שממנו זה הדבר"), "concrete_failure_broken_hebrew"),
+    (re.compile(r"החיה הכי חמודה.*(השבוע האחרון|לא ברשת)"), "concrete_failure_cutesy_no_payoff"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -3150,16 +3153,18 @@ async def _generate_via_api(prompt: str) -> str:
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set — cannot fall back to API")
 
+    from bot.utils.config import get_anthropic_config
+    api_url, model = get_anthropic_config()
     async with httpx.AsyncClient(timeout=90) as client:
         resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
+            api_url,
             headers={
                 "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": model,
                 "max_tokens": 4096,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -4729,7 +4734,8 @@ async def _ai_suggest_calendar(
         pool = [cat for cat in configured if cat in eligible] if configured else eligible
         if not pool:
             fallback_categories = configured
-            fallback_theme = str(trivia_cfg.get("theme_label") or "כללי").strip() or "כללי"
+            from bot.utils.copy import default_theme_label
+            fallback_theme = str(trivia_cfg.get("theme_label") or "").strip() or default_theme_label()
             fallback_count = min((counts_by_cat.get(c, 0) for c in fallback_categories), default=sum(counts_by_cat.values()))
             return fallback_theme, fallback_categories, fallback_count
         choices = []

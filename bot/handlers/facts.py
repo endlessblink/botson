@@ -99,12 +99,27 @@ def _build_fact_image_prompt(pool: str, fact: dict) -> str:
     explicit = str(fact.get("image_prompt") or "").strip()
     if explicit:
         return explicit
-    mood = "cinematic mysterious editorial illustration" if pool == "spooky" else "curious science editorial illustration"
+    # Template comes from settings.yaml:copy.facts.image_prompt_*. The
+    # prompt is sent to kie.ai (English-trained image model), not to the
+    # user — so it's still English by design, but operator-tunable so
+    # they can switch styles ("photorealistic", "watercolor", etc.)
+    # without a code change. (B.1 — 2026-05-09)
+    from ..utils.copy import load_copy
+    mood_key = "image_prompt_mood_spooky" if pool == "spooky" else "image_prompt_mood_tidbit"
+    # Code defaults mirror settings.yaml:copy.facts.image_prompt_*; operator
+    # overrides via settings without touching code. Noqa documents that
+    # these are last-resort fallbacks for missing settings, not the
+    # primary source of truth.
+    _mood_default_spooky = "cinematic mysterious editorial illustration"  # noqa: hardcoded-content (default mirror of settings.yaml:copy.facts.image_prompt_mood_spooky)
+    _mood_default_tidbit = "curious science editorial illustration"  # noqa: hardcoded-content (default mirror of settings.yaml:copy.facts.image_prompt_mood_tidbit)
+    _suffix_default = "16:9, no text, no letters, no logos."  # noqa: hardcoded-content (default mirror of settings.yaml:copy.facts.image_prompt_suffix)
+    _intro_default = "Illustrate this Hebrew Telegram post concept visually:"  # noqa: hardcoded-content (default mirror of settings.yaml:copy.facts.image_prompt_hebrew_intro)
+    mood = load_copy("facts", mood_key,
+                     default=_mood_default_spooky if pool == "spooky" else _mood_default_tidbit)
+    suffix = load_copy("facts", "image_prompt_suffix", default=_suffix_default)
+    intro = load_copy("facts", "image_prompt_hebrew_intro", default=_intro_default)
     text = str(fact.get("text_he") or "").replace("\n", " ").strip()
-    return (
-        f"{mood}, 16:9, no text, no letters, no logos. "
-        f"Illustrate this Hebrew Telegram post concept visually: {text[:500]}"
-    )
+    return f"{mood}, {suffix} {intro} {text[:500]}"
 
 
 def _photo_caption_with_source(fact: dict) -> str:

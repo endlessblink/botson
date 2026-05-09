@@ -56,6 +56,28 @@ def _load_external(namespace: str) -> dict:
     return data
 
 
+def default_theme_label() -> str:
+    """Theme label fallback for trivia / emoji rows whose `poll_options`
+    don't carry an explicit `theme_label`. Reads from settings; empty
+    when operator unset it (caller decides what to do).
+
+    Was hardcoded as ``"כללי"`` in 6+ sites (B.3 — 2026-05-09).
+    """
+    settings = get_settings() or {}
+    return str((settings.get("copy") or {}).get("default_theme_label") or "").strip()
+
+
+def default_activity_label() -> str:
+    """Activity label fallback for the cancel notice when neither
+    `activity_label` nor `theme_label` is present in the row's
+    poll_options. Reads from settings; empty when operator unset it.
+
+    Was hardcoded as ``"המשחק"`` in calendar.py:103 (B.3 — 2026-05-09).
+    """
+    settings = get_settings() or {}
+    return str((settings.get("copy") or {}).get("default_activity_label") or "").strip()
+
+
 def load_copy(namespace: str, key: str, *, default: str | None = None, **fmt: Any) -> str:
     """Load a user-facing template and format with `fmt` kwargs.
 

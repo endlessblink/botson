@@ -91,6 +91,26 @@ def get_spam_patterns() -> list[str]:
     return data.get("patterns", [])
 
 
+def get_anthropic_config() -> tuple[str, str]:
+    """Return (api_url, model) for Anthropic API calls from settings.yaml.
+
+    Raises RuntimeError with a clear message if either key is missing.
+    Single source of truth for both the materializer's batch-generation
+    path and the dashboard's CLI-fallback path. Was hardcoded in two
+    places (B.5) — now operator-configurable via settings.yaml:llm.anthropic.
+    """
+    settings = get_settings() or {}
+    cfg = (settings.get("llm") or {}).get("anthropic") or {}
+    url = str(cfg.get("api_url") or "").strip()
+    model = str(cfg.get("model") or "").strip()
+    if not url or not model:
+        raise RuntimeError(
+            "settings.yaml:llm.anthropic.{api_url,model} must be configured — "
+            f"got api_url={url!r}, model={model!r}"
+        )
+    return url, model
+
+
 def get_topic_rules() -> list[dict]:
     """Load per-topic routing rules (Phase 0: observation only).
 

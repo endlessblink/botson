@@ -24,14 +24,26 @@ bot:
 # This namespace is seeded by Phase F; Phase A.2 populates it as handlers
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
-  # default_theme_label: ""        # Phase B replaces hardcoded "כללי"
-  # default_activity_label: ""     # Phase B replaces hardcoded "המשחק"
+  # Theme label used when poll_options doesn't carry an explicit
+  # theme_label. Set to "" to disable the fallback (rows without a theme
+  # will be skipped or rendered without a label).
+  default_theme_label: "כללי"
+  # Activity label used in the cancel notice when neither activity_label
+  # nor theme_label is present. Set to "" to disable.
+  default_activity_label: "המשחק"
   levels: {}      # Phase A.2.4 populates from bot/handlers/levels.py
   roundup: {}     # Phase A.2.4 populates from bot/handlers/roundup.py
   goals: {}       # Phase A.2.4 populates from bot/handlers/goals.py
   digest: {}      # Phase A.2.4 populates from bot/handlers/daily_activity_digest.py
   antispam: {}    # Phase B.4 populates from bot/handlers/antispam.py
-  facts: {}       # Phase B.1 populates image_prompt_templates etc.
+  facts:
+    # Image-prompt templates sent to kie.ai. English by design (the model
+    # is English-trained); operator-tunable so the visual style can shift
+    # ("photorealistic", "watercolor", etc.) without a code change.
+    image_prompt_mood_spooky: "cinematic mysterious editorial illustration"
+    image_prompt_mood_tidbit: "curious science editorial illustration"
+    image_prompt_suffix: "16:9, no text, no letters, no logos."
+    image_prompt_hebrew_intro: "Illustrate this Hebrew Telegram post concept visually:"
   gamification: {}  # Phase A.2.3 populates level_up template
 
 # LLM behavior. Phase B externalizes prompt rule numerics + model/endpoint.

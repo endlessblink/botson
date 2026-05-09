@@ -97,7 +97,18 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
     if rsvp_count >= threshold:
         return
 
-    activity_label = str(payload.get("activity_label") or "").strip() or "המשחק"
+    # B.3: 4-level fallback chain for the cancel-notice label.
+    # 1) explicit activity_label from poll_options (most specific)
+    # 2) theme_label from poll_options (e.g. "גיימינג")
+    # 3) settings.yaml:copy.default_activity_label (operator-tunable)
+    # 4) hard-coded last-resort string with noqa documenting why
+    from ..utils.copy import default_activity_label
+    activity_label = (
+        str(payload.get("activity_label") or "").strip()
+        or str(payload.get("theme_label") or "").strip()
+        or default_activity_label()
+        or "המשחק"  # noqa: hardcoded-content (last-resort when settings.copy.default_activity_label is empty; visible reminder to operator)
+    )
     cancel_text = (
         f"❌ {activity_label} לא יוצא לדרך הפעם — רק {rsvp_count}/{threshold} סימנו שהם בפנים.\n"
         "ננסה שוב בתאריך הבא 🙂"

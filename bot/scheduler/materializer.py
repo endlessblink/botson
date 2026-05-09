@@ -140,17 +140,19 @@ async def _generate_with_claude(prompt: str) -> str | None:
         logger.warning("[materializer] no Claude CLI/API available; skipping fresh slot generation")
         return None
     try:
+        from ..utils.config import get_anthropic_config
+        api_url, model = get_anthropic_config()
         import httpx
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
+                api_url,
                 headers={
                     "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": model,
                     "max_tokens": 1024,
                     "messages": [{"role": "user", "content": prompt}],
                 },
