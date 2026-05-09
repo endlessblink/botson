@@ -1098,13 +1098,15 @@ async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
             '- אם יש min_ready_players, הבהר שיש ללחוץ על כפתור "🙋 אני בפנים" בהודעה הזו כדי לאשר השתתפות — הכפתור מופיע מתחת לטקסט.\n'
             "- בלי אנגלית אלא אם שם הפעילות עצמו באנגלית."
         )
+    canonical_rules = _load_quality_rules_short()
+    rules_block = rules + (f"\n\n{canonical_rules}" if canonical_rules else "")
     prompt = f"""כתוב טקסט חדש בעברית להודעת פעילות בטלגרם לקהילת מבוגרים ישראלית.
 
 סוג פעילות: {kind}
 נתונים: {json.dumps(ctx, ensure_ascii=False)}
 
 חוקים:
-{rules}
+{rules_block}
 
 פלט JSON בלבד: {{"text":"..."}}"""
     try:
@@ -2628,56 +2630,10 @@ COMMUNITY_CONTEXT = """קהילת "אלהוריים וזה" — קהילת צ'י
 הקהילה היא חמה, תומכת ומהנה. השפה עברית. התוכן רלוונטי לאורח חיים של מבוגרים, צמיחה אישית, וחיזוק הקשר הקהילתי."""
 
 
-_QUALITY_RULES_PATH = Path(__file__).parent.parent / "config" / "question_quality.md"
-_QUALITY_RULES_CACHE: str | None = None
-
-
-def _load_quality_rules() -> str:
-    """Lazy-load the canonical question-quality rules from config/question_quality.md.
-    Cached after first read. Falls back to empty string if file missing so a
-    misplaced rules file never breaks generation outright.
-    """
-    global _QUALITY_RULES_CACHE
-    if _QUALITY_RULES_CACHE is not None:
-        return _QUALITY_RULES_CACHE
-    try:
-        _QUALITY_RULES_CACHE = _QUALITY_RULES_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning("[generate] could not load quality rules from %s: %s", _QUALITY_RULES_PATH, e)
-        _QUALITY_RULES_CACHE = ""
-    return _QUALITY_RULES_CACHE
-
-
-_QUALITY_RULES_SHORT_CACHE: str | None = None
-
-
-def _load_quality_rules_short() -> str:
-    """Trimmed version of the rules file for paths under a tight token budget
-    (notably the ai-fill-today digest prompt — see `tests/test_planner_coercion_and_chips.py:544`).
-
-    Returns the "Hard rules" + "Concrete failures to refuse" sections only.
-    Skips the file header/intro (the model doesn't need to know how the file
-    is sourced) and stops at the start of "## Anti-patterns". The dropped
-    sections (Anti-patterns, Pattern mix, Per-channel hint, Output rules)
-    stay in the file for `build_generation_prompt` to consume — they're
-    guidance for human curators / per-row outputs, not load-bearing
-    constraints the digest schema needs.
-    """
-    global _QUALITY_RULES_SHORT_CACHE
-    if _QUALITY_RULES_SHORT_CACHE is not None:
-        return _QUALITY_RULES_SHORT_CACHE
-    full = _load_quality_rules()
-    if not full:
-        _QUALITY_RULES_SHORT_CACHE = ""
-        return ""
-    start = full.find("## Hard rules")
-    end = full.find("\n## Anti-patterns")
-    if start < 0:
-        start = 0
-    if end < 0:
-        end = len(full)
-    _QUALITY_RULES_SHORT_CACHE = full[start:end].rstrip()
-    return _QUALITY_RULES_SHORT_CACHE
+from bot.utils.quality_rules import (
+    load_quality_rules as _load_quality_rules,
+    load_quality_rules_short as _load_quality_rules_short,
+)
 
 
 async def _fetch_recent_sent_for_dedup(

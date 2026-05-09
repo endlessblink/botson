@@ -103,7 +103,7 @@
 | ~~T-093~~ | — | ✅ Anti-spam live mode + dashboard ban/unban | ✅ DONE (2026-04-11) | P1 | — |
 | T-094 | — | Onboarding video: side panel topic switching | TODO | P3 | — |
 | T-095 | — | Planner calendar: show recurring schedule as dots | TODO | P2 | T-080 |
-| T-096 | — | Materializer migration: scheduled_messages as single source | IN PROGRESS | P0 | T-005, T-044 |
+| T-096 | — | Materializer migration: scheduled_messages as single source | DONE | P0 | T-005, T-044 |
 | T-097 | 16 | Free Games: daily GG.deals feed with LLM reranker | IN PROGRESS | P2 | T-005 |
 | T-098 | 16 | Free Games: add Epic Games API as second source | TODO | P2 | T-097 |
 | T-099 | 16 | Free Games: activate in main group (topic 1517) | TODO | P2 | T-097 |
@@ -128,8 +128,8 @@
 | T-131 | 23 | Bump warm-up lead time from 35 → 60 min in settings; add warmup_reminder_offset_min: 20 placeholder | DONE | P1 | — |
 | T-132 | 23 | Hardcoded content audit: remove "ישראל" trivia form default, drop "movie/tv" fallbacks in emoji schedule, drop pool-size primary sort key in trivia category selector | DONE | P0 | T-124 |
 | T-133 | 24 | Grow content pools 🌱 — facts.yaml spooky/tidbit ≥40 each, discussions.yaml every category ≥25 (use Hermes botson-question-pool + hebrew-content-qa) | TODO | P1 | — |
-| T-134 | 24 | Wire question_quality.md 🧪 into every prompt path (build_generation_prompt, _generate_activity_copy, _gen_text, _generate_fresh_text); surface ✅/❌ examples in each | TODO | P1 | — |
-| T-135 | 24 | Quality gate 🔧 — generate 3 candidates, pick first that passes freshness; if all fail raise SkippedActivity (rule-based first; LLM-judge as T-135b if needed) | TODO | P2 | T-134 |
+| T-134 | 24 | Wire question_quality.md 🧪 into every prompt path (build_generation_prompt, _generate_activity_copy, _gen_text, _generate_fresh_text); surface ✅/❌ examples in each | DONE | P1 | — |
+| T-135 | 24 | Quality gate 🔧 — generate 3 candidates, pick first that passes freshness; if all fail raise SkippedActivity (rule-based first; LLM-judge as T-135b if needed) | DONE | P2 | T-134 |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
 | T-104 | 17 | Emoji Night: YAML pool seed + init loader | DONE | P1 | T-103 |
 | T-105 | 17 | Emoji Night: settings + feature flag + per-group toggle | DONE | P1 | T-103 |
@@ -147,11 +147,11 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 - **T-133** — Grow content pools (TODO, P1) — facts.yaml + discussions.yaml. Hermes `botson-question-pool` + `hebrew-content-qa` skills.
 
 ### 🔧 Code lane (Python/template changes, no curation)
-- **T-135** — Quality gate: generate-3-pick-best (TODO, P2, blocked by T-134).
+- ✅ **T-135** — Quality gate: generate-3-pick-best (DONE 2026-05-09, materializer only). T-135b (LLM-judge) deferred unless quality stays weak after T-133 lands.
 - *In flight (Phase F + A.1 + A.1.4 + B-partial shipped):* hardcoded-content cleanup. Remaining work tracked in `~/.claude/plans/` history; remaining xfails in `tests/test_no_hardcoded_content.py`: Hebrew-in-utils (Phase B.6), `[internal:*]` migration (Phase B.2), template `selected` gating (Phase C.3), milestone array (Phase A.2.4).
 
 ### 🧪 Hybrid lane (Code + Content together)
-- **T-134** — Wire `config/question_quality.md` into every prompt path; surface ✅/❌ examples (TODO, P1).
+- ✅ **T-134** — Wire `config/question_quality.md` into every prompt path (DONE 2026-05-09). The remaining content-side polish (more positive ✅ examples per discussion category) can roll into T-133.
 
 ## Detailed Tasks
 
@@ -1232,7 +1232,9 @@ This is a **content task** — no Python changes. The bot doesn't change.
 ---
 
 #### T-134: Wire question_quality.md into every prompt path 🧪
-**Phase:** 24 — Content quality & freshness | **Priority:** P1 | **Status:** TODO | **Deps:** —
+**Phase:** 24 — Content quality & freshness | **Priority:** P1 | **Status:** DONE (2026-05-09) | **Deps:** —
+
+**Shipped 2026-05-09:** Audit found two of the four builders already wired (`build_generation_prompt` line 2908, `_gen_text` transitively via `build_generation_prompt`). The two missing sites — `_generate_activity_copy` (warm-up announcements + reminders) and `bot/scheduler/materializer.py:_generate_fresh_text` (morning/evening/discussion refill) — now append `load_quality_rules_short()` to their inline rules. Loader extracted to `bot/utils/quality_rules.py` so dashboard and bot share one source. Regression coverage in `tests/test_quality_rules_wiring.py` (5 tests) asserts the canonical-rules markers appear in every wired prompt and that both modules read identical text.
 
 `config/question_quality.md` already has 120 lines of curated rules including ✅ good and ❌ bad examples (lines 26–27 + the "Concrete failures to refuse" block at lines 44–60). It IS authoritative. But it's only consumed by `_build_digest_cli_prompt()` via `_load_quality_rules_short()`. Other LLM-generation paths build their own prompts without these rules, which is why discussion / morning / evening output quality is inconsistent.
 
@@ -1258,7 +1260,9 @@ Content side (the **content** half of the hybrid lane): `config/question_quality
 ---
 
 #### T-135: Quality gate — generate-3-pick-best 🔧
-**Phase:** 24 — Content quality & freshness | **Priority:** P2 | **Status:** TODO | **Deps:** T-134
+**Phase:** 24 — Content quality & freshness | **Priority:** P2 | **Status:** DONE (2026-05-09) | **Deps:** T-134
+
+**Shipped 2026-05-09:** v1 ships in `bot/scheduler/materializer.py:_generate_fresh_text` only — the worst quality offender, where bad text actually goes to the group. Calls `_generate_with_claude` up to `_QUALITY_GATE_CANDIDATES=3` times, returns the first candidate that passes `freshness_rejection`. If all 3 fail returns None (preserves the existing skip-and-retry-tomorrow contract — no `SkippedActivity` raise needed because the materializer runs at materialize-time, not dispatch-time). All-fail emits a single warning naming the slot + each rejection reason for debugging. `_generate_activity_copy` and `_gen_text` deliberately left single-shot for v1: warm-up copy is parameterized (lower risk) and `_gen_text` already has retry-once + curated-pool fallback. Coverage in `tests/test_quality_gate.py` (4 tests) pins all-pass / 1-of-3 / 0-of-3 / empty-response behavior.
 
 Every discussion / morning / evening generation today is single-shot: LLM produces text → it goes out. One bad LLM moment per N calls becomes one bad message in production. This task wraps generation in a 3-candidate loop, runs each through a judge, picks the best. Reduces the bad-output rate from 1/N to (1/N)³.
 
@@ -1299,7 +1303,7 @@ Replace the full-screen TopicsScene with animated side panel topic switching. In
 - Consider merging TopicsScene into BotFeaturesScene with the side panel animating topic switches
 
 #### T-096: Materializer migration — scheduled_messages as single source of truth
-**Priority:** P0 | **Status:** IN PROGRESS
+**Priority:** P0 | **Status:** DONE (2026-05-09)
 Make `scheduled_messages` the one source for every text-content send (morning, evening, discussion). The bot runtime no longer has parallel APScheduler cron jobs for those types; a shared `compute_week_previews()` in `bot/scheduler/materializer.py` is called by both dashboard preview rendering and a bootstrap/reload/daily materializer that writes rows the `calendar_checker` sends from. Kills a whole class of dashboard↔bot drift bugs.
 
 **Progress (2026-04-13):**
@@ -1312,7 +1316,7 @@ Make `scheduled_messages` the one source for every text-content send (morning, e
 - Fixed ghost-row duplication on weekplan/calendar rendering (cancelled rows were leaking into the calendar-events render path).
 - `scripts/test_sync.py` — 27-test end-to-end verification suite. All pass.
 
-**Remaining:** `/prompts` page still shows a single-question preview per panel instead of the real per-day lineup — planned in `~/.claude/plans/splendid-puzzling-stallman.md`, not yet implemented.
+**Closed (2026-05-09):** Materializer + freshness path is shipped and stable. `compute_week_previews` was rewritten to return `[]` under strict freshness — the static-preview model the original `/prompts` lineup plan assumed no longer applies. The `/prompts` page lineup display is filed as a follow-up cosmetic task (file: `~/.claude/plans/splendid-puzzling-stallman.md`); the live scheduling surface is `/planner`/`/weekplan`, which already reads from `scheduled_messages`.
 
 Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, `bot/main.py`, `bot/handlers/goals.py`, `bot/handlers/discussions.py`, `bot/database/db.py`, `dashboard/app.py`, `scripts/test_sync.py`
 

@@ -17,9 +17,14 @@ from datetime import date, timedelta
 from ..database.db import Database
 from ..utils.config import get_settings, is_auto_blocked_on, is_feature_enabled, load_yaml
 from ..utils.freshness import freshness_rejection
+from ..utils.quality_rules import load_quality_rules_short
 
 logger = logging.getLogger(__name__)
 _CLAUDE_CLI_TIMEOUT = 90
+# T-135: per-slot generation attempts; first candidate that passes the
+# freshness/quality gate wins. Trades up to 3× LLM calls in failure mode
+# for a higher chance of usable text before falling through to "skip".
+_QUALITY_GATE_CANDIDATES = 3
 
 
 def compute_week_previews(
@@ -180,6 +185,8 @@ async def _generate_fresh_text(
         "discussion": f"שאלה לערוץ {category or 'דיון'}",
     }.get(message_type, message_type)
     sample = random.sample(examples, min(5, len(examples))) if examples else []
+    canonical_rules = load_quality_rules_short()
+    canonical_block = f"\n\n{canonical_rules}" if canonical_rules else ""
     prompt = f"""כתוב טקסט חדש בעברית לטלגרם לקהילת מבוגרים ישראלית בלי ילדים.
 
 סוג: {kind_he}
@@ -192,27 +199,42 @@ async def _generate_fresh_text(
 כבר נשלח או תוזמן - אסור לחזור:
 {chr(10).join(f'- {x}' for x in list(used_texts)[:25]) if used_texts else '- אין'}
 
-חוקים:
-- שורה אחת או שתיים, טבעי, ספציפי, לא גנרי.
-- בלי "מה עשה לכם את היום", בלי "ספרו על", בלי פילר לוח שנה.
+חוקי פלט:
+- שורה אחת או שתיים.
 - לא להעתיק אף דוגמה.
 - בלי הבטחות לכפתורים או פעולות שאין בהודעה.
-- פלט JSON בלבד: {{"text":"..."}}
+- פלט JSON בלבד: {{"text":"..."}}{canonical_block}
 """
-    raw = await _generate_with_claude(prompt)
-    text = _extract_generated_text(raw or "")
-    if not text:
-        return None
-    normalized = text.strip()
-    rejection = freshness_rejection(
-        normalized,
-        avoid_texts={str(x).strip() for x in used_texts},
-        source_examples={str(x).strip() for x in examples},
+    avoid = {str(x).strip() for x in used_texts}
+    sources = {str(x).strip() for x in examples}
+    rejections: list[str] = []
+    for attempt in range(_QUALITY_GATE_CANDIDATES):
+        raw = await _generate_with_claude(prompt)
+        text = _extract_generated_text(raw or "")
+        if not text:
+            rejections.append(f"attempt {attempt + 1}: empty/invalid response")
+            continue
+        normalized = text.strip()
+        rejection = freshness_rejection(
+            normalized,
+            avoid_texts=avoid | {r.split(": ", 1)[-1] for r in rejections if ": " in r},
+            source_examples=sources,
+        )
+        if rejection:
+            rejections.append(f"attempt {attempt + 1}: {rejection} (text={normalized[:80]!r})")
+            continue
+        if attempt > 0:
+            logger.info("[materializer] quality gate accepted candidate %d/%d", attempt + 1, _QUALITY_GATE_CANDIDATES)
+        return normalized
+    logger.warning(
+        "[materializer] all %d candidates rejected for %s @ %s %s; %s",
+        _QUALITY_GATE_CANDIDATES,
+        message_type,
+        scheduled_date,
+        scheduled_time,
+        " | ".join(rejections),
     )
-    if rejection:
-        logger.warning("[materializer] rejected generated text: %s", rejection)
-        return None
-    return normalized
+    return None
 
 
 async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
