@@ -395,7 +395,6 @@ function _applyPollMeta(poll) {
     var titleEl = document.getElementById('event-title');
     if (titleEl) {
         titleEl.value = _cleanPollTextForTitle(poll.text || '');
-        _autoTitlePrev = null;
     }
     if (poll.topic_id) _setVal('event-topic', String(poll.topic_id));
     if (poll.target_group) _setVal('event-target-group', poll.target_group);
@@ -653,40 +652,18 @@ function updatePreview() {
 }
 
 function _onAnyFieldChange() {
-    _maybeRetitleFromDateTime();
     saveDraft();
     updatePreview();
 }
 
-// ── Smart title default: "יום [day] | [D.M] | [HH:MM]" ──
-var HE_DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
-var _autoTitlePrev = null;  // track the last auto-generated title so we know when user customized it
-
-function _autoTitleFor(dateIso, time) {
-    if (!dateIso) return '';
-    var parts = dateIso.split('-');
-    if (parts.length !== 3) return '';
-    var d = new Date(parts[0], parseInt(parts[1], 10) - 1, parts[2]);
-    if (isNaN(d.getTime())) return '';
-    var dayName = HE_DAYS[d.getDay()];
-    var dm = parseInt(parts[2], 10) + '.' + parseInt(parts[1], 10);
-    var t = time || '';
-    return 'יום ' + dayName + ' | ' + dm + (t ? ' | ' + t : '');
-}
-
-function _maybeRetitleFromDateTime() {
-    var titleEl = document.getElementById('event-title');
-    if (!titleEl) return;
-    var current = titleEl.value.trim();
-    // Only auto-update if the title is empty OR still matches the last auto-generated value
-    // (so the user's manual edits are preserved).
-    if (current && current !== _autoTitlePrev) return;
-    var auto = _autoTitleFor(_val('event-date'), _val('event-time'));
-    if (auto) {
-        titleEl.value = auto;
-        _autoTitlePrev = auto;
-    }
-}
+// T-116: removed _autoTitleFor / _maybeRetitleFromDateTime entirely.
+// The form has dedicated event-date + event-time inputs, so a title
+// that is *also* a date string is pure redundancy. Worse, the previous
+// _autoTitlePrev guard misfired after a poll-source applied its own
+// title, leading to date strings clobbering the poll question (e.g.
+// "Splendor או משהו אחר" → "יום שישי | 24.4 | 18:30") which then
+// shipped to Telegram as the announcement title. Title is now strictly
+// user-controlled (or poll-filled via _applyPollMeta).
 
 function seedDefaultsIfEmpty() {
     var dateEl = document.getElementById('event-date');
@@ -698,7 +675,9 @@ function seedDefaultsIfEmpty() {
             String(now.getDate()).padStart(2, '0');
     }
     if (timeEl && !timeEl.value) timeEl.value = '19:00';
-    _maybeRetitleFromDateTime();
+    // T-116: no longer auto-title from date/time; see comment above
+    // _onAnyFieldChange. Title stays empty until the user (or a poll
+    // source) provides one — date and time live in their own inputs.
 }
 
 function partialClearAfterSubmit() {
@@ -706,7 +685,6 @@ function partialClearAfterSubmit() {
     ['event-title', 'event-desc', 'event-location'].forEach(function(id) { _setVal(id, ''); });
     pollSourceMessageId = null;
     pollSourceOptionKey = null;
-    _autoTitlePrev = null;
     saveDraft();   // persist the trimmed draft so reload sees it
 }
 

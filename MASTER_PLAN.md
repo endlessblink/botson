@@ -113,8 +113,8 @@
 | T-112 | 18 | Trivia: verify drawer stays open on launch after hard-refresh | TODO | P2 | T-111 |
 | T-113 | 19 | Cleanup stale scheduled_messages rows with target_channel="general" | TODO | P2 | — |
 | T-114 | 19 | Handler Routing UI: teaser_topic_ids multi-select on Settings | TODO | P2 | — |
-| T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | TODO | P1 | — |
-| T-116 | 20 | Events: stop overwriting user content with date/time line | TODO | P1 | — |
+| T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | DONE | P1 | — |
+| T-116 | 20 | Events: stop overwriting user content with date/time line | DONE | P1 | — |
 | T-117 | 21 | Bulk-cancel future auto-scheduled rows endpoint + dashboard button (purge AI-generated content created before quality-rules wiring) | DONE | P1 | — |
 | T-118 | 21 | Audit + rewrite 7 flagged questions in config/discussions.yaml (English jargon: ironic/autocorrect/overrated/underrated/red flag/green flag; 1 stacked question in cute) | DONE | P2 | — |
 | T-123 | 23 | Planner AI Populate mixed suggestions | DONE | P0 | T-080 |
@@ -1054,7 +1054,17 @@ After the 2026-04-22 routing refactor, `"general"` is no longer a resolvable tar
 ---
 
 #### T-115: Trivia flow — audit + remove hardcoded strings in generation/teaser
-**Phase:** 18 | **Priority:** P1 | **Status:** TODO
+**Phase:** 18 | **Priority:** P1 | **Status:** DONE (2026-05-10)
+
+**Shipped 2026-05-10:** Audited the four sites listed below. Two had real leaks, fixed:
+- `dashboard/templates/planner.html:_buildDefaultTeaser` — removed the `'הפינה של בוטסון'` fallback. When the play-channel label is missing, the teaser now drops the "ב{channel}" clause entirely instead of naming the wrong channel.
+- `dashboard/app.py:build_generation_prompt` (field=trivia) — removed the `"נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל"` topic-list fallback. When the operator provides neither a theme nor categories, the prompt now says "ללא נושא מרכזי — מגוון חופשי…" without naming specific subjects (CLAUDE.md: defaults must be blank/random/operator-configured).
+
+The other two sites (`bot/handlers/trivia_round.py:_run_round` teaser, `COMMUNITY_CONTEXT`) had already been cleaned up in earlier phases — the teaser fallback now uses `theme_label` (which defaults to `GENERAL_THEME_LABEL = "כללי"`) and the generic line "הודעת הפתיחה תופיע בערוץ המשחק" with no channel-name leak.
+
+The `bot/handlers/trivia_round.py` numeric constants (`POINTS_CORRECT`, `QUESTION_COUNT`, etc.) are gameplay rules, not LLM-prompt thresholds, and are out of scope for the hardcoded-content rule.
+
+Coverage: `tests/test_trivia_no_hardcoded_strings.py` (5 tests) pins the absence of both leaked strings + that explicit categories/themes still flow through correctly.
 
 Blocker for broad category use: the pipeline still has several hardcoded strings that break when the user picks a non-Israel theme. Audit and make every user-facing string derived from the user's inputs (category, theme, channel names) or configurable.
 
@@ -1071,7 +1081,9 @@ Blocker for broad category use: the pipeline still has several hardcoded strings
 ---
 
 #### T-116: Events — stop overwriting user content with date/time line
-**Phase:** 20 — Events polish | **Priority:** P1 | **Status:** TODO
+**Phase:** 20 — Events polish | **Priority:** P1 | **Status:** DONE (2026-05-10)
+
+**Shipped 2026-05-10:** Removed the auto-title machinery in `dashboard/templates/events.html` entirely (`_autoTitleFor`, `_maybeRetitleFromDateTime`, `_autoTitlePrev`, `HE_DAYS`). The form already has dedicated `event-date` and `event-time` inputs — a title that is *also* a date string was redundant, and the `_autoTitlePrev` guard was unreliable when a poll-source filled the title (it set `_autoTitlePrev = null`, which then let date-string overwrites slip through on the next field change). Title is now strictly user-controlled or filled by `_applyPollMeta` from a poll question. Coverage: `tests/test_events_no_title_overwrite.py` pins the absence of the removed functions and confirms `_onAnyFieldChange` no longer calls retitle.
 
 On `/events`, the title field gets auto-filled with a date/time summary like `"יום שישי | 24.4 | 18:30"`, wiping whatever the user typed (or what was pulled in from a source poll like `"משחקי קופסה אונליין: Splendor או משהו אחר..."`). The broken title then flows straight into the Telegram announcement when the event is published — the group sees a date string as the event name. The form already has explicit separate date (`event-date`) and time (`event-time`) inputs, so a title that is *also* date+time is pure redundancy.
 

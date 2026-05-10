@@ -1283,9 +1283,12 @@ function _stripCatSuffix(label) {
 }
 
 function _buildDefaultTeaser(theme, count, playLabel, teaserLabel) {
-    var gameChannel = playLabel || 'הפינה של בוטסון';
+    // T-115: no hardcoded "הפינה של בוטסון" fallback — when the play
+    // channel label is missing (edge case: no option text), drop the
+    // "ב{channel}" clause entirely rather than name the wrong channel.
     var audiencePrefix = teaserLabel ? ('🧠 לחברי ' + teaserLabel + ' — ') : '🧠 ';
-    return audiencePrefix + 'עוד רגע מתחיל סיבוב טריוויה (' + (theme || 'כללי') + ') ב' + gameChannel + '. ' + count + ' שאלות, בואו לשחק!';
+    var channelClause = playLabel ? (' ב' + playLabel) : '';
+    return audiencePrefix + 'עוד רגע מתחיל סיבוב טריוויה (' + (theme || 'כללי') + ')' + channelClause + '. ' + count + ' שאלות, בואו לשחק!';
 }
 
 function refreshTeaserPreview() {

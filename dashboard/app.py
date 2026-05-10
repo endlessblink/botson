@@ -2704,6 +2704,8 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"בלי תוכניות גדולות.*ניצחון או ויתור"), "concrete_failure_generic_stay_home_judgment"),
     (re.compile(r"החלטתם שממנו זה הדבר"), "concrete_failure_broken_hebrew"),
     (re.compile(r"החיה הכי חמודה.*(השבוע האחרון|לא ברשת)"), "concrete_failure_cutesy_no_payoff"),
+    (re.compile(r"מה עדיין זוהר אצלכם מהיום"), "concrete_failure_vague_poetic_evening"),
+    (re.compile(r"מה יצאתם ליצור.*בלי תכנון.*יוצא מזה משהו"), "concrete_failure_generic_art_bad_hebrew"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -3041,7 +3043,13 @@ def build_generation_prompt(
                 f"חובה: השורה 'קטגוריה:' של כל שאלה חייבת להיות בדיוק: {theme_hint}."
             )
         else:
-            topic_line = "נושאים מגוונים: תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל."
+            # T-115: no hardcoded topic-list fallback. When the operator
+            # provides neither a theme nor categories, don't bias the LLM
+            # toward a specific subject set — let it pick freely. Naming
+            # "תרבות, מדע, היסטוריה, בידור, גאוגרפיה, אוכל" was a content
+            # bias (CLAUDE.md hard rule: defaults must be blank, random,
+            # or operator-configured).
+            topic_line = "ללא נושא מרכזי — מגוון חופשי שמתאים לקהילה ישראלית של מבוגרים בלי ילדים."
         base = f"""צור 10 שאלות טריוויה בעברית עבור {COMMUNITY_CONTEXT}
 
 כל שאלה צריכה להיות בפורמט הבא (4 שורות לכל שאלה, מופרדות בשורה ריקה):
