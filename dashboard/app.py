@@ -9401,10 +9401,18 @@ async def planner_suggestion_preview(request: Request, db: Database = Depends(ge
         image_block = f'<img src="{html.escape(image_url)}" alt="" class="preview-img">' if image_url else ""
         if not image_block and image_prompt:
             image_block = '<div class="image-prompt">תמונה תיווצר בזמן השליחה לפי הנחיה אוצרת. הטקסט והמקור למטה הם התוכן לאישור.</div>'
+        # Mirror the runtime caption preface so the preview matches what the
+        # bot actually sends. Loaded from settings.yaml:copy.facts.preface_*.
+        from bot.utils.copy import load_copy as _load_copy_preface
+        preface = (_load_copy_preface("facts", f"preface_{pool}", default="") or "").strip()
+        preface_html = (
+            f'<div class="post-preface" style="font-weight:600;margin-bottom:8px;">{html.escape(preface)}</div>'
+            if preface else ""
+        )
         text_html = html.escape(str(item.get("text_he") or "")).replace(chr(10), "<br>")
         source = html.escape(str(item.get("source") or ""))
         source_url = html.escape(str(item.get("source_url") or ""))
-        body = image_block + f'<div class="post-text">{text_html}</div><div class="source">מקור: {source}<br><a href="{source_url}" target="_blank" rel="noopener">{source_url}</a></div>'
+        body = image_block + preface_html + f'<div class="post-text">{text_html}</div><div class="source">מקור: {source}<br><a href="{source_url}" target="_blank" rel="noopener">{source_url}</a></div>'
     elif kind == "emoji_puzzle":
         media = [str(x).strip() for x in qp.getlist("media") if str(x).strip()]
         aliases = []

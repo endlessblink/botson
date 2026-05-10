@@ -122,16 +122,26 @@ def _build_fact_image_prompt(pool: str, fact: dict) -> str:
     return f"{mood}, {suffix} {intro} {text[:500]}"
 
 
-def _photo_caption_with_source(fact: dict) -> str:
-    """Telegram photo captions are limited; keep source visible."""
+def _photo_caption_with_source(fact: dict, pool: str | None = None) -> str:
+    """Telegram photo captions are limited; keep source visible.
+
+    When ``pool`` is supplied, prepends the bot-voice preface from
+    ``settings.yaml:copy.facts.preface_{pool}`` (e.g. "🕯️ סיפור מסתורי
+    מבוטסון" for spooky). Empty preface = no prefix line.
+    """
     text = str(fact.get("text_he") or "").strip()
     source = str(fact.get('source') or '').strip()
     source_url = str(fact.get('source_url') or '').strip()
     source_line = f"מקור: {source}\n{source_url}" if source_url else f"מקור: {source}"
-    budget = 1000 - len(source_line) - 2
+    preface = ""
+    if pool:
+        from ..utils.copy import load_copy
+        preface = (load_copy("facts", f"preface_{pool}", default="") or "").strip()
+    preface_block = f"{preface}\n\n" if preface else ""
+    budget = 1000 - len(source_line) - len(preface_block) - 2
     if len(text) > budget:
         text = text[:max(0, budget - 1)].rstrip() + "…"
-    return f"{text}\n\n{source_line}"
+    return f"{preface_block}{text}\n\n{source_line}"
 
 
 async def _generate_fact_image(pool: str, fact: dict) -> tuple[BytesIO, str] | None:
@@ -149,7 +159,7 @@ async def _generate_fact_image(pool: str, fact: dict) -> tuple[BytesIO, str] | N
         return None
     photo = BytesIO(data)
     photo.name = f"facts_{fact.get('id') or pool}.{ext or 'png'}"
-    return photo, _photo_caption_with_source(fact)
+    return photo, _photo_caption_with_source(fact, pool)
 
 
 async def _resolve_fact_photo(pool: str, fact: dict) -> tuple[object, str] | None:
@@ -160,7 +170,7 @@ async def _resolve_fact_photo(pool: str, fact: dict) -> tuple[object, str] | Non
     """
     image_url = str(fact.get("image_url") or "").strip()
     if image_url:
-        return image_url, _photo_caption_with_source(fact)
+        return image_url, _photo_caption_with_source(fact, pool)
     if not str(fact.get("image_prompt") or "").strip():
         logger.warning("facts: skipping %s because it has no associated image", fact.get("id"))
         return None

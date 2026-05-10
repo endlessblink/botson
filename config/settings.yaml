@@ -44,6 +44,11 @@ copy:
     image_prompt_mood_tidbit: "curious science editorial illustration"
     image_prompt_suffix: "16:9, no text, no letters, no logos."
     image_prompt_hebrew_intro: "Illustrate this Hebrew Telegram post concept visually:"
+    # Caption preface lines. Set the bot's voice once before the body of
+    # each fact. Empty string disables. Trailing newline is added by the
+    # caller — keep these single-line.
+    preface_spooky: "🕯️ סיפור מסתורי מבוטסון"
+    preface_tidbit: "🔎 ידעתם?"
   gamification: {}  # Phase A.2.3 populates level_up template
 
 # LLM behavior. Phase B externalizes prompt rule numerics + model/endpoint.
