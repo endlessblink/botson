@@ -18,6 +18,7 @@ from ..database.db import Database
 from ..utils.config import get_settings, is_auto_blocked_on, is_feature_enabled, load_yaml
 from ..utils.freshness import freshness_rejection
 from ..utils.quality_rules import load_quality_rules_short
+from ..utils.time_context import hebrew_day_name
 
 logger = logging.getLogger(__name__)
 _CLAUDE_CLI_TIMEOUT = 90
@@ -187,11 +188,19 @@ async def _generate_fresh_text(
     sample = random.sample(examples, min(5, len(examples))) if examples else []
     canonical_rules = load_quality_rules_short()
     canonical_block = f"\n\n{canonical_rules}" if canonical_rules else ""
+    # Anchor the prompt on the actual Hebrew day-of-week so the model
+    # doesn't hallucinate "Saturday" content on a Sunday row (regression
+    # observed 2026-05-10 morning slot).
+    day_he = hebrew_day_name(scheduled_date) or ""
+    date_line = (
+        f"תאריך: {scheduled_date} (יום {day_he})" if day_he else f"תאריך: {scheduled_date}"
+    )
     prompt = f"""כתוב טקסט חדש בעברית לטלגרם לקהילת מבוגרים ישראלית בלי ילדים.
 
 סוג: {kind_he}
-תאריך: {scheduled_date}
+{date_line}
 שעה: {scheduled_time}
+חובה: אם הטקסט מציין יום בשבוע, חייב להיות בדיוק "{day_he}" ולא יום אחר.
 
 דוגמאות השראה בלבד - אסור להעתיק או לפרפרז קרוב:
 {chr(10).join(f'- {x}' for x in sample) if sample else '- אין'}

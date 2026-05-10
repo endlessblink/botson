@@ -2771,44 +2771,7 @@ def _format_dedup_block(recent_sent: list[str] | None) -> str:
     )
 
 
-def _format_time_context(scheduled_date: str | None, scheduled_time: str | None) -> str:
-    """Render a Hebrew weekday + time-of-day context block.
-
-    Helps the model anchor the output in the actual day/time the message
-    will fire. Empty string if neither is supplied.
-    """
-    if not scheduled_date and not scheduled_time:
-        return ""
-    parts: list[str] = []
-    if scheduled_date:
-        try:
-            d = date.fromisoformat(scheduled_date)
-            hebrew_idx = (d.weekday() + 1) % 7  # python Mon=0 → Hebrew Sun=0
-            parts.append(f"יום {_HEBREW_DAY_NAMES[hebrew_idx]} ({scheduled_date})")
-        except Exception:
-            pass
-    if scheduled_time:
-        try:
-            hour = int(str(scheduled_time).split(":")[0])
-            if 5 <= hour < 11:
-                bucket = "בוקר"
-            elif 11 <= hour < 15:
-                bucket = "צהריים"
-            elif 15 <= hour < 19:
-                bucket = "אחר הצהריים"
-            elif 19 <= hour < 23:
-                bucket = "ערב"
-            else:
-                bucket = "לילה"
-            parts.append(f"בשעה {scheduled_time} ({bucket})")
-        except Exception:
-            pass
-    if not parts:
-        return ""
-    return (
-        "\n\nהקשר זמן ההודעה: " + " · ".join(parts) +
-        ". התוכן צריך להרגיש מתאים ליום ולשעה האלה — לא טקסט גנרי שיכול להיות בכל זמן."
-    )
+from bot.utils.time_context import format_time_context as _format_time_context  # noqa: E402
 
 
 def _sample_pool_examples(field: str, category: str, n: int = 3) -> str:
