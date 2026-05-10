@@ -65,6 +65,14 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
 - **Topic routing** (off-topic detection) runs in Phase 0 `observe` mode — classifies messages against `config/topic_rules.yaml` and logs to `topic_observations` table, no user-visible action. Controlled via `topic_routing: {enabled, mode}` in `settings.yaml` and the `/moderation` dashboard page.
 
+## Hermes Feedback Ingestion
+
+- When asked to "ingest Hermes feedback", "apply Hermes digests", "make Hermes learning real", or similar, implement the feedback into Botson-owned files rather than only summarizing it.
+- Preferred input is structured YAML under `quality_feedback/hermes/*.yaml`. If that folder is empty, inspect Hermes Botson reference files under `~/.hermes/skills/software-development/*botson*/references/` and the current repo diff.
+- Promote concrete learnings into deployable artifacts: `config/question_quality.md` for generation rules, `config/freshness.yaml` for hard runtime rejection fragments, content pools for curated facts/discussions, and focused tests proving the learning is enforced.
+- Do not connect Hermes directly to production runtime. Hermes digests are candidate feedback; Botson changes must be versioned, tested, committed, pushed, and deployed through the normal flow.
+- Report status precisely: local-only, tests passed, committed, pushed, deployed, and/or production verified.
+
 ## Planner AI Populate Rules
 
 - Populate must always use the suggest+confirm modal flow: `/api/weekplan/ai-suggest` returns candidate rows and writes nothing; `/api/weekplan/ai-suggest-commit` inserts only the approved checked rows as scheduled rows.

@@ -1,5 +1,14 @@
 # Agent Notes
 
+## Hermes Feedback Ingestion
+
+- When the user asks to "ingest Hermes feedback", "apply Hermes digests", "make Hermes learning real", or similar, treat it as a concrete implementation task, not a discussion.
+- Read structured digests from `quality_feedback/hermes/*.yaml` first. If none exist, inspect Hermes Botson references under `~/.hermes/skills/software-development/*botson*/references/` and the current repo diff for already-exported feedback.
+- Promote only reviewable, concrete learnings into bot-owned artifacts: `config/question_quality.md` for prompt guidance, `config/freshness.yaml` for runtime rejection fragments, `config/facts.yaml` / `config/discussions.yaml` for curated content, and tests that prove enforcement.
+- Do not wire Hermes directly into production runtime or let it auto-deploy learned content. Hermes produces candidate learnings; Botson consumes versioned config/content/tests after review.
+- For every promoted bad-output example, add or update at least one regression test (`tests/test_digest_quality_consolidation.py`, `tests/test_quality_gate.py`, `tests/test_facts_pool.py`, or the closest focused suite).
+- Before claiming the learning is active, run focused tests and state whether it is local-only, committed, pushed, deployed, and production-verified.
+
 ## Planner AI Populate
 
 - Treat the Planner Populate buttons as a production-critical flow. The user verifies on the VPS dashboard, not local-only screenshots.
