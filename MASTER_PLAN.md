@@ -148,6 +148,7 @@
 | T-143 | 25 | Calendar checker delete-race 🔧 — re-SELECT status before send so dashboard cancels in the dispatch window stop the post | TODO | P1 | — |
 | T-144 | 25 | Phase A onboarding follow-up cadence 🔧 — +24h topic-mention + +72h DM + +7d lurker tag, opt-out per user, dashboard /onboarding admin page | TODO | P2 | T-136 |
 | T-145 | 25 | Layer 3 nightly smoke test 🔧 — periodic real-LLM call against next-week slots, asserts day-anchor + freshness pass | TODO | P3 | T-139, T-140 |
+| T-146 | 25 | Discussion seeds for חדר מוסיקה 🌱 — add `music` category to discussions.yaml (≥25 Hebrew questions); dot-verify the music topic id; wire settings.yaml:topics.discussions.music | TODO | P2 | — |
 
 ## Lanes (active queues)
 
@@ -155,6 +156,7 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 
 ### 🌱 Content lane (curation, no code)
 - **T-133** — Grow content pools (TODO, P1) — facts.yaml + discussions.yaml. Hermes `botson-question-pool` + `hebrew-content-qa` skills.
+- **T-146** — Discussion seeds for חדר מוסיקה (TODO, P2) — new `music` category in `discussions.yaml` (≥25 questions), dot-verify the topic id, wire `settings.yaml:topics.discussions.music`. Pure content + one config line; no Python.
 - ✅ **T-138** — Welcome DM lurker exit-ramp (DONE 2026-05-10).
 
 ### 🔧 Code lane (Python/template changes, no curation)
