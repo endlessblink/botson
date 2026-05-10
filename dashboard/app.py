@@ -4238,6 +4238,54 @@ def _ai_populate_caps(settings: dict, scope: str, slot_map: dict) -> dict:
     return caps
 
 
+def _hhmm_to_minutes(value: str) -> int | None:
+    try:
+        h, m = str(value or "").strip()[:5].split(":")
+        hour = int(h)
+        minute = int(m)
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour * 60 + minute
+
+
+def _minutes_to_hhmm(value: int) -> str:
+    value = max(0, min(23 * 60 + 59, int(value)))
+    return f"{value // 60:02d}:{value % 60:02d}"
+
+
+def _ai_populate_flex_config(settings: dict, scope: str) -> dict:
+    flex = (settings.get("ai_populate") or {}).get("flex") or {}
+    scoped = flex.get("day" if scope == "day" else "week") or {}
+    if not flex.get("enabled") or not scoped.get("enabled"):
+        return {}
+    return scoped
+
+
+def _expand_ai_flex_times(settings: dict, scope: str) -> list[str]:
+    flex_cfg = _ai_populate_flex_config(settings, scope)
+    times: list[str] = []
+    for window in flex_cfg.get("windows") or []:
+        if not isinstance(window, dict):
+            continue
+        start = _hhmm_to_minutes(window.get("start"))
+        end = _hhmm_to_minutes(window.get("end"))
+        try:
+            step = int(window.get("step_minutes") or 0)
+        except (TypeError, ValueError):
+            step = 0
+        if start is None or end is None or step <= 0 or end < start:
+            continue
+        current = start
+        while current <= end:
+            t = _minutes_to_hhmm(current)
+            if t not in times:
+                times.append(t)
+            current += step
+    return times
+
+
 async def _resolve_routing_topic(db: Database, handler: str) -> int | None:
     """Look up `bot_message_routing.play_topic_id` for a handler. Returns
     None if no row — the caller decides what to do with that.
@@ -4390,6 +4438,7 @@ async def _ai_suggest_calendar(
 
     # Existing rows in window — to avoid suggesting occupied or repeated slots.
     occupied: set = set()
+    occupied_times: set = set()
     existing_activity_texts: set[str] = set()
     try:
         async with db._db.execute(
@@ -4401,7 +4450,9 @@ async def _ai_suggest_calendar(
         ) as cur:
             rows = await cur.fetchall()
         for r in rows:
-            occupied.add((r[0], (r[1] or "")[:5], r[2]))
+            row_time = (r[1] or "")[:5]
+            occupied.add((r[0], row_time, r[2]))
+            occupied_times.add((r[0], row_time))
             if r[3]:
                 existing_activity_texts.add(str(r[3]))
     except Exception:
@@ -4442,7 +4493,22 @@ async def _ai_suggest_calendar(
 
     suggestions: list = []
     errors: list = []
+    skip_reasons: list = []
+    seen_skip_reasons: set[tuple[str, str, str, str]] = set()
     generated_activity_texts: set[str] = set()
+
+    def _add_skip(d_iso: str, t: str, mtype: str, code: str, detail: str = "") -> None:
+        key = (d_iso, str(t)[:5], mtype, code)
+        if key in seen_skip_reasons:
+            return
+        seen_skip_reasons.add(key)
+        skip_reasons.append({
+            "date": d_iso,
+            "time": str(t)[:5],
+            "message_type": mtype,
+            "code": code,
+            "detail": detail,
+        })
 
     def _slot_future(d_iso: str, t: str) -> bool:
         try:
@@ -4451,8 +4517,41 @@ async def _ai_suggest_calendar(
             return False
         return slot_dt >= now_dt
 
+    def _slot_future_with_lead(d_iso: str, t: str, lead_minutes: int) -> bool:
+        try:
+            slot_dt = datetime.fromisoformat(f"{d_iso}T{str(t)[:5]}")
+        except ValueError:
+            return False
+        return slot_dt >= now_dt + timedelta(minutes=max(0, int(lead_minutes)))
+
     def _slot_free(d_iso: str, t: str, mtype: str) -> bool:
         return _slot_future(d_iso, t) and (d_iso, t, mtype) not in occupied
+
+    def _flex_slot_free(d_iso: str, t: str, mtype: str) -> bool:
+        return _slot_free(d_iso, t, mtype) and (d_iso, t) not in occupied_times
+
+    def _slot_available_or_skip(d_iso: str, t: str, mtype: str) -> bool:
+        t = str(t)[:5]
+        if not _slot_future(d_iso, t):
+            _add_skip(d_iso, t, mtype, "past")
+            return False
+        if (d_iso, t, mtype) in occupied:
+            _add_skip(d_iso, t, mtype, "occupied")
+            return False
+        return True
+
+    def _flex_available_or_skip(d_iso: str, t: str, mtype: str) -> bool:
+        t = str(t)[:5]
+        if not _slot_future_with_lead(d_iso, t, flex_min_lead):
+            _add_skip(d_iso, t, mtype, "past_or_too_soon")
+            return False
+        if (d_iso, t) in occupied_times:
+            _add_skip(d_iso, t, mtype, "time_occupied")
+            return False
+        if (d_iso, t, mtype) in occupied:
+            _add_skip(d_iso, t, mtype, "occupied")
+            return False
+        return True
 
     # ── Build candidate slot list ─────────────────────────────────
     # Strategy: for each day in window, lay out at most one of each
@@ -4472,6 +4571,23 @@ async def _ai_suggest_calendar(
     trivia_t = (slot_map.get("trivia_round") or {}).get("times") or []
     roundup_t = (slot_map.get("weekly_roundup") or {}).get("times") or []
     leaderboard_t = (slot_map.get("weekly_leaderboard") or {}).get("times") or []
+    flex_cfg = _ai_populate_flex_config(settings, scope)
+    flex_t = _expand_ai_flex_times(settings, scope)
+    flex_allowed = [
+        str(item).strip()
+        for item in (flex_cfg.get("allowed_types") or [])
+        if str(item).strip() in {"discussion", "custom"}
+    ]
+    try:
+        flex_max = max(0, int(flex_cfg.get("max_suggestions") or 0))
+    except (TypeError, ValueError):
+        flex_max = 0
+    try:
+        flex_min_lead = max(0, int(flex_cfg.get("min_lead_minutes") or 0))
+    except (TypeError, ValueError):
+        flex_min_lead = 0
+    flex_rationale = str(flex_cfg.get("rationale") or "").strip()
+    flex_count = 0
 
     cap_per_window = _ai_populate_caps(settings, scope, slot_map)
     counts = {k: 0 for k in cap_per_window}
@@ -4772,6 +4888,7 @@ async def _ai_suggest_calendar(
         if count_as:
             counts[count_as] = counts.get(count_as, 0) + 1
         occupied.add((d_iso, t, mtype))
+        occupied_times.add((d_iso, t))
 
     for di in day_indices:
         d = window_dates[di]
@@ -4784,7 +4901,7 @@ async def _ai_suggest_calendar(
                 break
             if counts["morning"] >= cap_per_window["morning"]:
                 break
-            if not _slot_free(d_iso, t, "morning"):
+            if not _slot_available_or_skip(d_iso, t, "morning"):
                 continue
             text, fails = await _gen_text("morning", "", d_iso, t, recent_by_type["morning"])
             if not text:
@@ -4803,7 +4920,7 @@ async def _ai_suggest_calendar(
                 break
             if counts["evening"] >= cap_per_window["evening"]:
                 break
-            if not _slot_free(d_iso, t, "evening"):
+            if not _slot_available_or_skip(d_iso, t, "evening"):
                 continue
             text, fails = await _gen_text("evening", "", d_iso, t, recent_by_type["evening"])
             if not text:
@@ -4827,7 +4944,7 @@ async def _ai_suggest_calendar(
                 for cat in cats_for_slot:
                     if counts["discussion"] >= cap_per_window["discussion"]:
                         break
-                    if not _slot_free(d_iso, t, "discussion"):
+                    if not _slot_available_or_skip(d_iso, t, "discussion"):
                         continue
                     expected_topic = topic_ids.get(cat)
                     if not expected_topic:
@@ -4861,7 +4978,7 @@ async def _ai_suggest_calendar(
             )
             if pool_n >= emoji_count:
                 for t in emoji_t:
-                    if not _slot_free(d_iso, t, "emoji_puzzle"):
+                    if not _slot_available_or_skip(d_iso, t, "emoji_puzzle"):
                         continue
                     try:
                         hh, mm = [int(x) for x in str(t).split(":")]
@@ -4876,7 +4993,7 @@ async def _ai_suggest_calendar(
                     # paired with a warmup announcement. If the announcement
                     # slot is past/occupied, skip the whole emoji slot — never
                     # emit a naked emoji_puzzle without RSVP plumbing.
-                    if emoji_min_ready > 0 and not _slot_free(d_iso, announce_t, "trivia_warmup_rsvp"):
+                    if emoji_min_ready > 0 and not _slot_available_or_skip(d_iso, announce_t, "trivia_warmup_rsvp"):
                         continue
                     emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
@@ -4968,7 +5085,7 @@ async def _ai_suggest_calendar(
             except Exception:
                 tn = 0
             for t in tidbit_t:
-                if not _slot_free(d_iso, t, "facts_tidbit"):
+                if not _slot_available_or_skip(d_iso, t, "facts_tidbit"):
                     continue
                 preview_fact = _choose_fact_preview("tidbit")
                 fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
@@ -4990,7 +5107,7 @@ async def _ai_suggest_calendar(
             except Exception:
                 sn = 0
             for t in spooky_t:
-                if not _slot_free(d_iso, t, "facts_spooky"):
+                if not _slot_available_or_skip(d_iso, t, "facts_spooky"):
                     continue
                 preview_fact = _choose_fact_preview("spooky")
                 fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
@@ -5008,7 +5125,7 @@ async def _ai_suggest_calendar(
                 and _feature_on("free_games")
                 and routed_topics.get("free_games") is not None):
             for t in free_games_t:
-                if not _slot_free(d_iso, t, "free_games"):
+                if not _slot_available_or_skip(d_iso, t, "free_games"):
                     continue
                 _add_suggestion(d_iso, t, "free_games", topic=routed_topics["free_games"],
                                 text="[internal:free_games]",
@@ -5021,7 +5138,7 @@ async def _ai_suggest_calendar(
                 and _feature_on("roundup")
                 and routed_topics.get("weekly_roundup") is not None):
             for t in roundup_t:
-                if not _slot_free(d_iso, t, "weekly_roundup"):
+                if not _slot_available_or_skip(d_iso, t, "weekly_roundup"):
                     continue
                 _add_suggestion(d_iso, t, "weekly_roundup", topic=routed_topics["weekly_roundup"],
                                 text="[internal:weekly_roundup]",
@@ -5034,7 +5151,7 @@ async def _ai_suggest_calendar(
                 and _feature_on("levels")
                 and routed_topics.get("weekly_leaderboard") is not None):
             for t in leaderboard_t:
-                if not _slot_free(d_iso, t, "weekly_leaderboard"):
+                if not _slot_available_or_skip(d_iso, t, "weekly_leaderboard"):
                     continue
                 _add_suggestion(d_iso, t, "weekly_leaderboard", topic=routed_topics["weekly_leaderboard"],
                                 text="[internal:weekly_leaderboard]",
@@ -5048,7 +5165,7 @@ async def _ai_suggest_calendar(
                 and _feature_on("trivia")
                 and routed_topics.get("trivia_round") is not None):
             for t in trivia_t:
-                if not _slot_free(d_iso, t, "trivia_round"):
+                if not _slot_available_or_skip(d_iso, t, "trivia_round"):
                     continue
                 trivia_cfg = (settings.get("trivia") or {}).get("populate_defaults") or {}
                 try:
@@ -5089,7 +5206,7 @@ async def _ai_suggest_calendar(
                 # RSVP plumbing.
                 trivia_warmup_marker = None
                 if min_ready > 0:
-                    if not _slot_free(d_iso, warm_t, "trivia_warmup_rsvp"):
+                    if not _slot_available_or_skip(d_iso, warm_t, "trivia_warmup_rsvp"):
                         continue
                     warmup_text = await _generate_activity_copy(
                         "trivia_warmup",
@@ -5143,8 +5260,8 @@ async def _ai_suggest_calendar(
                 if trivia_warmup_marker:
                     poll_payload["warmup_marker"] = trivia_warmup_marker
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
-                                text="[internal:trivia_round]",
-                                source="ai-fill-trivia",
+                                 text="[internal:trivia_round]",
+                                 source="ai-fill-trivia",
                                 rationale=f"נושא: {poll_payload['theme_label']} · מאגר מתאים ({trivia_pool_n} שאלות)",
                                 preview_url=_preview_url(
                                     "trivia_round",
@@ -5152,14 +5269,50 @@ async def _ai_suggest_calendar(
                                     categories=poll_payload["categories"],
                                     count=poll_payload["question_count"],
                                 ),
-                                poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
+                                 poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
                 break
+
+        if flex_count < flex_max and flex_t and flex_allowed and active_categories and _feature_on("discussions"):
+            cats_for_flex = random.sample(active_categories, len(active_categories))
+            for t in flex_t:
+                if flex_count >= flex_max:
+                    break
+                for mtype in flex_allowed:
+                    if flex_count >= flex_max:
+                        break
+                    if not _flex_available_or_skip(d_iso, t, mtype):
+                        continue
+                    cat = cats_for_flex[flex_count % len(cats_for_flex)]
+                    expected_topic = topic_ids.get(cat)
+                    if not expected_topic:
+                        continue
+                    recent_chan = await _fetch_recent_sent_for_dedup(
+                        db, "discussion", category_topic_id=int(expected_topic), limit=60,
+                    )
+                    text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan)
+                    if not text:
+                        errors.extend(fails)
+                        continue
+                    src = "ai-fill-flex-pool" if (fails and not _validate_draft_text(text)) else "ai-fill-flex"
+                    _add_suggestion(
+                        d_iso, t, mtype,
+                        topic=int(expected_topic),
+                        text=text,
+                        source=src,
+                        category=cat,
+                        rationale=flex_rationale,
+                        validation_failures=[],
+                        count_as=None,
+                    )
+                    flex_count += 1
+                    break
 
     return {
         "window": {"start": win_start, "end": win_end, "scope": scope},
         "suggestions": suggestions,
         "stats_block": stats_block,
         "errors": errors,
+        "skip_reasons": skip_reasons,
     }
 
 
@@ -5229,7 +5382,7 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="approved must be a list")
 
     valid_types = {
-        "morning", "evening", "discussion", "trivia_round", "trivia_warmup_rsvp",
+        "morning", "evening", "discussion", "custom", "trivia_round", "trivia_warmup_rsvp",
         "warmup_reminder",
         "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky",
         "weekly_roundup", "weekly_leaderboard",

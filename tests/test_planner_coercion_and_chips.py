@@ -393,6 +393,88 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             )
             self.assertGreaterEqual(slot, now, suggestion)
 
+    async def test_ai_suggest_calendar_returns_flex_non_game_after_evening(self):
+        db = Database(":memory:")
+        await db.init()
+        target_date = "2099-01-01"
+        call_counter = {"n": 0}
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 1, 20, 29)
+                if tz is not None:
+                    return base.replace(tzinfo=tz)
+                return base
+
+        async def distinct_canned(*args, **kwargs):
+            call_counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
+
+        with patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=target_date, week_offset=0,
+            )
+
+        await db.close()
+
+        flex_rows = [s for s in result["suggestions"] if str(s.get("source", "")).startswith("ai-fill-flex")]
+        self.assertTrue(flex_rows, result)
+        self.assertTrue(all(row["message_type"] in {"discussion", "custom"} for row in flex_rows))
+        self.assertTrue(all(row["time"] >= "20:39" for row in flex_rows))
+
+    async def test_ai_suggest_commit_accepts_custom_flex_rows(self):
+        db = Database(":memory:")
+        await db.init()
+        body = {
+            "approved": [{
+                "date": "2099-01-01",
+                "time": "21:30",
+                "message_type": "custom",
+                "topic_id": 4037,
+                "text": "שאלה קצרה לבדיקה",
+                "source": "ai-fill-flex",
+            }],
+        }
+
+        result = await dashboard_app.ai_suggest_commit(FakeCalendarRequest(body), db)
+        rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        await db.close()
+
+        self.assertEqual(result["inserted"], 1, result)
+        self.assertEqual(rows[0]["message_type"], "custom")
+        self.assertEqual(rows[0]["created_by"], "ai-fill-flex")
+
+    async def test_ai_suggest_calendar_returns_skip_reasons(self):
+        db = Database(":memory:")
+        await db.init()
+        target_date = "2099-01-01"
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 1, 20, 29)
+                if tz is not None:
+                    return base.replace(tzinfo=tz)
+                return base
+
+        with patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value="איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?")), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value="איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?")), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=target_date, week_offset=0,
+            )
+
+        await db.close()
+
+        self.assertIn("skip_reasons", result)
+        self.assertTrue(result["skip_reasons"], result)
+        self.assertTrue(any(r.get("code") in {"past", "past_or_too_soon"} for r in result["skip_reasons"]))
+
     async def _scheduled_count(self, db):
         async with db._db.execute("SELECT COUNT(*) FROM scheduled_messages") as cur:
             return (await cur.fetchone())[0]
@@ -1910,6 +1992,11 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("function _formatApiError", self.html)
         self.assertIn("Array.isArray(data.detail)", self.html)
         self.assertIn("JSON.stringify(data.detail)", self.html)
+
+    def test_ai_suggest_empty_state_renders_skip_reasons(self):
+        self.assertIn("function _aiSuggestRenderEmpty", self.html)
+        self.assertIn("data.skip_reasons", self.html)
+        self.assertIn("_aiSuggestSkipLabel", self.html)
 
     def test_approve_reads_live_checkbox_state(self):
         approve_start = self.html.index("async function aiSuggestApprove()")

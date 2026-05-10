@@ -2643,7 +2643,7 @@ function closeAiSuggestModal() {
 
 function _aiSuggestRowEmoji(mtype) {
     return ({
-        morning: '🌅', evening: '🌙', discussion: '💬',
+        morning: '🌅', evening: '🌙', discussion: '💬', custom: '✍️',
         trivia_round: '🧠', emoji_puzzle: '🧩',
         free_games: '🎮', facts_tidbit: '🔎', facts_spooky: '🕯️',
         weekly_roundup: '📊', weekly_leaderboard: '🏆',
@@ -2688,6 +2688,35 @@ function _formatApiError(data, fallback) {
     if (Array.isArray(data.errors) && data.errors.length) return data.errors.join('\n');
     if (data.error) return String(data.error);
     return fallback;
+}
+
+function _aiSuggestSkipLabel(code) {
+    return ({
+        past: 'הזמן כבר עבר',
+        past_or_too_soon: 'הזמן קרוב מדי או כבר עבר',
+        occupied: 'כבר יש טיוטה/פרסום באותו סלוט',
+        time_occupied: 'כבר יש משהו בשעה הזו',
+    })[code] || code || 'דולג';
+}
+
+function _aiSuggestRenderEmpty(skipReasons) {
+    var reasons = Array.isArray(skipReasons) ? skipReasons.slice(0, 8) : [];
+    if (!reasons.length) {
+        return '<div class="text-center text-[#71717a] py-8">אין הצעות לחלון הזה (כל הסלוטים תפוסים או שאין סוגי פעילות פנויים)</div>';
+    }
+    var rows = reasons.map(function(r) {
+        var type = r.message_type || 'slot';
+        var time = [r.date, r.time].filter(Boolean).join(' · ');
+        var detail = r.detail ? ' · ' + r.detail : '';
+        return '<li><span class="text-[#a1a1aa]">' + escapeHtml(type) + '</span> ' +
+            '<span class="text-[#52525b]">' + escapeHtml(time) + '</span> — ' +
+            escapeHtml(_aiSuggestSkipLabel(r.code)) + escapeHtml(detail) + '</li>';
+    }).join('');
+    return '<div class="text-right text-[#a1a1aa] py-6 max-w-2xl mx-auto">' +
+        '<div class="text-sm text-[#d4d4d8] mb-2">לא נמצאו הצעות שאפשר לאשר עכשיו.</div>' +
+        '<div class="text-xs text-[#71717a] mb-3">הסיבות המרכזיות שזוהו:</div>' +
+        '<ul class="text-xs space-y-1 list-disc pr-5">' + rows + '</ul>' +
+        '</div>';
 }
 
 function _aiSuggestRenderRow(s) {
@@ -2767,7 +2796,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
         if (listEl) {
             listEl.innerHTML = '';
             if (_aiSuggestState.suggestions.length === 0) {
-                listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">אין הצעות לחלון הזה (כל הסלוטים תפוסים או שאין סוגי פעילות פנויים)</div>';
+                listEl.innerHTML = _aiSuggestRenderEmpty(data.skip_reasons || []);
             } else {
                 _aiSuggestState.suggestions.forEach(function(s) {
                     listEl.appendChild(_aiSuggestRenderRow(s));

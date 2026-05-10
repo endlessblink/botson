@@ -149,6 +149,10 @@
 | T-144 | 25 | Phase A onboarding follow-up cadence 🔧 — +24h topic-mention + +72h DM + +7d lurker tag, opt-out per user, dashboard /onboarding admin page | TODO | P2 | T-136 |
 | T-145 | 25 | Layer 3 nightly smoke test 🔧 — periodic real-LLM call against next-week slots, asserts day-anchor + freshness pass | TODO | P3 | T-139, T-140 |
 | T-146 | 25 | Discussion seeds for חדר מוסיקה 🌱 — add `music` category to discussions.yaml (≥25 Hebrew questions). Topic id 4502 verified + settings wired 2026-05-10; only the content half remains. | IN PROGRESS | P2 | — |
+| T-147 | 26 | Planner Populate flex slots 🔧 — config-driven non-game suggestions after fixed slots fail | DONE | P0 | T-123 |
+| T-148 | 26 | Populate skip diagnostics 🔧 — show exact reasons instead of generic empty modal | DONE | P1 | T-147 |
+| T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | TODO | P1 | T-147 |
+| T-150 | 26 | Populate flex regression suite 🧪 — evening fallback, custom commit, no hardcoding | TODO | P1 | T-147, T-148, T-149 |
 
 ## Lanes (active queues)
 
@@ -160,6 +164,9 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 - ✅ **T-138** — Welcome DM lurker exit-ramp (DONE 2026-05-10).
 
 ### 🔧 Code lane (Python/template changes, no curation)
+- ✅ **T-147** — Planner Populate flex slots (DONE 2026-05-10) — config-defined time windows suggest non-game rows when fixed schedule/game rows are unavailable.
+- ✅ **T-148** — Populate skip diagnostics (DONE 2026-05-10) — API/UI explains past slots, occupied rows, and too-soon flex windows instead of a generic empty modal.
+- **T-149** — Populate flex routing config (TODO, P1) — custom/discussion topic choice must be operator-controlled, not inferred from hardcoded defaults.
 - **T-110** — Emoji Night cleanup + dry-run in Den (TODO, P2).
 - **T-113** — Cleanup stale `target_channel="general"` rows (TODO, P2).
 - **T-114** — Handler Routing UI: teaser_topic_ids multi-select (TODO, P2).
@@ -176,11 +183,55 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 - *In flight (Phase F + A.1 + A.1.4 + B-partial shipped):* hardcoded-content cleanup. Remaining work tracked in `~/.claude/plans/` history; remaining xfails in `tests/test_no_hardcoded_content.py`: Hebrew-in-utils (Phase B.6), `[internal:*]` migration (Phase B.2), template `selected` gating (Phase C.3), milestone array (Phase A.2.4).
 
 ### 🧪 Hybrid lane (Code + Content together)
+- **T-150** — Populate flex regression suite (TODO, P1) — tests must prove today-evening non-game fallback, custom commit support, config-driven windows, and guardian compatibility.
 - ✅ **T-134** — Wire `config/question_quality.md` into every prompt path (DONE 2026-05-09). The remaining content-side polish (more positive ✅ examples per discussion category) can roll into T-133.
 - ✅ **T-137** — Slow-chat cadence (DONE 2026-05-10) — config-side decision but informed by external research; cadence may need re-tuning once T-136 reaction telemetry shows which slots resonate.
 - ✅ **T-141** — Facts caption preface (DONE 2026-05-10) — copy lives in `settings.yaml:copy.facts.preface_*`, code reads it via `load_copy`.
 
 ## Detailed Tasks
+
+---
+
+#### T-147: Planner Populate flex slots
+**Phase:** 26 — Planner Populate flexibility | **Priority:** P0 | **Status:** DONE (2026-05-10) | **Deps:** T-123
+
+AI Populate currently only previews rows at fixed `schedule.*.time(s)` values, so an evening with several hours left can still return zero suggestions if games need past warm-up slots or exact game/facts slots are occupied. Add config-driven flex windows so Populate can propose non-game content during remaining free time without hardcoded hours or hardcoded Hebrew themes.
+
+**Scope:**
+- Add `config/settings.yaml:ai_populate.flex` windows and caps.
+- Expand `/api/weekplan/ai-suggest` to generate non-game flex candidates after fixed candidates are exhausted or under-filled.
+- Keep preview-before-commit invariant: suggest writes nothing; approve inserts only selected rows.
+- Preserve trivia/emoji RSVP safety. A missed warm-up skips the game, but must not block non-game flex posts.
+
+**Pass criteria:** day-level Populate after fixed slots fail can still return a future discussion/custom row if a configured flex window is available.
+
+**Shipped 2026-05-10:** Added `settings.yaml:ai_populate.flex` day windows, flex candidate expansion, `custom` suggestion commit support, and modal icon rendering. Day-level Populate can now return non-game flex suggestions in configured future windows while keeping trivia/emoji RSVP safety intact.
+
+#### T-148: Populate skip diagnostics
+**Phase:** 26 — Planner Populate flexibility | **Priority:** P1 | **Status:** DONE (2026-05-10) | **Deps:** T-147
+
+Replace the generic empty-state explanation with concrete skip diagnostics from the backend. The response should surface reasons such as past fixed time, occupied exact slot, warm-up RSVP time already passed, disabled feature, missing routing/topic, empty pool, or exhausted flex window.
+
+**Pass criteria:** when `suggestions=[]`, the modal shows actionable reasons rather than only "all slots occupied".
+
+**Shipped 2026-05-10:** `/api/weekplan/ai-suggest` now returns `skip_reasons` with code/date/time/type metadata, and the modal renders the top reasons when no suggestions are returned. Current codes cover past slots, occupied exact slots, occupied flex times, and flex windows that are too soon.
+
+#### T-149: Populate flex routing config
+**Phase:** 26 — Planner Populate flexibility | **Priority:** P1 | **Status:** TODO | **Deps:** T-147
+
+Make flex suggestion routing operator-controlled. Do not infer a default topic in code. Supported strategies should be config-backed, e.g. active discussion category, `topics.welcome`, `topics.goals`, or a handler-routing row for a future flex handler.
+
+**Pass criteria:** custom/discussion flex rows always use verified/configured topics, and missing routing produces a visible skip reason.
+
+#### T-150: Populate flex regression suite
+**Phase:** 26 — Planner Populate flexibility | **Priority:** P1 | **Status:** TODO | **Deps:** T-147, T-148, T-149
+
+Add focused tests for the flexible Populate behavior: evening fallback, config-defined windows, occupied/past skips, `custom` commit support, diagnostic reasons, and hardcoded-content guardian compatibility.
+
+**Verification:**
+- `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`
+- `PYTHONPATH=. uv run pytest tests/test_calendar_scheduled_games.py -q`
+- `PYTHONPATH=. uv run pytest tests/test_no_hardcoded_content.py -q`
 
 ---
 
