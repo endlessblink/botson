@@ -139,6 +139,8 @@ CONFIG_DIR = Path(__file__).parent.parent / "config"
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", str(Path(__file__).parent.parent / "media"))).resolve()
 COVERS_DIR = MEDIA_DIR / "covers"
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
+FACTS_IMAGES_DIR = MEDIA_DIR / "facts"
+FACTS_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -9240,6 +9242,81 @@ async def generate_cover(request: Request):
     return _cover_response(dest)
 
 
+@app.post("/api/facts/{pool}/{fact_id}/generate-image")
+async def generate_fact_preview_image(pool: str, fact_id: str, request: Request):
+    """Generate a preview image for a curated fact and persist its URL.
+
+    Calls kie.ai with the fact's image_prompt (or the pool-default
+    template), saves the bytes to ``media/facts/`` so the dashboard can
+    serve them as static, and writes the resulting URL into
+    ``config/facts.yaml`` against the matching item. The next preview
+    render reads ``image_url`` directly and shows the real picture
+    instead of the "תמונה תיווצר בזמן השליחה" placeholder.
+
+    Idempotent in the sense that re-clicking the button regenerates
+    (the URL changes every call). Operators who want a stable image
+    can keep the first one and just not click again.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    if pool not in {"tidbit", "spooky"}:
+        raise HTTPException(status_code=400, detail=f"unknown pool: {pool}")
+
+    api_key = os.getenv("KIE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="KIE_API_KEY not set in environment")
+
+    # Locate the fact in facts.yaml. We rewrite the file in-place after
+    # generation so the dashboard preview and the bot's runtime path read
+    # the same source of truth.
+    facts_path = CONFIG_DIR / "facts.yaml"
+    try:
+        facts_data = yaml.safe_load(facts_path.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"facts.yaml unreadable: {e}")
+    pool_items = facts_data.get(pool) or []
+    target_idx = next(
+        (i for i, x in enumerate(pool_items) if isinstance(x, dict) and str(x.get("id") or "") == fact_id),
+        -1,
+    )
+    if target_idx < 0:
+        raise HTTPException(status_code=404, detail=f"fact {fact_id!r} not found in {pool}")
+    item = pool_items[target_idx]
+
+    # Reuse the bot's prompt builder so generation matches what runtime
+    # would do (identical mood/suffix templates from settings.yaml).
+    from bot.handlers.facts import _build_fact_image_prompt
+    from bot.utils.kie_client import generate_image_sync
+
+    prompt = _build_fact_image_prompt(pool, item)
+    try:
+        data, ext = await generate_image_sync(api_key=api_key, prompt=prompt)
+    except Exception as e:
+        logger.error("kie.ai facts generation failed for %s/%s: %s", pool, fact_id, e)
+        raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
+
+    # Filename pattern keys on (pool, fact_id) so re-clicks overwrite the
+    # same file rather than littering the directory.
+    safe_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", fact_id)[:80] or "fact"
+    dest = FACTS_IMAGES_DIR / f"{pool}_{safe_id}.{ext or 'png'}"
+    dest.write_bytes(data)
+    rel = dest.relative_to(MEDIA_DIR).as_posix()
+    image_url = f"/media/{rel}"
+    logger.info("[facts] preview image generated for %s/%s → %s (%d bytes)", pool, fact_id, dest.name, len(data))
+
+    # Persist URL back into facts.yaml so subsequent previews + sends
+    # both pick it up. Cache-bust query string forces the dashboard <img>
+    # to refresh after a re-click.
+    item["image_url"] = image_url
+    pool_items[target_idx] = item
+    facts_data[pool] = pool_items
+    facts_path.write_text(
+        yaml.dump(facts_data, allow_unicode=True, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    return {"status": "ok", "url": image_url, "path": rel, "cache_bust": int(dest.stat().st_mtime)}
+
+
 # ── Planner Page ─────────────────────────────────────────
 
 @app.get("/planner", response_class=HTMLResponse)
@@ -9400,7 +9477,41 @@ async def planner_suggestion_preview(request: Request, db: Database = Depends(ge
         image_prompt = str(item.get("image_prompt") or "").strip()
         image_block = f'<img src="{html.escape(image_url)}" alt="" class="preview-img">' if image_url else ""
         if not image_block and image_prompt:
-            image_block = '<div class="image-prompt">תמונה תיווצר בזמן השליחה לפי הנחיה אוצרת. הטקסט והמקור למטה הם התוכן לאישור.</div>'
+            image_block = (
+                '<div class="image-prompt">תמונה תיווצר בזמן השליחה לפי הנחיה אוצרת. הטקסט והמקור למטה הם התוכן לאישור.</div>'
+            )
+        # "Generate preview image" button — only meaningful when there's
+        # a curated image_prompt. The button calls /api/facts/{pool}/{id}
+        # /generate-image, which writes image_url back into facts.yaml so
+        # the next preview render swaps the placeholder for the real
+        # picture. JS is inline so the preview page stays self-contained.
+        gen_button_html = ""
+        if image_prompt:
+            label = "צור תמונת תצוגה מחדש" if image_url else "צור תמונת תצוגה"
+            gen_button_html = (
+                '<div class="image-actions" style="margin:8px 0;">'
+                f'<button id="facts-gen-img-btn" data-pool="{html.escape(pool)}" data-id="{html.escape(wanted_id)}" '
+                'style="padding:6px 12px;background:#7c3aed;color:white;border:none;border-radius:4px;cursor:pointer;">'
+                f'{label}</button>'
+                '<span id="facts-gen-img-status" style="margin-right:8px;color:#a1a1aa;font-size:12px;"></span>'
+                '</div>'
+                '<script>'
+                '(function(){'
+                'var btn=document.getElementById("facts-gen-img-btn");'
+                'if(!btn)return;'
+                'btn.addEventListener("click",async function(){'
+                'var status=document.getElementById("facts-gen-img-status");'
+                'btn.disabled=true;status.textContent="מייצר תמונה — עד 30 שניות...";'
+                'try{'
+                'var r=await fetch("/api/facts/"+btn.dataset.pool+"/"+encodeURIComponent(btn.dataset.id)+"/generate-image",{method:"POST"});'
+                'if(!r.ok){status.textContent="נכשל: "+r.status;btn.disabled=false;return;}'
+                'var j=await r.json();status.textContent="✓ נוצרה תמונה — מרענן";'
+                'setTimeout(function(){location.reload();},400);'
+                '}catch(e){status.textContent="שגיאה: "+e.message;btn.disabled=false;}'
+                '});'
+                '})();'
+                '</script>'
+            )
         # Mirror the runtime caption preface so the preview matches what the
         # bot actually sends. Loaded from settings.yaml:copy.facts.preface_*.
         from bot.utils.copy import load_copy as _load_copy_preface
@@ -9412,7 +9523,7 @@ async def planner_suggestion_preview(request: Request, db: Database = Depends(ge
         text_html = html.escape(str(item.get("text_he") or "")).replace(chr(10), "<br>")
         source = html.escape(str(item.get("source") or ""))
         source_url = html.escape(str(item.get("source_url") or ""))
-        body = image_block + preface_html + f'<div class="post-text">{text_html}</div><div class="source">מקור: {source}<br><a href="{source_url}" target="_blank" rel="noopener">{source_url}</a></div>'
+        body = image_block + gen_button_html + preface_html + f'<div class="post-text">{text_html}</div><div class="source">מקור: {source}<br><a href="{source_url}" target="_blank" rel="noopener">{source_url}</a></div>'
     elif kind == "emoji_puzzle":
         media = [str(x).strip() for x in qp.getlist("media") if str(x).strip()]
         aliases = []
