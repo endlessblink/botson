@@ -13,6 +13,7 @@ import logging
 import re
 
 from .config import load_yaml
+from .time_context import HEBREW_DAY_NAMES, hebrew_day_name
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +66,44 @@ def has_hebrew(text: str) -> bool:
     return any("\u0590" <= ch <= "\u05ff" for ch in text or "")
 
 
+# Layer 2 day-anchor validator. We pin the patterns where a Hebrew day
+# name appears as a *claim about today* (vs. neutral mention). Catches
+# the 2026-05-10 regression where the LLM ignored the prompt anchor and
+# generated "בוקר של שבת" on a Sunday row.
+_DAY_ALT = "|".join(HEBREW_DAY_NAMES)
+_DAY_PATTERNS_AS_TODAY = (
+    re.compile(rf"\bיום\s+({_DAY_ALT})\b"),
+    re.compile(rf"\b(?:בוקר|ערב|צהריים|לילה)\s+של\s+({_DAY_ALT})\b"),
+    re.compile(rf"\b({_DAY_ALT})\s+(?:שמח|טוב|שלום)\b"),
+)
+
+
+def day_anchor_rejection(text: str, scheduled_date: str | None) -> str | None:
+    """Reject text that names a Hebrew day-of-week different from the
+    scheduled day. Returns a rejection reason or None."""
+    if not scheduled_date:
+        return None
+    expected = hebrew_day_name(scheduled_date)
+    if not expected:
+        return None
+    for pattern in _DAY_PATTERNS_AS_TODAY:
+        for match in pattern.finditer(text):
+            named = match.group(1)
+            if named and named != expected:
+                return (
+                    f"wrong day-of-week: text claims {named!r} "
+                    f"but scheduled day is {expected!r} ({scheduled_date})"
+                )
+    return None
+
+
 def freshness_rejection(
     text: str,
     *,
     avoid_texts: set[str] | None = None,
     source_examples: set[str] | None = None,
     allow_internal: bool = False,
+    scheduled_date: str | None = None,
 ) -> str | None:
     """Return a rejection reason, or None when the text is safe to store/send."""
     raw = (text or "").strip()
@@ -100,6 +133,9 @@ def freshness_rejection(
             or example_norm in normalized
         ):
             return "copied static example"
+    day_reason = day_anchor_rejection(raw, scheduled_date)
+    if day_reason:
+        return day_reason
     return None
 
 

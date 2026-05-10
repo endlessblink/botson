@@ -228,6 +228,7 @@ async def _generate_fresh_text(
             normalized,
             avoid_texts=avoid | {r.split(": ", 1)[-1] for r in rejections if ": " in r},
             source_examples=sources,
+            scheduled_date=scheduled_date,
         )
         if rejection:
             rejections.append(f"attempt {attempt + 1}: {rejection} (text={normalized[:80]!r})")
