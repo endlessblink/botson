@@ -184,7 +184,9 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
-            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+            # Use next week so this test is not dependent on the wall clock
+            # (week_offset=0 skips slots whose times have already passed today).
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=1)
 
         after = await self._scheduled_count(db)
         await db.close()

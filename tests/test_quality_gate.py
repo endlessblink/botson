@@ -20,6 +20,7 @@ import unittest
 from unittest.mock import patch, AsyncMock
 
 from bot.scheduler import materializer
+from bot.utils.freshness import freshness_rejection
 
 
 def _wrap(text: str) -> str:
@@ -147,6 +148,20 @@ class QualityGateEmptyResponsesCountAsCandidates(unittest.IsolatedAsyncioTestCas
 
         self.assertEqual(out, _GOOD_TEXTS[0])
         self.assertEqual(idx["i"], 3)
+
+
+class HermesLearnedFragmentsReachRuntimeGate(unittest.TestCase):
+    def test_scheduler_feedback_fragments_are_hard_rejected(self):
+        cases = (
+            "בוקר טוב 🌞 רביעי — היום הזה עוד לא הוחלט. מה הדבר הכי שווה שאתם מכניסים אליו?",
+            "רביעי בלילה — הגענו לאמצע השבוע. מה שיניתם בו ממה שתכננתם ביום ראשון?",
+            "שישי בבוקר — הפעם יש לכם רשות מלאה לעשות בדיוק מה שבא לכם. מה זה?",
+            "ערב שישי בבית, בלי תוכניות גדולות — ניצחון או ויתור?",
+            "שבת בלילה — מה הרגע שהפסקתם לעשות דברים והחלטתם שממנו זה הדבר?",
+        )
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertIsNotNone(freshness_rejection(text))
 
 
 if __name__ == "__main__":

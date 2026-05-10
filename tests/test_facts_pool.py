@@ -105,6 +105,21 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                 for phrase in banned_shallow_phrases:
                     self.assertNotIn(phrase, text)
 
+    def test_facts_hebrew_rejects_known_bad_wording(self):
+        banned_fragments = (
+            "אישתו",
+            "שם השם המפורש",
+            "המאות ה-9-10",
+            "כדי לעוף ממנו",
+            "שדת לידה",
+        )
+        for pool in POOLS:
+            for entry in self.raw.get(pool, []):
+                text = entry.get("text_he", "")
+                with self.subTest(pool=pool, id=entry.get("id")):
+                    for fragment in banned_fragments:
+                        self.assertNotIn(fragment, text)
+
     def test_source_looks_like_real_citation(self):
         """A real citation has at least one of: author surname, year (4 digits),
         journal/venue/library name, or URL. Not bulletproof — meant to catch

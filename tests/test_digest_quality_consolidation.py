@@ -84,6 +84,13 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("🕯️ חמישי בלילה — מה הריטואל שסוגר לכם את השבוע?", "concrete_failure_generic_ritual"),
             ("🍿 סרט שכולם חושבים שזה דאגבר מסוים, ומגלים שזה משהו אחר לגמרי — מי חטף פנים כזה בערב שישי?", "concrete_failure_bad_hebrew"),
             ("🍿 סרט שכולם חושבים שזה ז'אנר מסוים, ומגלים שזה משהו אחר לגמרי — מי מוסיף פנים כזה בערב שישי?", "concrete_failure_abstract_movie_bait"),
+            ("🕯️ ערב שישי אחרי שבוע — מה הנושא הפוליטי שהכי עלה בראש השולחן השבוע, ולא הגעתם להסכמה?", "concrete_failure_generic_politics_report"),
+            ("☀️ שישי בבוקר — הפעם יש לכם רשות מלאה לעשות בדיוק מה שבא לכם. מה זה?", "concrete_failure_generic_permission_fantasy"),
+            ("🕯️ ערב שישי בבית, בלי תוכניות גדולות — ניצחון או ויתור?", "concrete_failure_generic_stay_home_judgment"),
+            ("🌙 שבת בלילה — מה הרגע שהפסקתם לעשות דברים והחלטתם שממנו זה הדבר?", "concrete_failure_broken_hebrew"),
+            ("🐾 מה החיה הכי חמודה שנתקלתם בה בשבוע האחרון — בחיים האמיתיים, לא ברשת?", "concrete_failure_cutesy_no_payoff"),
+            ("🌙 ערב שישי. מה עדיין זוהר אצלכם מהיום?", "concrete_failure_vague_poetic_evening"),
+            ("🎨 מה יצאתם ליצור הכי ספונטני — בלי תכנון, בלי שידעתם שיוצא מזה משהו?", "concrete_failure_generic_art_bad_hebrew"),
         ]
         for text, expected in cases:
             with self.subTest(text=text):
