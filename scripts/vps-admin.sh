@@ -17,6 +17,12 @@
 #   routing               Read-only dump of bot_message_routing — which handler posts
 #                         to which topic. Editable from the dashboard, not via this
 #                         script.
+#   verify-topic <id> <category_key> <verified_name>
+#                         Register a forum topic as operator-verified so safe_send
+#                         will post into it. Mirrors the dashboard "send dot" +
+#                         confirm flow without needing a session cookie. Calls
+#                         Database.upsert_forum_topic + upsert_verified_forum_topic
+#                         (the same path the dashboard uses).
 #
 # Routine ops live here so the agent can be allowlisted to call this script
 # without granting blanket SSH-write privileges. Dangerous logic is reviewed
@@ -180,6 +186,58 @@ cmd_routing() {
        ORDER BY handler"
 }
 
+cmd_verify_topic() {
+  local topic_id="${1:-}" category="${2:-}" name="${3:-}"
+  if [ -z "$topic_id" ] || [ -z "$category" ] || [ -z "$name" ]; then
+    echo "usage: vps-admin.sh verify-topic <topic_id> <category_key> <verified_name>" >&2
+    echo "       e.g. verify-topic 4502 music 'חדר מוסיקה'" >&2
+    exit 2
+  fi
+  case "$topic_id" in
+    ''|*[!0-9]*) echo "topic_id must be an integer, got: $topic_id" >&2; exit 2 ;;
+  esac
+  case "$category" in
+    ''|*[!a-z_]*) echo "category_key must be lowercase letters/underscores only, got: $category" >&2; exit 2 ;;
+  esac
+  echo "=== vps-admin.sh verify-topic @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo "topic_id=$topic_id  category=$category  name=$name"
+  echo
+
+  # Run the upsert as the botson user so DB ownership stays consistent
+  # (data/bot.db is botson:botson). Pass the Hebrew name via env to avoid
+  # shell-quoting issues.
+  cd /opt/robotnik
+  TOPIC_ID="$topic_id" CATEGORY="$category" VNAME="$name" \
+    sudo -u botson env "TOPIC_ID=$topic_id" "CATEGORY=$category" "VNAME=$name" \
+    .venv/bin/python -c '
+import asyncio, os
+from bot.database.db import Database
+
+async def main():
+    db = Database("/opt/robotnik/data/bot.db")
+    await db.init()
+    tid = int(os.environ["TOPIC_ID"])
+    cat = os.environ["CATEGORY"]
+    name = os.environ["VNAME"]
+    await db.upsert_forum_topic(tid, name)
+    await db.upsert_verified_forum_topic(
+        topic_id=tid,
+        verified_name=name,
+        category_key=cat,
+        verification_source="operator-supplied via vps-admin.sh verify-topic",
+    )
+    await db.close()
+    print(f"verified: topic_id={tid}, category_key={cat}, verified_name={name}")
+
+asyncio.run(main())
+'
+  echo
+  echo "--- post-write state ---"
+  _require_sqlite3
+  sqlite3 -readonly "$DB_PATH" -header -column \
+    "SELECT topic_id, category_key, verified_name FROM verified_forum_topics WHERE category_key = '$category'"
+}
+
 main() {
   local sub="${1:-}"
   shift || true
@@ -188,8 +246,9 @@ main() {
     restart)  cmd_restart "$@" ;;
     status)   cmd_status "$@" ;;
     logs)     cmd_logs "$@" ;;
-    topics)   cmd_topics "$@" ;;
-    routing)  cmd_routing "$@" ;;
+    topics)        cmd_topics "$@" ;;
+    routing)       cmd_routing "$@" ;;
+    verify-topic)  cmd_verify_topic "$@" ;;
     -h|--help|help|"") usage 0 ;;
     *)
       echo "unknown subcommand: $sub" >&2
