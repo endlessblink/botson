@@ -111,8 +111,6 @@
 | T-101 | — | Handle media assets (gitignore / LFS / commit) | TODO | P3 | — |
 | T-111 | 18 | Trivia: end-to-end real Telegram launch verification | TODO | P1 | — |
 | T-112 | 18 | Trivia: verify drawer stays open on launch after hard-refresh | TODO | P2 | T-111 |
-| T-113 | 19 | Cleanup stale scheduled_messages rows with target_channel="general" | TODO | P2 | — |
-| T-114 | 19 | Handler Routing UI: teaser_topic_ids multi-select on Settings | TODO | P2 | — |
 | T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | DONE | P1 | — |
 | T-116 | 20 | Events: stop overwriting user content with date/time line | DONE | P1 | — |
 | T-117 | 21 | Bulk-cancel future auto-scheduled rows endpoint + dashboard button (purge AI-generated content created before quality-rules wiring) | DONE | P1 | — |
@@ -137,21 +135,48 @@
 | T-107 | 17 | Emoji Night: handler (send/watch/judge/reveal) | DONE | P1 | T-103, T-104, T-106 |
 | T-108 | 17 | Emoji Night: dashboard-driven scheduler (cron from settings) | DONE | P1 | T-105, T-107 |
 | T-109 | 17 | Emoji Night: dashboard /puzzles page + sidebar both blocks | DONE | P1 | T-107 |
-| T-110 | 17 | Emoji Night: cleanup + dry-run in Den | TODO | P2 | T-108, T-109 |
+| T-110 | 17 | Emoji Night 🔧: cleanup + dry-run in Den | TODO | P2 | T-108, T-109 |
+| T-113 | 19 | Cleanup stale scheduled_messages rows 🔧 with target_channel="general" | TODO | P2 | — |
+| T-114 | 19 | Handler Routing UI 🔧: teaser_topic_ids multi-select on Settings | TODO | P2 | — |
+| T-136 | 25 | Phase B reaction tracking 🔧 — MessageReactionUpdated handler + message_engagement table + dashboard badge on /weekplan + /api/engagement/recent | DONE | P1 | — |
+| T-137 | 25 | Slow-chat cadence 🧪 — drop morning/evening/discussion to 3 prompts/week (Sun morning, Mon discussion, Thu evening) | DONE | P1 | — |
+| T-138 | 25 | Welcome DM lurker exit-ramp 🌱 — appended "להיות שקט/ה כאן זו השתתפות" line to single + multi-join templates | DONE | P2 | — |
+| T-139 | 25 | Day-anchor prompt fix 🔧 (Layer 1) — translate ISO date to Hebrew weekday in materializer prompt; shared bot/utils/time_context.py | DONE | P0 | — |
+| T-140 | 25 | Day-anchor output validation 🔧 (Layer 2) — extend freshness_rejection to reject text naming the wrong Hebrew day | DONE | P0 | T-139 |
+| T-141 | 25 | Facts caption preface 🧪 — pool-specific bot-voice line ("🕯️ סיפור מסתורי מבוטסון" / "🔎 ידעתם?") loaded from settings.yaml:copy.facts.preface_* | DONE | P2 | — |
+| T-142 | 25 | Facts preview-image button 🔧 — POST /api/facts/{pool}/{id}/generate-image, kie.ai call, writes image_url back into facts.yaml | DONE | P2 | — |
+| T-143 | 25 | Calendar checker delete-race 🔧 — re-SELECT status before send so dashboard cancels in the dispatch window stop the post | TODO | P1 | — |
+| T-144 | 25 | Phase A onboarding follow-up cadence 🔧 — +24h topic-mention + +72h DM + +7d lurker tag, opt-out per user, dashboard /onboarding admin page | TODO | P2 | T-136 |
+| T-145 | 25 | Layer 3 nightly smoke test 🔧 — periodic real-LLM call against next-week slots, asserts day-anchor + freshness pass | TODO | P3 | T-139, T-140 |
 
 ## Lanes (active queues)
 
-Three parallel work tracks. Tasks in different lanes don't block each other; tasks within a lane run sequentially. Use `grep '🌱'` / `grep '🔧'` / `grep '🧪'` over this file to pull a queue.
+Three parallel work tracks. Tasks in different lanes don't block each other; tasks within a lane run sequentially. Use `grep '🌱'` / `grep '🔧'` / `grep '🧪'` over this file to pull a queue. Lane tags also appear in the summary-table titles above so a `grep '🌱' MASTER_PLAN.md` pulls every relevant row.
 
 ### 🌱 Content lane (curation, no code)
 - **T-133** — Grow content pools (TODO, P1) — facts.yaml + discussions.yaml. Hermes `botson-question-pool` + `hebrew-content-qa` skills.
+- ✅ **T-138** — Welcome DM lurker exit-ramp (DONE 2026-05-10).
 
 ### 🔧 Code lane (Python/template changes, no curation)
+- **T-110** — Emoji Night cleanup + dry-run in Den (TODO, P2).
+- **T-113** — Cleanup stale `target_channel="general"` rows (TODO, P2).
+- **T-114** — Handler Routing UI: teaser_topic_ids multi-select (TODO, P2).
+- **T-143** — Calendar checker delete-race fix (TODO, P1) — re-check row status in dispatch window so dashboard cancels stop the send.
+- **T-144** — Phase A onboarding follow-up cadence (TODO, P2) — depends on T-136 telemetry + opt-out wiring before deploy.
+- **T-145** — Layer 3 nightly smoke test (TODO, P3) — periodic real-LLM call asserting day-anchor + freshness; backlog until T-139/T-140 prove stable.
+- ✅ **T-115** — Trivia hardcoded-string audit (DONE 2026-05-10).
+- ✅ **T-116** — Events title overwrite (DONE 2026-05-10).
 - ✅ **T-135** — Quality gate: generate-3-pick-best (DONE 2026-05-09, materializer only). T-135b (LLM-judge) deferred unless quality stays weak after T-133 lands.
+- ✅ **T-136** — Phase B reaction tracking (DONE 2026-05-10).
+- ✅ **T-139** — Day-anchor prompt fix Layer 1 (DONE 2026-05-10).
+- ✅ **T-140** — Day-anchor output validation Layer 2 (DONE 2026-05-10).
+- ✅ **T-142** — Facts preview-image button (DONE 2026-05-10).
 - *In flight (Phase F + A.1 + A.1.4 + B-partial shipped):* hardcoded-content cleanup. Remaining work tracked in `~/.claude/plans/` history; remaining xfails in `tests/test_no_hardcoded_content.py`: Hebrew-in-utils (Phase B.6), `[internal:*]` migration (Phase B.2), template `selected` gating (Phase C.3), milestone array (Phase A.2.4).
 
 ### 🧪 Hybrid lane (Code + Content together)
 - ✅ **T-134** — Wire `config/question_quality.md` into every prompt path (DONE 2026-05-09). The remaining content-side polish (more positive ✅ examples per discussion category) can roll into T-133.
+- ✅ **T-137** — Slow-chat cadence (DONE 2026-05-10) — config-side decision but informed by external research; cadence may need re-tuning once T-136 reaction telemetry shows which slots resonate.
+- ✅ **T-141** — Facts caption preface (DONE 2026-05-10) — copy lives in `settings.yaml:copy.facts.preface_*`, code reads it via `load_copy`.
 
 ## Detailed Tasks
 
