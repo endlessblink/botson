@@ -173,11 +173,13 @@ levels:
   tiers: []
 schedule:
   discussion_prompt:
+    # Slow-chat shift (2026-05-10): dropped 21:00 second slot — same-day
+    # double prompt was too dense for the active core size; let one
+    # discussion breathe per week.
     days:
     - 1
     times:
     - '18:00'
-    - '21:00'
   daily_activity_digest:
     enabled: true
     days:
@@ -201,9 +203,10 @@ schedule:
     intro_offset_seconds: 10
     wrap_offset_seconds: 20
   evening_prompt:
+    # Slow-chat shift (2026-05-10): trimmed Sun/Tue/Thu → Thu-only.
+    # Pre-weekend reflection slot. Pairs with Sun morning + Mon discussion
+    # for ~3 prompts/week well-spaced through the week.
     days:
-    - 0
-    - 2
     - 4
     time: '21:00'
   free_games:
@@ -224,10 +227,11 @@ schedule:
     days: []
     time: '22:00'
   morning_prompt:
+    # Slow-chat shift (2026-05-10): trimmed Sun/Tue/Thu → Sun-only.
+    # Kicks off the week with one soft prompt instead of three midweek
+    # repeats that diluted each other.
     days:
     - 0
-    - 2
-    - 4
     time: 09:00
   trivia:
     days: []
