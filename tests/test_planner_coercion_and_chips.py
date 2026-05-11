@@ -1060,6 +1060,21 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("הכפתור בהודעה המקורית", prompt)
         self.assertNotIn("הכפתור מופיע מתחת לטקסט", prompt)
 
+    async def test_emoji_warmup_copy_uses_configured_subject_without_llm(self):
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock()) as cli:
+            result = await dashboard_app._generate_activity_copy(
+                "emoji_warmup",
+                game_time="22:00",
+                theme_label="סדרות",
+                puzzle_count=5,
+                min_ready_players=2,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("סדרות", result)
+        self.assertNotIn("סדרות מאוירות", result)
+        cli.assert_not_called()
+
     async def test_warmup_reminder_skipped_when_threshold_met(self):
         """T-126 dispatch: reminder short-circuits to status=skipped when
         trivia_interest count already meets min_ready_players."""

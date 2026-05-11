@@ -58,6 +58,9 @@ copy:
     skip_occupied: "כבר יש טיוטה/פרסום באותו סלוט"
     skip_time_occupied: "כבר יש משהו בשעה הזו"
     skip_default: "דולג"
+  activity_copy:
+    emoji_warmup: "🧩 Emoji Night על {theme_label} מתחיל ב-{game_time}. {puzzle_count} חידות; לחצו 🙋 כדי להיכנס."
+    emoji_warmup_reminder: "תזכורת קצרה: Emoji Night על {theme_label} מתחיל ב-{game_time}. אם אתם בפנים, לחצו 🙋 בהודעה המקורית."
   gamification: {}  # Phase A.2.3 populates level_up template
 
 # LLM behavior. Phase B externalizes prompt rule numerics + model/endpoint.

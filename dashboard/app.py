@@ -1092,6 +1092,19 @@ def _clean_activity_copy(raw: str) -> str | None:
 
 async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
                                   avoid_texts: set[str] | None = None, **ctx) -> str | None:
+    if kind in {"emoji_warmup", "emoji_warmup_reminder"}:
+        from bot.utils.copy import load_copy
+
+        text = load_copy("activity_copy", kind, **ctx).strip()
+        if text.startswith("[copy missing:"):
+            logger.warning("[activity-copy] missing configured copy for %s", kind)
+            return None
+        rejection = freshness_rejection(text, avoid_texts=avoid_texts)
+        if rejection:
+            logger.info("[activity-copy] %s rejected configured copy: %s", kind, rejection)
+            return None
+        return text
+
     is_reminder = bool(ctx.get("is_reminder")) or kind.endswith("_reminder")
     if is_reminder:
         rules = (
