@@ -2711,6 +2711,94 @@ function _aiSuggestRenderEmpty(skipReasons, emptyState) {
         '</div>';
 }
 
+function _aiSuggestParsePoll(s) {
+    if (!s || !s.poll_options_json) return {};
+    if (typeof s.poll_options_json === 'object') return s.poll_options_json || {};
+    try { return JSON.parse(s.poll_options_json || '{}') || {}; }
+    catch (e) { return {}; }
+}
+
+function _aiSuggestStorePoll(s, payload) {
+    s.poll_options_json = JSON.stringify(payload || {});
+}
+
+function _aiSuggestTimeMinutes(value) {
+    var m = /^(\d{2}):(\d{2})$/.exec(String(value || '').slice(0, 5));
+    if (!m) return null;
+    var h = parseInt(m[1], 10);
+    var min = parseInt(m[2], 10);
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+    return h * 60 + min;
+}
+
+function _aiSuggestMinutesTime(value) {
+    value = ((value % 1440) + 1440) % 1440;
+    var h = Math.floor(value / 60);
+    var m = value % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+function _aiSuggestLeadMinutes(gameTime, rowTime) {
+    var game = _aiSuggestTimeMinutes(gameTime);
+    var row = _aiSuggestTimeMinutes(rowTime);
+    if (game == null || row == null) return null;
+    return (game - row + 1440) % 1440;
+}
+
+function _aiSuggestMarker(s) {
+    return _aiSuggestParsePoll(s).warmup_marker || '';
+}
+
+function _aiSuggestTimeControl(s, emoji) {
+    var stamp = escapeHtml(s.date || '') + ' · ';
+    var marker = _aiSuggestMarker(s);
+    if ((s.message_type !== 'trivia_round' && s.message_type !== 'emoji_puzzle') || !marker) {
+        return '<span class="text-[#fafafa] font-medium">' + emoji + ' ' + stamp + escapeHtml(s.time || '') + '</span>';
+    }
+    return '<span class="text-[#fafafa] font-medium inline-flex items-center gap-1">' + emoji + ' ' + stamp +
+        '<input type="time" data-suggest-time-key="' + escapeHtml(s.key) + '" value="' + escapeHtml((s.time || '').slice(0, 5)) + '" class="bg-[#0a0a0a] border border-[#272727] rounded px-1 py-0.5 text-xs text-[#fafafa]" />' +
+        '</span>';
+}
+
+function _aiSuggestRenderSuggestions(listEl) {
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    _aiSuggestState.suggestions.forEach(function(s) {
+        listEl.appendChild(_aiSuggestRenderRow(s));
+    });
+}
+
+function _aiSuggestUpdateActivityTime(key, nextTime) {
+    if (!/^\d{2}:\d{2}$/.test(nextTime || '')) return;
+    _aiSuggestState.suggestions.forEach(function(s) { _aiSuggestIsChecked(s); });
+    var game = _aiSuggestState.suggestions.find(function(s) { return s.key === key; });
+    if (!game) return;
+    var oldTime = (game.time || '').slice(0, 5);
+    var gameMinutes = _aiSuggestTimeMinutes(nextTime);
+    var marker = _aiSuggestMarker(game);
+    if (!marker || gameMinutes == null) return;
+    _aiSuggestState.suggestions.forEach(function(s) {
+        if (_aiSuggestMarker(s) !== marker) return;
+        var payload = _aiSuggestParsePoll(s);
+        if (s.text && oldTime) s.text = String(s.text).split(oldTime).join(nextTime);
+        payload.game_time = nextTime;
+        if (s.key === key) {
+            s.time = nextTime;
+        } else if (s.message_type === 'trivia_warmup_rsvp') {
+            var lead = parseInt(payload.announcement_lead_minutes, 10);
+            if (!Number.isFinite(lead)) lead = _aiSuggestLeadMinutes(oldTime, s.time);
+            if (Number.isFinite(lead)) s.time = _aiSuggestMinutesTime(gameMinutes - lead);
+        } else if (s.message_type === 'warmup_reminder') {
+            var reminderLead = parseInt(payload.reminder_offset_min, 10);
+            if (!Number.isFinite(reminderLead)) reminderLead = _aiSuggestLeadMinutes(oldTime, s.time);
+            if (Number.isFinite(reminderLead)) s.time = _aiSuggestMinutesTime(gameMinutes - reminderLead);
+        }
+        _aiSuggestStorePoll(s, payload);
+    });
+    _aiSuggestRenderSuggestions(document.getElementById('ai-suggest-list'));
+    _aiSuggestUpdateCount();
+}
+
 function _aiSuggestRenderRow(s) {
     var checked = _aiSuggestState.checked[s.key] !== false;
     var emoji = _aiSuggestRowEmoji(s.message_type);
@@ -2726,13 +2814,14 @@ function _aiSuggestRenderRow(s) {
     var card = document.createElement('div');
     card.className = 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3';
     var safeText = (s.text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    var timeControl = _aiSuggestTimeControl(s, emoji);
     card.innerHTML = (
         '<input type="checkbox" data-suggest-key="' + s.key + '" ' +
         (checked ? 'checked' : '') +
         ' class="mt-1 cursor-pointer accent-emerald-500" />' +
         '<div class="flex-1 min-w-0">' +
             '<div class="flex items-center gap-2 text-xs text-[#a1a1aa] mb-1.5 flex-wrap">' +
-                '<span class="text-[#fafafa] font-medium">' + emoji + ' ' + s.date + ' · ' + s.time + '</span>' +
+                timeControl +
                 '<span class="text-[#71717a]">→</span>' +
                 '<span class="text-sky-300">' + topicLabel + '</span>' +
                 '<span class="text-[10px] text-[#52525b]">' + s.message_type + catLabel + rationale + '</span>' +
@@ -2747,6 +2836,12 @@ function _aiSuggestRenderRow(s) {
         _aiSuggestState.checked[s.key] = cb.checked;
         _aiSuggestUpdateCount();
     });
+    var timeInput = card.querySelector('input[data-suggest-time-key]');
+    if (timeInput) {
+        timeInput.addEventListener('change', function() {
+            _aiSuggestUpdateActivityTime(s.key, timeInput.value);
+        });
+    }
     return card;
 }
 
@@ -2790,9 +2885,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
             if (_aiSuggestState.suggestions.length === 0) {
                 listEl.innerHTML = _aiSuggestRenderEmpty(data.skip_reasons || [], data.empty_state || {});
             } else {
-                _aiSuggestState.suggestions.forEach(function(s) {
-                    listEl.appendChild(_aiSuggestRenderRow(s));
-                });
+                _aiSuggestRenderSuggestions(listEl);
             }
         }
         if (statsEl && data.stats_block) {

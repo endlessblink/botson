@@ -2001,6 +2001,19 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("data.empty_state", self.html)
         self.assertNotIn("_aiSuggestSkipLabel", self.html)
 
+    def test_ai_suggest_game_time_editor_updates_linked_rows(self):
+        for fn in (
+            "function _aiSuggestUpdateActivityTime",
+            "function _aiSuggestTimeControl",
+            "function _aiSuggestLeadMinutes",
+        ):
+            with self.subTest(fn=fn):
+                self.assertIn(fn, self.html)
+        self.assertIn('data-suggest-time-key', self.html)
+        self.assertIn('payload.game_time = nextTime', self.html)
+        self.assertIn("s.message_type === 'trivia_warmup_rsvp'", self.html)
+        self.assertIn("s.message_type === 'warmup_reminder'", self.html)
+
     def test_approve_reads_live_checkbox_state(self):
         approve_start = self.html.index("async function aiSuggestApprove()")
         block = self.html[approve_start:approve_start + 700]
