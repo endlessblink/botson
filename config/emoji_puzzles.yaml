@@ -328,3 +328,168 @@ puzzles:
       - "ווטסון"
     difficulty: 2
     media_type: series
+
+  - emoji_prompt: "🍄👨‍🔧🐢"
+    answer_he: "סופר מריו"
+    answer_en: "Super Mario"
+    aliases:
+      - "super mario"
+      - "mario"
+      - "מריו"
+      - "האחים מריו"
+    difficulty: 1
+    media_type: game
+
+  - emoji_prompt: "🗡️🛡️🌿"
+    answer_he: "זלדה"
+    answer_en: "The Legend of Zelda"
+    aliases:
+      - "zelda"
+      - "legend of zelda"
+      - "לג'נד אוף זלדה"
+      - "לינק"
+    difficulty: 2
+    media_type: game
+
+  - emoji_prompt: "🧱⛏️🐷"
+    answer_he: "מיינקראפט"
+    answer_en: "Minecraft"
+    aliases:
+      - "minecraft"
+      - "מיינקראפט"
+      - "קריפר"
+      - "בלוקים"
+    difficulty: 1
+    media_type: game
+
+  - emoji_prompt: "🔫🟠🔵"
+    answer_he: "פורטל"
+    answer_en: "Portal"
+    aliases:
+      - "portal"
+      - "פורטל"
+      - "גלדוס"
+      - "עוגה היא שקר"
+    difficulty: 2
+    media_type: game
+
+  - emoji_prompt: "🏎️🍌🌈"
+    answer_he: "מריו קארט"
+    answer_en: "Mario Kart"
+    aliases:
+      - "mario kart"
+      - "מריו קארט"
+      - "מירוץ מריו"
+      - "קשת בענן"
+    difficulty: 1
+    media_type: game
+
+  - emoji_prompt: "🎸👅⚡"
+    answer_he: "קיס"
+    answer_en: "Kiss"
+    aliases:
+      - "kiss"
+      - "קיס"
+      - "להקת קיס"
+      - "ג'ין סימונס"
+    difficulty: 2
+    media_type: music
+
+  - emoji_prompt: "👑🎤💜"
+    answer_he: "פרינס"
+    answer_en: "Prince"
+    aliases:
+      - "prince"
+      - "פרינס"
+      - "purple rain"
+      - "גשם סגול"
+    difficulty: 2
+    media_type: music
+
+  - emoji_prompt: "🌙🧱🌈"
+    answer_he: "הצד האפל של הירח"
+    answer_en: "The Dark Side of the Moon"
+    aliases:
+      - "dark side of the moon"
+      - "pink floyd"
+      - "פינק פלויד"
+      - "הצד האפל"
+    difficulty: 2
+    media_type: music
+
+  - emoji_prompt: "👶💵🏊"
+    answer_he: "נוורמיינד"
+    answer_en: "Nevermind"
+    aliases:
+      - "nevermind"
+      - "nirvana"
+      - "נירוונה"
+      - "תינוק בבריכה"
+    difficulty: 2
+    media_type: music
+
+  - emoji_prompt: "👑🎺🎹"
+    answer_he: "קווין"
+    answer_en: "Queen"
+    aliases:
+      - "queen"
+      - "קווין"
+      - "פרדי מרקורי"
+      - "bohemian rhapsody"
+    difficulty: 1
+    media_type: music
+
+  - emoji_prompt: "🧙‍♂️💍📚"
+    answer_he: "שר הטבעות"
+    answer_en: "The Lord of the Rings"
+    aliases:
+      - "lord of the rings"
+      - "שר הטבעות"
+      - "טולקין"
+      - "פרודו"
+    difficulty: 1
+    media_type: book
+
+  - emoji_prompt: "🧙‍♂️⚡📖"
+    answer_he: "הארי פוטר"
+    answer_en: "Harry Potter"
+    aliases:
+      - "harry potter"
+      - "הארי פוטר"
+      - "הוגוורטס"
+      - "ג'יי קיי רולינג"
+    difficulty: 1
+    media_type: book
+
+  - emoji_prompt: "🐳🚢📘"
+    answer_he: "מובי דיק"
+    answer_en: "Moby-Dick"
+    aliases:
+      - "moby dick"
+      - "מובי דיק"
+      - "הלווייתן הלבן"
+      - "אחאב"
+    difficulty: 3
+    media_type: book
+
+  - emoji_prompt: "👁️🏛️📕"
+    answer_he: "1984"
+    answer_en: "Nineteen Eighty-Four"
+    aliases:
+      - "1984"
+      - "אורוול"
+      - "האח הגדול"
+      - "ג'ורג' אורוול"
+    difficulty: 2
+    media_type: book
+
+  - emoji_prompt: "🦊🌹🌍"
+    answer_he: "הנסיך הקטן"
+    answer_en: "The Little Prince"
+    aliases:
+      - "little prince"
+      - "הנסיך הקטן"
+      - "השועל והשושנה"
+      - "אכזופרי"
+    difficulty: 1
+    media_type: book

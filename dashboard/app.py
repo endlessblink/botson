@@ -4795,7 +4795,7 @@ async def _ai_suggest_calendar(
             configured = await _emoji_media_types_from_pool()
         configured = ["series" if x == "tv" else x for x in configured]
         configured = list(dict.fromkeys(configured))
-        labels = {"movie": "סרטים", "series": "סדרות", "tv": "סדרות"}
+        labels = {"movie": "סרטים", "series": "סדרות", "tv": "סדרות", "game": "משחקים", "music": "מוזיקה", "book": "ספרים"}
         choices: list[tuple[str, list[str], int, tuple[str, ...]]] = []
         for media in configured:
             pool_n = await _count_emoji_pool([media])
