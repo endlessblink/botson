@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import unittest
 
-from bot.utils.freshness import day_anchor_rejection, freshness_rejection
+from bot.utils.freshness import day_anchor_rejection, freshness_rejection, stale_reasons_for_row
 
 
 # 2026-05-10 is Sunday (יום ראשון), 2026-05-09 is Saturday (יום שבת).
@@ -110,6 +110,15 @@ class FreshnessRejectionIntegratesDayAnchor(unittest.TestCase):
             scheduled_date=SUNDAY,
         )
         self.assertIsNone(reason)
+
+    def test_stale_row_uses_scheduled_date_for_day_anchor(self):
+        reasons = stale_reasons_for_row({
+            "text": "בוקר שני — מה מתחיל היום?",
+            "message_type": "morning",
+            "scheduled_date": SUNDAY,
+        })
+
+        self.assertTrue(any("wrong day-of-week" in reason for reason in reasons))
 
 
 if __name__ == "__main__":

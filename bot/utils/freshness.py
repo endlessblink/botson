@@ -149,5 +149,6 @@ def stale_reasons_for_row(row: dict, *, source_examples: set[str] | None = None)
         text,
         source_examples=source_examples,
         allow_internal=mtype in EXECUTABLE_TYPES,
+        scheduled_date=str(row.get("scheduled_date") or "") or None,
     )
     return [reason] if reason else []
