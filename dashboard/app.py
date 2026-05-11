@@ -4497,6 +4497,20 @@ async def _ai_suggest_calendar(
     seen_skip_reasons: set[tuple[str, str, str, str]] = set()
     generated_activity_texts: set[str] = set()
 
+    from bot.utils.copy import load_copy as _load_copy
+    skip_reason_labels = {
+        "past": _load_copy("ai_populate", "skip_past", default="past"),
+        "past_or_too_soon": _load_copy("ai_populate", "skip_past_or_too_soon", default="past_or_too_soon"),
+        "occupied": _load_copy("ai_populate", "skip_occupied", default="occupied"),
+        "time_occupied": _load_copy("ai_populate", "skip_time_occupied", default="time_occupied"),
+    }
+    skip_default_label = _load_copy("ai_populate", "skip_default", default="skipped")
+    empty_state_copy = {
+        "title": _load_copy("ai_populate", "empty_title", default=""),
+        "subtitle": _load_copy("ai_populate", "empty_subtitle", default=""),
+        "fallback": _load_copy("ai_populate", "empty_fallback", default=""),
+    }
+
     def _add_skip(d_iso: str, t: str, mtype: str, code: str, detail: str = "") -> None:
         key = (d_iso, str(t)[:5], mtype, code)
         if key in seen_skip_reasons:
@@ -4507,6 +4521,7 @@ async def _ai_suggest_calendar(
             "time": str(t)[:5],
             "message_type": mtype,
             "code": code,
+            "label": skip_reason_labels.get(code) or skip_default_label,
             "detail": detail,
         })
 
@@ -5313,6 +5328,7 @@ async def _ai_suggest_calendar(
         "stats_block": stats_block,
         "errors": errors,
         "skip_reasons": skip_reasons,
+        "empty_state": empty_state_copy,
     }
 
 

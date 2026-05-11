@@ -472,8 +472,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         await db.close()
 
         self.assertIn("skip_reasons", result)
+        self.assertIn("empty_state", result)
         self.assertTrue(result["skip_reasons"], result)
         self.assertTrue(any(r.get("code") in {"past", "past_or_too_soon"} for r in result["skip_reasons"]))
+        self.assertTrue(all(r.get("label") for r in result["skip_reasons"]))
 
     async def _scheduled_count(self, db):
         async with db._db.execute("SELECT COUNT(*) FROM scheduled_messages") as cur:
@@ -1996,7 +1998,8 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
     def test_ai_suggest_empty_state_renders_skip_reasons(self):
         self.assertIn("function _aiSuggestRenderEmpty", self.html)
         self.assertIn("data.skip_reasons", self.html)
-        self.assertIn("_aiSuggestSkipLabel", self.html)
+        self.assertIn("data.empty_state", self.html)
+        self.assertNotIn("_aiSuggestSkipLabel", self.html)
 
     def test_approve_reads_live_checkbox_state(self):
         approve_start = self.html.index("async function aiSuggestApprove()")

@@ -2690,19 +2690,11 @@ function _formatApiError(data, fallback) {
     return fallback;
 }
 
-function _aiSuggestSkipLabel(code) {
-    return ({
-        past: 'הזמן כבר עבר',
-        past_or_too_soon: 'הזמן קרוב מדי או כבר עבר',
-        occupied: 'כבר יש טיוטה/פרסום באותו סלוט',
-        time_occupied: 'כבר יש משהו בשעה הזו',
-    })[code] || code || 'דולג';
-}
-
-function _aiSuggestRenderEmpty(skipReasons) {
+function _aiSuggestRenderEmpty(skipReasons, emptyState) {
+    emptyState = emptyState || {};
     var reasons = Array.isArray(skipReasons) ? skipReasons.slice(0, 8) : [];
     if (!reasons.length) {
-        return '<div class="text-center text-[#71717a] py-8">אין הצעות לחלון הזה (כל הסלוטים תפוסים או שאין סוגי פעילות פנויים)</div>';
+        return '<div class="text-center text-[#71717a] py-8">' + escapeHtml(emptyState.fallback || '') + '</div>';
     }
     var rows = reasons.map(function(r) {
         var type = r.message_type || 'slot';
@@ -2710,11 +2702,11 @@ function _aiSuggestRenderEmpty(skipReasons) {
         var detail = r.detail ? ' · ' + r.detail : '';
         return '<li><span class="text-[#a1a1aa]">' + escapeHtml(type) + '</span> ' +
             '<span class="text-[#52525b]">' + escapeHtml(time) + '</span> — ' +
-            escapeHtml(_aiSuggestSkipLabel(r.code)) + escapeHtml(detail) + '</li>';
+            escapeHtml(r.label || r.code || '') + escapeHtml(detail) + '</li>';
     }).join('');
     return '<div class="text-right text-[#a1a1aa] py-6 max-w-2xl mx-auto">' +
-        '<div class="text-sm text-[#d4d4d8] mb-2">לא נמצאו הצעות שאפשר לאשר עכשיו.</div>' +
-        '<div class="text-xs text-[#71717a] mb-3">הסיבות המרכזיות שזוהו:</div>' +
+        '<div class="text-sm text-[#d4d4d8] mb-2">' + escapeHtml(emptyState.title || '') + '</div>' +
+        '<div class="text-xs text-[#71717a] mb-3">' + escapeHtml(emptyState.subtitle || '') + '</div>' +
         '<ul class="text-xs space-y-1 list-disc pr-5">' + rows + '</ul>' +
         '</div>';
 }
@@ -2796,7 +2788,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
         if (listEl) {
             listEl.innerHTML = '';
             if (_aiSuggestState.suggestions.length === 0) {
-                listEl.innerHTML = _aiSuggestRenderEmpty(data.skip_reasons || []);
+                listEl.innerHTML = _aiSuggestRenderEmpty(data.skip_reasons || [], data.empty_state || {});
             } else {
                 _aiSuggestState.suggestions.forEach(function(s) {
                     listEl.appendChild(_aiSuggestRenderRow(s));
