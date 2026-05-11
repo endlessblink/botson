@@ -125,7 +125,7 @@
 | T-130 | 23 | Generic activity_label in trivia_interest poll_options so confirmation text works for any activity (not only trivia) | DONE | P1 | T-128 |
 | T-131 | 23 | Bump warm-up lead time from 35 → 60 min in settings; add warmup_reminder_offset_min: 20 placeholder | DONE | P1 | — |
 | T-132 | 23 | Hardcoded content audit: remove "ישראל" trivia form default, drop "movie/tv" fallbacks in emoji schedule, drop pool-size primary sort key in trivia category selector | DONE | P0 | T-124 |
-| T-133 | 24 | Grow content pools 🌱 — facts.yaml spooky/tidbit ≥40 each, discussions.yaml every category ≥25 (use Hermes botson-question-pool + hebrew-content-qa) | TODO | P1 | — |
+| T-133 | 24 | Grow content pools 🌱 — facts.yaml spooky/tidbit ≥40 each, discussions.yaml every category ≥25 (use Hermes botson-question-pool + hebrew-content-qa) | DONE | P1 | — |
 | T-134 | 24 | Wire question_quality.md 🧪 into every prompt path (build_generation_prompt, _generate_activity_copy, _gen_text, _generate_fresh_text); surface ✅/❌ examples in each | DONE | P1 | — |
 | T-135 | 24 | Quality gate 🔧 — generate 3 candidates, pick first that passes freshness; if all fail raise SkippedActivity (rule-based first; LLM-judge as T-135b if needed) | DONE | P2 | T-134 |
 | T-103 | 17 | Emoji Night: DB schema + helpers (puzzles, rounds) | DONE | P1 | T-002 |
@@ -148,7 +148,7 @@
 | T-143 | 25 | Calendar checker delete-race 🔧 — re-SELECT status before send so dashboard cancels in the dispatch window stop the post | TODO | P1 | — |
 | T-144 | 25 | Phase A onboarding follow-up cadence 🔧 — +24h topic-mention + +72h DM + +7d lurker tag, opt-out per user, dashboard /onboarding admin page | TODO | P2 | T-136 |
 | T-145 | 25 | Layer 3 nightly smoke test 🔧 — periodic real-LLM call against next-week slots, asserts day-anchor + freshness pass | TODO | P3 | T-139, T-140 |
-| T-146 | 25 | Discussion seeds for חדר מוסיקה 🌱 — add `music` category to discussions.yaml (≥25 Hebrew questions). Topic id 4502 verified + settings wired 2026-05-10; only the content half remains. | IN PROGRESS | P2 | — |
+| T-146 | 25 | Discussion seeds for חדר מוסיקה 🌱 — add `music` category to discussions.yaml (≥25 Hebrew questions). Topic id 4502 verified + settings wired 2026-05-10; only the content half remains. | DONE | P2 | — |
 | T-147 | 26 | Planner Populate flex slots 🔧 — config-driven non-game suggestions after fixed slots fail | DONE | P0 | T-123 |
 | T-148 | 26 | Populate skip diagnostics 🔧 — show exact reasons instead of generic empty modal | DONE | P1 | T-147 |
 | T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | TODO | P1 | T-147 |
@@ -159,8 +159,8 @@
 Three parallel work tracks. Tasks in different lanes don't block each other; tasks within a lane run sequentially. Use `grep '🌱'` / `grep '🔧'` / `grep '🧪'` over this file to pull a queue. Lane tags also appear in the summary-table titles above so a `grep '🌱' MASTER_PLAN.md` pulls every relevant row.
 
 ### 🌱 Content lane (curation, no code)
-- **T-133** — Grow content pools (TODO, P1) — facts.yaml + discussions.yaml. Hermes `botson-question-pool` + `hebrew-content-qa` skills.
-- **T-146** — Discussion seeds for חדר מוסיקה (IN PROGRESS, P2). 2026-05-10: topic id 4502 registered in `verified_forum_topics` via `vps-admin.sh verify-topic`, `settings.yaml:topics.discussions.music = 4502` wired. Remaining: write ≥25 Hebrew music discussion questions into `config/discussions.yaml:music` (Hermes `botson-question-pool` + `hebrew-content-qa`). Until those land the materializer skips music — no empty posts.
+- ✅ **T-133** — Grow content pools (DONE 2026-05-11) — facts.yaml `tidbit=46`, `spooky=48`; every discussions category ≥25; guarded by `tests/test_facts_pool.py`.
+- ✅ **T-146** — Discussion seeds for חדר מוסיקה (DONE 2026-05-11) — `config/discussions.yaml:music` now has 25 Hebrew prompts; topic id 4502 was already wired.
 - ✅ **T-138** — Welcome DM lurker exit-ramp (DONE 2026-05-10).
 
 ### 🔧 Code lane (Python/template changes, no curation)
@@ -1300,7 +1300,9 @@ Verification: `python3 -m py_compile dashboard/app.py`, `PYTHONPATH=. uv run pyt
 ---
 
 #### T-133: Grow content pools 🌱
-**Phase:** 24 — Content quality & freshness | **Priority:** P1 | **Status:** TODO | **Deps:** —
+**Phase:** 24 — Content quality & freshness | **Priority:** P1 | **Status:** DONE (2026-05-11) | **Deps:** —
+
+**Shipped 2026-05-11:** Expanded `config/facts.yaml` to `tidbit=46` and `spooky=48`, rebuilt `config/discussions.yaml` so every category has at least 25 Hebrew prompts, and added `music=25` for חדר מוסיקה. `tests/test_facts_pool.py` now enforces minimum pool sizes for facts and discussions.
 
 The mechanical repetition problem (broken dedup) was fixed in Phase A.1 / A.1.4 — facts won't repeat for 60 days, emoji for 30. But pools are too small for dedup to help: 8 spooky + 8 tidbit facts means full cycling within 8 weeks no matter what. Discussion seeds are similarly thin (~10 per category). This task grows the pools so dedup has room to work.
 
