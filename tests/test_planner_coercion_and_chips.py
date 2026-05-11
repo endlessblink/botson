@@ -537,6 +537,25 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created[0]["message_type"], "emoji_puzzle")
         self.assertEqual(db.created[0]["poll_options"], '{"theme_label":"movies"}')
 
+    async def test_ai_suggest_commit_rejects_known_low_quality_text(self):
+        db = FakeCalendarDb()
+        body = {
+            "approved": [{
+                "date": "2099-01-01",
+                "time": "09:00",
+                "message_type": "morning",
+                "topic_id": 4037,
+                "text": "☕ שני בבוקר — קפה ראשון בשקט, או רצים כבר שתתחיל הרעש?",
+                "source": "ai-fill",
+            }]
+        }
+
+        res = await dashboard_app.ai_suggest_commit(FakeCalendarRequest(body), db)
+
+        self.assertEqual(res["inserted"], 0)
+        self.assertEqual(db.created, [])
+        self.assertIn("quality rejected", res["errors"][0])
+
     async def test_ai_suggest_today_token_uses_server_israel_date(self):
         db = Database(":memory:")
         await db.init()

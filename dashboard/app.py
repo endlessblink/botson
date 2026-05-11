@@ -2750,6 +2750,9 @@ def _validate_draft_text(text: str) -> list[str]:
 
 def _reject_bad_planner_text(text: str) -> None:
     failures = _validate_draft_text(text)
+    freshness_failure = freshness_rejection(text)
+    if freshness_failure:
+        failures.append(freshness_failure)
     if failures:
         raise HTTPException(
             status_code=422,
@@ -4628,6 +4631,9 @@ async def _ai_suggest_calendar(
         lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
         text = lines[0] if lines else text
         fails = _validate_draft_text(text)
+        freshness_failure = freshness_rejection(text, scheduled_date=d_iso)
+        if freshness_failure:
+            fails.append(freshness_failure)
         if fails:
             try:
                 retry = await _generate_via_cli(
@@ -4638,15 +4644,25 @@ async def _ai_suggest_calendar(
                 rlines = [ln.strip() for ln in rtext.split("\n") if ln.strip()]
                 rtext = rlines[0] if rlines else rtext
                 rfails = _validate_draft_text(rtext)
+                rfreshness_failure = freshness_rejection(rtext, scheduled_date=d_iso)
+                if rfreshness_failure:
+                    rfails.append(rfreshness_failure)
                 if not rfails:
                     return rtext, []
                 # discussion can fall back to curated pool
                 if field == "discussion" and cat:
                     pool_items = discussions_pool.get(cat) or []
                     if pool_items:
-                        chosen = random.choice(pool_items)
-                        chosen_clean = chosen.strip().replace('"', '').replace("'", "")
-                        return chosen_clean, []  # tagged via source="ai-fill-pool" upstream
+                        shuffled_pool_items = list(pool_items)
+                        random.shuffle(shuffled_pool_items)
+                        for chosen in shuffled_pool_items:
+                            chosen_clean = chosen.strip().replace('"', '').replace("'", "")
+                            chosen_fails = _validate_draft_text(chosen_clean)
+                            chosen_freshness_failure = freshness_rejection(chosen_clean, scheduled_date=d_iso)
+                            if chosen_freshness_failure:
+                                chosen_fails.append(chosen_freshness_failure)
+                            if not chosen_fails:
+                                return chosen_clean, []  # tagged via source="ai-fill-pool" upstream
             except Exception:
                 pass
             return text, fails
@@ -5428,6 +5444,15 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         except ValueError:
             errors.append(f"#{i}: bad date {d}")
             continue
+
+        if mtype in {"morning", "evening", "discussion", "custom"}:
+            failures = _validate_draft_text(text)
+            freshness_failure = freshness_rejection(text, scheduled_date=d)
+            if freshness_failure:
+                failures.append(freshness_failure)
+            if failures:
+                errors.append(f"#{i}: quality rejected ({', '.join(failures)})")
+                continue
 
         source = str(item.get("source") or "ai-fill")
         if not source.startswith("ai-fill"):
