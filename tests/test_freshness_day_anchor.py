@@ -36,6 +36,14 @@ class DayAnchorRejectsWrongDay(unittest.TestCase):
         reason = day_anchor_rejection("ערב של חמישי לפני סוף שבוע", SUNDAY)
         self.assertIsNotNone(reason)
 
+    def test_rejects_boker_day_without_shel(self):
+        reason = day_anchor_rejection("בוקר שבת — משהו שנשאר לסיים?", SUNDAY)
+        self.assertIsNotNone(reason)
+
+    def test_rejects_day_evening_order(self):
+        reason = day_anchor_rejection("שני בערב — מה נתתם לעצמכם?", SUNDAY)
+        self.assertIsNotNone(reason)
+
     def test_rejects_day_specific_greeting_on_wrong_day(self):
         reason = day_anchor_rejection("שבת שלום לכולם", SUNDAY)
         self.assertIsNotNone(reason)
@@ -52,6 +60,12 @@ class DayAnchorAcceptsCorrectDay(unittest.TestCase):
 
     def test_accepts_boker_shel_rishon_on_sunday(self):
         self.assertIsNone(day_anchor_rejection("בוקר של ראשון, מה התחלות?", SUNDAY))
+
+    def test_accepts_boker_rishon_without_shel_on_sunday(self):
+        self.assertIsNone(day_anchor_rejection("בוקר ראשון, מה התחלות?", SUNDAY))
+
+    def test_accepts_rishon_evening_order_on_sunday(self):
+        self.assertIsNone(day_anchor_rejection("ראשון בערב, מה התחלות?", SUNDAY))
 
     def test_accepts_yom_shabat_on_saturday(self):
         self.assertIsNone(day_anchor_rejection("יום שבת רגוע", SATURDAY))

@@ -74,6 +74,8 @@ _DAY_ALT = "|".join(HEBREW_DAY_NAMES)
 _DAY_PATTERNS_AS_TODAY = (
     re.compile(rf"\bיום\s+({_DAY_ALT})\b"),
     re.compile(rf"\b(?:בוקר|ערב|צהריים|לילה)\s+של\s+({_DAY_ALT})\b"),
+    re.compile(rf"\b(?:בוקר|ערב|צהריים|לילה)\s+({_DAY_ALT})\b"),
+    re.compile(rf"\b({_DAY_ALT})\s+(?:בבוקר|בערב|בלילה|בצהריים)\b"),
     re.compile(rf"\b({_DAY_ALT})\s+(?:שמח|טוב|שלום)\b"),
 )
 
