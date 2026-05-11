@@ -2863,19 +2863,33 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
 
     var body = {week_offset: 0};
     if (targetDate) body.target_date = targetDate;
+    var requestBody = JSON.stringify(body);
 
-    try {
+    async function requestSuggestions() {
         var resp = await fetch('/api/weekplan/ai-suggest', {
             method: 'POST',
             signal: _aiSuggestState.controller.signal,
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body),
+            body: requestBody,
         });
         if (!resp.ok) {
             var err = await resp.json().catch(function(){return {};});
             throw new Error(_formatApiError(err, 'HTTP ' + resp.status));
         }
-        var data = await resp.json();
+        return await resp.json();
+    }
+
+    try {
+        var data;
+        try {
+            data = await requestSuggestions();
+        } catch (firstErr) {
+            if (_aiSuggestState.timedOut || (_aiSuggestState.controller && _aiSuggestState.controller.signal.aborted)) {
+                throw firstErr;
+            }
+            await new Promise(function(resolve) { setTimeout(resolve, 1500); });
+            data = await requestSuggestions();
+        }
         _aiSuggestState.suggestions = data.suggestions || [];
         _aiSuggestState.checked = {};
         _aiSuggestState.suggestions.forEach(function(s) { _aiSuggestState.checked[s.key] = true; });
