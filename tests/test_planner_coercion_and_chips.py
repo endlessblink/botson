@@ -477,6 +477,36 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(r.get("code") in {"past", "past_or_too_soon"} for r in result["skip_reasons"]))
         self.assertTrue(all(r.get("label") for r in result["skip_reasons"]))
 
+    async def test_ai_suggest_endpoint_returns_pollable_job(self):
+        db = Database(":memory:")
+        await db.init()
+        dashboard_app._AI_SUGGEST_JOBS.clear()
+        expected = {
+            "window": {"start": "2099-01-01", "end": "2099-01-01", "scope": "day"},
+            "suggestions": [],
+            "stats_block": "",
+            "errors": [],
+            "skip_reasons": [],
+            "empty_state": {},
+        }
+
+        with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value=expected)):
+            started = await dashboard_app.ai_suggest(
+                FakeCalendarRequest({"target_date": "2099-01-01", "week_offset": 0}), db,
+            )
+            for _ in range(10):
+                status = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                if status["status"] == "completed":
+                    break
+                await asyncio.sleep(0.01)
+
+        await db.close()
+        dashboard_app._AI_SUGGEST_JOBS.clear()
+
+        self.assertEqual(started["status"], "pending")
+        self.assertEqual(status["status"], "completed")
+        self.assertEqual(status["result"], expected)
+
     async def _scheduled_count(self, db):
         async with db._db.execute("SELECT COUNT(*) FROM scheduled_messages") as cur:
             return (await cur.fetchone())[0]
@@ -559,26 +589,40 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_today_token_uses_server_israel_date(self):
         db = Database(":memory:")
         await db.init()
+        dashboard_app._AI_SUGGEST_JOBS.clear()
         try:
             with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value={"ok": True})) as suggest:
-                res = await dashboard_app.ai_suggest(FakeCalendarRequest({"target_date": "today"}), db)
+                started = await dashboard_app.ai_suggest(FakeCalendarRequest({"target_date": "today"}), db)
+                for _ in range(10):
+                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                    if res["status"] == "completed":
+                        break
+                    await asyncio.sleep(0.01)
         finally:
             await db.close()
+            dashboard_app._AI_SUGGEST_JOBS.clear()
 
-        self.assertEqual(res, {"ok": True})
+        self.assertEqual(res["result"], {"ok": True})
         called_date = suggest.await_args.kwargs["target_date"]
         self.assertRegex(called_date, r"^\d{4}-\d{2}-\d{2}$")
 
     async def test_ai_suggest_empty_body_uses_defaults(self):
         db = Database(":memory:")
         await db.init()
+        dashboard_app._AI_SUGGEST_JOBS.clear()
         try:
             with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value={"ok": True})) as suggest:
-                res = await dashboard_app.ai_suggest(FakeCalendarRequest(None), db)
+                started = await dashboard_app.ai_suggest(FakeCalendarRequest(None), db)
+                for _ in range(10):
+                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                    if res["status"] == "completed":
+                        break
+                    await asyncio.sleep(0.01)
         finally:
             await db.close()
+            dashboard_app._AI_SUGGEST_JOBS.clear()
 
-        self.assertEqual(res, {"ok": True})
+        self.assertEqual(res["result"], {"ok": True})
         self.assertIsNone(suggest.await_args.kwargs["target_date"])
         self.assertEqual(suggest.await_args.kwargs["week_offset"], 0)
 
@@ -1998,6 +2042,14 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn(
             "'/api/weekplan/ai-suggest-commit'", self.html,
             "suggest-commit endpoint url missing in JS",
+        )
+        self.assertIn(
+            "'/api/weekplan/ai-suggest/' + encodeURIComponent(startData.job_id)", self.html,
+            "suggest status polling endpoint url missing in JS",
+        )
+        self.assertIn(
+            "statusData.status === 'completed'", self.html,
+            "suggest modal must poll until background generation completes",
         )
 
     def test_trivia_form_defaults_not_hardcoded_to_israel(self):

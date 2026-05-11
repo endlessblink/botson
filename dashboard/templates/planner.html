@@ -2866,30 +2866,52 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
     var requestBody = JSON.stringify(body);
 
     async function requestSuggestions() {
-        var resp = await fetch('/api/weekplan/ai-suggest', {
+        var startResp = await fetch('/api/weekplan/ai-suggest', {
             method: 'POST',
             signal: _aiSuggestState.controller.signal,
             headers: {'Content-Type': 'application/json'},
             body: requestBody,
         });
-        if (!resp.ok) {
-            var err = await resp.json().catch(function(){return {};});
-            throw new Error(_formatApiError(err, 'HTTP ' + resp.status));
+        var startData = await startResp.json().catch(function(){return {};});
+        if (!startResp.ok) {
+            throw new Error(_formatApiError(startData, 'HTTP ' + startResp.status));
         }
-        return await resp.json();
+        if (!startData.job_id) throw new Error('Missing AI suggest job id');
+
+        var consecutivePollErrors = 0;
+        while (true) {
+            await new Promise(function(resolve, reject) {
+                var delay = setTimeout(resolve, 2000);
+                _aiSuggestState.controller.signal.addEventListener('abort', function() {
+                    clearTimeout(delay);
+                    reject(new DOMException('Aborted', 'AbortError'));
+                }, {once: true});
+            });
+            var statusResp;
+            try {
+                statusResp = await fetch('/api/weekplan/ai-suggest/' + encodeURIComponent(startData.job_id), {
+                    method: 'GET',
+                    signal: _aiSuggestState.controller.signal,
+                });
+            } catch (pollErr) {
+                consecutivePollErrors += 1;
+                if (consecutivePollErrors <= 3) continue;
+                throw pollErr;
+            }
+            var statusData = await statusResp.json().catch(function(){return {};});
+            if (!statusResp.ok) {
+                consecutivePollErrors += 1;
+                if (consecutivePollErrors <= 3 && statusResp.status >= 500) continue;
+                throw new Error(_formatApiError(statusData, 'HTTP ' + statusResp.status));
+            }
+            consecutivePollErrors = 0;
+            if (statusData.status === 'completed') return statusData.result || {};
+            if (statusData.status === 'failed') throw new Error(statusData.error || 'AI suggest failed');
+        }
     }
 
     try {
-        var data;
-        try {
-            data = await requestSuggestions();
-        } catch (firstErr) {
-            if (_aiSuggestState.timedOut || (_aiSuggestState.controller && _aiSuggestState.controller.signal.aborted)) {
-                throw firstErr;
-            }
-            await new Promise(function(resolve) { setTimeout(resolve, 1500); });
-            data = await requestSuggestions();
-        }
+        var data = await requestSuggestions();
         _aiSuggestState.suggestions = data.suggestions || [];
         _aiSuggestState.checked = {};
         _aiSuggestState.suggestions.forEach(function(s) { _aiSuggestState.checked[s.key] = true; });

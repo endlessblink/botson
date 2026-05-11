@@ -151,6 +151,15 @@ DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "botson-admin")
 
 # DB instance (initialized on startup)
 _db: Database | None = None
+_AI_SUGGEST_JOBS: dict[str, dict] = {}
+_AI_SUGGEST_JOB_TTL_SECONDS = 15 * 60
+
+
+def _cleanup_ai_suggest_jobs() -> None:
+    cutoff = time.monotonic() - _AI_SUGGEST_JOB_TTL_SECONDS
+    stale = [job_id for job_id, job in _AI_SUGGEST_JOBS.items() if float(job.get("created_at") or 0) < cutoff]
+    for job_id in stale:
+        _AI_SUGGEST_JOBS.pop(job_id, None)
 
 
 @app.on_event("startup")
@@ -5362,15 +5371,7 @@ async def _read_json_object_body(request: Request, log_prefix: str) -> dict:
     return data
 
 
-@app.post("/api/weekplan/ai-suggest")
-async def ai_suggest(request: Request, db: Database = Depends(get_db)):
-    """Build calendar-fill suggestions for review. Does NOT touch the DB.
-
-    Body: {target_date?: 'YYYY-MM-DD', week_offset?: int}
-    """
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
-    data = await _read_json_object_body(request, "weekplan.ai-suggest")
+def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int]:
     try:
         week_offset = int(data.get("week_offset", 0))
     except (TypeError, ValueError):
@@ -5385,13 +5386,60 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
         except ValueError:
             logger.warning("[weekplan.ai-suggest] invalid target_date=%r body=%s", target_date, data)
             raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
+    return target_date, week_offset
+
+
+async def _run_ai_suggest_job(job_id: str, db: Database, target_date: str | None, week_offset: int) -> None:
+    job = _AI_SUGGEST_JOBS.get(job_id)
+    if not job:
+        return
+    job["status"] = "running"
     try:
-        return await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
-    except HTTPException:
-        raise
+        result = await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
+        job.update({"status": "completed", "result": result, "completed_at": time.monotonic()})
     except Exception as e:
-        logger.exception("[weekplan.ai-suggest] failed target_date=%r week_offset=%s", target_date, week_offset)
-        raise HTTPException(status_code=500, detail=f"AI suggest failed: {type(e).__name__}: {e}")
+        logger.exception("[weekplan.ai-suggest] job failed id=%s target_date=%r week_offset=%s", job_id, target_date, week_offset)
+        job.update({"status": "failed", "error": f"AI suggest failed: {type(e).__name__}: {e}", "completed_at": time.monotonic()})
+
+
+@app.post("/api/weekplan/ai-suggest")
+async def ai_suggest(request: Request, db: Database = Depends(get_db)):
+    """Build calendar-fill suggestions for review. Does NOT touch the DB.
+
+    Body: {target_date?: 'YYYY-MM-DD', week_offset?: int}
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await _read_json_object_body(request, "weekplan.ai-suggest")
+    target_date, week_offset = _parse_ai_suggest_request(data)
+    _cleanup_ai_suggest_jobs()
+    job_id = secrets.token_urlsafe(18)
+    _AI_SUGGEST_JOBS[job_id] = {
+        "id": job_id,
+        "status": "pending",
+        "created_at": time.monotonic(),
+        "target_date": target_date,
+        "week_offset": week_offset,
+    }
+    asyncio.create_task(_run_ai_suggest_job(job_id, db, target_date, week_offset))
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/api/weekplan/ai-suggest/{job_id}")
+async def ai_suggest_status(job_id: str, request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    _cleanup_ai_suggest_jobs()
+    job = _AI_SUGGEST_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="AI suggest job not found")
+    status = str(job.get("status") or "pending")
+    response = {"job_id": job_id, "status": status}
+    if status == "completed":
+        response["result"] = job.get("result") or {}
+    elif status == "failed":
+        response["error"] = job.get("error") or "AI suggest failed"
+    return response
 
 
 @app.post("/api/weekplan/ai-suggest-commit")
