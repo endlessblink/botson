@@ -4735,6 +4735,23 @@ async def _ai_suggest_calendar(
             sig = _emoji_media_signature(payload.get("media_types") or [])
             if sig and sig not in out:
                 out.append(sig)
+        try:
+            async with db._db.execute(
+                """SELECT p.media_type
+                   FROM emoji_puzzle_rounds r
+                   JOIN emoji_puzzles p ON p.id = r.puzzle_id
+                   WHERE p.media_type IS NOT NULL AND p.media_type != ''
+                   ORDER BY r.sent_at DESC, r.id DESC
+                   LIMIT ?""",
+                (limit,),
+            ) as cur:
+                round_rows = await cur.fetchall()
+        except Exception:
+            round_rows = []
+        for row in round_rows:
+            sig = _emoji_media_signature([str(row[0] or "")])
+            if sig and sig not in out:
+                out.append(sig)
         return out
 
     async def _count_emoji_pool(media_types: list[str]) -> int:

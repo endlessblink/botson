@@ -336,6 +336,41 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(emoji_payload["theme_label"], "סדרות")
         self.assertEqual(emoji_payload["media_types"], ["series"])
 
+    async def test_ai_suggest_calendar_rotates_emoji_subject_away_from_recent_rounds(self):
+        db = Database(":memory:")
+        await db.init()
+        movie_id = None
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                async with db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                ) as cursor:
+                    if media_type == "movie" and movie_id is None:
+                        movie_id = cursor.lastrowid
+        await db._db.execute(
+            """INSERT INTO emoji_puzzle_rounds
+               (puzzle_id, chat_id, message_id, sent_at, status, award_points)
+               VALUES (?, ?, ?, datetime('now'), 'solved', 5)""",
+            (movie_id, -100, 123),
+        )
+        await db._db.commit()
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+
+        await db.close()
+        emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
+        self.assertTrue(emoji_rows)
+        emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
+        self.assertEqual(emoji_payload["theme_label"], "סדרות")
+        self.assertEqual(emoji_payload["media_types"], ["series"])
+
     async def test_ai_suggest_calendar_rotates_trivia_subject_away_from_recent(self):
         db = Database(":memory:")
         await db.init()
