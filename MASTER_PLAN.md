@@ -154,6 +154,16 @@
 | T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | TODO | P1 | T-147 |
 | T-150 | 26 | Populate flex regression suite 🧪 — evening fallback, custom commit, no hardcoding | TODO | P1 | T-147, T-148, T-149 |
 | T-151 | 26 | Long-form facts pass 🌱 — expand fact previews into richer 5–8 line mini-stories, starting with spooky | DONE | P2 | T-133 |
+| T-152 | 27 | E2E lane: control-surface action inventory | TODO | P0 | — |
+| T-153 | 27 | E2E lane: scheduled-card persistence invariant | TODO | P0 | T-152 |
+| T-154 | 27 | E2E lane: create drawer state isolation | TODO | P0 | T-152 |
+| T-155 | 27 | E2E lane: review-draft lifecycle proof | TODO | P0 | T-152 |
+| T-156 | 27 | E2E lane: scheduler due-row lifecycle proof | TODO | P0 | T-152 |
+| T-157 | 27 | E2E lane: send-now vs scheduler parity | TODO | P1 | T-156 |
+| T-158 | 27 | E2E lane: failure visibility diagnostics | TODO | P1 | T-153, T-156 |
+| T-159 | 27 | E2E lane: Sherlocks Den smoke harness | TODO | P1 | T-153..T-158 |
+| T-160 | 27 | E2E lane: one-command local/CI gate | TODO | P1 | T-153..T-159 |
+| T-161 | 27 | E2E lane: audit remaining dashboards | TODO | P2 | T-152 |
 
 ## Lanes (active queues)
 
@@ -190,7 +200,212 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 - ✅ **T-137** — Slow-chat cadence (DONE 2026-05-10) — config-side decision but informed by external research; cadence may need re-tuning once T-136 reaction telemetry shows which slots resonate.
 - ✅ **T-141** — Facts caption preface (DONE 2026-05-10) — copy lives in `settings.yaml:copy.facts.preface_*`, code reads it via `load_copy`.
 
+### 🧪 E2E trust lane (control-surface reliability)
+- **T-152** — Control-surface action inventory (TODO, P0) — map every dashboard action to API, DB state, worker owner, external side effect, visible result, and unknowns.
+- **T-153** — Scheduled-card persistence invariant (TODO, P0) — prove every `יישלח` calendar card has one persisted `scheduled_messages.status='scheduled'` row and preview/draft/scheduled are visually distinct.
+- **T-154** — Create drawer state isolation (TODO, P0) — browser E2E for type switches, generated text, cover/poll/event fields, and preview rows.
+- **T-155** — Review-draft lifecycle proof (TODO, P0) — draft -> edit -> schedule -> send-now -> delete paths with DB assertions and visible diagnostics.
+- **T-156** — Scheduler due-row lifecycle proof (TODO, P0) — due scheduled row -> mocked Telegram send -> sent/failed/skipped terminal state -> dashboard visibility.
+- **T-157** — Send-now vs scheduler parity (TODO, P1) — contract tests for shared behavior and documented differences across event/poll/trivia/emoji/facts/weekly rows.
+- **T-158** — Failure visibility diagnostics (TODO, P1) — failed/skipped/stale/missing-topic cases must be visible in calendar and diagnostics endpoints without log reading.
+- **T-159** — Sherlocks Den smoke harness (TODO, P1) — production-safe dry-run that sends only to Den, records row ID/status/message ID, and never touches main chat.
+- **T-160** — One-command local/CI gate (TODO, P1) — stable command that runs the trust E2E suite, browser smoke, guardian, and scheduler contracts.
+- **T-161** — Audit remaining dashboards (TODO, P2) — repeat `control-surface-audit` for puzzles/trivia, settings/config, moderation, content pools, and onboarding.
+
 ## Detailed Tasks
+
+---
+
+#### T-152: E2E lane: control-surface action inventory
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** —
+
+Create the authoritative action inventory for Botson's dashboard/control surfaces. This is the root map for discovering unknown holes before adding more tests.
+
+Scope:
+- Inventory planner, weekplan, prompt modal, review-drafts modal, puzzles, trivia, settings/routing, moderation, facts/pools, and send-now controls.
+- For each action, map: UI entry -> JS handler -> API endpoint -> DB mutation -> worker/scheduler owner -> external side effect -> terminal state -> visible feedback.
+- Mark every unknown explicitly. Do not assume a flow works because a function exists.
+- Classify each action's lifecycle states: preview, draft, scheduled, running, sent/succeeded, failed, skipped, cancelled, unknown.
+
+Deliverable:
+- `docs/control-surface-action-inventory.md` with one table per dashboard area.
+
+Verification:
+- Table covers every `/api/calendar`, `/api/weekplan`, `/api/trivia`, `/api/pool`, `/api/bot`, and `/api/diagnostics` route used by dashboard JS.
+- Every row has either a known test reference or an explicit missing-test note.
+
+---
+
+#### T-153: E2E lane: scheduled-card persistence invariant
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+
+Prove the planner calendar cannot show a sendable card unless the backend has durable scheduled state.
+
+Scope:
+- Add a DB-backed test for `/api/calendar` asserting every event with `extendedProps.willSend=true` maps to exactly one `scheduled_messages` row with `status='scheduled'`.
+- Add a browser/HTML assertion that preview, draft, scheduled, sent, failed, and skipped cards have distinct labels/tooltips.
+- Ensure preview rows, if reintroduced later, always carry `willSend=false` and `diagnosticLabel='תצוגה בלבד'`.
+
+Regression target:
+- A visible card must never imply it will send when no persisted scheduled row exists.
+
+Verification:
+- `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`
+- `PYTHONPATH=. uv run pytest tests/test_planner_visual.py -q`
+
+---
+
+#### T-154: E2E lane: create drawer state isolation
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+
+Convert the create-drawer trust fixes into real browser E2E coverage.
+
+Scope:
+- Make `tests/test_planner_edit_browser.py` active or replace it with a stable Playwright/pytest browser spec.
+- Test type switches: morning -> event, event -> poll, poll -> morning, custom -> event.
+- Assert generated text, poll options, event fields, cover state, and preview UI do not leak across incompatible types.
+- Assert fake RSVP buttons never render in draft preview; real event RSVP is only tested in dispatch-layer tests.
+
+Regression target:
+- A morning/daily prompt cannot appear as an event preview with RSVP controls.
+
+Verification:
+- Browser test runs headless without unconditional skip.
+- DB bootstrap is isolated with `DB_PATH` temp file.
+
+---
+
+#### T-155: E2E lane: review-draft lifecycle proof
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+
+Prove the review-drafts modal has a reliable lifecycle from generated draft to durable terminal state.
+
+Scope:
+- Seed AI drafts in a temp DB.
+- Browser or route-level E2E: edit text/time/topic -> save -> schedule -> send now -> delete/dismiss.
+- Assert each action mutates the expected DB row and updates visible UI state.
+- Assert dirty-state warnings do not accidentally send unsaved edits.
+- Assert schedule refuses past/too-soon slots unless `force=true` is explicitly confirmed.
+
+Regression target:
+- Draft cards cannot disappear from the modal without a durable state change.
+
+Verification:
+- New focused test file, e.g. `tests/test_planner_review_drafts_e2e.py`.
+- Include at least one negative path: failed schedule/send remains visible with error.
+
+---
+
+#### T-156: E2E lane: scheduler due-row lifecycle proof
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+
+Prove scheduled rows move through the scheduler lifecycle exactly once and always reach a visible terminal state.
+
+Scope:
+- For plain message, poll, event, trivia_round, emoji_puzzle, facts_tidbit, facts_spooky, weekly_roundup, weekly_leaderboard: create due rows in temp DB, run `check_and_send_due_messages` with mocked Telegram/handlers, assert status and message IDs.
+- Add stale-row and missing-routing/topic cases.
+- Assert `sent`, `failed`, and `skipped` appear in `/api/calendar` and `/api/diagnostics/planner-day` with useful details.
+
+Regression target:
+- A due row cannot remain silently `scheduled` after a send attempt unless the worker never ran, which diagnostics must reveal.
+
+Verification:
+- Extend `tests/test_calendar_scheduled_games.py` or create `tests/test_scheduler_lifecycle_e2e.py`.
+
+---
+
+#### T-157: E2E lane: send-now vs scheduler parity
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-156
+
+Make the two dispatch paths intentionally consistent, and document the differences that must remain.
+
+Scope:
+- Compare `/api/calendar/{id}/send-now` via `_send_scheduled_row` against `check_and_send_due_messages` for each executable type.
+- Decide whether event RSVP, emoji media filters, fact pinned IDs, trivia warm-up gate, failed/skipped distinctions, and test-target behavior should be shared or explicitly different.
+- Add tests for every documented difference.
+
+Regression target:
+- A row should not behave differently just because the operator clicked Send Now instead of waiting for the scheduler, unless that difference is documented and tested.
+
+Verification:
+- Contract tests pass and reference the documented behavior table.
+
+---
+
+#### T-158: E2E lane: failure visibility diagnostics
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-153, T-156
+
+Make every failure mode visible from the dashboard without reading logs.
+
+Scope:
+- Calendar cards expose `diagnosticLabel`, `diagnosticDetail`, `errorMessage`, `willSend`, and terminal status.
+- `/api/diagnostics/planner-day` reports due eligibility, stale/past reasons, topic verification, routing, payload shape, and last error.
+- Add dashboard affordance or tooltip/modal for "why won't/wouldn't this send?".
+- Cover failed, skipped, stale-drop, draft, missing group ID, missing topic, invalid poll options, and executable handler failure.
+
+Regression target:
+- Operators must not need SSH/log access to understand why a visible row did or did not send.
+
+Verification:
+- API tests for diagnostics payload.
+- Browser/HTML test for visible diagnostic entry point.
+
+---
+
+#### T-159: E2E lane: Sherlocks Den smoke harness
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158
+
+Create a production-safe dry-run harness that proves the full lane against Sherlocks Den only.
+
+Scope:
+- Use `target_group='test'` or test-only env routing. Never send to main chat.
+- Create one row per safe content type with unique marker text.
+- Exercise schedule and send-now paths where safe.
+- Record scheduled row ID, Telegram message ID/session ID, terminal status, topic, and cleanup status.
+- Include a dry-run mode that prints planned actions without sending.
+
+Regression target:
+- A real-world smoke can prove the dashboard + API + DB + bot integration without risking the main group.
+
+Verification:
+- `PYTHONPATH=. uv run python scripts/e2e_den_smoke.py --dry-run`
+- Explicit approval required before non-dry-run send.
+
+---
+
+#### T-160: E2E lane: one-command local/CI gate
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158, T-159
+
+Bundle the trust suite into one reliable command that can run locally and in CI-like checks.
+
+Scope:
+- Add a script or Make target that runs: scheduler lifecycle tests, planner API tests, planner browser tests, hardcoded-content guardian, and optional Den dry-run.
+- Ensure browser tests skip only when browsers are genuinely unavailable, not because fixtures are WIP.
+- Emit a concise pass/fail summary and point to artifacts/logs on failure.
+
+Regression target:
+- Future dashboard changes cannot bypass the E2E trust lane by only running narrow unit tests.
+
+Verification:
+- Example command: `PYTHONPATH=. uv run python scripts/run_control_surface_e2e.py` or documented equivalent.
+
+---
+
+#### T-161: E2E lane: audit remaining dashboards
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P2 | **Status:** TODO | **Deps:** T-152
+
+Repeat the control-surface audit beyond the planner/scheduler.
+
+Scope:
+- Run `control-surface-audit` separately for puzzles/Emoji Night, trivia live + trivia pool, settings/routing, moderation/spam, content pools/facts, onboarding/welcome, and levels/engagement.
+- For each area, add or link follow-up tasks only when a trust gap has concrete evidence.
+- Do not turn this into generic cleanup. Every new task must name the broken promise and the test/diagnostic needed.
+
+Deliverable:
+- Add sections to `docs/control-surface-action-inventory.md` or split into `docs/control-surface-*.md` if it gets too large.
+
+Verification:
+- Each audited area has an action inventory, lifecycle map, trust gaps, invariants, and test matrix.
 
 ---
 
