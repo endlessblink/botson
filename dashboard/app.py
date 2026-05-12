@@ -6067,11 +6067,11 @@ def _build_digest_cli_prompt() -> str:
     rules_section = f"\n\n{rules_block}\n\n" if rules_block else "\n\n"
 
     return (
-        'אתה העוזר האוטומטי של מנהלי קהילת "אלהוריים וזה" — קהילת צ\'ילדפרי בטלגרם. '
+        'אתה עוזר מנהלי קהילת "אלהוריים וזה" — צ\'ילדפרי בטלגרם. '
         'החזר JSON בלבד לפי הסכמה.'
         + rules_section
-        + """חוקים מחייבים מבצעיים (בנוסף לחוקי האיכות שלמעלה):
-- כבד now_time_il: אל תיצור סלוט שעבר או קרוב פחות מ-5 דקות.
+        + """חוקים מבצעיים:
+- כבד now_time_il: אל תיצור סלוט שעבר או קרוב מ-5 דקות.
 - כבד verified_topic_ids בלבד. אל תנחש topic_id.
 - אל תכפיל מול existing_drafts_today או scheduled_messages_today.
 - מזג אירועים כפולים; reminder_scheduled_time הוא זמן האירוע פחות event_reminder_lead_minutes.
