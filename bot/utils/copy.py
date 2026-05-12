@@ -61,7 +61,7 @@ def default_theme_label() -> str:
     don't carry an explicit `theme_label`. Reads from settings; empty
     when operator unset it (caller decides what to do).
 
-    Was hardcoded as ``"כללי"`` in 6+ sites (B.3 — 2026-05-09).
+    Replaces a previous inline localized literal in multiple sites.
     """
     settings = get_settings() or {}
     return str((settings.get("copy") or {}).get("default_theme_label") or "").strip()
@@ -72,7 +72,7 @@ def default_activity_label() -> str:
     `activity_label` nor `theme_label` is present in the row's
     poll_options. Reads from settings; empty when operator unset it.
 
-    Was hardcoded as ``"המשחק"`` in calendar.py:103 (B.3 — 2026-05-09).
+    Replaces a previous inline localized literal in calendar dispatch.
     """
     settings = get_settings() or {}
     return str((settings.get("copy") or {}).get("default_activity_label") or "").strip()

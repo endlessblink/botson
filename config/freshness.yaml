@@ -88,3 +88,18 @@ generic_fragments:
   - "מה הוא נראה אצלכם"
   - "הכי שני במחלוקת"
   - "שדווקא גרם לכם ללכת לבדוק"
+  - "מתי בדיוק החלטתם שהיום נגמר"
+  - "קפה, מקלחת, סגירת המחשב"
+  - "מה הכי הפתיע אתכם בעצמכם"
+  - "שלב הסינגלות הנוכחי"
+  - "בשעה שהמטבח כבר קר"
+  - "אוכלים שהוא בקרוב צמחי"
+
+# Regex templates for day-of-week claims. `{day_alt}` is replaced at runtime
+# with the configured Hebrew day names from settings.yaml:copy.time_context.
+day_anchor_patterns:
+  - "\\bיום\\s+({day_alt})\\b"
+  - "\\b(?:בוקר|ערב|צהריים|לילה)\\s+של\\s+({day_alt})\\b"
+  - "\\b(?:בוקר|ערב|צהריים|לילה)\\s+({day_alt})\\b"
+  - "\\b({day_alt})\\s+(?:בבוקר|בערב|בלילה|בצהריים)\\b"
+  - "\\b({day_alt})\\s+(?:שמח|טוב|שלום)\\b"

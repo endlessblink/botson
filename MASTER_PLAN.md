@@ -153,12 +153,14 @@
 | T-148 | 26 | Populate skip diagnostics 🔧 — show exact reasons instead of generic empty modal | DONE | P1 | T-147 |
 | T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | TODO | P1 | T-147 |
 | T-150 | 26 | Populate flex regression suite 🧪 — evening fallback, custom commit, no hardcoding | TODO | P1 | T-147, T-148, T-149 |
+| T-151 | 26 | Long-form facts pass 🌱 — expand fact previews into richer 5–8 line mini-stories, starting with spooky | DONE | P2 | T-133 |
 
 ## Lanes (active queues)
 
 Three parallel work tracks. Tasks in different lanes don't block each other; tasks within a lane run sequentially. Use `grep '🌱'` / `grep '🔧'` / `grep '🧪'` over this file to pull a queue. Lane tags also appear in the summary-table titles above so a `grep '🌱' MASTER_PLAN.md` pulls every relevant row.
 
 ### 🌱 Content lane (curation, no code)
+- ✅ **T-151** — Long-form facts pass (DONE 2026-05-11) — `spooky` now has 5–8 lines per entry, `tidbit` has 4–8 lines, guarded by `tests/test_facts_pool.py`.
 - ✅ **T-133** — Grow content pools (DONE 2026-05-11) — facts.yaml `tidbit=46`, `spooky=48`; every discussions category ≥25; guarded by `tests/test_facts_pool.py`.
 - ✅ **T-146** — Discussion seeds for חדר מוסיקה (DONE 2026-05-11) — `config/discussions.yaml:music` now has 25 Hebrew prompts; topic id 4502 was already wired.
 - ✅ **T-138** — Welcome DM lurker exit-ramp (DONE 2026-05-10).
@@ -189,6 +191,29 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 - ✅ **T-141** — Facts caption preface (DONE 2026-05-10) — copy lives in `settings.yaml:copy.facts.preface_*`, code reads it via `load_copy`.
 
 ## Detailed Tasks
+
+---
+
+#### T-151: Long-form facts pass 🌱
+**Phase:** 26 — Content polish | **Priority:** P2 | **Status:** DONE (2026-05-11) | **Deps:** T-133
+
+**Shipped 2026-05-11:** Expanded every `spooky` entry to a 5–8 line mini-story and every `tidbit` entry to at least 4 lines. Added `test_fact_previews_have_enough_story_depth` so future entries cannot regress into short captions.
+
+The new fact pools are large enough, but some previews still read like short captions. Future curation should expand every `config/facts.yaml` entry, starting with `spooky`, into a richer 5–8 line mini-story that gives setup, concrete details, source/caveat, and a satisfying final beat.
+
+Reference bar: `spooky/borley_rectory` after the 2026-05-11 expansion. It includes location, time period, reported phenomena, investigator/source context, skepticism, and a final framing line.
+
+Scope:
+- Audit all `spooky` entries first; then decide whether `tidbit` should use the same length or a slightly tighter 4–6 line format.
+- Preserve every existing `source`, `source_url`, and `image_prompt`/`image_url`.
+- Do not add unsourced claims. If a richer version needs extra detail, either verify from the existing source or replace the source.
+- Keep Hebrew natural and Telegram-readable; no walls of text.
+
+Verification:
+- `PYTHONPATH=. uv run pytest tests/test_facts_pool.py -q`
+- Spot-check several dashboard previews for truncation/readability.
+
+Files: `config/facts.yaml`; optionally `tests/test_facts_pool.py` if a safe line-count/readability assertion is useful.
 
 ---
 

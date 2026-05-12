@@ -1,8 +1,10 @@
 import unittest
 import json
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from bot.database.db import Database
 from bot.handlers import calendar
 
 
@@ -54,6 +56,28 @@ def _base_row(message_type):
 
 
 class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_deleted_calendar_item_is_not_due_for_dispatch(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                msg_id = await db.create_scheduled_message(
+                    text="scheduled text",
+                    message_type="discussion",
+                    channel_topic_id=None,
+                    target_group="test",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="09:00",
+                    status="scheduled",
+                )
+
+                await db.delete_scheduled_message(msg_id)
+
+                due = await db.get_due_messages("2099-01-01", "09:00")
+                self.assertEqual(due, [])
+            finally:
+                await db.close()
+
     async def test_trivia_round_row_launches_game_without_plain_send(self):
         db = FakeScheduledDb(_base_row("trivia_round"))
         context = SimpleNamespace(bot_data={"db": db}, bot=object())

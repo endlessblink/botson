@@ -27,6 +27,7 @@ tidbit:
       מחקר מהאוניברסיטה העברית (2024, פורסם ב-Science) מצא שקופי מרמוסט קוראים אחד לשני בשם.
       הם משתמשים בקריאות "פי" ספציפיות כדי לפנות לפרט מסוים — וענו אחרת כשהקריאה הייתה מופנית אליהם.
       עד אז ידעו רק על בני אדם, דולפינים ופילים שעושים את זה.
+      זה מרשים במיוחד כי מדובר בפרימטים קטנים עם חברה משפחתית צפופה, שבה שם אישי יכול להיות כלי הישרדותי ולא רק פרט חמוד.
     source: "Oren et al., Science (2024). David Omer lab, Safra Center for Brain Sciences, Hebrew University."
     source_url: "https://www.science.org/doi/10.1126/science.adp3757"
     image_prompt: "Relevant editorial image of two common marmosets vocalizing to each other in a research setting, warm natural colors, documentary science style, no text, no logos."
@@ -36,6 +37,7 @@ tidbit:
       בטון רומי שורד 2,000 שנה לא בזכות סוד אבוד — אלא בזכות גושי סיד קטנים שנחשבו במשך מאות שנים לסימן של עבודה לא מקצועית.
       מחקר של MIT והרווארד (2023) הראה שכשמופיע סדק זעיר, הסיד מגיב למים שחודרים פנימה ויוצר גביש סידן שסותם אותו תוך ימים.
       הבטון מתקן את עצמו.
+      כלומר, מה שנראה כמו פגם בחומר היה בעצם מערכת תחזוקה פנימית שהמהנדסים המודרניים כמעט פספסו.
     source: "Seymour et al., 'Hot Mixing: Mechanistic Insights into the Durability of Ancient Roman Concrete', Science Advances (2023)."
     source_url: "https://www.science.org/doi/10.1126/sciadv.add1602"
     image_prompt: "Relevant editorial image of ancient Roman concrete with lime clasts sealing a hairline crack as water enters, archaeological macro detail, no text, no logos."
@@ -45,6 +47,7 @@ tidbit:
       תמנונים ישנים בשני מצבים — שינה שקטה, ופעם בכ-60 שניות הם נכנסים ל"שינה פעילה" שבה הם משנים צבע ותבנית עור בקצב מהיר, בדיוק כמו ערים.
       החוקרים זיהו שהתבניות הללו כמעט זהות לתבניות שהתמנונים מציגים בערות.
       ייתכן — והדגש על ייתכן — שאנחנו רואים תמנון חולם.
+      אם זה נכון, החלום שלו לא מתרחש מאחורי עפעפיים, אלא נכתב לרגע על העור.
     source: "Pophale et al., 'Wake-like skin patterning and neural activity during octopus sleep', Nature (2023)."
     source_url: "https://www.nature.com/articles/s41586-023-05891-6"
     image_prompt: "Relevant editorial image of an octopus sleeping while its skin patterns and colors change, underwater documentary style, no text, no logos."
@@ -54,6 +57,7 @@ tidbit:
       צדפת ה-heart cockle פיתחה אופטיקה סיבית — שימוש ראשון מתועד בטבע.
       בקליפה שלה יש "חלונות" זעירים ממינרל קלציט שמעבירים אור שמש פנימה לאצות פוטוסינתטיות שחיות בה.
       הצדפה עצמה נשארת מוגנת מתחת — זה אקווריום סולארי טבעי בן עשרות מיליוני שנים.
+      ההנדסה כאן עדינה במיוחד: מספיק אור נכנס כדי להזין את האצות, אבל לא מספיק כדי לחשוף את הצדפה לגמרי.
     source: "Li et al., 'Photonic structures in cardiid bivalves', Nature Communications (2024)."
     source_url: "https://www.nature.com/articles/s41467-024-48819-6"
     image_prompt: "Relevant editorial image of a heart cockle shell with translucent calcite windows channeling sunlight to algae, marine science macro, no text, no logos."
@@ -63,6 +67,7 @@ tidbit:
       כתב היד של וויניץ' (Voynich Manuscript) — ספר מהמאה ה-15 שאיש לא הצליח לקרוא במשך 600 שנה — נסרק בצילום רב-ספקטרלי ב-2024.
       התגלו שני טורי אותיות סמויים בעמוד הראשון, שנכתבו ככל הנראה ע"י בעליו במאה ה-17, יוהאנס מרקוס מרצי, רופא בפראג.
       ניסיון פענוח שכשל — כפי הנראה הראשון בכתב.
+      גם הכישלון הזה חשוב: הוא מראה שכבר לפני מאות שנים אנשים הביטו בספר והרגישו שהוא כמעט אומר משהו.
     source: "Lisa Fagin Davis (Manuscript Road Trip blog), multispectral imaging analysis (Sept 2024). Yale Beinecke Library MS 408."
     source_url: "https://beinecke.library.yale.edu/article/voynich-manuscript"
     image_prompt: "Relevant editorial image of a multispectral imaging setup examining the Voynich manuscript first page, medieval manuscript texture, no readable text, no logos."
@@ -72,6 +77,7 @@ tidbit:
       בתחילת 1947 רועה צאן בדואי בן 15 בשם מוחמד א-דיב חיפש עז שנעלמה בין הסלעים מצפון לים המלח.
       הוא זרק אבן לתוך מערה — ושמע שבירת חרס.
       בפנים נמצאו שבע מגילות עוטפות בפשתן בתוך כדים אטומים. אלה היו מגילות ים המלח, מהטקסטים העתיקים ביותר ששרדו מהמקרא, חבויים שם 2,000 שנה.
+      אחת התגליות הארכיאולוגיות הגדולות של המאה ה-20 התחילה מצליל של כד נשבר במערה.
     source: "Library of Congress 'Scrolls from the Dead Sea' exhibition; deadseascrolls.org.il discovery archive."
     source_url: "https://www.loc.gov/exhibits/scrolls/"
     image_prompt: "Relevant editorial image of clay jars in a desert cave near the Dead Sea with linen-wrapped scrolls, archaeological documentary style, no text, no logos."
@@ -81,6 +87,7 @@ tidbit:
       ציורי המערה בלאסקו (צרפת, לפני כ-21,000 שנה) צוירו לפי סדר עונתי קבוע — סוסים תחילה (אביב), ראם (קיץ), אילים (סתיו).
       זה לא היה אוסף אקראי, זו הייתה מערכת.
       תיאוריה אחת קושרת חלק מהציורים לקבוצת כוכבים שנראתה אז בשמיים — כולל הפליאדות.
+      גם אם לא כל החוקרים מסכימים על הקריאה האסטרונומית, ברור שהקירות שימשו יותר מקישוט: הם ארגנו זמן, חיות וזיכרון.
     source: "Lascaux interpretation guides, Ministry of Culture France (archeologie.culture.gouv.fr/lascaux). Multiple seasonal-order analyses."
     source_url: "https://archeologie.culture.gouv.fr/lascaux/en"
     image_prompt: "Relevant editorial image inspired by Lascaux cave paintings arranged as seasonal animals under a prehistoric night sky, no modern text, no logos."
@@ -90,6 +97,7 @@ tidbit:
       את "האסטרונאוט המאיה" — מכסה הסרקופג של המלך פאקאל — אריך פון דניקן הציג ב-1968 כראיה לתיאוריית חייזרים.
       פיענוח אקדמי של האייקונוגרפיה מראה משהו אחר לגמרי: רגע מותו של פאקאל, ונפילתו אל העולם התחתון, מוקף בעץ-עולם וסימני שמש, ירח וכוכבים.
       קוסמולוגיה מאיה קלאסית, לא חליפת חלל.
+      לפעמים הסבר אמיתי לא פחות מרהיב מהקונספירציה — הוא פשוט דורש ללמוד את השפה החזותית של התרבות שיצרה אותו.
     source: "Wikipedia 'Kʼinich Janaabʼ Pakal' summary of consensus epigraphy; National Geographic Palenque coverage."
     source_url: "https://en.wikipedia.org/wiki/K%CA%BCinich_Janaab%CA%BC_Pakal"
     image_prompt: "Relevant editorial image of the Palenque sarcophagus lid iconography with the Maya world tree and underworld symbolism, museum documentation style, no text, no logos."
@@ -99,6 +107,7 @@ tidbit:
       בשפת קוּק טאיוֹרֶה של אבוריג'ינים בפורמפוראאו (אוסטרליה) אין מילים ל"ימין" ו"שמאל".
       במקום זה משתמשים תמיד בכיווני שמיים: צפון, דרום, מזרח, מערב.
       התוצאה — דוברי השפה תמיד יודעים, באופן מיידי, איפה הצפון. גם בחדר חשוך, גם אחרי טיסה.
+      השפה לא רק מתארת את העולם; היא מאמנת את הגוף להחזיק מצפן פנימי כל הזמן.
     source: "Lera Boroditsky, 'How Language Shapes Thought', Scientific American (2011). Original fieldwork: Levinson, Cognition (1997)."
     source_url: "https://www.scientificamerican.com/article/how-language-shapes-thought/"
     image_prompt: "Relevant editorial image of an Aboriginal Australian speaker navigating by cardinal directions in an open landscape, compass-like light cues, no text, no logos."
@@ -108,6 +117,7 @@ tidbit:
       ספריית אשורבניפל בנינוה (המאה השביעית לפנה"ס) הייתה הספרייה הראשונה בהיסטוריה שאורגנה באופן שיטתי — לפי נושאים, עם קטלוג.
       30,000 לוחות חרס שורדים, וביניהם הגרסה השלמה ביותר של עלילות גילגמש.
       היא נשרפה כשנינוה נפלה ב-612 לפנה"ס — והאש אפתה את הלוחות לתוך נצח, וכך שרדו.
+      שריפה שהייתה אמורה למחוק ידע הפכה, במקרה, לתהליך השימור הטוב ביותר שלו.
     source: "British Museum Ashurbanipal collection; Frame & George, 'The Royal Libraries of Nineveh' (Iraq, 2005)."
     source_url: "https://www.britishmuseum.org/collection/term/BIOG58120"
     image_prompt: "Relevant editorial image of Assyrian clay tablets from Ashurbanipal library in Nineveh, warm museum lighting, no text, no logos."
@@ -117,6 +127,7 @@ tidbit:
       בפומפיי נחפר תרמופוליום — דוכן אוכל חם — עם ציורי קיר של ברווז, תרנגול וכלב קשור ברצועה.
       בתוך כדי החרס נמצאו שרידי מזון, כולל עצמות ברווז, חזיר, עז ודגים.
       כלומר, לפני כמעט 2,000 שנה אנשים עצרו בדרך וקנו אוכל מוכן בדוכן רחוב מעוצב.
+      הארכיאולוגיה כאן לא מספרת על קיסרים, אלא על ארוחת צהריים מהירה שנקטעה באפר.
     source: "Pompeii Archaeological Park press release (2020); BBC News, Pompeii thermopolium coverage (2020)."
     source_url: "https://pompeiisites.org/en/press-kit-en/the-thermopolium-of-regio-v/"
     image_prompt: "Relevant editorial image of a Roman thermopolium counter in Pompeii with painted food signs and clay jars, archaeological documentary style, no text, no logos."
@@ -126,6 +137,7 @@ tidbit:
       מנגנון אנטיקיתרה, שנמשה מספינה טרופה יוונית, לא היה רק גלגלי שיניים יפים.
       מחקרים מודרניים הראו שהוא חישב ליקויי שמש וירח, מחזורי ירח ואירועי משחקים פאן-הלניים.
       מחשב אנלוגי בן יותר מ-2,000 שנה, בגודל קופסת נעליים.
+      העובדה שלא נמצא עוד מכשיר דומה מאותה תקופה גורמת לו להיראות כמו הצצה לטכנולוגיה שאבדה כמעט לגמרי.
     source: "Freeth et al., Nature (2006, 2008); Antikythera Mechanism Research Project."
     source_url: "https://www.nature.com/articles/nature05357"
     image_prompt: "Relevant editorial image of the Antikythera mechanism bronze gears beside lunar eclipse diagrams, museum macro, no text, no logos."
@@ -135,6 +147,7 @@ tidbit:
       באוסף הבבלי של ייל יש לוחות חרס בני כ-3,700 שנה עם מתכונים.
       הם כוללים תבשילי בשר, מרקים ותיבול בבצל, שום, כוסברה וכמון.
       ספר הבישול הקדום בעולם נראה פחות כמו טקס מסתורי ויותר כמו מטבח ביתי עשיר מאוד.
+      מרתק לגלות שהמרחק בינינו לבין מסופוטמיה העתיקה מתקצר מאוד כשמישהו מוסיף שום לסיר.
     source: "Yale Babylonian Collection; Bottéro, 'The Oldest Cuisine in the World' (University of Chicago Press, 2004)."
     source_url: "https://babylonian-collection.yale.edu/collections/highlights/cuisine"
     image_prompt: "Relevant editorial image of ancient Babylonian recipe tablets beside bowls of herbs and stew ingredients, museum food history style, no text, no logos."
@@ -144,6 +157,7 @@ tidbit:
       ניאנדרטלים ייצרו דבק מזפת קליפת ליבנה הרבה לפני מעבדות מודרניות.
       כדי לקבל את הזפת צריך לחמם קליפה בלי חמצן, תהליך שמצריך שליטה באש ותכנון.
       הכלי הקטן עם הדבק אומר משהו גדול: טכנולוגיה מורכבת לא הייתה המצאה בלעדית של הומו ספיינס.
+      זו ראיה קטנה אבל עקשנית לכך ש"פרימיטיבי" הוא לעיתים שם שאנחנו נותנים לדברים שלא טרחנו להבין.
     source: "Kozowyk et al., Scientific Reports (2017); Schmidt et al., PNAS (2023)."
     source_url: "https://www.nature.com/articles/s41598-017-08106-7"
     image_prompt: "Relevant editorial image of Neanderthal stone tools hafted with birch tar glue near a controlled fire, prehistoric documentary style, no text, no logos."
@@ -153,6 +167,7 @@ tidbit:
       אבן קלציט איסלנדית יכולה לפצל אור ולהראות את כיוון השמש גם כשהשמיים מעוננים.
       ניסויים הראו שאפשר לנווט כך בדיוק מפתיע, והרעיון מתאים לתיאורי "אבני שמש" בסאגות נורדיות.
       אין הוכחה שכל ויקינג השתמש בזה, אבל הפיזיקה עובדת.
+      בין אם זו אגדה מוגזמת או כלי אמיתי, היא מזכירה כמה הרבה ניווט היה תלוי בקריאה עדינה של אור.
     source: "Ropars et al., Proceedings of the Royal Society A (2011); Nature News coverage."
     source_url: "https://royalsocietypublishing.org/doi/10.1098/rspa.2011.0369"
     image_prompt: "Relevant editorial image of an Iceland spar crystal splitting cloudy sunlight over a Viking navigation map, no text, no logos."
@@ -162,6 +177,7 @@ tidbit:
       מגילות הרקולנאום נשרפו ונמחצו בהתפרצות וזוב בשנת 79 לספירה, ואי אפשר לפתוח אותן בלי להרוס אותן.
       ב-2023–2024 צוותי מחקר השתמשו בסריקות CT ולמידת מכונה כדי לקרוא אותיות מתוך פחם מגולגל.
       מילים יווניות חזרו להופיע אחרי כמעט 2,000 שנה בלי לגעת במגילה.
+      זה רגע נדיר שבו טכנולוגיה חדשה לא מחליפה עבר עתיק, אלא סוף סוף מצליחה להקשיב לו בלי לשבור אותו.
     source: "Vesuvius Challenge publications (2023-2024); University of Kentucky EduceLab."
     source_url: "https://scrollprize.org/"
     image_prompt: "Relevant editorial image of a carbonized Herculaneum scroll scanned by CT with faint Greek letters revealed digitally, no text, no logos."
@@ -171,6 +187,7 @@ tidbit:
       לווייתני גיבנת מפיצים שירים כמו אופנות תרבותיות.
       מחקר באוקיינוס השקט הראה ששיר חדש יכול לעבור מאוכלוסייה אחת לשנייה לאורך אלפי קילומטרים, כמעט תמיד ממערב למזרח.
       זו לא רק תקשורת; זו תרבות שנודדת במים.
+      שיר של לווייתן יכול להפוך ללהיט אזורי, להשתנות בדרך, ואז להיעלם כשמנגינה חדשה מגיעה.
     source: "Garland et al., Current Biology (2011); University of Queensland whale song research."
     source_url: "https://www.cell.com/current-biology/fulltext/S0960-9822(11)00302-2"
     image_prompt: "Relevant editorial image of humpback whales singing across ocean migration routes visualized as sound waves, no text, no logos."
@@ -180,6 +197,7 @@ tidbit:
       דובוני מים יכולים להתייבש כמעט לגמרי ולהיכנס למצב "טון" שבו חילוף החומרים כמעט נעצר.
       חלבונים מיוחדים בגוף שלהם הופכים את פנים התא למעין זכוכית, שמייצבת מולקולות עד שהמים חוזרים.
       כשמרטיבים אותם שוב — הם מתעוררים.
+      זה לא אלמוות, אבל זו דרך קיצונית להשהות חיים עד שהעולם שוב מתאים להם.
     source: "Boothby et al., Molecular Cell (2017); PLoS Biology tardigrade desiccation studies."
     source_url: "https://www.cell.com/molecular-cell/fulltext/S1097-2765(17)30033-2"
     image_prompt: "Relevant editorial macro image of a tardigrade in suspended animation with glass-like cellular preservation, science illustration style, no text, no logos."
@@ -189,6 +207,7 @@ tidbit:
       דבורים יכולות להבין את המושג אפס ברמה בסיסית.
       בניסוי הן למדו לבחור את הקבוצה עם פחות פריטים, ואז העדיפו משטח ריק על פני משטח עם סימן אחד.
       מוח קטן ממילימטרים עשה פעולה שנחשבה פעם ליכולת מתמטית מתקדמת.
+      אפס נראה לנו רעיון מופשט, אבל עבור דבורה הוא יכול להיות פשוט עוד החלטה נכונה בדרך לפרס.
     source: "Howard et al., Science (2018), 'Numerical ordering of zero in honey bees'."
     source_url: "https://www.science.org/doi/10.1126/science.aar4975"
     image_prompt: "Relevant editorial image of a honeybee choosing between visual number cards including an empty card, behavioral experiment style, no text, no logos."
@@ -198,6 +217,7 @@ tidbit:
       עורבים יכולים לתכנן לעתיד גם כשזה לא קשור להחבאת מזון.
       במחקר הם בחרו כלי שיעזור להם לפתוח קופסה רק אחרי זמן המתנה, ודחו פרס מיידי לטובת פרס גדול יותר אחר כך.
       זו יכולת שנראית דומה להפליא לתכנון אצל קופי אדם.
+      הציפור לא רק מגיבה לעכשיו; היא מחזיקה בראש מצב שעדיין לא קרה.
     source: "Kabadayi & Osvath, Science (2017), 'Ravens parallel great apes in flexible planning for tool-use and bartering'."
     source_url: "https://www.science.org/doi/10.1126/science.aam8138"
     image_prompt: "Relevant editorial image of a raven selecting a tool for a delayed puzzle box reward, animal cognition lab style, no text, no logos."
@@ -207,6 +227,7 @@ tidbit:
       צמחים בלחץ משמיעים קליקים על-קוליים.
       מחקר מאוניברסיטת תל אביב הקליט עגבניות וטבק שהתייבשו או נחתכו, והראה שהצלילים ניתנים לזיהוי לפי סוג הלחץ.
       אנחנו לא שומעים את זה, אבל חרקים ויונקים מסוימים אולי כן.
+      זה לא אומר שצמחים "צועקים" כמו בני אדם, אבל כן שהשקט שלהם פחות שקט ממה שנדמה לנו.
     source: "Khait et al., Cell (2023), Tel Aviv University plant acoustics study."
     source_url: "https://www.cell.com/cell/fulltext/S0092-8674(23)00262-3"
     image_prompt: "Relevant editorial image of tomato plants in a soundproof chamber with ultrasonic microphones, plant science style, no text, no logos."
@@ -216,6 +237,7 @@ tidbit:
       צפרדעי זכוכית נהיות שקופות יותר כשהן ישנות.
       חוקרים גילו שהן מרכזות עד 89% מתאי הדם האדומים בכבד, שמכוסה במראה מחזיר אור.
       הן כמעט מעלימות את הדם שלהן כדי לא להטיל צל אדום מתחת לעלה.
+      הגוף שלהן פותר בעיית הסוואה ברמת מחזור הדם, לא רק בצבע העור.
     source: "Taboada et al., Science (2022), glass frog transparency research."
     source_url: "https://www.science.org/doi/10.1126/science.abl6620"
     image_prompt: "Relevant editorial image of a sleeping glass frog on a leaf with translucent body and hidden red blood cells, macro science style, no text, no logos."
@@ -225,6 +247,7 @@ tidbit:
       פילים אפריקאים משתמשים בקריאות שנראות כמו שמות אישיים.
       במחקר מ-2024, מודל זיהה קריאות שמיועדות לפרט מסוים, ופילים הגיבו חזק יותר כששמעו קריאה שהופנתה אליהם.
       זו תקשורת חברתית עדינה בהרבה מ"קול עדר" כללי.
+      כשחיה גדולה כל כך משתמשת בניואנס קטן כל כך, קשה להמשיך לחשוב על עדר כעל מסה אנונימית.
     source: "Pardo et al., Nature Ecology & Evolution (2024), African elephant vocal labels."
     source_url: "https://www.nature.com/articles/s41559-024-02420-w"
     image_prompt: "Relevant editorial image of African elephants calling to one another across savanna with subtle sound labels visualized, no text, no logos."
@@ -234,6 +257,7 @@ tidbit:
       האף הקר של כלבים אינו רק חמוד — הוא יכול לזהות קרינת חום חלשה.
       במחקר התנהגותי והדמיית מוח, כלבים הבחינו בין חפצים חמים וקרים גם בלי ריח או מגע.
       האף שלהם עובד קצת כמו חיישן אינפרה-אדום קטן.
+      זה מסביר למה איבר שנראה כמו כפתור רטוב הוא בעצם משטח חישה מתוחכם מאוד.
     source: "Bálint et al., Scientific Reports (2020), canine rhinarium weak thermal radiation sensing."
     source_url: "https://www.nature.com/articles/s41598-020-60439-y"
     image_prompt: "Relevant editorial close-up of a dog's cold nose sensing faint heat from an object, scientific thermal visualization, no text, no logos."
@@ -243,6 +267,7 @@ tidbit:
       יש חיידקים שמגדלים בתוך עצמם שרשרת גבישי מגנטיט זעירים.
       השרשרת מתפקדת כמו מחט מצפן ומסדרת את החיידק לפי השדה המגנטי של כדור הארץ.
       כך הוא מוצא מהר יותר את שכבת המים עם כמות החמצן שמתאימה לו.
+      ניווט מגנטי לא דורש מוח גדול; לפעמים מספיק לבנות מצפן בתוך התא.
     source: "Bazylinski & Frankel, Nature Reviews Microbiology (2004), magnetotactic bacteria review."
     source_url: "https://www.nature.com/articles/nrmicro842"
     image_prompt: "Relevant editorial microscopy image of magnetotactic bacteria with internal magnetite crystal chains aligned to Earth's field, no text, no logos."
@@ -252,6 +277,7 @@ tidbit:
       יש השערה שכדור הארץ הקדום נראה סגלגל יותר מירוק.
       לפני שהכלורופיל השתלט, מיקרובים מסוימים אולי השתמשו ברטינל — פיגמנט סגול — כדי לקלוט אור.
       זו לא עובדה מוכחת, אלא רעיון אסטרוביולוגי שמציע לחפש גם "קצה סגול" בכוכבי לכת אחרים.
+      אם זה נכון, החיים הראשונים לא רק שינו את האטמוספרה — הם גם צבעו את הפלנטה אחרת לגמרי.
     source: "DasSarma & Schwieterman, International Journal of Astrobiology (2021); Scientific American coverage."
     source_url: "https://www.cambridge.org/core/journals/international-journal-of-astrobiology/article/abs/early-evolution-of-purple-retinal-pigments-on-earth-and-implications-for-exoplanet-biosignatures/"
     image_prompt: "Relevant editorial image of early Earth with purple microbial mats along shallow water, astrobiology concept art, no text, no logos."
@@ -261,6 +287,7 @@ tidbit:
       במשימת אפולו 14 האסטרונאוט סטיוארט רוזה לקח איתו מאות זרעי עצים סביב הירח.
       אחרי החזרה הם הונבטו ונשתלו בארצות הברית ובעולם כ"עצי ירח".
       חלקם עדיין חיים — מזכרת בוטנית ממסע חלל.
+      אלה לא עצים מהירח, אלא עצים שהירח היה פעם חלק מהמסלול שלהם.
     source: "NASA Moon Trees archive, Apollo 14 seed experiment (1971)."
     source_url: "https://nssdc.gsfc.nasa.gov/planetary/lunar/moon_tree.html"
     image_prompt: "Relevant editorial image of a mature Moon Tree with Apollo 14 lunar orbit imagery in the background, documentary NASA style, no text, no logos."
@@ -270,6 +297,7 @@ tidbit:
       מחשב ההנחיה של אפולו השתמש בזיכרון ליבה שנטווה פיזית בחוטים.
       נשים במפעל ריית'יאון שזרו חוטים דרך טבעות מגנטיות; מעבר דרך טבעת היה 1, עקיפה הייתה 0.
       הקוד שהנחית אנשים על הירח היה גם מלאכת יד מדויקת.
+      לפני ש"תוכנה" הפכה למשהו בלתי נראה, אפשר היה ממש להחזיק אותה בין האצבעות.
     source: "MIT Museum Apollo Guidance Computer collection; NASA History Office."
     source_url: "https://www.nasa.gov/history/afj/compessay.html"
     image_prompt: "Relevant editorial image of Apollo rope memory being woven through magnetic cores by technicians, 1960s aerospace documentary style, no text, no logos."
@@ -279,6 +307,7 @@ tidbit:
       סידור QWERTY לא נולד כדי להאט הקלדה, בניגוד למיתוס הנפוץ.
       ההיסטוריה של מכונות הכתיבה מצביעה על שילוב של מגבלות מכניות, זוגות אותיות נפוצים, והצרכים של אנשי טלגרף.
       לפעמים תקן עולמי מתחיל פשוט כפשרה שנדבקת טוב מדי.
+      ברגע שמיליוני אנשים לומדים סידור אחד, גם הסבר מפוקפק יכול להישאר פחות חשוב מההרגל.
     source: "Yasuoka & Yasuoka, 'On the Prehistory of QWERTY', Zinbun (2011); Smithsonian Magazine history coverage."
     source_url: "https://www.smithsonianmag.com/innovation/fact-of-fiction-the-legend-of-the-qwerty-keyboard-49863249/"
     image_prompt: "Relevant editorial image of an early Sholes and Glidden typewriter keyboard mechanism, industrial history style, no text, no logos."
@@ -288,6 +317,7 @@ tidbit:
       הברקוד המסחרי הראשון שנסרק בקופה היה חבילת מסטיק Wrigley's Juicy Fruit.
       זה קרה ב-26 ביוני 1974 בסופרמרקט באוהיו.
       החבילה נמצאת היום במוזיאון הסמית'סוניאן — רגע קטן שהפך את כל הקמעונאות לממוחשבת.
+      צפצוף קופה אחד סימן את המעבר ממדבקות מחיר לעולם שבו כל מוצר מקבל זהות מספרית.
     source: "Smithsonian National Museum of American History, UPC barcode first scan collection."
     source_url: "https://americanhistory.si.edu/collections/search/object/nmah_999124"
     image_prompt: "Relevant editorial image of a 1974 supermarket checkout scanning Juicy Fruit gum with an early UPC barcode, no readable brand text, no logos."
@@ -297,6 +327,7 @@ tidbit:
       קוביות LEGO מיוצרות בדיוק של מיקרונים בודדים, ולכן קובייה חדשה יכולה להתחבר לקובייה מלפני עשרות שנים.
       החברה מתארת סבילות ייצור של כאלפית המילימטר בחלקים קריטיים.
       הצעצוע עובד כי הוא בעצם מערכת הנדסה מדויקת מאוד.
+      הקסם הוא שילד מרגיש "קליק", אבל מאחוריו עומדת תעשייה שלא יכולה להרשות לעצמה כמעט שום סטייה.
     source: "LEGO Group manufacturing quality materials; Smithsonian Magazine LEGO history coverage."
     source_url: "https://www.lego.com/en-us/history/articles/d-quality-in-every-brick"
     image_prompt: "Relevant editorial macro image of interlocking plastic bricks with precision mold details and calipers, product engineering style, no logos, no text."
@@ -306,6 +337,7 @@ tidbit:
       ב-2010 ספריית הקונגרס האמריקאית הודיעה שתשמור את כל הציוצים הציבוריים מטוויטר.
       עד 2017 הארכיון כבר היה עצום מדי לשימוש מעשי, והספרייה עברה לשמירה סלקטיבית בלבד.
       לפעמים שימור דיגיטלי נכשל לא כי אין מידע — אלא כי יש יותר מדי.
+      זו בעיה מודרנית כמעט הפוכה מארכיאולוגיה: העתיד לא יחסר עדויות, הוא עלול לטבוע בהן.
     source: "Library of Congress blog, Twitter archive update (2017); LOC press release (2010)."
     source_url: "https://blogs.loc.gov/loc/2017/12/update-on-the-twitter-archive-at-the-library-of-congress-2/"
     image_prompt: "Relevant editorial image of a massive digital archive visualized as shelves of social media messages in the Library of Congress, no text, no logos."
@@ -315,6 +347,7 @@ tidbit:
       מצלמת הרשת הראשונה נועדה לפתור בעיה זעירה: האם נשאר קפה בקומקום במעבדת קיימברידג'.
       חוקרים כיוונו מצלמה אל Trojan Room coffee pot כדי לא ללכת לשווא במסדרון.
       אחד הסמלים של האינטרנט התחיל מעצלנות מוצדקת סביב קפה.
+      לפני שווידאו חי הפך לכלי עבודה, בידור ומעקב, הוא היה פשוט דרך לא לקום לכוס ריקה.
     source: "University of Cambridge Computer Laboratory, Trojan Room coffee pot history."
     source_url: "https://www.cl.cam.ac.uk/coffee/coffee.html"
     image_prompt: "Relevant editorial image of an early 1990s computer lab webcam pointed at a coffee pot, retro internet history style, no text, no logos."
@@ -324,6 +357,7 @@ tidbit:
       קשקשי פנגולין עשויים קרטין — אותו חלבון שמרכיב שיער וציפורניים אצל בני אדם.
       למרות זאת, הם יוצרים שריון גמיש שמאפשר לחיה להתגלגל לכדור כמעט בלתי חדיר.
       חומר יומיומי בגוף אחד הופך למבצר בגוף אחר.
+      זה גם מה שהופך את הסחר הבלתי חוקי בהם לטרגי כל כך: מיתוסים על קשקשים רגילים מסכנים חיה יוצאת דופן.
     source: "Smithsonian National Zoo pangolin facts; World Wildlife Fund pangolin conservation materials (2024)."
     source_url: "https://nationalzoo.si.edu/animals/pangolin"
     image_prompt: "Relevant editorial image of a pangolin curled into a protective ball, close view of keratin scales, wildlife documentary style, no text, no logos."
@@ -333,6 +367,7 @@ tidbit:
       ה"קרן" של חדקרן הים היא בעצם שן שמאלית עליונה שגדלה דרך השפה.
       מחקרים מצאו בתוכה מיליוני תעלות עצב זעירות, שמאפשרות כנראה לחוש שינויי מליחות וטמפרטורה במים.
       זה לא חרב; זה איבר חישה ארוך ומוזר מאוד.
+      האגדה ראתה קרן קסומה, אבל הביולוגיה מצאה אנטנה חיה בתוך ים קפוא.
     source: "Nweeia et al., Anatomical Record (2014); Smithsonian Ocean narwhal tusk materials."
     source_url: "https://ocean.si.edu/ocean-life/marine-mammals/narwhal-tusk"
     image_prompt: "Relevant editorial image of a narwhal tusk cross-section revealing sensory channels in Arctic water, marine science style, no text, no logos."
@@ -342,6 +377,7 @@ tidbit:
       דיונוני רחף עברו ניסוי עם משקפי תלת-ממד זעירים שהודבקו להם בעדינות.
       הם צפו בטרף מדומה על מסך והתאימו את מרחק התקיפה לפי עומק התמונה.
       גם יצור עם מוח שונה לגמרי משלנו משתמש בראייה דו-עינית לחישוב מרחק.
+      לפעמים הדרך הכי טובה להבין מוח זר היא לתת לו קולנוע קטן ולראות איך הוא תוקף.
     source: "Feord et al., Science Advances (2020), cuttlefish stereopsis experiment."
     source_url: "https://www.science.org/doi/10.1126/sciadv.aay6036"
     image_prompt: "Relevant editorial image of a cuttlefish wearing tiny 3D glasses in a marine cognition experiment, respectful science style, no text, no logos."
@@ -351,6 +387,7 @@ tidbit:
       בניסוי "יקום 25" של ג'ון קלהון, עכברים קיבלו מזון, מים ומרחב מוגן — ואז החברה שלהם קרסה כשהצפיפות החברתית עלתה.
       הפרשנות הפופולרית מוגזמת לעיתים, אבל הניסוי השפיע עמוקות על דיון עירוניות, לחץ חברתי והתנהגות.
       אוטופיה קטנה שהפכה למשל מדעי לא נוח.
+      החשיבות שלו אינה בכך שהוא מנבא בני אדם אחד לאחד, אלא בכך שהוא מראה שסביבה "מושלמת" עדיין יכולה להיכשל חברתית.
     source: "Calhoun, Proceedings of the Royal Society of Medicine (1973); National Institute of Mental Health history."
     source_url: "https://royalsocietypublishing.org/doi/10.1098/rspb.1973.0050"
     image_prompt: "Relevant editorial image of a 1970s behavioral research mouse enclosure with geometric compartments, documentary lab style, no text, no logos."
@@ -360,6 +397,7 @@ tidbit:
       כחול מצרי הוא אחד הפיגמנטים הסינתטיים הראשונים בעולם.
       המצרים ייצרו אותו מחול, נחושת, סיד וחומר אלקלי בחימום גבוה כבר לפני יותר מ-4,500 שנה.
       תחת אור אינפרה-אדום הוא אפילו זוהר, ולכן מוזיאונים משתמשים בזה כדי לזהות עקבות צבע עתיק.
+      צבע שנולד לקשט קברים ומקדשים הפך אלפי שנים אחר כך לכלי בילוש של משמרי אמנות.
     source: "British Museum technical research on Egyptian blue; Verri, British Museum Technical Research Bulletin (2009)."
     source_url: "https://www.britishmuseum.org/blog/egyptian-blue-oldest-known-artificial-pigment"
     image_prompt: "Relevant editorial image of ancient Egyptian blue pigment glowing under infrared light on a museum artifact, conservation science style, no text, no logos."
@@ -369,6 +407,7 @@ tidbit:
       כחול מאיה נשאר בהיר מאות שנים בגשם, חום ולחות טרופית.
       הסוד הוא שילוב של צבע אינדיגו עם חימר פליגורסקיט, שיוצר מבנה יציב במיוחד.
       פיגמנט שנראה עדין מתנהג כמו טכנולוגיית חומרים מתקדמת.
+      זו תזכורת לכך שמלאכה עתיקה יכולה לפתור בעיות עמידות שמדענים מודרניים עדיין מתפעלים מהן.
     source: "Chiari et al., Applied Clay Science (2008); Getty Conservation Institute research on Maya Blue."
     source_url: "https://www.getty.edu/conservation/publications_resources/newsletters/22_1/maya_blue.html"
     image_prompt: "Relevant editorial image of Maya blue pigment on ancient mural fragments with clay mineral structure visualized, conservation science style, no text, no logos."
@@ -378,6 +417,7 @@ tidbit:
       חזזיות מסוימות שרדו חשיפה ישירה לחלל מחוץ לתחנת החלל הבינלאומית.
       בניסוי של סוכנות החלל האירופית הן עמדו בוואקום, קרינה וקור קיצוני, ואז חזרו לפעילות פוטוסינתטית אחרי החזרה.
       החיים, לפחות בכמה צורות, הרבה יותר קשוחים ממה שנוח לדמיין.
+      זה לא מוכיח שחיים נוסעים בחלל בקלות, אבל כן מרחיב את הדמיון לגבי מה יכול לשרוד מסע כזה.
     source: "Sancho et al., Astrobiology (2007); European Space Agency EXPOSE experiment materials."
     source_url: "https://www.esa.int/Science_Exploration/Human_and_Robotic_Exploration/Research/Lichen_survives_in_space"
     image_prompt: "Relevant editorial image of lichens mounted outside the International Space Station against Earth, astrobiology experiment style, no text, no logos."
@@ -387,6 +427,7 @@ tidbit:
       המדוזה Turritopsis dohrnii יכולה לחזור משלב בוגר לשלב פוליפ צעיר בתנאי לחץ.
       זה לא אומר שהיא "לא מתה" בטבע — טורפים ומחלות עדיין קיימים — אבל מחזור החיים שלה יכול להתהפך ביולוגית.
       במקום להזדקן קדימה בלבד, היא יודעת ללחוץ על חזרה.
+      הביולוגיה שלה לא מבטלת מוות, אבל היא שוברת את הרעיון שחיים תמיד נעים בכיוון אחד.
     source: "Piraino et al., Biological Bulletin (1996); Smithsonian Ocean immortal jellyfish overview."
     source_url: "https://ocean.si.edu/ocean-life/invertebrates/immortal-jellyfish"
     image_prompt: "Relevant editorial image of Turritopsis dohrnii jellyfish life cycle reversing into a polyp, marine biology illustration style, no text, no logos."
@@ -396,6 +437,7 @@ tidbit:
       חזירי בר בבוואריה נשארו רדיואקטיביים שנים אחרי צ'רנוביל יותר מבעלי חיים אחרים.
       מחקר מ-2023 הראה שחלק גדול מהזיהום מגיע גם מניסויי נשק גרעיני ישנים, דרך פטריות תת-קרקעיות שהחזירים אוכלים.
       ההיסטוריה הגרעינית מתחבאת לפעמים ביער ובצלחת.
+      בגלל שהחזירים חופרים אחר מזון שאוסף צזיום, העבר ממשיך לעלות מהאדמה הרבה אחרי שהכותרות נעלמו.
     source: "Stäger et al., Environmental Science & Technology (2023), Bavarian wild boar radiocesium study."
     source_url: "https://pubs.acs.org/doi/10.1021/acs.est.3c03565"
     image_prompt: "Relevant editorial image of Bavarian wild boar foraging for underground mushrooms with subtle radiation mapping overlay, no text, no logos."
@@ -405,6 +447,7 @@ tidbit:
       ב-2019 חללית בראשית התרסקה על הירח כשהיא נושאת ארכיון קטן ובו גם דובוני מים מיובשים.
       אין ראיה שהם "חיים על הירח" — בלי מים ומזון הם לא פעילים — אבל ייתכן שחלקם שרדו במצב רדום.
       זו תזכורת מוזרה לכך שגם כישלון נחיתה יכול להשאיר ביולוגיה מאחור.
+      הירח כנראה לא הפך לבית גידול, אבל הוא כן קיבל בטעות מטען זעיר מכדור הארץ.
     source: "Wired report on Arch Mission Foundation lunar library (2019); SpaceIL Beresheet mission materials."
     source_url: "https://www.wired.com/story/a-crashed-israeli-lunar-lander-spilled-tardigrades-on-the-moon/"
     image_prompt: "Relevant editorial image of a tiny lunar archive capsule after a spacecraft crash with dormant tardigrades imagined microscopically, no text, no logos."
@@ -414,6 +457,7 @@ tidbit:
       בקבר מצרי בן כ-3,200 שנה נמצא גוש לבן שהתברר כגבינה עתיקה.
       ניתוח חלבונים זיהה חלב מפרות, כבשים או עזים, וגם סימנים אפשריים לחיידק ברוצלה.
       הגבינה הארכיאולוגית העתיקה בעולם אולי הייתה גם סיכון בריאותי לא קטן.
+      זה פריט נדיר שבו ארכיאולוגיה לא רק נראית לעין, אלא כמעט אפשר לדמיין את הריח שלה.
     source: "Greco et al., Analytical Chemistry (2018), ancient Egyptian cheese protein analysis."
     source_url: "https://pubs.acs.org/doi/10.1021/acs.analchem.8b02535"
     image_prompt: "Relevant editorial image of an ancient Egyptian tomb jar with preserved cheese residue under laboratory analysis, no text, no logos."
@@ -423,6 +467,7 @@ tidbit:
       ב-2021 פורסם מאמר שטען לדובון מים במצב קוונטי משולב עם קיוביט מוליך-על.
       פיזיקאים רבים חלקו על הפרשנות: הניסוי היה אמיתי, אבל השאלה אם היצור עצמו היה "שזור קוונטית" נשארה שנויה במחלוקת.
       לפעמים הכותרת המדעית מרגשת יותר מהקונצנזוס.
+      המקרה טוב דווקא בגלל הספק: הוא מראה איך ניסוי מסקרן יכול להפוך במהירות לסיפור גדול מדי.
     source: "Lee et al., arXiv (2021); Physics World and Science commentary on quantum tardigrade debate."
     source_url: "https://arxiv.org/abs/2112.07978"
     image_prompt: "Relevant editorial image of a tardigrade near a superconducting qubit chip with cautious science visualization, no text, no logos."
@@ -432,6 +477,7 @@ tidbit:
       מאות דודקהדרונים רומיים מברונזה נמצאו ברחבי אירופה, בעיקר בצפון-מערב האימפריה.
       אין טקסט עתיק שמסביר למה שימשו: כלי מדידה, חפץ פולחני, משחק, או משהו אחר.
       לפעמים ארכיאולוגיה משאירה אובייקט מושלם בלי הוראות הפעלה.
+      החורים בגדלים שונים והבליטות בפינות נראים מכוונים מדי בשביל קישוט בלבד, אבל אף הסבר עדיין לא נעל את התיק.
     source: "British Museum collection notes on Roman dodecahedra; Portable Antiquities Scheme records."
     source_url: "https://www.britishmuseum.org/collection/object/H_1994-0408-1"
     image_prompt: "Relevant editorial image of a Roman bronze dodecahedron on a museum table with calipers and excavation notes, no text, no logos."
@@ -442,6 +488,7 @@ spooky:
       הדיבוק לא התחיל כמפלצת קולנועית, אלא כרעיון קבלי: נשמה שלא מצאה תיקון ונאחזת בגוף חי כדי להשלים משהו שנשאר פתוח.
       במאות ה-16 וה-17 הסיפורים האלה התחילו לקבל צורה ברורה בקהילות יהודיות, עם טקסים, עדים, ורבנים שניסו להוציא את הנשמה בדיבור ולא בכוח.
       פרופ' יוסי חיות מאוניברסיטת חיפה מציין שגם המילה עצמה באה מיידיש — "דיבוק" כמשהו שנדבק — וברוב הסיפורים הקלאסיים מי שנושאת את הקול הזר היא אישה צעירה.
+      לכן זה לא רק סיפור על רוח, אלא גם על קהילה שמנסה להבין מחלה, טראומה או אשמה דרך שפה דתית.
       זה מפחיד דווקא כי הוא לא מתאר שד מבחוץ, אלא קול של מת שמדבר מתוך מישהו שהכרתם רגע קודם.
     source: "Yossi Chajes interview, Atlas Obscura (2018); 'The Power of a Tale: Stories from the Israel Folktale Archives' (Wayne State Univ. Press, 2019)."
     source_url: "https://www.atlasobscura.com/articles/what-is-a-dybbuk"
@@ -452,6 +499,8 @@ spooky:
       כתב היד של וויניץ' (Voynich Manuscript) שוכן בספריית ביינקה של ייל. 234 עמודים מאיירים בצמחים שלא קיימים, נשים בתוך אמבטיות מחוברות בצינורות, מפות אסטרונומיות.
       הטקסט נכתב בשפה לא ידועה, באלפבית לא ידוע, על קלף שמתוארך פחמנית למאה ה-15.
       600 שנה. מתמטיקאים, קריפטוגרפים של MI6 ו-NSA, אקדמאים. אף אחד לא קרא מילה.
+      חלק מהחוקרים חושבים שמדובר בשפה מוצפנת, אחרים בפסאודו-כתב, ואחרים בטקסט רפואי או אסטרולוגי שאיבד את המפתח שלו.
+      מה שמטריד הוא שהספר נראה שיטתי מדי בשביל קשקוש — ועדיין סגור לגמרי בפני מי שמסתכל עליו.
     source: "Yale Beinecke Library MS 408. Multiple cipher attempts documented; Lisa Fagin Davis, Cipher Mysteries blog."
     source_url: "https://collections.library.yale.edu/catalog/2002046"
     image_prompt: "Relevant editorial image of the Voynich manuscript open to botanical and astronomical diagrams in a rare book library, no readable text, no logos."
@@ -461,6 +510,8 @@ spooky:
       בלילה של ה-2 בפברואר 1959, תשעה סטודנטים סובייטים שהקימו אוהל בהר אוּראל הצפוני קרעו את האוהל מבפנים, ברחו במינוס 30, וכולם מתו לפני שהגיעו לעצים.
       לחלקם נמצאו שברים פנימיים בלי פציעה חיצונית, לאחת חסר היה הלשון. החקירה הסובייטית סגרה את התיק תחת "כוח טבע לא ידוע".
       ב-2021 מודל פיזיקלי משוויצריה הראה שמפולת שלג בלתי-רגילה במדרון שטוח דווקא יכולה להסביר את הפציעות. רוב הפרטים האחרים — עדיין לא.
+      היומנים והצילומים שנמצאו במחנה מראים חבורה רגילה, מנוסה, שלא ציפתה לשום דבר חריג.
+      לכן התיק נשאר חזק כל כך: יש הסבר אפשרי, אבל אין רגע אחד שבו ברור למה כולם קמו וברחו אל החושך.
     source: "Gaume & Puzrin, 'Mechanisms of slab avalanche release', Communications Earth & Environment (Nature, 2021); original Soviet inquest transcripts."
     source_url: "https://www.nature.com/articles/s43247-020-00081-8"
     image_prompt: "Relevant atmospheric editorial image of a torn expedition tent on a snowy Ural mountain pass at night, documentary mystery style, no text, no logos."
@@ -470,6 +521,7 @@ spooky:
       ביולי 1518 אישה בשם פראו טרופאה יצאה לרחוב בשטרסבורג והתחילה לרקוד. לא חגיגה, לא מופע — היא פשוט לא הפסיקה.
       בתוך ימים הצטרפו אליה עשרות. לפי כרוניקות העיר, חלקם רקדו עד שהתמוטטו; רופאים מקומיים קבעו אז שמדובר ב"דם חם" והמליצו דווקא לתת להם עוד מוזיקה ועוד מקום לרקוד.
       ההסבר המודרני לא סגור: היסטוריונים קושרים את ההתפרצות לרעב, מגפות ולחץ קיצוני; תאוריות אחרות מדברות על הרעלה מפטרייה בדגן, אבל זה פחות מתאים לפרטים הידועים.
+      העיר אפילו שכרה נגנים ופתחה אולמות, כאילו אפשר לנקז מגפה דרך קצב.
       מה שנשאר מטריד הוא לא שהאנשים "השתגעו" — אלא שעיר שלמה ניסתה לטפל במגפה של ריקוד בכך שהגבירה את המוזיקה.
     source: "John Waller, 'A Time to Dance, A Time to Die' (Icon Books, 2008); Encyclopaedia Britannica, 'Dancing plague of 1518'."
     source_url: "https://www.britannica.com/event/dancing-plague-of-1518"
@@ -480,6 +532,7 @@ spooky:
       בית הכנסת האר"י הספרדי בצפת יושב על קו התפר הכי טעון בעיר: סמטאות הרובע העתיק מצד אחד, ובית הקברות העתיק של מקובלי צפת ממש מתחתיו.
       לפי המסורת המקומית, האר"י היה יורד למערה שבמקום כדי ללמוד קבלה עם אליהו הנביא; רק אחר כך הפך המקום לבית כנסת שנושא את שמו.
       לכן הסיפורים עליו נשמעים פחות כמו "בית רדוף" ויותר כמו מקום שנשאר פתוח בין עולמות: תפילה באולם ריק, אור נר שלא ברור מי הדליק, ודמות לבנה שנעלמת כשמתקרבים לספסלים אחרי הסגירה.
+      מי שמספר את הסיפורים מדבר בדרך כלל בלחש של כבוד, לא בטון של אטרקציית אימה.
       אין תיעוד רשמי לרוחות. יש אתר קדוש, בית קברות סמוך, ומסורת צפתית שמסרבת להפוך לסיפור תיירים רגיל.
     source: "Israel Ministry of Tourism / Go Israel, Ari Sephardi Synagogue visitor page; Tzfat municipal heritage tour materials; local Safed oral tradition."
     source_url: "https://www.goisrael.com/en/attraction/ari-sephardi-synagogue"
@@ -490,6 +543,8 @@ spooky:
       כשני אחוזים מהאוכלוסייה במקומות מסוימים בעולם — טאוֹס בניו מקסיקו, בריסטול באנגליה, וינדזור בקנדה — שומעים זמזום עמוק וקבוע. בתדר 32 עד 80 הרץ. תמיד.
       צוותים מ-Los Alamos, מאוניברסיטת ניו מקסיקו ומ-Sandia ניסו למצוא מקור — ולא מצאו.
       חלק מהשומעים אומרים שזה גרם להם לאי-שינה כרוני. לא ברור אם זה תופעה אקוסטית, נוירולוגית, או שניהם.
+      הבעיה היא שאי אפשר להוכיח בקלות משהו שרק חלק קטן מהאנשים שומעים, במיוחד כשהמדידות לא מוצאות מקור חיצוני ברור.
+      כך הזמזום נשאר באזור הכי לא נוח: אמיתי עבור מי שסובל ממנו, בלתי נתפס עבור מי שלא.
     source: "Wikipedia 'The Hum' summary; original Taos Hum study by Mullins & Kelly, Los Alamos (1993); ongoing reports at thehum.info."
     source_url: "https://en.wikipedia.org/wiki/The_Hum"
     image_prompt: "Relevant editorial image of a quiet town at night visualized with low-frequency sound waves and a sleepless window, no text, no logos."
@@ -499,6 +554,8 @@ spooky:
       בקרב תושבי שוק מחנה יהודה הוותיקים מסתובב סיפור — שיש המספרים שראו בעצמם — על נערה שעברה גירוש שדים בתוך השוק עצמו, אי שם בשנות ה-90.
       כביכול בוערות להבות יצאו מבוהן רגלה כשהדיבוק עזב.
       אין תיעוד רשמי. רק אנשים שהיו שם, שמספרים את אותו הסיפור עם אותם פרטים, כבר 30 שנה.
+      הפרטים נשמעים מוגזמים מדי בשביל דו"ח, אבל ספציפיים מדי בשביל להיעלם לגמרי.
+      זה בדיוק המקום שבו אגדה עירונית עובדת: לא צריך הוכחה, מספיק שמישהו בשוק יגיד "אני מכיר מי שהיה שם".
     source: "Aardvark Israel 'Jerusalem Ghost Stories' (collected oral history). No official documentation — included as classic urban-legend material with the source flagged."
     source_url: "https://aardvarkisrael.com/ghost-stories-in-jerusalem/"
     image_prompt: "Relevant atmospheric editorial image of Jerusalem Mahane Yehuda market after closing with folklore shadows and warm lamps, no text, no logos."
@@ -508,6 +565,8 @@ spooky:
       במסורת אגדה יהודית מאוחרת — בעיקר בחיבור "אלפא ביתא דבן סירא" מהמאה ה-9 או ה-10 — לילית מוצגת כאשתו הראשונה של אדם: גם היא נבראה מן האדמה, סירבה להיכנע לו, ואמרה את השם המפורש כדי לברוח.
       משם היא התגלגלה בפולקלור לדמות של שדה שמאיימת על יולדות ותינוקות בלילה.
       לא בתורה, לא במשנה. רק בפולקלור — ועדיין נמצאת בקמיעות נגד עין הרע מהמאה ה-19 ברחבי העולם היהודי.
+      בקמעות האלה לא מתווכחים עם לילית, אלא כותבים שמות מלאכים ומנסים להרחיק אותה מהבית.
+      כך דמות שולית מטקסט מאוחר הפכה לאחת הנוכחויות הכי עקשניות בדמיון היהודי הלילי.
     source: "Alphabet of Ben Sira (medieval midrashic text); Raphael Patai, 'The Hebrew Goddess' (Wayne State Univ. Press, 1990)."
     source_url: "https://jwa.org/encyclopedia/article/lilith"
     image_prompt: "Relevant editorial image of medieval Jewish amulets and Lilith folklore motifs in a manuscript-inspired composition, respectful historical style, no text, no logos."
@@ -517,6 +576,8 @@ spooky:
       בכרוניקות אנגליות מהמאה ה-12 מופיע סיפור על שני ילדים בעלי עור ירקרק שנמצאו ליד הכפר וולפיט בסאפוק.
       לפי ויליאם מניוברג וראלף מקוגשול, הם דיברו שפה לא מוכרת וסירבו לאכול כל דבר מלבד שעועית עד שהסתגלו.
       היסטוריונים מציעים הסברים של הגירה, אנמיה או פולקלור מקומי — אבל המקורות עצמם אמיתיים ומטרידים.
+      באחת הגרסאות הילד מת, והילדה חיה מספיק שנים כדי ללמוד אנגלית ולספר שהגיעה ממקום שבו השמש כמעט לא זרחה.
+      גם אם זה זיכרון מעוות של זרים אבודים, הכרוניקה משאירה פתח קטן לעולם אחר מעבר לשדה.
     source: "William of Newburgh, Historia rerum Anglicarum; Ralph of Coggeshall chronicle; Wikipedia summary with manuscript references."
     source_url: "https://en.wikipedia.org/wiki/Green_children_of_Woolpit"
     image_prompt: "Relevant atmospheric editorial image of two pale green children at the edge of a medieval English village field, folklore manuscript mood, no text, no logos."
@@ -526,6 +587,8 @@ spooky:
       הספינה Mary Celeste נמצאה ב-1872 באוקיינוס האטלנטי כשהיא כשירה לשיט, עם מטען אלכוהול תעשייתי, אבל בלי אדם אחד על הסיפון.
       סירת ההצלה נעלמה, רכוש אישי נשאר במקום, ולא נמצאו סימני קרב.
       לפי רישומי החקירה הבריטית, ההסבר הסביר קשור לפחד מפיצוץ אדי אלכוהול — אבל אין עדות סופית למה גרם לצוות לעזוב.
+      הקפטן, אשתו ובתם הקטנה היו בין הנעלמים, מה שהופך את ההחלטה לעזוב ספינה שלמה לקשה עוד יותר.
+      הים לא החזיר גופות, מכתב, או רגע אחרון שמסביר מה הם ראו.
     source: "Smithsonian Magazine, Mary Celeste history; British Admiralty inquiry records summarized by Britannica."
     source_url: "https://www.smithsonianmag.com/history/abandoned-ship-the-mary-celeste-174488104/"
     image_prompt: "Relevant atmospheric editorial image of an empty 19th-century brigantine drifting under grey Atlantic skies, documentary mystery style, no text, no logos."
@@ -535,6 +598,8 @@ spooky:
       בדצמבר 1900 שלושת שומרי המגדלור באיי פלנן בסקוטלנד נעלמו.
       החקירה מצאה ציוד סערה חסר, נזק חיצוני, ושום סימן לאלימות בתוך המגדלור.
       ההסבר המקובל הוא גל ענק שסחף אותם מהסלעים, אבל היומנים והעובדה שלא נשאר עד אחד הפכו את המקום לאגדה אפלה.
+      צוות ההחלפה מצא שולחן ערוך, שעון שנעצר, ואת המגדלור עצמו דומם בזמן שספינות כבר דיווחו שהאור לא עובד.
+      זו לא תעלומה של מפלצת, אלא של שלושה אנשים שנעלמו בדיוק במקום שתפקידו היה להזהיר אחרים מסכנה.
     source: "Northern Lighthouse Board archive (1900); Mike Dash, Fortean Studies / BBC History coverage."
     source_url: "https://www.nlb.org.uk/lighthouses/flannan-isles/"
     image_prompt: "Relevant atmospheric editorial image of the Flannan Isles lighthouse in storm fog with empty oilskins by a doorway, no text, no logos."
@@ -544,6 +609,8 @@ spooky:
       באוגוסט 1994 ירד באוקוויל, וושינגטון, גשם של גושים שקופים וג'לטיניים.
       תושבים דיווחו על מחלות קלות, ובדיקות מקומיות מצאו חומר ביולוגי, אבל לא נוצרה חקירה מדעית מסודרת שמסבירה את המקור.
       לפי הדיווחים, זה קרה כמה פעמים באותו חודש — מספיק כדי להפוך מזג אוויר למשהו שנשמע כמו פתיחה של סרט.
+      אחת ההשערות דיברה על חלקי מדוזות שנגרסו באימון צבאי בים, אבל היא לא הוכחה.
+      מה שנשאר הוא חומר בלי מקור ברור, עדים שמחזיקים באותה גרסה, ותחושה שהשמיים לרגע הפסיקו להתנהג כמו שמיים.
     source: "HistoryLink.org Oakville blobs entry; local reports collected by Washington state history archive."
     source_url: "https://www.historylink.org/File/5136"
     image_prompt: "Relevant atmospheric editorial image of translucent gelatinous blobs on a small-town Washington lawn after rain, documentary mystery style, no gore, no text."
@@ -553,6 +620,8 @@ spooky:
       משפטי המכשפות בסיילם לא היו אגדה עמומה: נשארו מהם צווי מעצר, עדויות ופרוטוקולים.
       ב-1692 הוצאו להורג 19 בני אדם, ואדם נוסף נמחץ למוות כי סירב לענות לאישומים.
       מה שמפחיד במסמכים הוא לא על-טבעי — אלא כמה מהר פחד קהילתי הפך למנגנון משפטי.
+      חלק מהעדויות התבססו על "ראיות ספקטרליות" — טענה שרוחו של נאשם פגעה במישהו גם אם גופו היה במקום אחר.
+      ברגע שבית משפט מקבל פחד כראיה, כמעט כל אדם יכול להפוך לאיום.
     source: "University of Virginia Salem Witch Trials Documentary Archive; Massachusetts Historical Society."
     source_url: "https://salem.lib.virginia.edu/home.html"
     image_prompt: "Relevant atmospheric editorial image of 17th-century Salem court documents under candlelight with village silhouettes, respectful historical style, no text, no logos."
@@ -562,15 +631,20 @@ spooky:
       סיפור מכשפת בל מטנסי מתועד בעיקר דרך ספרות מקומית מהמאה ה-19 וה-20, לא דרך תיק משפטי רשמי.
       לפי המסורת, משפחת בל שמעה קולות, חוותה מכות בלתי נראות, ואב המשפחה מת אחרי שנמצא בקבוקון מסתורי.
       פולקלור או הונאה — כך או כך, זה אחד מסיפורי הרדיפה האמריקאיים שהשאירו שם משפחה שלם בתוך פחד.
+      הקול שיוחס ל"קייט" כביכול דיבר עם בני הבית, קילל, שר מזמורים, וידע פרטים שאנשים טענו שלא נאמרו בקול.
+      העובדה שהסיפור גדל בתוך קהילה קטנה הופכת אותו לפחות נקי — אבל הרבה יותר דביק.
     source: "Tennessee State Library & Archives overview; Ingram, 'An Authenticated History of the Famous Bell Witch' (1894)."
     source_url: "https://sos.tn.gov/tsla/pages/tennessee-myths-and-legends-the-bell-witch"
     image_prompt: "Relevant atmospheric editorial image of an isolated Tennessee farmhouse at dusk with old family letters and folklore shadows, no text, no logos."
 
   - id: borley_rectory
     text_he: |
-      בורלי רקטורי באנגליה כונה במשך שנים "הבית הרדוף ביותר באנגליה".
-      החוקר הארי פרייס תיעד שם צלצולי פעמונים, כתובות על קירות וסיפורי נזירה רפאים, אבל חוקרים מאוחרים האשימו אותו בהגזמות ובעדויות חלשות.
-      לכן הסיפור מפחיד בצורה אחרת: לא ברור איפה נגמרת הרדיפה ומתחילה מכונת יחסי הציבור.
+      בורלי רקטורי, בית כומר מבודד באסקס, נבנה ב-1862 ליד שרידי מנזר ישן — וכבר בסוף המאה ה-19 התחילו סביבו סיפורי צעדים במסדרונות, כרכרה רפאית ונזירה שמופיעה ליד הגדר.
+      בשנות ה-20 וה-30 גרו בו משפחות כמרים שדיווחו על צלצולי פעמונים בלי יד נראית, אבנים שנזרקות מחדרים ריקים, ובקבוקי זכוכית שנעים לבד על הרצפה.
+      החוקר הארי פרייס הפך את המקום למפורסם כששכר את הבית, גייס מתנדבים לתצפיות, ופרסם עליו ספר בשם "הבית הרדוף ביותר באנגליה".
+      אבל כאן הסיפור מסתבך: חוקרים מאוחרים מה-Society for Psychical Research האשימו את פרייס בהגזמות, בחירת עדויות נוחה, ואולי אפילו בביום חלק מהאירועים.
+      הבית נשרף ב-1939 ונהרס סופית אחרי המלחמה, כך שכבר אי אפשר לחזור לזירה ולבדוק באמת.
+      לכן בורלי מפחיד בצורה אחרת: לא ברור איפה נגמרת הרדיפה ומתחילה מכונת יחסי הציבור — והחור הזה נשאר פתוח.
     source: "Harry Price, 'The Most Haunted House in England' (1940); Society for Psychical Research critique reports."
     source_url: "https://en.wikipedia.org/wiki/Borley_Rectory"
     image_prompt: "Relevant atmospheric editorial image of Borley Rectory ruins with investigation notebooks and bell wires, Victorian ghost research mood, no text, no logos."
@@ -580,6 +654,8 @@ spooky:
       שרה וינצ'סטר הרחיבה את ביתה בסן חוזה במשך עשרות שנים, עם מדרגות שמובילות לתקרה ודלתות שנפתחות לקיר.
       לפי האגדה, היא בנתה בלי סוף כדי לבלבל רוחות של קורבנות רובה וינצ'סטר; לפי היסטוריונים, חלק מזה הוא תערובת של אבל, כסף, רעידות אדמה וסיפורי תיירות.
       הבית אמיתי. ההסבר נשאר בין אדריכלות מוזרה למיתוס אמריקאי.
+      אחרי רעידת האדמה של 1906 חלקים מהבית נפגעו, ומה שנראה היום כמו תכנון בלתי אפשרי הוא גם תוצאה של בנייה, הרס ותיקונים.
+      ועדיין, קשה ללכת במסדרון שמסתיים בדלת לשום מקום בלי לחשוב שמישהו בנה לפי פחד ולא לפי תוכנית.
     source: "Winchester Mystery House historical materials; California Historical Society commentary."
     source_url: "https://winchestermysteryhouse.com/sarahs-story/"
     image_prompt: "Relevant atmospheric editorial image of the Winchester Mystery House staircase ending at a ceiling, warm Victorian shadows, no text, no logos."
@@ -589,6 +665,8 @@ spooky:
       אוניית Queen Mary שירתה כאוניית נוסעים וכספינת חיילים במלחמת העולם השנייה, ואז הפכה למלון צף בלונג ביץ'.
       סיפורי הרוחות מתמקדים בבריכת המחלקה הראשונה ובחדר המכונות, שם נהרג מלח צעיר בדלת אטומה.
       יש היסטוריה מתועדת של תאונות ומוות; השאלה אם נשאר משהו אחר במסדרונות היא כבר פולקלור ימי.
+      אורחים ואנשי צוות דיווחו לאורך השנים על צעדים, דפיקות, וקולות ילדים ליד אזורים שכבר אינם פעילים.
+      אונייה ישנה תמיד חורקת, אבל כאן כל חריקה מקבלת שם, חדר ומספר סיפון.
     source: "The Queen Mary official history (1936-1967); Long Beach historical materials; BBC Travel coverage."
     source_url: "https://queenmary.com/history/"
     image_prompt: "Relevant atmospheric editorial image of an empty Art Deco ocean liner corridor aboard the Queen Mary at night, maritime ghost story mood, no text, no logos."
@@ -598,6 +676,8 @@ spooky:
       באי קטן בתעלות סוצ'ימילקו במקסיקו תלויות מאות בובות ישנות על עצים וגדרות.
       לפי המסורת המקומית, דון חוליאן סנטנה התחיל לתלות אותן אחרי שמצא ילדה שטבעה סמוך לאי, כדי לפייס את רוחה.
       אין תיעוד רשמי לסיפור הילדה, אבל האי עצמו קיים — והבובות המתפוררות עושות את שאר העבודה.
+      במשך שנים הוא אסף בובות מהתעלות ומהאשפה, גם כשהיו חסרות עיניים, ידיים או שיער.
+      המקום מפחיד לא בגלל אירוע אחד מוכח, אלא בגלל הצטברות של פנים שבורות שמביטות מכל כיוון.
     source: "Mexico City tourism materials; Atlas Obscura, Island of the Dolls entry."
     source_url: "https://www.atlasobscura.com/places/la-isla-de-las-munecas"
     image_prompt: "Relevant atmospheric editorial image of weathered dolls hanging from trees on a misty Xochimilco canal island, respectful folklore mood, no text, no logos."
@@ -607,6 +687,8 @@ spooky:
       לפי ההיסטוריה הרשמית של הקטקומבות, פריז מחזיקה שם שרידים של יותר משישה מיליון בני אדם.
       בסוף המאה ה-18 העיר העבירה עצמות מבתי קברות צפופים למחצבות תת-קרקעיות, וסידרה חלק מהן בקירות דקורטיביים של גולגלות ועצמות.
       זה לא בית רדוף; זו תשתית עירונית שהפכה למפגש בלתי אפשרי בין ניקיון ציבורי למוות.
+      ההעברה נעשתה בלילות, בתהלוכות של עגלות מכוסות, אחרי שבתי הקברות החלו לזהם שכונות צפופות.
+      מתחת לעיר האורות נשארה עיר אחרת, מסודרת בשורות, שמזכירה כמה מהר פתרון מנהלי הופך למיתולוגיה.
     source: "Les Catacombes de Paris official history; Paris Musées visitor history (2024)."
     source_url: "https://www.catacombes.paris.fr/en/history/site-history"
     image_prompt: "Relevant atmospheric editorial image of Paris catacombs ossuary walls with skulls and bones under dim lamps, respectful documentary style, no gore, no text."
@@ -616,6 +698,8 @@ spooky:
       בקפלת סדלץ בצ'כיה עצמות של עשרות אלפי בני אדם מסודרות כנברשות, סמלי אצולה וקישוטי קיר.
       לפי ההיסטוריה המקומית, אדמה שהובאה מירושלים הפכה את המקום לקבורה מבוקשת, ואז מגפות ומלחמות מילאו אותו מעבר ליכולת.
       האסתטיקה יפה מדי בשביל להיות נוחה.
+      במאה ה-19 גילף פרנטישק רינט את העצמות לסידורים סימטריים, כולל נברשת שמכילה לפי המסורת לפחות עצם אחת מכל חלק בגוף.
+      זה לא ניסיון להסתיר מוות, אלא להפוך אותו לעיצוב פנים — ושם בדיוק האי-נוחות מתחילה.
     source: "Sedlec Ossuary official history; Czech Tourism heritage materials (2024)."
     source_url: "https://sedlecossuary.com/history/"
     image_prompt: "Relevant atmospheric editorial image of Sedlec Ossuary bone chandelier in a chapel, respectful heritage photography style, no text, no logos."
@@ -625,6 +709,8 @@ spooky:
       בקטקומבות הקפוצ'ינים בפלרמו מוצגות אלפי גופות חנוטות, חלקן בבגדי היום-יום שלהן.
       המקום התחיל כקבורה לנזירים במאה ה-16 והפך בהמשך לסמל סטטוס של משפחות מקומיות.
       זה מטריד כי המוות שם לא מוסתר — הוא עומד במסדרון וממשיך ללבוש בגדים.
+      משפחות היו מגיעות לבקר את המתים, להחליף בגדים, ולשמור אותם כחלק גלוי מהחיים החברתיים.
+      הגוף המפורסם ביותר, רוזליה לומברדו בת השנתיים, נראה ישן כל כך טוב שהכינוי "היפהפייה הנרדמת" נשמע כמעט לא הוגן.
     source: "Palermo Capuchin Catacombs visitor history; Smithsonian Magazine coverage."
     source_url: "https://www.smithsonianmag.com/travel/sicilys-bizarre-mummified-dead-180977094/"
     image_prompt: "Relevant atmospheric editorial image of Palermo Capuchin Catacombs corridor with clothed mummies in respectful shadow, no gore, no text."
@@ -634,6 +720,8 @@ spooky:
       טירת ליפ באירלנד ידועה בסיפורי "הקפלה המדממת", שם לפי המסורת אח הרג אח בזמן מיסה.
       במהלך שיפוצים התגלה חלל עמוק עם עצמות רבות, מה שחיזק את המיתולוגיה המקומית גם אם לא פתר אותה.
       ההיסטוריה המתועדת של אלימות משפחתית והחור המלא בעצמות מספיקים כדי שהאגדה לא תצטרך הרבה עזרה.
+      הסיפורים מדברים גם על "האלמנטל" — ישות מסריחה וכבדה שמופיעה פחות כרוח אדם ויותר ככוח גס של המקום.
+      גם אם מנקים את האגדות, נשארת טירה שנבנתה סביב כוח, ירושה ומוות בתוך המשפחה.
     source: "Leap Castle historical accounts; Irish Central heritage coverage (2020); local O'Carroll family history summaries."
     source_url: "https://www.irishcentral.com/roots/history/leap-castle-haunted-ireland"
     image_prompt: "Relevant atmospheric editorial image of an Irish castle chapel in ruins with a sealed oubliette opening, respectful dark heritage style, no text, no logos."
@@ -643,6 +731,8 @@ spooky:
       במגדל לונדון נשמרת מסורת שלפיה אם העורבים יעזבו, הממלכה תיפול.
       המסורת אינה עתיקה כפי שהתיירות אוהבת להציג, אבל העורבים עצמם מטופלים רשמית ויש להם Ravenmaster.
       גם כשאגדה היא מודרנית יחסית, מדינה שלמה עדיין יכולה להתנהג כאילו אסור לבדוק אותה.
+      הכנפיים שלהם אף נקצצות מעט כדי שלא יתרחקו, לא מתוך אכזריות טקסית אלא כחלק מניהול אגדה חיה.
+      זה פולקלור ממוסד: לא מאמינים בו לגמרי, אבל גם לא מעזים להפסיק לשחק לפי הכללים.
     source: "Historic Royal Palaces, Tower of London ravens history; British Museum / BBC folklore commentary."
     source_url: "https://www.hrp.org.uk/tower-of-london/history-and-stories/the-ravens/"
     image_prompt: "Relevant atmospheric editorial image of ravens on the Tower of London walls under grey sky with ceremonial guard in distance, no text, no logos."
@@ -652,6 +742,8 @@ spooky:
       מתחת לגשר South Bridge באדינבורו נבנו במאה ה-18 חללים ששימשו סדנאות, מחסנים ולימים גם מגורים עניים וצפופים.
       לפי סיורי העיר והמחקר המקומי, התנאים היו לחים, חשוכים ומסוכנים; סיפורי הרוחות הגיעו אחר כך כמעט לבד.
       לפעמים הרדיפה הכי אמינה מתחילה מתכנון עירוני גרוע.
+      אנשים עבדו וחיו שם בלי אור יום, ליד רטיבות, מחלות ופשע, עד שהחללים נאטמו ונשכחו.
+      כשהעיר פתחה אותם מחדש, היא לא מצאה רק אבנים — היא מצאה מרתף שלם של חיים שאף אחד לא רצה לזכור.
     source: "Mercat Tours historical materials; Edinburgh World Heritage South Bridge vaults overview (2024)."
     source_url: "https://ewh.org.uk/iconic-buildings-and-monuments/south-bridge/"
     image_prompt: "Relevant atmospheric editorial image of Edinburgh underground vaults with damp stone arches and lantern light, historical documentary style, no text, no logos."
@@ -661,6 +753,8 @@ spooky:
       יער אאוקיגהרה למרגלות הר פוג'י גדל על זרמי לבה עתיקים, עם קרקע מלאה מערות ושורשים צפופים.
       הוא נקשר במאה ה-20 לסיפורי התאבדות ולספרות יפנית, אבל גם למסורות עממיות על רוחות תועות.
       המקום אמיתי, יפה ושקט — והפולקלור סביבו דורש זהירות וכבוד, לא רומנטיזציה.
+      הסלע הוולקני והצפיפות של היער מקשים על ניווט, והמסלולים הרשמיים מזהירים מטיילים לא לרדת מהשביל.
+      האימה כאן לא צריכה מפלצת; מספיק מקום שבו קל מדי ללכת לאיבוד, פיזית ונפשית.
     source: "Japan National Tourism materials (2024); academic summaries of Aokigahara cultural history; Britannica Mount Fuji geology."
     source_url: "https://www.japan.travel/en/spot/1308/"
     image_prompt: "Relevant atmospheric editorial image of Aokigahara forest lava roots and mist near Mount Fuji, respectful somber mood, no text, no logos."
@@ -670,6 +764,8 @@ spooky:
       לפי מחקרי אגם נטרון, המים בטנזניה כל כך בסיסיים ומלוחים שבעלי חיים שמתים בהם יכולים להתכסות במלחים ולהיראות כמו פסלים מאובנים.
       הצלם ניק ברנדט פרסם סדרת תמונות שגרמה למיתוס כאילו האגם "הופך חיות לאבן" מיד, אבל המציאות כימית יותר ואיטית יותר.
       עדיין, הציפורים הקפואות במראה שלהן מספיקות כדי לעצור נשימה.
+      האגם גם משמש אתר רבייה חשוב לפלמינגו, כך שהוא לא רק מקום מוות אלא מערכת אקולוגית חיה וקיצונית.
+      זה מה שהופך אותו למוזר כל כך: אותו נוף יכול להיראות כמו בית גידול וכמו חדר חניטה טבעי.
     source: "Nick Brandt, 'Across the Ravaged Land' (2013); National Geographic Lake Natron coverage."
     source_url: "https://www.nationalgeographic.com/science/article/131002-lake-natron-animals-birds-calcified-photography-science"
     image_prompt: "Relevant atmospheric editorial image of mineral-encrusted bird remains near Lake Natron's red alkaline water, respectful nature documentary style, no gore, no text."
@@ -679,6 +775,8 @@ spooky:
       מערת מובילה ברומניה הייתה מנותקת מהעולם החיצון במשך מיליוני שנים.
       החיים בתוכה מבוססים על חיידקים שמפיקים אנרגיה מכימיקלים כמו מימן גופרתי, לא מאור שמש.
       לפי המחקרים, נמצאו שם עשרות מינים ייחודיים — מערכת אקולוגית שנשמעת כמו כוכב אחר מתחת לאדמה.
+      האוויר שם דל בחמצן ועשיר בגזים רעילים, ולכן החוקרים נכנסים לזמן מוגבל ועם ציוד מתאים.
+      זו לא מערה של עטלפים ונרות; זה עולם סגור שבו החיים למדו לנשום כמעט בלי קשר אלינו.
     source: "Sarbu et al., Science (1996); BBC Earth Movile Cave coverage."
     source_url: "https://www.science.org/doi/10.1126/science.272.5270.1953"
     image_prompt: "Relevant atmospheric editorial image of Movile Cave's sealed underground ecosystem with sulfurous water and pale cave invertebrates, no text, no logos."
@@ -688,6 +786,8 @@ spooky:
       לפי מחקרי מעקב, צלופחים אירופיים נולדים כנראה בים סרגסו, ואז נסחפים וחוזרים לנהרות אירופה — אבל במשך מאות שנים איש לא מצא את מקום הרבייה המדויק.
       רק במאה ה-21 מעקבי לוויין התחילו לאשר את המסע חזרה של בוגרים אל האזור.
       חיה יומיומית יחסית החזיקה סוד אוקייני ענק.
+      אריסטו כבר תהה מאיפה הם מגיעים, ובמשך שנים אנשים המציאו הסברים כי לא מצאו ביצי צלופחים או רבייה גלויה.
+      גם היום המסע שלהם מרגיש כמו מפה עם חץ גדול אל אזור, לא כתובת מדויקת.
     source: "Righton et al., Science Advances (2016); Nature / Zoological Society of London eel migration research."
     source_url: "https://www.science.org/doi/10.1126/sciadv.1501694"
     image_prompt: "Relevant atmospheric editorial image of silver eels migrating through dark Atlantic water toward the Sargasso Sea, marine mystery style, no text, no logos."
@@ -697,6 +797,8 @@ spooky:
       תושבים בטאוס, ניו מקסיקו, דיווחו במשך שנים על זמזום נמוך שאחרים לא שומעים.
       בשנות ה-90 צוותים מדעיים בדקו מקורות מכניים, אקוסטיים ופסיכולוגיים, ולא מצאו גורם חד-משמעי.
       לפי הדוחות, רק חלק קטן מהאוכלוסייה שומע אותו — וזה בדיוק מה שהופך את השקט לחשוד.
+      חלק מהמדווחים תיארו אותו כמנוע רחוק שאף פעם לא נכבה, במיוחד בלילה כשהעולם אמור להיות שקט.
+      כשהמדידה אומרת "אין כלום" והגוף אומר "יש", התעלומה עוברת מהאוויר אל הראש — ושם היא קשה יותר לפתרון.
     source: "Mullins & Kelly, University of New Mexico / Los Alamos Taos Hum investigation (1993); Live Science summary."
     source_url: "https://www.livescience.com/43519-taos-hum.html"
     image_prompt: "Relevant atmospheric editorial image of Taos desert homes at night with subtle low-frequency wave visualization, no text, no logos."
@@ -706,6 +808,8 @@ spooky:
       מגפות ריקוד הופיעו באירופה עוד לפני שטרסבורג 1518, כולל התפרצות באאכן בשנת 1374.
       כרוניקות מתארות קבוצות שרקדו ברחובות עד התמוטטות, בזמן שרשויות וכמרים ניסו להסביר זאת כקללה, מחלה או היסטריה.
       לא ברור אם כל הדיווחים מדויקים, אבל הפחד הקולקטיבי מתועד שוב ושוב.
+      אנשים נלקחו לעיתים למקדשים או לטקסים דתיים, כי הריקוד נתפס גם כבעיה רוחנית ולא רק גופנית.
+      ההיסטוריה לא נותנת לנו סרטון, רק מילים של אנשים שראו קהל זז בלי יכולת לעצור.
     source: "John Waller, 'A Time to Dance, A Time to Die' (Icon Books, 2008); Encyclopaedia Britannica dancing mania overview."
     source_url: "https://www.britannica.com/event/dancing-plague-of-1518"
     image_prompt: "Relevant atmospheric editorial image of medieval townspeople dancing uncontrollably in a street while clergy watch, respectful historical style, no text, no logos."
@@ -715,6 +819,8 @@ spooky:
       הרעלת ארגוט מדגן נגוע גרמה בימי הביניים למחלה שכונתה "אש אנטוניוס הקדוש".
       לפי תיאורים רפואיים, הסובלים חוו כאב בוער, הזיות ולעיתים נמק בגפיים.
       ההסבר הפטרייתי המודרני לא הופך את הסיפורים לפחות מפחידים; הוא רק מזיז את השד אל הלחם.
+      מסדר אנטוניוס הקדוש התמחה בטיפול בחולים, ולכן השם הדתי נדבק למחלה שהיום אנחנו מבינים דרך ביוכימיה.
+      הפחד כאן פשוט מאוד: הדבר שאמור להזין את הכפר יכול להפוך בלי ידיעתך לרעל שמדליק את הגוף מבפנים.
     source: "Matossian, 'Poisons of the Past' (Yale University Press, 1989); Britannica ergotism overview."
     source_url: "https://www.britannica.com/science/ergotism"
     image_prompt: "Relevant atmospheric editorial image of medieval rye fields and dark bread under apothecary candlelight, medical history mood, no gore, no text."
@@ -724,6 +830,8 @@ spooky:
       לפי ספרות רפואית מאוחרת, טאראר, צרפתי מהמאה ה-18, תועד כרעב כמעט בלתי נשלט שאכל כמויות חריגות, פסולת ואפילו חומרים מסוכנים.
       רופאים צבאיים צרפתים בדקו אותו בזמן המהפכה, והסיפור מופיע בספרות רפואית מאוחרת.
       חלק מהפרטים נשמעים בלתי אפשריים, אבל התיעוד מספיק ממשי כדי להפוך גוף אנושי לתעלומה לא נעימה.
+      הוא גויס אפילו למשימה צבאית שבה ניסה להעביר מסמך בתוך גופו, רעיון שנכשל כמעט מיד.
+      המקרה שלו מטריד כי הוא לא מציע מוסר השכל, רק גוף שהרפואה של זמנו לא ידעה איפה להתחיל להסביר.
     source: "Bondeson, 'The Two-Headed Boy, and Other Medical Marvels' (Cornell University Press, 2000); medical history summaries."
     source_url: "https://en.wikipedia.org/wiki/Tarrare"
     image_prompt: "Relevant atmospheric editorial image of an 18th-century French medical ward with case notes and shadowed figure, no gore, no text, no logos."
@@ -733,6 +841,8 @@ spooky:
       ב-1848 מוט ברזל עבר דרך גולגולתו של פיניוס גייג' בזמן עבודת רכבת, והוא שרד.
       הרופא ג'ון הארלו תיעד שינויי אישיות לאחר הפציעה, והגולגולת והמוט מוצגים עד היום במוזיאון וורן בהרווארד.
       לא סיפור רוחות — אבל תזכורת מצמררת לכמה מעט צריך כדי לשנות אדם.
+      הפציעה עברה דרך האונה המצחית, אזור שהיום מקשרים לתכנון, שליטה ודחפים.
+      לכן גייג' הפך לא רק למקרה רפואי מפורסם, אלא לשאלה כמעט פילוסופית: איפה בתוך הבשר יושב האופי.
     source: "Harlow case reports (1848, 1868); Harvard Warren Anatomical Museum Phineas Gage collection."
     source_url: "https://countway.harvard.edu/center-history-medicine/collections/warren-anatomical-museum/phineas-gage"
     image_prompt: "Relevant atmospheric editorial image of Phineas Gage's skull and tamping iron in a medical museum case, respectful historical style, no text, no logos."
@@ -742,6 +852,8 @@ spooky:
       בשנות ה-20 נשים שצבעו שעוני רדיום בארצות הברית היו מחדדות את המכחול בשפתיים כדי לצייר מספרים זעירים.
       לפי התיקים המשפטיים והרפואיים, הרדיום גרם לנמק בלסתות, סרטן ומוות, בזמן שהחברות ניסו להכחיש קשר.
       האימה כאן לא על-טבעית בכלל; היא זוהרת בחושך כי מישהו מכר אותה כקדמה.
+      העובדות קיבלו הבטחות שהחומר בטוח, וחלקן אפילו צבעו שיניים וציפורניים בשביל הברק.
+      שנים אחר כך, העצמות שלהן עדיין פלטו קרינה — עדות משפטית שהגוף עצמו שמר נגד המפעלים.
     source: "Moore, 'The Radium Girls' (Sourcebooks, 2017); National Museum of American History radium dial materials."
     source_url: "https://www.nps.gov/articles/000/radium-girls.htm"
     image_prompt: "Relevant atmospheric editorial image of 1920s radium watch dials glowing faintly beside factory brushes and legal documents, no gore, no text."
@@ -751,6 +863,8 @@ spooky:
       בקיץ 1858 התמזה בלונדון הסריחה כל כך מביוּב גולמי שהפרלמנט כמעט לא הצליח לעבוד.
       לפי מסמכי התקופה, הווילונות בבית הנבחרים הושרו בכלוריד סיד כדי להתמודד עם הריח.
       "הסירחון הגדול" לא היה רק מטרד; הוא הכריח את העיר לבנות מערכת ביוב מודרנית.
+      באותה תקופה עדיין קשרו מחלות לריחות רעים, אבל כולרה כבר עברה דרך מים מזוהמים הרבה לפני שהעיר הודתה בזה.
+      לפעמים התקדמות ציבורית מתחילה לא מרעיון נאור, אלא מזה שהעשירים כבר לא מסוגלים לנשום.
     source: "UK Parliament archives, Great Stink history; Museum of London sewer history."
     source_url: "https://www.parliament.uk/about/living-heritage/transformingsociety/towncountry/towns/overview/greatstink/"
     image_prompt: "Relevant atmospheric editorial image of Victorian London Parliament over a polluted Thames in summer haze, public health history style, no text, no logos."
@@ -760,6 +874,8 @@ spooky:
       ב-1919 מכל מולסה ענק התפוצץ בבוסטון וגל דביק בגובה כמה מטרים שטף רחובות.
       21 בני אדם נהרגו, וסוסים, עגלות ומבנים נסחפו בחומר שנראה תמים עד שהוא זז כמו קיר.
       לפי חקירת המקרה, כשל הנדסי ורשלנות הפכו מתוק למלכודת.
+      עדים תיארו קול פיצוץ כמו רכבת, ואז ריח מתוק כבד שנשאר באזור זמן רב אחרי הפינוי.
+      זה אחד האסונות שקשה לדמיין ברצינות עד שמבינים שמולסה קרה מתנהגת פחות כמו סירופ ויותר כמו בטון חי.
     source: "Massachusetts Historical Society; Puleo, 'Dark Tide' (Beacon Press, 2003)."
     source_url: "https://www.masshist.org/beehiveblog/2019/01/the-great-boston-molasses-flood/"
     image_prompt: "Relevant atmospheric editorial image of 1919 Boston street after the molasses tank disaster, sepia documentary style, no gore, no text."
@@ -769,6 +885,8 @@ spooky:
       בשנת 1876 ירדו חתיכות בשר מהשמיים מעל חווה בקנטקי, לפי דיווחים בעיתונות ובכתב העת Scientific American.
       דגימות נשלחו לבדיקה, והסבר סביר אחד היה להקת עופות דורסים שהקיאה באוויר.
       ההסבר הטבעי לא הופך את האירוע לפחות מגעיל או פחות בלתי סביר למי שעמד בחצר.
+      כמה מהנוכחים אף טעמו מהחומר וטענו שהוא מזכיר בשר כבש או צבי, פרט שהופך את הסיפור למוזר יותר מכל תאוריה.
+      גם אם המקור הוא ציפורים, עדיין נשארת תמונה שקשה למחוק: מזג אוויר של בשר.
     source: "Scientific American report (1876); Kentucky Historical Society summary."
     source_url: "https://www.scientificamerican.com/article/the-kentucky-meat-shower/"
     image_prompt: "Relevant atmospheric editorial image of a 19th-century Kentucky farmyard after a strange meat shower, historical oddity style, no gore, no text."
@@ -778,6 +896,8 @@ spooky:
       ב-1908 פיצוץ מעל טונגוסקה בסיביר השטיח כ-80 מיליון עצים בלי להשאיר מכתש ברור.
       משלחות מאוחרות מצאו יערות שנפלו החוצה מנקודת מרכז, וההסבר המקובל הוא גוף קוסמי שהתפוצץ באוויר.
       אירוע שמימי קצר השאיר יער שלם שוכב כמו ראיה בזירת פשע.
+      עדים במרחקים גדולים דיווחו על אור מסנוור, חום, והדף ששבר חלונות והפיל אנשים.
+      במשך שנים המקום היה כל כך מרוחק שקשה היה להגיע אליו, ולכן המדע הגיע לזירה אחרי שהאגדה כבר התחילה לגדול.
     source: "NASA Earth Observatory Tunguska overview (1908); Britannica Tunguska event entry."
     source_url: "https://earthobservatory.nasa.gov/images/83443/tunguska-100-years-later"
     image_prompt: "Relevant atmospheric editorial image of flattened Siberian forest after the Tunguska airburst with distant fireball memory, no text, no logos."
@@ -787,6 +907,8 @@ spooky:
       אחד הדברים שהפכו את טונגוסקה למסתורי הוא מה שלא נמצא: מכתש גדול.
       לפי המודלים המקובלים, האסטרואיד או השביט התפרק בגובה של כמה קילומטרים ושחרר אנרגיה באוויר, לא בקרקע.
       לכן הזירה נראתה כמו פיצוץ ענק בלי קליע.
+      העצים במרכז נשארו עומדים אך חרוכים, בזמן שסביבם היער נשכב החוצה במעגלים עצומים.
+      זה דפוס שמרגיש כמעט מתוכנן, למרות שהוא כנראה רק הפיזיקה של גוף שמימי שמתפרק ברגע הלא נכון.
     source: "NASA Science, Tunguska impact event; Nature and Britannica summaries."
     source_url: "https://science.nasa.gov/solar-system/asteroids/in-depth/"
     image_prompt: "Relevant atmospheric editorial image of investigators in a flattened Siberian forest searching for a missing crater, no text, no logos."
@@ -796,6 +918,8 @@ spooky:
       בשנים 1966–1967 תושבים בפוינט פלזנט, מערב וירג'יניה, דיווחו על דמות מכונפת עם עיניים אדומות.
       הסיפורים התערבבו בקריסת גשר Silver Bridge, שבה נהרגו 46 בני אדם, אף שאין קשר מוכח ביניהם.
       פולקלור אמריקאי מודרני נולד כאן ממפגש בין עדויות מוזרות, טרגדיה אמיתית ועיתונות רעבה.
+      חלק מהתצפיות הגיעו מאזור TNT נטוש, מלא בונקרים וצמחייה, מקום שכבר נראה כאילו הוא מחכה למפלצת.
+      אחרי האסון, הדמות הפכה פחות ליצור ויותר סימן אזהרה שאנשים קראו בדיעבד.
     source: "West Virginia Encyclopedia, Mothman entry; Silver Bridge collapse records, National Transportation Safety Board."
     source_url: "https://www.wvencyclopedia.org/articles/1428"
     image_prompt: "Relevant atmospheric editorial image of a foggy Point Pleasant road near an abandoned TNT area with a winged silhouette implied, no text, no logos."
@@ -805,6 +929,8 @@ spooky:
       אגדת Jersey Devil קשורה ליערות Pine Barrens בניו ג'רזי ולסיפורי משפחת Leeds מהמאה ה-18.
       לפי המסורת, יצור מכונף עם ראש סוס ופרסות משוטט ביער; לפי היסטוריונים, הסיפור התערבב בפוליטיקה מקומית ובפולקלור אזורי.
       מה שנשאר הוא יער גדול מספיק כדי להחזיק מפלצת גם בלי הוכחה.
+      ב-1909 גל דיווחים בעיתונות תיאר עקבות בשלג, צרחות ותצפיות בערים שונות, עד שבתי ספר נסגרו ופועלים נשארו בבית.
+      גם אם לא היה יצור, הייתה בהחלט בהלה — ולפעמים זה מספיק כדי להפוך אגדה למציאות חברתית.
     source: "New Jersey Historical Commission materials; Smithsonian Magazine Jersey Devil folklore coverage."
     source_url: "https://www.smithsonianmag.com/history/the-jersey-devil-108802342/"
     image_prompt: "Relevant atmospheric editorial image of New Jersey Pine Barrens at dusk with hoofprints and a barely suggested winged shape, no text, no logos."
@@ -814,6 +940,8 @@ spooky:
       אחרי אסון צ'רנוביל נוצר במרתף הכור גוש דמוי לבה של דלק גרעיני, בטון וחול שכונה "רגל הפיל".
       לפי דיווחי המהנדסים, בשנות ה-80 קרינה לידו הייתה קטלנית בתוך דקות.
       זה לא מפלצת, אלא חומר — אבל קשה לחשוב על חפץ מודרני שמרגיש יותר מקולל.
+      הצילומים המפורסמים שלו צולמו בתנאים מסוכנים, עם ציוד שנפגע מקרינה וצלמים ששהו שם זמן קצר מאוד.
+      החומר עצמו כבר פחות פעיל משהיה, אבל השם נשאר כי הוא מתאר בדיוק את התחושה: משהו כבד, אפור, וחי יותר מדי.
     source: "US Department of Energy Chernobyl materials (1986); International Atomic Energy Agency reports."
     source_url: "https://www.iaea.org/newscenter/focus/chernobyl"
     image_prompt: "Relevant atmospheric editorial image of Chernobyl's Elephant's Foot corium mass in a dark reactor basement, respectful documentary style, no text, no logos."
@@ -823,6 +951,8 @@ spooky:
       בלוס אלמוס כונה כדור פלוטוניום אחד "ליבת השד" אחרי שתי תאונות קריטיות שהרגו את הפיזיקאים הארי דגליאן ולואיס סלוטין.
       לפי דוחות המעבדה, בשני המקרים תמרון ידני קרוב מדי גרם להבזק קרינה קטלני.
       השם נשמע מיסטי, אבל האימה הייתה דיוק מדעי שנכשל במילימטרים.
+      סלוטין השתמש במברג כדי להחזיק חצי מעטפת בריליום פתוחה — פעולה שכונתה אחר כך "לדגדג את זנב הדרקון".
+      כשהמברג החליק, החדר ראה הבזק כחול קצר, והזמן שנותר לו כבר נמדד בימים.
     source: "Los Alamos National Laboratory history; Atomic Heritage Foundation Demon Core account."
     source_url: "https://ahf.nuclearmuseum.org/ahf/history/demon-core/"
     image_prompt: "Relevant atmospheric editorial image of a plutonium core experiment setup with beryllium reflectors in a 1940s lab, no gore, no text, no logos."
@@ -832,6 +962,8 @@ spooky:
       בתאונת Byford Dolphin ב-1983, שינוי לחץ פתאומי בתא צלילה רווי הרג חמישה עובדים כמעט מיד.
       דוחות החקירה תיארו כשל במערכת נעילה ובנהלים, לא כוח מסתורי.
       זה אחד הסיפורים התעשייתיים המבעיתים דווקא כי הוא מראה כמה הגוף תלוי בלחץ אוויר שאף אחד לא רואה.
+      הצוללים חיו בתנאי לחץ גבוה כדי לעבוד בעומק הים, והמעבר הבטוח חזרה לפני השטח היה אמור להיות איטי ומבוקר.
+      כשמערכת כזו נכשלת, אין כמעט דרמה קולנועית — רק פיזיקה מהירה מדי בשביל גוף אנושי.
     source: "Norwegian Petroleum Directorate accident report (1983); diving medicine case summaries."
     source_url: "https://en.wikipedia.org/wiki/Byford_Dolphin"
     image_prompt: "Relevant atmospheric editorial image of a North Sea diving chamber control panel under harsh industrial lighting, respectful accident-history style, no gore, no text."
@@ -841,6 +973,8 @@ spooky:
       ב-1814 התפוצץ מכל בירה ענק במבשלת Meux בלונדון, וגל של בירה פרץ לשכונת St Giles.
       לפי דיווחי התקופה, שמונה אנשים נהרגו, רובם נשים וילדים בבתים סמוכים.
       הסיפור נשמע כמעט מצחיק עד שנזכרים שמדובר באסון תעשייתי בתוך שכונת עוני צפופה.
+      המכלים היו עצומים, והלחץ קרע קירות כאילו המבשלה עצמה הפכה לסכר שנפרץ.
+      בית המשפט קבע שזה "מעשה אלוהים", אבל לתושבים שנשטפו בבירה לא היה שום דבר חגיגי בסוף הזה.
     source: "Historic UK, London Beer Flood; London Metropolitan Archives summaries."
     source_url: "https://www.historic-uk.com/HistoryUK/HistoryofBritain/London-Beer-Flood/"
     image_prompt: "Relevant atmospheric editorial image of a Victorian brewery tank failure flooding a narrow London street, historical disaster style, no gore, no text."
@@ -850,6 +984,8 @@ spooky:
       רעידת האדמה בליסבון ב-1755 הכתה ביום כל הקדושים, כשכנסיות היו מלאות נרות ומתפללים.
       אחריה הגיע צונאמי ושריפות ענק, וחלק גדול מהעיר נהרס.
       לפי היסטוריונים, האסון טלטל לא רק בניינים אלא גם את הפילוסופיה האירופית על השגחה, רוע וטבע.
+      אנשים שברחו אל קו המים כדי להתרחק מבניינים קורסים ראו את הים נסוג — ואז חוזר כקיר.
+      וולטר והוגים אחרים שאלו איך עולם מסודר יכול להכיל הרס כזה בדיוק ביום קדוש.
     source: "Encyclopaedia Britannica Lisbon earthquake; Smithsonian Magazine history coverage."
     source_url: "https://www.britannica.com/event/Lisbon-earthquake-of-1755"
     image_prompt: "Relevant atmospheric editorial image of 18th-century Lisbon after earthquake, tsunami and fires under ash-dark sky, respectful historical style, no text."
@@ -859,6 +995,8 @@ spooky:
       לפי היסטוריוני רפואה, מסכת הרופא עם המקור הארוך מזוהה עם המגפה השחורה, אבל הופיעה בעיקר מאוחר יותר, במאות ה-17 וה-18.
       המקור מולא בעשבים ובחומרים ריחניים כי חשבו שמחלות עוברות דרך אוויר מסריח.
       הדימוי הכי מפורסם של המגפה הוא בעצם טכנולוגיית פחד מתקופה אחרת.
+      המעיל הארוך, הכפפות והמקל נועדו להרחיק מגע, הרבה לפני הבנה מודרנית של חיידקים ונגיפים.
+      היום המסכה נראית כמו מפלצת, אבל במקור היא הייתה ניסיון הגיוני לעבוד בתוך מוות בלי לדעת מהו האויב.
     source: "German Medical History Museum; Wellcome Collection plague doctor mask history."
     source_url: "https://wellcomecollection.org/articles/XShU0hAAACIAZiY_"
     image_prompt: "Relevant atmospheric editorial image of a plague doctor mask with herbs in the beak beside early modern medical tools, no text, no logos."
@@ -868,6 +1006,8 @@ spooky:
       במשך מאות שנים השתמשו אמנים אירופים בפיגמנט בשם Mummy Brown, שיוצר לעיתים מגופות חנוטות טחונות.
       לפי מקורות היסטוריים, הצבע נמכר בחנויות חומרי אמנות עד שהמודעות למקורו הפכה אותו לבלתי נסבל מוסרית.
       לפעמים החומר שממנו עשויה תמונה יפה הוא הסיפור הכי אפל בה.
+      חלק מהאמנים טענו שלא ידעו מה יש בשפופרת, ואחרים הפסיקו להשתמש בו כשגילו שהשם אינו מטאפורה.
+      זה אחד המקרים שבהם קולוניאליזם, מסחר ואמנות נפגשים בתוך צבע חום קטן מדי.
     source: "National Gallery technical bulletin; Smithsonian Magazine coverage of mummy brown pigment."
     source_url: "https://www.smithsonianmag.com/smart-news/people-used-to-paint-with-ground-up-mummies-179949911/"
     image_prompt: "Relevant atmospheric editorial image of antique artist pigments labeled as historical mummy brown beside Egyptian funerary imagery, respectful museum style, no text."

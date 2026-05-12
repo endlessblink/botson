@@ -2730,6 +2730,13 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"החיה הכי חמודה.*(השבוע האחרון|לא ברשת)"), "concrete_failure_cutesy_no_payoff"),
     (re.compile(r"מה עדיין זוהר אצלכם מהיום"), "concrete_failure_vague_poetic_evening"),
     (re.compile(r"מה יצאתם ליצור.*בלי תכנון.*יוצא מזה משהו"), "concrete_failure_generic_art_bad_hebrew"),
+    (re.compile(r"משחק שהתחלתם רק לה?י?רגע.*וגמרתם אותו לפני השינה"), "concrete_failure_generic_gaming_unwind"),
+    (re.compile(r"מתי בדיוק החלטתם שהיום נגמר"), "concrete_failure_unclear_day_shutdown"),
+    (re.compile(r"קפה, מקלחת, סגירת המחשב"), "concrete_failure_unclear_day_shutdown"),
+    (re.compile(r"מה הכי הפתיע אתכם בעצמכם"), "concrete_failure_rewritten_self_reflection"),
+    (re.compile(r"שלב הסינגלות הנוכחי"), "concrete_failure_bad_singles_wording"),
+    (re.compile(r"בשעה שהמטבח כבר קר"), "concrete_failure_unclear_vegan_late_food"),
+    (re.compile(r"אוכלים שהוא בקרוב צמחי"), "concrete_failure_bad_vegan_hebrew"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
@@ -4021,7 +4028,7 @@ async def _ai_fill_trivia_for_week(
             "min_ready_players": min_ready,
         }
         await db.create_scheduled_message(
-            text="[internal:trivia_round]",
+            text="",
             message_type="trivia_round",
             channel_topic_id=topic_id,
             target_group="main",
@@ -4130,14 +4137,14 @@ async def _ai_fill_pool_rows_for_week(
         tidbit_count = 0
         spooky_count = 0
 
-    slots: list[tuple[int, str, str, str]] = []  # (day_idx, time, mtype, internal label)
+    slots: list[tuple[int, str, str, str]] = []  # (day_idx, time, mtype, text)
     if emoji_pool_count > 0:
-        slots.append((3, "22:00", "emoji_puzzle", "[internal:emoji_puzzle]"))
+        slots.append((3, "22:00", "emoji_puzzle", ""))
     if tidbit_count > 0:
-        slots.append((2, "12:00", "facts_tidbit", "[internal:facts_tidbit]"))
-        slots.append((4, "12:00", "facts_tidbit", "[internal:facts_tidbit]"))
+        slots.append((2, "12:00", "facts_tidbit", ""))
+        slots.append((4, "12:00", "facts_tidbit", ""))
     if spooky_count > 0:
-        slots.append((6, "22:00", "facts_spooky", "[internal:facts_spooky]"))
+        slots.append((6, "22:00", "facts_spooky", ""))
 
     # Day-level scoping: only slots whose day matches target_date.
     if target_day_index is not None:
@@ -5134,7 +5141,7 @@ async def _ai_suggest_calendar(
                         emoji_game_poll["min_ready_players"] = emoji_min_ready
                         emoji_game_poll["warmup_marker"] = emoji_warmup_marker
                     _add_suggestion(d_iso, t, "emoji_puzzle", topic=routed_topics["emoji_puzzle"],
-                                    text="[internal:emoji_puzzle]",
+                                    text="",
                                     source="ai-fill-pool-row",
                                     rationale=f"נושא: {emoji_theme} · מאגר מתאים ({pool_n} פריטים)",
                                     preview_url=_preview_url(
@@ -5161,7 +5168,7 @@ async def _ai_suggest_calendar(
                 fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
                 rationale = f"מאגר עובדות פעיל ({tn} פריטים)" if tn > 0 else "סלוט עובדה פנוי"
                 _add_suggestion(d_iso, t, "facts_tidbit", topic=routed_topics["facts_tidbit"],
-                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else "[internal:facts_tidbit]"),
+                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else ""),
                                 source="ai-fill-pool-row",
                                 rationale=rationale,
                                 poll_options_json=fact_payload,
@@ -5183,7 +5190,7 @@ async def _ai_suggest_calendar(
                 fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
                 rationale = f"מאגר ספוקי פעיל ({sn} פריטים)" if sn > 0 else "סלוט סיפור מסתורי פנוי"
                 _add_suggestion(d_iso, t, "facts_spooky", topic=routed_topics["facts_spooky"],
-                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else "[internal:facts_spooky]"),
+                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else ""),
                                 source="ai-fill-pool-row",
                                 rationale=rationale,
                                 poll_options_json=fact_payload,
@@ -5198,7 +5205,7 @@ async def _ai_suggest_calendar(
                 if not _slot_available_or_skip(d_iso, t, "free_games"):
                     continue
                 _add_suggestion(d_iso, t, "free_games", topic=routed_topics["free_games"],
-                                text="[internal:free_games]",
+                                text="",
                                 source="ai-fill-pool-row",
                                 preview_url=_preview_url("free_games"),
                                 rationale="סלוט משחקים חינם פנוי")
@@ -5211,7 +5218,7 @@ async def _ai_suggest_calendar(
                 if not _slot_available_or_skip(d_iso, t, "weekly_roundup"):
                     continue
                 _add_suggestion(d_iso, t, "weekly_roundup", topic=routed_topics["weekly_roundup"],
-                                text="[internal:weekly_roundup]",
+                                text="",
                                 source="ai-fill-pool-row",
                                 preview_url=_preview_url("weekly_roundup"),
                                 rationale="סלוט סיכום שבועי פנוי")
@@ -5224,7 +5231,7 @@ async def _ai_suggest_calendar(
                 if not _slot_available_or_skip(d_iso, t, "weekly_leaderboard"):
                     continue
                 _add_suggestion(d_iso, t, "weekly_leaderboard", topic=routed_topics["weekly_leaderboard"],
-                                text="[internal:weekly_leaderboard]",
+                                text="",
                                 source="ai-fill-pool-row",
                                 preview_url=_preview_url("weekly_leaderboard"),
                                 rationale="סלוט טבלת רמות פנוי")
@@ -5330,7 +5337,7 @@ async def _ai_suggest_calendar(
                 if trivia_warmup_marker:
                     poll_payload["warmup_marker"] = trivia_warmup_marker
                 _add_suggestion(d_iso, t, "trivia_round", topic=routed_topics["trivia_round"],
-                                 text="[internal:trivia_round]",
+                                 text="",
                                  source="ai-fill-trivia",
                                 rationale=f"נושא: {poll_payload['theme_label']} · מאגר מתאים ({trivia_pool_n} שאלות)",
                                 preview_url=_preview_url(
@@ -8678,6 +8685,22 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
 
         color = channel_colors.get(m.get("channel_topic_id"), "#71717a")
         status = m.get("status", "scheduled")
+        diagnostic_label = {
+            "draft": "טיוטה",
+            "scheduled": "יישלח",
+            "sent": "נשלח",
+            "failed": "נכשל",
+            "skipped": "דולג",
+        }.get(status, status)
+        diagnostic_detail = {
+            "draft": "טיוטה: לא תישלח עד תזמון או שליחה ידנית",
+            "scheduled": "מתוזמן: הסקזולר ינסה לשלוח בזמן הזה",
+            "sent": "נשלח: הפעולה כבר הסתיימה",
+            "skipped": "דולג: הסקזולר החליט לא לשלוח",
+        }.get(status, "")
+        if status == "failed":
+            err = (m.get("error_message") or "").strip()
+            diagnostic_detail = f"נכשל: {err}" if err else "נכשל: לא נשמרה סיבת כשל"
 
         poll_options_raw = m.get("poll_options")
         poll_options: list | None = None
@@ -8703,6 +8726,10 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
             "extendedProps": {
                 "fullText": m.get("text", ""),
                 "status": status,
+                "willSend": status == "scheduled",
+                "diagnosticLabel": diagnostic_label,
+                "diagnosticDetail": diagnostic_detail,
+                "errorMessage": m.get("error_message"),
                 "messageType": m.get("message_type", "custom"),
                 "channelTopicId": m.get("channel_topic_id"),
                 "recurrence": m.get("recurrence"),
@@ -8772,6 +8799,9 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
                 "extendedProps": {
                     "fullText": p["text"],
                     "status": "preview",
+                    "willSend": False,
+                    "diagnosticLabel": "תצוגה בלבד",
+                    "diagnosticDetail": "תצוגה בלבד: לא יישלח עד שמירה",
                     "messageType": p["type"],
                     "channelTopicId": p["topic_id"],
                     "category": p.get("category"),

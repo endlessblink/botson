@@ -1,19 +1,39 @@
-"""Level system — maps accumulated points to community levels."""
+"""Level system backed by operator-editable settings."""
 
-LEVELS = [
-    {"level": 1, "min_points": 0,   "tag": "חדש/ה",     "emoji": "🌱"},
-    {"level": 2, "min_points": 20,  "tag": "פעיל/ה",    "emoji": "⭐"},
-    {"level": 3, "min_points": 50,  "tag": "כוכב/ת",    "emoji": "🌟"},
-    {"level": 4, "min_points": 100, "tag": "סופרסטאר",  "emoji": "💫"},
-    {"level": 5, "min_points": 250, "tag": "אגדה",      "emoji": "🔥"},
-    {"level": 6, "min_points": 500, "tag": "אלוף/ה",    "emoji": "👑"},
-]
+from .config import get_settings
+from .copy import load_copy
+
+
+def _levels() -> list[dict]:
+    configured = (get_settings().get("levels") or {}).get("tiers") or []
+    levels: list[dict] = []
+    for idx, item in enumerate(configured, start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            level = int(item.get("level") or idx)
+            min_points = int(item.get("min_points") or 0)
+        except (TypeError, ValueError):
+            continue
+        tag = str(item.get("tag") or "").strip()
+        if not tag:
+            tag = load_copy("levels", "fallback_tag", default="Level {level}", level=level)
+        levels.append({
+            "level": level,
+            "min_points": min_points,
+            "tag": tag,
+            "emoji": str(item.get("emoji") or ""),
+        })
+    if levels:
+        return sorted(levels, key=lambda lvl: (lvl["min_points"], lvl["level"]))
+    return [{"level": 1, "min_points": 0, "tag": load_copy("levels", "fallback_tag", default="Level {level}", level=1), "emoji": ""}]
 
 
 def get_level(points: int) -> dict:
     """Get the current level info for a given point count."""
-    result = LEVELS[0]
-    for lvl in LEVELS:
+    levels = _levels()
+    result = levels[0]
+    for lvl in levels:
         if points >= lvl["min_points"]:
             result = lvl
         else:
@@ -23,10 +43,11 @@ def get_level(points: int) -> dict:
 
 def get_progress(points: int) -> dict:
     """Get current level + progress toward next level."""
+    levels = _levels()
     current = get_level(points)
-    current_idx = current["level"] - 1
+    current_idx = next((i for i, lvl in enumerate(levels) if lvl["level"] == current["level"]), 0)
 
-    if current_idx >= len(LEVELS) - 1:
+    if current_idx >= len(levels) - 1:
         # Max level
         return {
             "current": current,
@@ -36,7 +57,7 @@ def get_progress(points: int) -> dict:
             "points_needed": 0,
         }
 
-    next_lvl = LEVELS[current_idx + 1]
+    next_lvl = levels[current_idx + 1]
     points_in_level = points - current["min_points"]
     points_for_level = next_lvl["min_points"] - current["min_points"]
     progress = int(points_in_level / points_for_level * 100) if points_for_level > 0 else 100

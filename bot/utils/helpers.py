@@ -4,6 +4,7 @@ import logging
 from telegram import Update
 
 from .config import ADMIN_IDS
+from .copy import load_copy
 
 logger = logging.getLogger(__name__)
 
@@ -22,4 +23,4 @@ def get_display_name(user) -> str:
     """Get the best display name for a user."""
     if user.first_name and user.last_name:
         return f"{user.first_name} {user.last_name}"
-    return user.first_name or user.username or "חבר/ה"
+    return user.first_name or user.username or load_copy("helpers", "fallback_display_name", default="member")

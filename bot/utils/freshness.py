@@ -63,21 +63,27 @@ def is_internal_label(text: str) -> bool:
 
 
 def has_hebrew(text: str) -> bool:
-    return any("\u0590" <= ch <= "\u05ff" for ch in text or "")
+    return any(0x0590 <= ord(ch) <= 0x05FF for ch in text or "")
 
 
 # Layer 2 day-anchor validator. We pin the patterns where a Hebrew day
 # name appears as a *claim about today* (vs. neutral mention). Catches
 # the 2026-05-10 regression where the LLM ignored the prompt anchor and
 # generated "בוקר של שבת" on a Sunday row.
-_DAY_ALT = "|".join(HEBREW_DAY_NAMES)
-_DAY_PATTERNS_AS_TODAY = (
-    re.compile(rf"\bיום\s+({_DAY_ALT})\b"),
-    re.compile(rf"\b(?:בוקר|ערב|צהריים|לילה)\s+של\s+({_DAY_ALT})\b"),
-    re.compile(rf"\b(?:בוקר|ערב|צהריים|לילה)\s+({_DAY_ALT})\b"),
-    re.compile(rf"\b({_DAY_ALT})\s+(?:בבוקר|בערב|בלילה|בצהריים)\b"),
-    re.compile(rf"\b({_DAY_ALT})\s+(?:שמח|טוב|שלום)\b"),
-)
+def _day_patterns_as_today() -> tuple[re.Pattern, ...]:
+    data = load_yaml("freshness.yaml") or {}
+    templates = data.get("day_anchor_patterns") or []
+    day_alt = "|".join(re.escape(day) for day in HEBREW_DAY_NAMES)
+    patterns: list[re.Pattern] = []
+    for template in templates:
+        try:
+            patterns.append(re.compile(str(template).format(day_alt=day_alt)))
+        except Exception as e:
+            logger.warning("freshness: invalid day-anchor pattern %r: %s", template, e)
+    return tuple(patterns)
+
+
+_DAY_PATTERNS_AS_TODAY = _day_patterns_as_today()
 
 
 def day_anchor_rejection(text: str, scheduled_date: str | None) -> str | None:

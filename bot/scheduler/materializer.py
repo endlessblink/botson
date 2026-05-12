@@ -16,6 +16,7 @@ from datetime import date, timedelta
 
 from ..database.db import Database
 from ..utils.config import get_settings, is_auto_blocked_on, is_feature_enabled, load_yaml
+from ..utils.copy import load_copy
 from ..utils.freshness import freshness_rejection
 from ..utils.quality_rules import load_quality_rules_short
 from ..utils.time_context import hebrew_day_name
@@ -103,7 +104,7 @@ def _extract_generated_text(raw: str) -> str | None:
     text = "\n".join(lines[:2])
     if len(text) > 220:
         text = text[:217].rstrip() + "..."
-    return text if any("\u0590" <= ch <= "\u05ff" for ch in text) else None
+    return text if any(0x0590 <= ord(ch) <= 0x05FF for ch in text) else None
 
 
 async def _generate_with_claude(prompt: str) -> str | None:
@@ -180,10 +181,14 @@ async def _generate_fresh_text(
     scheduled_date: str,
     scheduled_time: str,
 ) -> str | None:
+    default_category = load_copy("materializer", "discussion_default_category", default="discussion")
     kind_he = {
-        "morning": "פתיחת יום",
-        "evening": "סגירת יום",
-        "discussion": f"שאלה לערוץ {category or 'דיון'}",
+        "morning": load_copy("materializer", "kind_morning", default="morning"),
+        "evening": load_copy("materializer", "kind_evening", default="evening"),
+        "discussion": load_copy(
+            "materializer", "kind_discussion", default="discussion {category}",
+            category=category or default_category,
+        ),
     }.get(message_type, message_type)
     sample = random.sample(examples, min(5, len(examples))) if examples else []
     canonical_rules = load_quality_rules_short()
@@ -192,28 +197,25 @@ async def _generate_fresh_text(
     # doesn't hallucinate "Saturday" content on a Sunday row (regression
     # observed 2026-05-10 morning slot).
     day_he = hebrew_day_name(scheduled_date) or ""
-    date_line = (
-        f"תאריך: {scheduled_date} (יום {day_he})" if day_he else f"תאריך: {scheduled_date}"
+    date_line = load_copy(
+        "materializer", "date_with_day", default="date: {date} ({day})",
+        date=scheduled_date, day=day_he,
+    ) if day_he else load_copy(
+        "materializer", "date_without_day", default="date: {date}", date=scheduled_date,
     )
-    prompt = f"""כתוב טקסט חדש בעברית לטלגרם לקהילת מבוגרים ישראלית בלי ילדים.
-
-סוג: {kind_he}
-{date_line}
-שעה: {scheduled_time}
-חובה: אם הטקסט מציין יום בשבוע, חייב להיות בדיוק "{day_he}" ולא יום אחר.
-
-דוגמאות השראה בלבד - אסור להעתיק או לפרפרז קרוב:
-{chr(10).join(f'- {x}' for x in sample) if sample else '- אין'}
-
-כבר נשלח או תוזמן - אסור לחזור:
-{chr(10).join(f'- {x}' for x in list(used_texts)[:25]) if used_texts else '- אין'}
-
-חוקי פלט:
-- שורה אחת או שתיים.
-- לא להעתיק אף דוגמה.
-- בלי הבטחות לכפתורים או פעולות שאין בהודעה.
-- פלט JSON בלבד: {{"text":"..."}}{canonical_block}
-"""
+    no_examples = load_copy("materializer", "no_examples", default="none")
+    examples_block = chr(10).join(f"- {x}" for x in sample) if sample else f"- {no_examples}"
+    used_block = chr(10).join(f"- {x}" for x in list(used_texts)[:25]) if used_texts else f"- {no_examples}"
+    prompt = load_copy(
+        "materializer", "prompt", default="{kind}\n{date_line}\n{time}\n{examples}\n{used_texts}{canonical_block}",
+        kind=kind_he,
+        date_line=date_line,
+        time=scheduled_time,
+        day=day_he,
+        examples=examples_block,
+        used_texts=used_block,
+        canonical_block=canonical_block,
+    )
     avoid = {str(x).strip() for x in used_texts}
     sources = {str(x).strip() for x in examples}
     rejections: list[str] = []

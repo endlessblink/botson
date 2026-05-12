@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..database.db import Database
 from ..utils.config import GOALS_TOPIC_ID as _ENV_GOALS_TOPIC_ID, GROUP_ID, get_settings, is_feature_enabled
+from ..utils.copy import load_copy
 
 
 def _get_goals_topic_id():
@@ -52,15 +53,21 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
     )
 
     points = get_points("prompt_reply") if is_prompt_reply else get_points("goals_post")
-    label = "תגובה להודעת בוט" if is_prompt_reply else "הישגים"
+    label = load_copy("goals", "prompt_reply_label" if is_prompt_reply else "goals_post_label", default="goals")
 
     old_points = await db.add_points(user.id, points)
-    await db.log_activity("points", f"+{points} נקודות ל-{user.first_name or ''} ({label})", user.id, "goals")
+    await db.log_activity("points", f"+{points} points for {user.first_name or ''} ({label})", user.id, "goals")
     new_level = check_level_up(old_points, old_points + points)
     if new_level:
         name = user.first_name or ""
         mention = f"[{name}](tg://user?id={user.id})"
-        text = f"🎉 מזל טוב {mention}! עלה/תה לרמה {new_level['level']} — {new_level['emoji']} {new_level['tag']}!"
+        text = load_copy(
+            "goals", "level_up", default="Level up: {mention} {level} {emoji} {tag}",
+            mention=mention,
+            level=new_level["level"],
+            emoji=new_level["emoji"],
+            tag=new_level["tag"],
+        )
         try:
             await context.bot.send_message(chat_id=update.effective_chat.id, text=text, parse_mode="Markdown")
         except Exception:
@@ -70,8 +77,12 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
     current = streak["current"]
 
     # Celebrate milestones
-    if current in (7, 14, 30, 60, 100):
-        milestone_msg = f"🔥 {user.first_name} הגיע/ה לרצף של {current} ימים! כל הכבוד! 🎉"
+    milestones = (get_settings().get("gamification") or {}).get("streak_milestones") or []
+    if current in {int(x) for x in milestones}:
+        milestone_msg = load_copy(
+            "goals", "milestone", default="Streak milestone: {name} {days}",
+            name=user.first_name or "", days=current,
+        )
         try:
             await update.message.reply_text(milestone_msg)
         except Exception as e:
@@ -87,11 +98,11 @@ async def streak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     streak = await db.get_streak(update.effective_user.id)
 
     if streak["current"] == 0:
-        text = "עדיין אין לך רצף! שתפ/י מטרה או הישג בערוץ יום יום כדי להתחיל 🌟"
+        text = load_copy("goals", "streak_empty", default="No streak yet")
     else:
-        text = (
-            f"🔥 הרצף שלך: {streak['current']} ימים\n"
-            f"🏆 הרצף הארוך ביותר: {streak['longest']} ימים"
+        text = load_copy(
+            "goals", "streak_status", default="Current streak: {current}\nBest streak: {longest}",
+            current=streak["current"], longest=streak["longest"],
         )
 
     await update.message.reply_text(text)

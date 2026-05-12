@@ -3,10 +3,8 @@
 
 See `CLAUDE.md` and `AGENTS.md` → "No Hardcoded User-Facing Content".
 
-Each test asserts ZERO (or capped) violations of one rule. Failures list
-every offending file:line. As Phases A–D land, the failing assertions
-drop their `xfail` markers / shrink their caps; this file is the live
-spec.
+Each test asserts ZERO violations of one rule. Failures list every
+offending file:line; this file is the live spec.
 
 Bypass at deploy time: `SKIP_HARDCODED_GUARDIAN=1 ./scripts/deploy.sh`.
 The bypass is audit-logged and intended for emergencies, not routine work.
@@ -17,7 +15,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -186,11 +183,8 @@ def test_no_hebrew_in_utils_or_scheduler():
     They're infrastructure; user copy lives in handlers + dashboard,
     routed through config.
 
-    Phase F just moved freshness fragments out. Remaining hits are LLM
-    prompt templates in `bot/scheduler/materializer.py` (Phase B.6
-    target) and a label in `bot/utils/helpers.py`. Until those phases
-    land, the test xfails with the file:line list — adding NEW Hebrew
-    here in the meantime would still surface in the failure delta."""
+    Phase F moved freshness fragments out. Remaining user-facing strings
+    must live in config/copy, not utility or scheduler Python modules."""
     hits: list[str] = []
     # Hebrew unicode block bounds are technical constants, not content —
     # explicit allowlist by line so future Hebrew additions still surface.
@@ -204,23 +198,20 @@ def test_no_hebrew_in_utils_or_scheduler():
             if (rel, ln) in BOUND_LINES:
                 continue
             hits.append(f"{rel}:{ln}: {val[:60]!r}")
-    if hits:
-        pytest.xfail(f"Phase B.6 / utils cleanup will fix {len(hits)} Hebrew literals: " + " | ".join(hits))
+    assert not hits, "Hebrew literals in utility/scheduler code:\n" + "\n".join(hits)
 
 
 def test_no_internal_placeholder_in_text_kwarg():
     """`[internal:*]` placeholder strings stored in scheduled_messages.text
     are forbidden — Phase B2 replaces them with NULL + renderer fallback.
-    The guardian assertion is currently xfail; the cap drops to zero
-    after B2 lands."""
+    Use empty text plus message_type/poll_options for executable rows."""
     pattern = re.compile(r"\[internal:[a-z_]+\]")
     hits: list[str] = []
     for path, source in _python_files("dashboard/app.py", "bot/handlers/*.py"):
         for i, line in enumerate(source.splitlines(), start=1):
             if pattern.search(line):
                 hits.append(f"{path.relative_to(ROOT)}:{i}: {line.strip()[:80]}")
-    if hits:
-        pytest.xfail(f"Phase B2 will remove {len(hits)} [internal:*] sites")
+    assert not hits, "internal placeholder text sites:\n" + "\n".join(hits)
 
 
 def test_dedup_methods_referenced_actually_exist():
@@ -296,8 +287,7 @@ def test_template_option_selected_must_be_gated():
                 window = "\n".join(lines[max(0, i - 4):i + 1])
                 if not if_re.search(window):
                     hits.append(f"{p.relative_to(ROOT)}:{i + 1}: {line.strip()[:80]}")
-    if hits:
-        pytest.xfail(f"Phase C3 removes ungated `selected` defaults: {len(hits)} sites")
+    assert not hits, "ungated selected defaults:\n" + "\n".join(hits)
 
 
 def test_milestone_array_not_hardcoded_in_handlers():
@@ -318,8 +308,7 @@ def test_milestone_array_not_hardcoded_in_handlers():
                         vals.append(el.value)
                 if vals == target_seq:
                     hits.append(f"{path.relative_to(ROOT)}:{n.lineno}")
-    if hits:
-        pytest.xfail(f"Phase A.2.4 moves milestones to settings.yaml: {hits}")
+    assert not hits, "hardcoded milestone arrays in handlers: " + repr(hits)
 
 
 def test_calendar_dispatch_distinguishes_skipped_from_failed():

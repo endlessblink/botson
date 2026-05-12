@@ -139,7 +139,7 @@
         <input id="new-en" type="text" placeholder="English" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]" dir="ltr">
         <input id="new-aliases" type="text" placeholder="aliases, separated, by commas" class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]" dir="ltr">
         <div class="flex gap-2">
-            <select id="new-difficulty" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="1">קל</option><option value="2" selected>בינוני</option><option value="3">קשה</option></select>
+            <select id="new-difficulty" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="1">קל</option><option value="2">בינוני</option><option value="3">קשה</option></select>
             <select id="new-media" class="flex-1 bg-[#111111] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa]"><option value="general">כללי</option><option value="movie">סרט</option><option value="series">סדרה</option><option value="book">ספר</option><option value="song">שיר</option></select>
         </div>
         <button id="new-create" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#d4d4d8] h-9 px-4 rounded-md text-sm font-medium transition-colors">הוסף</button>
@@ -282,6 +282,8 @@ document.getElementById('ep-save').addEventListener('click', async () => {
         showToast('שגיאה בשמירת לו"ז', 'error');
     }
 });
+
+document.getElementById('new-difficulty').value = '2';
 
 document.getElementById('new-create').addEventListener('click', async () => {
     try {

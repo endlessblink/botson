@@ -91,6 +91,12 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("🐾 מה החיה הכי חמודה שנתקלתם בה בשבוע האחרון — בחיים האמיתיים, לא ברשת?", "concrete_failure_cutesy_no_payoff"),
             ("🌙 ערב שישי. מה עדיין זוהר אצלכם מהיום?", "concrete_failure_vague_poetic_evening"),
             ("🎨 מה יצאתם ליצור הכי ספונטני — בלי תכנון, בלי שידעתם שיוצא מזה משהו?", "concrete_failure_generic_art_bad_hebrew"),
+            ("🎮 משחק שהתחלתם רק להירגע ביום ראשון בערב — וגמרתם אותו לפני השינה?", "concrete_failure_generic_gaming_unwind"),
+            ("🌙 מתי בדיוק החלטתם שהיום נגמר? קפה, מקלחת, סגירת המחשב?", "concrete_failure_unclear_day_shutdown"),
+            ("מה הכי הפתיע אתכם בעצמכם מאז שנכנסתם לשלב הסינגלות הנוכחי?", "concrete_failure_rewritten_self_reflection"),
+            ("מה הכי הפתיע אתכם בעצמכם מאז שנכנסתם לשלב הסינגלות הנוכחי?", "concrete_failure_bad_singles_wording"),
+            ("🌱 בשעה שהמטבח כבר קר — מה הדבר הכי פשוט שאתם אוכלים שהוא בקרוב צמחי, בלי שתכננתם?", "concrete_failure_unclear_vegan_late_food"),
+            ("🌱 בשעה שהמטבח כבר קר — מה הדבר הכי פשוט שאתם אוכלים שהוא בקרוב צמחי, בלי שתכננתם?", "concrete_failure_bad_vegan_hebrew"),
         ]
         for text, expected in cases:
             with self.subTest(text=text):

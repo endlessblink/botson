@@ -31,9 +31,18 @@ copy:
   # Activity label used in the cancel notice when neither activity_label
   # nor theme_label is present. Set to "" to disable.
   default_activity_label: "המשחק"
-  levels: {}      # Phase A.2.4 populates from bot/handlers/levels.py
+  levels:
+    fallback_tag: "רמה {level}"
   roundup: {}     # Phase A.2.4 populates from bot/handlers/roundup.py
-  goals: {}       # Phase A.2.4 populates from bot/handlers/goals.py
+  goals:
+    prompt_reply_label: "תגובה להודעת בוט"
+    goals_post_label: "הישגים"
+    level_up: "🎉 מזל טוב {mention}! עלה/תה לרמה {level} — {emoji} {tag}!"
+    milestone: "🔥 {name} הגיע/ה לרצף של {days} ימים! כל הכבוד! 🎉"
+    streak_empty: "עדיין אין לך רצף! שתפ/י מטרה או הישג בערוץ יום יום כדי להתחיל 🌟"
+    streak_status: |-
+      🔥 הרצף שלך: {current} ימים
+      🏆 הרצף הארוך ביותר: {longest} ימים
   digest: {}      # Phase A.2.4 populates from bot/handlers/daily_activity_digest.py
   antispam: {}    # Phase B.4 populates from bot/handlers/antispam.py
   facts:
@@ -61,6 +70,54 @@ copy:
   activity_copy:
     emoji_warmup: "🧩 Emoji Night על {theme_label} מתחיל ב-{game_time}. {puzzle_count} חידות; לחצו 🙋 כדי להיכנס."
     emoji_warmup_reminder: "תזכורת קצרה: Emoji Night על {theme_label} מתחיל ב-{game_time}. אם אתם בפנים, לחצו 🙋 בהודעה המקורית."
+  time_context:
+    day_names:
+    - "ראשון"
+    - "שני"
+    - "שלישי"
+    - "רביעי"
+    - "חמישי"
+    - "שישי"
+    - "שבת"
+    buckets:
+      morning: "בוקר"
+      noon: "צהריים"
+      afternoon: "אחר הצהריים"
+      evening: "ערב"
+      night: "לילה"
+    day_part: "יום {day} ({date})"
+    time_part: "בשעה {time} ({bucket})"
+    context_prefix: "\n\nהקשר זמן ההודעה: "
+    context_suffix: ". התוכן צריך להרגיש מתאים ליום ולשעה האלה — לא טקסט גנרי שיכול להיות בכל זמן. אם הטקסט מציין יום בשבוע, חייב להיות בדיוק היום הזה ולא יום אחר."
+  materializer:
+    kind_morning: "פתיחת יום"
+    kind_evening: "סגירת יום"
+    kind_discussion: "שאלה לערוץ {category}"
+    discussion_default_category: "דיון"
+    date_with_day: "תאריך: {date} (יום {day})"
+    date_without_day: "תאריך: {date}"
+    no_examples: "אין"
+    prompt: |-
+      כתוב טקסט חדש בעברית לטלגרם לקהילת מבוגרים ישראלית בלי ילדים.
+
+      סוג: {kind}
+      {date_line}
+      שעה: {time}
+      חובה: אם הטקסט מציין יום בשבוע, חייב להיות בדיוק "{day}" ולא יום אחר.
+
+      דוגמאות השראה בלבד - אסור להעתיק או לפרפרז קרוב:
+      {examples}
+
+      כבר נשלח או תוזמן - אסור לחזור:
+      {used_texts}
+
+      חוקי פלט:
+      - שורה אחת או שתיים.
+      - לא להעתיק אף דוגמה.
+      - בלי הבטחות לכפתורים או פעולות שאין בהודעה.
+      - פלט JSON בלבד: {{"text":"..."}}{canonical_block}
+  helpers:
+    fallback_display_name: "חבר/ה"
   gamification: {}  # Phase A.2.3 populates level_up template
 
 # LLM behavior. Phase B externalizes prompt rule numerics + model/endpoint.
@@ -204,7 +261,31 @@ levels:
   max_per_day: 10
   # Tier metadata (level/points/tag/emoji). Was hardcoded in
   # bot/utils/levels.py:3-9; Phase A.2.4 reads from here.
-  tiers: []
+  tiers:
+    - level: 1
+      min_points: 0
+      tag: "חדש/ה"
+      emoji: "🌱"
+    - level: 2
+      min_points: 20
+      tag: "פעיל/ה"
+      emoji: "⭐"
+    - level: 3
+      min_points: 50
+      tag: "כוכב/ת"
+      emoji: "🌟"
+    - level: 4
+      min_points: 100
+      tag: "סופרסטאר"
+      emoji: "💫"
+    - level: 5
+      min_points: 250
+      tag: "אגדה"
+      emoji: "🔥"
+    - level: 6
+      min_points: 500
+      tag: "אלוף/ה"
+      emoji: "👑"
 schedule:
   discussion_prompt:
     # Slow-chat shift (2026-05-10): dropped 21:00 second slot — same-day

@@ -212,7 +212,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn(fragment, suggestion["text"])
         emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
         self.assertTrue(emoji_rows)
-        self.assertTrue(all(row["text"].startswith("[internal:") for row in emoji_rows))
+        self.assertTrue(all(row["text"] == "" for row in emoji_rows))
         self.assertTrue(all(row.get("preview_url") for row in emoji_rows))
         emoji_payload = json.loads(emoji_rows[0]["poll_options_json"])
         self.assertIn(emoji_payload["theme_label"], {"סרטים", "סדרות"})
@@ -673,6 +673,56 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             await db.close()
 
         self.assertEqual(events, [])
+
+    async def test_calendar_api_exposes_will_send_diagnostics(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            scheduled_id = await db.create_scheduled_message(
+                text="scheduled text",
+                message_type="morning",
+                channel_topic_id=2184,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="09:00",
+                status="scheduled",
+            )
+            draft_id = await db.create_scheduled_message(
+                text="draft text",
+                message_type="discussion",
+                channel_topic_id=54,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="18:00",
+                status="draft",
+            )
+            failed_id = await db.create_scheduled_message(
+                text="failed text",
+                message_type="evening",
+                channel_topic_id=2184,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="21:00",
+                status="scheduled",
+            )
+            await db.mark_message_failed(failed_id, "telegram rejected")
+            events = await dashboard_app.get_calendar(
+                FakeQueryRequest({"start": "2099-01-04", "end": "2099-01-05"}),
+                db,
+            )
+        finally:
+            await db.close()
+
+        by_id = {int(event["id"]): event["extendedProps"] for event in events}
+        self.assertTrue(by_id[scheduled_id]["willSend"])
+        self.assertEqual(by_id[scheduled_id]["diagnosticLabel"], "יישלח")
+        self.assertIn("הסקזולר", by_id[scheduled_id]["diagnosticDetail"])
+        self.assertFalse(by_id[draft_id]["willSend"])
+        self.assertEqual(by_id[draft_id]["diagnosticLabel"], "טיוטה")
+        self.assertIn("לא תישלח", by_id[draft_id]["diagnosticDetail"])
+        self.assertFalse(by_id[failed_id]["willSend"])
+        self.assertEqual(by_id[failed_id]["diagnosticLabel"], "נכשל")
+        self.assertIn("telegram rejected", by_id[failed_id]["diagnosticDetail"])
 
     async def test_bot_reload_materializer_generates_fresh_auto_content(self):
         db = Database(":memory:")
@@ -2134,6 +2184,36 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn('payload.game_time = nextTime', self.html)
         self.assertIn("s.message_type === 'trivia_warmup_rsvp'", self.html)
         self.assertIn("s.message_type === 'warmup_reminder'", self.html)
+
+    def test_type_switch_clears_incompatible_new_message_state(self):
+        select_start = self.html.index("function selectType(type)")
+        block = self.html[select_start:select_start + 3500]
+        self.assertIn("var previousType = wizardState.type", block)
+        self.assertIn("previousType && previousType !== type && !wizardState.editingId", block)
+        self.assertIn("wizardState.text = TYPE_DEFAULT_TEXT[type] || ''", block)
+        self.assertIn("wizardState.pollOptions = ['', '']", block)
+        self.assertIn("wizardState.eventLocation = ''", block)
+        self.assertIn("clearCover()", block)
+
+    def test_calendar_cards_show_scheduler_trust_state(self):
+        content_start = self.html.index("eventContent: function(arg)")
+        block = self.html[content_start:content_start + 1800]
+        self.assertIn("תצוגה בלבד", block)
+        self.assertIn("יישלח", block)
+        self.assertIn("event-chip-state", block)
+        mount_start = self.html.index("eventDidMount: function(info)")
+        mount_block = self.html[mount_start:mount_start + 1000]
+        self.assertIn("מתוזמן — ייבדק על ידי הסקזולר", mount_block)
+        self.assertIn("טיוטה — לא תישלח אוטומטית", mount_block)
+        self.assertIn("props.diagnosticDetail", mount_block)
+
+    def test_create_preview_never_renders_fake_rsvp_buttons(self):
+        preview_start = self.html.index("function renderPreview()")
+        block = self.html[preview_start:preview_start + 2200]
+        self.assertIn("Never render fake RSVP buttons", block)
+        self.assertNotIn("rsvpRow.classList.remove('hidden')", block)
+        self.assertNotIn("✅ מגיע/ה (0)", self.html)
+        self.assertNotIn("🤔 אולי (0)", self.html)
 
     def test_approve_reads_live_checkbox_state(self):
         approve_start = self.html.index("async function aiSuggestApprove()")

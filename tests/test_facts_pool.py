@@ -98,6 +98,26 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                         "fact too short to be substantive (curation bar)",
                     )
 
+    def test_fact_previews_have_enough_story_depth(self):
+        expected_line_ranges = {
+            "tidbit": (4, 8),
+            "spooky": (5, 8),
+        }
+        for pool, (minimum, maximum) in expected_line_ranges.items():
+            for entry in self.raw.get(pool, []):
+                lines = [line.strip() for line in entry.get("text_he", "").splitlines() if line.strip()]
+                with self.subTest(pool=pool, id=entry.get("id")):
+                    self.assertGreaterEqual(
+                        len(lines),
+                        minimum,
+                        f"{pool} preview is too short; expand it into a richer mini-story",
+                    )
+                    self.assertLessEqual(
+                        len(lines),
+                        maximum,
+                        f"{pool} preview is too long for Telegram/dashboard preview readability",
+                    )
+
     def test_spooky_items_have_context_not_just_atmosphere(self):
         """Spooky posts are mini-articles, not one-line ghost bait.
 
@@ -117,7 +137,7 @@ class FactsPoolIntegrityTests(unittest.TestCase):
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             with self.subTest(id=entry.get("id")):
                 self.assertGreaterEqual(
-                    len(lines), 3,
+                    len(lines), 5,
                     "spooky item needs setup + story + caveat/context, not a short claim dump",
                 )
                 self.assertTrue(

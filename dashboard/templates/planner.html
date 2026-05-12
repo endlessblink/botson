@@ -182,6 +182,8 @@
     .event-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; }
     .event-chip-type { font-size: 12px; opacity: 0.85; }
     .event-chip-time { font-size: 11px; color: #a1a1aa; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .event-chip-state { font-size: 10px; color: #a1a1aa; border: 1px solid #272727; border-radius: 999px; padding: 0 5px; line-height: 16px; flex-shrink: 0; }
+    .preview-event .event-chip-state { color: #fbbf24; border-color: rgba(245, 158, 11, 0.35); }
 
     /* ── Wizard styles ── */
     .wizard-dot {
@@ -684,7 +686,7 @@
                             <option value="1">1 שעה</option>
                             <option value="6">6 שעות</option>
                             <option value="12">12 שעות</option>
-                            <option value="24" selected>24 שעות</option>
+                            <option value="24">24 שעות</option>
                             <option value="48">48 שעות</option>
                             <option value="168">7 ימים</option>
                         </select>
@@ -819,7 +821,7 @@
                     <select id="trivia-target"
                         class="w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors">
                         <option value="main">ראשית</option>
-                        <option value="test" selected>Sherlocks Den (בדיקה)</option>
+                        <option value="test">Sherlocks Den (בדיקה)</option>
                     </select>
                 </div>
 
@@ -847,10 +849,7 @@
                     <span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>
                 </div>
             </div>
-            <div id="preview-rsvp" class="hidden preview-rsvp-row" dir="rtl">
-                <button type="button" class="preview-rsvp-btn">✅ מגיע/ה (0)</button>
-                <button type="button" class="preview-rsvp-btn">🤔 אולי (0)</button>
-            </div>
+            <div id="preview-rsvp" class="hidden mt-2 text-[11px] text-[#71717a]" dir="rtl"></div>
             <div id="preview-poll-options" class="hidden mt-2 space-y-1.5"></div>
             <div id="preview-event-info" class="hidden mt-2 text-xs text-[#71717a]"></div>
             <div id="preview-time" class="mt-2 text-[11px] text-[#52525b]"></div>
@@ -1162,6 +1161,7 @@ function wizardGo(step) {
 
 // ─── Type Selection ───
 function selectType(type) {
+    var previousType = wizardState.type;
     wizardState.type = type;
 
     // Highlight card
@@ -1178,9 +1178,35 @@ function selectType(type) {
         wizardState.recurrenceDays = [];
     }
 
+    // New-message type switches must not carry incompatible state forward.
+    // Otherwise a generated morning prompt can become an event preview with RSVP buttons.
+    if (previousType && previousType !== type && !wizardState.editingId) {
+        wizardState.text = TYPE_DEFAULT_TEXT[type] || '';
+        wizardState.pollOptions = ['', ''];
+        wizardState.pollDuration = 24;
+        wizardState.eventLocation = '';
+        wizardState.eventMaxAttendees = null;
+        wizardState.coverPath = null;
+        wizardState.coverUrl = null;
+        clearCover();
+        var locEl = document.getElementById('event-location');
+        if (locEl) locEl.value = '';
+        var maxEl = document.getElementById('event-max');
+        if (maxEl) maxEl.value = '';
+        var pollList = document.getElementById('poll-options-list');
+        if (pollList) {
+            pollList.innerHTML =
+                '<input type="text" dir="rtl" placeholder="אפשרות 1" class="poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors" oninput="updatePollOption(0, this.value)">' +
+                '<input type="text" dir="rtl" placeholder="אפשרות 2" class="poll-option-input w-full bg-[#111318] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:border-[#52525b] transition-colors" oninput="updatePollOption(1, this.value)">';
+        }
+    }
+
     // Update placeholder
     var textarea = document.getElementById('create-text');
     if (textarea) textarea.placeholder = TYPE_PLACEHOLDERS[type] || TYPE_PLACEHOLDERS.custom;
+    if (textarea && previousType && previousType !== type && !wizardState.editingId) {
+        textarea.value = wizardState.text;
+    }
     if (textarea && TYPE_DEFAULT_TEXT[type] && !wizardState.text.trim()) {
         wizardState.text = TYPE_DEFAULT_TEXT[type];
         textarea.value = wizardState.text;
@@ -1351,6 +1377,8 @@ async function generateTriviaQuestions(mode, evt) {
 var TRIVIA_PREFS_KEY = 'trivia-drawer-prefs-v1';
 function loadTriviaPrefs() {
     try {
+        var targetEl = document.getElementById('trivia-target');
+        if (targetEl) targetEl.value = 'test';
         var raw = localStorage.getItem(TRIVIA_PREFS_KEY);
         if (!raw) return;
         var p = JSON.parse(raw);
@@ -1390,6 +1418,8 @@ function saveTriviaPrefs() {
 }
 // Wire change listeners once DOM is ready (template is always rendered).
 document.addEventListener('DOMContentLoaded', function() {
+    var pollDurationEl = document.getElementById('poll-duration');
+    if (pollDurationEl) pollDurationEl.value = String(wizardState.pollDuration || 24);
     ['trivia-target','trivia-theme','trivia-categories','trivia-count','trivia-preroll','trivia-play-topic','trivia-teaser-topic']
         .forEach(function(id) {
             var el = document.getElementById(id);
@@ -1737,10 +1767,10 @@ function renderPreview() {
         previewEl.innerHTML = '<span class="text-[#52525b] text-sm">טרם הוזן תוכן</span>';
     }
 
-    // RSVP buttons (event only)
-    if (wizardState.type === 'event') {
-        rsvpRow.classList.remove('hidden');
-    } else {
+    // Never render fake RSVP buttons in the draft preview. Real RSVP buttons
+    // are attached only by the send path, after a persisted event row exists.
+    if (rsvpRow) {
+        rsvpRow.textContent = '';
         rsvpRow.classList.add('hidden');
     }
 
@@ -2330,8 +2360,10 @@ document.addEventListener('DOMContentLoaded', function() {
             var props = arg.event.extendedProps;
             var statusClass = 'status-' + (props.status || 'scheduled');
             var typeEmoji = {morning:'🌅',evening:'🌙',discussion:'💬',event:'🎮',poll:'📊',digest:'🔁',custom:'⚡',trivia_round:'🧠',trivia_warmup_rsvp:'🙋',warmup_reminder:'⏰',emoji_puzzle:'🧩',free_games:'🎮',facts_tidbit:'🔎',facts_spooky:'🕯️',weekly_roundup:'📊',weekly_leaderboard:'🏆'}[props.messageType] || '📌';
+            var stateLabels = {preview:'תצוגה בלבד', draft:'טיוטה', scheduled:'יישלח', sent:'נשלח', failed:'נכשל', skipped:'דולג', cancelled:'בוטל'};
+            var stateLabel = props.diagnosticLabel || stateLabels[props.status || 'scheduled'] || (props.status || '');
             var leadingMark = props.isPreview
-                ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="טיוטה">✎</span>'
+                ? '<span class="event-chip-type" style="opacity:0.55;font-size:10px;" title="תצוגה בלבד — לא יישלח עד שמירה">✎</span>'
                 : '<span class="event-status ' + statusClass + '"></span>';
 
             var startDate = arg.event.start;
@@ -2341,6 +2373,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     leadingMark +
                     '<span class="event-chip-type">' + typeEmoji + '</span>' +
                     (timeStr ? '<span class="event-chip-time">' + timeStr + '</span>' : '') +
+                    (stateLabel ? '<span class="event-chip-state">' + stateLabel + '</span>' : '') +
                     '<span class="event-chip-text">' + arg.event.title + '</span>' +
                 '</div>'
             };
@@ -2351,7 +2384,10 @@ document.addEventListener('DOMContentLoaded', function() {
             var fullText = props.fullText || info.event.title || '';
             var startDate = info.event.start;
             var time = startDate ? startDate.toTimeString().substring(0,5) : '';
-            var prefix = time ? '[' + time + '] ' : '';
+            var stateLabels = {preview:'תצוגה בלבד — לא יישלח עד שמירה', draft:'טיוטה — לא תישלח אוטומטית', scheduled:'מתוזמן — ייבדק על ידי הסקזולר', sent:'נשלח', failed:'נכשל', skipped:'דולג'};
+            var stateLabel = props.diagnosticLabel || stateLabels[props.status || 'scheduled'] || (props.status || '');
+            var detail = props.diagnosticDetail || '';
+            var prefix = (time ? '[' + time + '] ' : '') + (stateLabel ? '[' + stateLabel + '] ' : '') + (detail ? '[' + detail + '] ' : '');
             info.el.setAttribute('title', prefix + fullText);
 
             // Double-click → open the shared rich prompt modal (same as weekplan)
