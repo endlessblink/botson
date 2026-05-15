@@ -4461,9 +4461,17 @@ async def _maybe_add_warmup_reminder_suggestion(
     if not slot_free(d_iso, reminder_t, "warmup_reminder"):
         return
 
+    # NOTE: do not pass generated_activity_texts as avoid_texts here.
+    # The reminder is BY DESIGN about the same event as the paired
+    # announcement (same game_time, theme, RSVP framing), so the
+    # near-duplicate check against the announcement text always rejects
+    # legitimate reminder copy. Reminder copy is short (1-2 lines) and
+    # is expected to echo the announcement's subject — the prompt's
+    # "do not repeat the original text" rule is the right gate, not the
+    # global near-duplicate corpus.
     text = await _generate_activity_copy(
         kind,
-        avoid_texts=generated_activity_texts,
+        avoid_texts=None,
         game_time=game_time,
         reminder_offset_min=reminder_offset,
         theme_label=theme_label,
@@ -4556,6 +4564,12 @@ async def _ai_suggest_calendar(
     occupied: set = set()
     occupied_times: set = set()
     existing_activity_texts: set[str] = set()
+    # Only treat actual activity-copy-generated rows as duplicates of
+    # newly-generated activity copy. Discussion / morning / evening text
+    # has completely different shape — letting them seed the avoid set
+    # produced false-positive "near-duplicate of prior text" rejections
+    # (e.g. a discussion question blocking a trivia warmup reminder).
+    _ACTIVITY_COPY_TYPES = {"trivia_warmup_rsvp", "warmup_reminder"}
     try:
         async with db._db.execute(
             "SELECT scheduled_date, scheduled_time, message_type, text "
@@ -4569,7 +4583,7 @@ async def _ai_suggest_calendar(
             row_time = (r[1] or "")[:5]
             occupied.add((r[0], row_time, r[2]))
             occupied_times.add((r[0], row_time))
-            if r[3]:
+            if r[3] and r[2] in _ACTIVITY_COPY_TYPES:
                 existing_activity_texts.add(str(r[3]))
     except Exception:
         pass
