@@ -1,5 +1,16 @@
 # Robotnik (Botson) — Project Directives
 
+## Canonical operator preferences (single source of truth)
+
+**Learned soft rules for Hebrew-content generation live in `config/operator_prefs.md`** — symlinked to `~/.codex/skills/noam-personal-preferences/SKILL.md` and `~/.claude/skills/noam-personal-preferences/SKILL.md` so every agent (Claude Code, Codex, OpenCode, Botson dashboard) reads from the same file.
+
+- The bot's prompt builder fetches the `### Hebrew content rules` section on every generation (60-second mtime cache). Endpoint: `GET /api/operator-prefs/hebrew`.
+- Writes are explicit / HITL: `/teach-bot` skill in chat, or the dashboard proposal banner (≥5 rejections → operator clicks approve), or direct markdown edit. No silent auto-promotion.
+- Removals: `/untrain-bot <substring>` skill or `POST /api/operator-prefs/untrain`.
+- `config/question_quality.md` remains the immutable hard-rule spec. `config/operator_prefs.md` is the evolving soft-rule layer learned from feedback.
+- Plan & research sources: `~/.claude/plans/i-need-to-understand-elegant-goblet.md`.
+
+
 ## Dashboard Parity Rule
 
 **Every bot capability that exists as a Telegram slash command MUST have a dashboard equivalent.**

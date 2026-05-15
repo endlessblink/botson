@@ -1,5 +1,20 @@
 # Agent Notes
 
+## Canonical operator preferences
+
+**Single source of truth for operator-learned preferences: `config/operator_prefs.md`** (T-181, 2026-05-16).
+
+- Cross-tool: symlinked from `~/.codex/skills/noam-personal-preferences/SKILL.md` and `~/.claude/skills/noam-personal-preferences/SKILL.md`. Same file, three discovery paths.
+- The bot's prompt builder reads the `### Hebrew content rules` section on every generation via `_read_operator_prefs_hebrew_section()` (60-second mtime cache). Endpoint: `GET /api/operator-prefs/hebrew`.
+- Write paths (all HITL — no silent auto-promote):
+  - `/teach-bot` skill (chat-driven, persists one rule with citation)
+  - Dashboard proposal banner at N≥5 new content_feedback rows → `POST /api/operator-prefs/apply-proposal`
+  - Direct markdown edit of the file
+- Remove paths: `/untrain-bot <substring>` skill or `POST /api/operator-prefs/untrain`.
+- Hard rules (immutable spec) remain in `config/question_quality.md` and are NOT touched by this loop. Runtime configs (schedule, toggles, routing) remain in `config/settings.yaml` and friends.
+- If you find a rule restated in another file (CLAUDE.md, a skill, a SQLite column), that's a duplicate — `config/operator_prefs.md` wins.
+- Plan & sources: `~/.claude/plans/i-need-to-understand-elegant-goblet.md`.
+
 ## Hermes Feedback Ingestion
 
 - When the user asks to "ingest Hermes feedback", "apply Hermes digests", "make Hermes learning real", or similar, treat it as a concrete implementation task, not a discussion.

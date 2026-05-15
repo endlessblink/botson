@@ -167,20 +167,21 @@ async def startup():
     global _db
     _db = Database(DB_PATH)
     await _db.init()
-    # T-180: hydrate the active style-profile cache on boot so prompts
-    # built right after a restart still carry the operator's learned
-    # guidance. Previously the cache started as None and only filled
-    # when a UI page hit /api/style-profile/active — meaning every
-    # prompt fired in the first window after deploy.sh missed it.
+    # T-181: source of truth for Hebrew-content learned rules is now
+    # config/operator_prefs.md (symlinked from the cross-tool skill
+    # ~/.codex/skills/noam-personal-preferences/SKILL.md). No DB seed,
+    # no startup hydration into SQLite — the file is read on demand by
+    # _read_operator_prefs_hebrew_section(). The legacy
+    # _STYLE_PROFILE_CACHE / content_style_profile table remain as
+    # ephemeral fallback only.
     try:
-        await _ensure_seed_style_profile(_db)
-        active = await _db.get_active_style_profile("planner_hebrew_default")
-        _STYLE_PROFILE_CACHE["planner_hebrew_default"] = (active or {}).get("guidance")
-        if _STYLE_PROFILE_CACHE["planner_hebrew_default"]:
-            logger.info("[style-profile] hydrated active guidance on startup (%d chars)",
-                        len(_STYLE_PROFILE_CACHE["planner_hebrew_default"]))
+        primer = _read_operator_prefs_hebrew_section()
+        if primer:
+            logger.info("[operator-prefs] canonical Hebrew section loaded on startup (%d chars)", len(primer))
+        else:
+            logger.warning("[operator-prefs] config/operator_prefs.md Hebrew section missing or empty")
     except Exception as e:
-        logger.warning("[style-profile] startup hydration failed: %s", e)
+        logger.warning("[operator-prefs] startup probe failed: %s", e)
 
 
 @app.on_event("shutdown")
@@ -2970,48 +2971,76 @@ def _finalize_prompt(
 _STYLE_PROFILE_CACHE: dict[str, str | None] = {"planner_hebrew_default": None}
 
 
-# T-180: initial guidance synthesised from the operator corrections gathered
-# in conversation (the "I already gave so many responses about why and how
-# suggestions have been bad" thread). Seeded once on first boot when the
-# style_profiles table has no active row for planner_hebrew_default; never
-# overwrites a profile that has been edited via /apply.
-_SEED_GUIDANCE_HE = (
-    "סינתזה של עקרונות שעלו ממשובי האופרטור (גרסה ראשונית, מתעדכנת אוטומטית מכל פעולת דחייה):\n"
-    "- האיכות נמדדת קודם בעיני המפעיל, לא לפי ההשתתפות בקבוצה. אם המפעיל לא היה שולח את זה — אל תייצר את זה.\n"
-    "- כל שאלה חייבת לעבור את שני המבחנים: ספציפיות (עוגן לערוץ) ורוחב תחולה (לפחות 5 מ-10 קוראים יוכלו לענות מהזיכרון, בלי להמציא).\n"
-    "- אם רעיון נדחה פעם אחת בקטגוריה — אל תייצר אותו שוב, גם לא בנוסח שונה (פאראפראזה נחשבת חזרה).\n"
-    "- מגוון תבניות הוא חובה ולא המלצה. אותה תבנית פעמיים ברצף = פסילה אוטומטית.\n"
-    "- שאלות חכמות > שאלות פילר רגשי. עוגן קונקרטי (חפץ, פעולה, החלטה, רגע) > קופי פואטי.\n"
-    "- 'איך היה היום' / 'מה הדבר הטוב היום' / 'הריטואל שסוגר' — פסולים גם אם נראים תמימים, כי הם פילר.\n"
-    "- שאלת מאמץ (פסקה, רשימה, הסבר) פסולה. תמיד בקש פרט אחד, שם אחד, החלטה אחת.\n"
-    "- עברית של חבר בקבוצה, לא של קופירייטר. אם זה נשמע כמו תרגום מ-engagement prompt באנגלית — לפסול ולנסח שוב."
-)  # noqa: hardcoded-content (operator-authored seed guidance, persisted to DB on first boot)
+# T-181: canonical operator preferences source — `config/operator_prefs.md`.
+# Read on demand, 60s mtime-based cache. The legacy
+# _SEED_GUIDANCE_HE constant and _ensure_seed_style_profile DB seeder
+# were removed because the file is now the seed (and stays the source).
+_OPERATOR_PREFS_PATH = Path(__file__).resolve().parent.parent / "config" / "operator_prefs.md"
+_OPERATOR_PREFS_CACHE: dict = {"section": None, "mtime": 0.0, "loaded_at": 0.0, "rule_count": 0}
+_OPERATOR_PREFS_TTL_SECONDS = 60.0
 
 
-async def _ensure_seed_style_profile(db: Database) -> None:
-    """If no active profile exists, persist the seed guidance and activate it.
-
-    Idempotent: on subsequent boots `get_active_style_profile` returns a row
-    and this function no-ops. The operator can edit/replace it via the
-    normal /api/style-profile/apply flow.
+def _split_at_hebrew_heading(text: str) -> tuple[str, str, str] | None:
+    """Return (before_with_heading, section_body, rest) split around the
+    actual `### Hebrew content rules` heading. Matches start-of-line only so
+    inline references to the section name in prose don't trick the parser.
+    Returns None if no heading is found.
     """
+    needle = "\n### Hebrew content rules"
+    if text.startswith("### Hebrew content rules"):
+        # File starts with the heading (unusual but possible).
+        idx = 0
+        heading_end = len("### Hebrew content rules")
+    else:
+        idx = text.find(needle)
+        if idx < 0:
+            return None
+        idx += 1  # skip leading newline so before_with_heading ends on the heading line
+        heading_end = idx + len("### Hebrew content rules")
+    before_with_heading = text[:heading_end]
+    after = text[heading_end:]
+    next_idx = after.find("\n### ")
+    section_body = after if next_idx < 0 else after[:next_idx]
+    rest = "" if next_idx < 0 else after[next_idx:]
+    return before_with_heading, section_body, rest
+
+
+def _read_operator_prefs_hebrew_section() -> str:
+    """Return the parsed `### Hebrew content rules` block from operator_prefs.md.
+
+    Returns the joined guidance text (lines starting with `- `). Empty
+    string if the file is missing, the section is missing, or the section
+    is empty. 60-second mtime-based cache to keep prompt build fast.
+    """
+    import time as _time
+    now = _time.monotonic()
     try:
-        active = await db.get_active_style_profile("planner_hebrew_default")
-    except Exception:
-        return
-    if active and (active.get("guidance") or "").strip():
-        return
+        st = _OPERATOR_PREFS_PATH.stat()
+    except FileNotFoundError:
+        return ""
+    if (now - _OPERATOR_PREFS_CACHE["loaded_at"] < _OPERATOR_PREFS_TTL_SECONDS
+            and _OPERATOR_PREFS_CACHE["mtime"] == st.st_mtime
+            and _OPERATOR_PREFS_CACHE["section"] is not None):
+        return _OPERATOR_PREFS_CACHE["section"]
     try:
-        new_id = await db.insert_style_profile(
-            profile_key="planner_hebrew_default",
-            guidance=_SEED_GUIDANCE_HE,
-            source_feedback_ids=None,
-            status="draft",
-        )
-        await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
-        logger.info("[style-profile] seeded initial guidance (id=%s)", new_id)
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
     except Exception as e:
-        logger.warning("[style-profile] seed failed: %s", e)
+        logger.warning("[operator-prefs] read failed: %s", e)
+        return ""
+    # Parse using the start-of-line-only helper so inline references
+    # like "### Hebrew content rules" mentioned inside prose don't fool
+    # the parser.
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        return ""
+    _, section_body, _ = parts
+    collected = [ln.strip() for ln in section_body.splitlines() if ln.strip().startswith("- ")]
+    section = "\n".join(collected).strip()
+    _OPERATOR_PREFS_CACHE["section"] = section
+    _OPERATOR_PREFS_CACHE["mtime"] = st.st_mtime
+    _OPERATOR_PREFS_CACHE["loaded_at"] = now
+    _OPERATOR_PREFS_CACHE["rule_count"] = len(collected)
+    return section
 
 
 # T-180: auto-promote threshold. When this many new content_feedback rows
@@ -3091,16 +3120,27 @@ async def _maybe_auto_promote_style_profile(db: Database) -> None:
 
 
 def _active_style_profile_block_sync() -> str:
-    guidance = _STYLE_PROFILE_CACHE.get("planner_hebrew_default")
+    """Return the Hebrew-content guidance block injected into every prompt.
+
+    T-181: source is now `config/operator_prefs.md` (parsed Hebrew section),
+    not the SQLite `content_style_profile.guidance` column. The legacy
+    `_STYLE_PROFILE_CACHE` is kept only as a last-resort fallback for the
+    case where the file is missing on a deploy that hasn't shipped it yet.
+    """
+    guidance = _read_operator_prefs_hebrew_section()
     if not guidance:
-        return ""
+        # Fallback to the legacy DB-cached value during the migration window.
+        legacy = _STYLE_PROFILE_CACHE.get("planner_hebrew_default")
+        if not legacy:
+            return ""
+        guidance = str(legacy).strip()
     from bot.utils.copy import load_copy as _load_copy
     header = _load_copy(
         "planner",
         "style_profile_header",
         default="הנחיות נוספות מבוססות-משוב אופרטור (אושרו ידנית):",  # noqa: hardcoded-content (Hebrew header, fallback only)
     )
-    return "\n\n" + header + "\n" + str(guidance).strip()
+    return "\n\n" + header + "\n" + guidance
 
 
 async def _render_group_stats_context(db: Database, since_days: int = 7) -> str:
@@ -7189,10 +7229,12 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
         corrected_text=(str(body.get("corrected_text")).strip() if body.get("corrected_text") else None),
         suggestion_metadata=metadata,
     )
-    # T-180: try to auto-promote the style profile if enough rejections
-    # have accumulated since the last applied version. Best-effort; never
-    # fails the feedback insert.
-    await _maybe_auto_promote_style_profile(db)
+    # T-181: silent auto-promote at N=5 was reversed (research consensus:
+    # sycophancy / sparse-signal noise makes silent rule-installation
+    # unreliable; see plans/i-need-to-understand-elegant-goblet.md sources).
+    # Promotion now goes through the proposal banner on
+    # /operator-prefs/review where the operator clicks approve before any
+    # rule lands in config/operator_prefs.md.
     return {"id": row_id}
 
 
@@ -7325,6 +7367,195 @@ async def style_profile_active(request: Request, db: Database = Depends(get_db))
     # dashboard process restarted between apply and prompt build.
     _STYLE_PROFILE_CACHE[profile_key] = (row or {}).get("guidance")
     return {"profile": row}
+
+
+# ── T-181: Canonical operator preferences (config/operator_prefs.md) ──
+# These endpoints expose the single source of truth for Hebrew-content
+# learned rules. The bot prompt builder reads the section directly via
+# _read_operator_prefs_hebrew_section(); these HTTP endpoints exist for
+# operator verification ("did my rule actually land?") and for the
+# proposal-banner UI.
+
+
+@app.get("/api/operator-prefs/hebrew")
+async def operator_prefs_hebrew(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    section = _read_operator_prefs_hebrew_section()
+    # Force re-read on next call by invalidating monotonic timestamp —
+    # but only if file mtime actually changed; cache normally holds 60s.
+    return {
+        "section_name": "Hebrew content rules",
+        "guidance": section,
+        "rule_count": _OPERATOR_PREFS_CACHE.get("rule_count", 0),
+        "mtime": _OPERATOR_PREFS_CACHE.get("mtime", 0.0),
+        "path": str(_OPERATOR_PREFS_PATH),
+    }
+
+
+@app.get("/api/operator-prefs/proposed-rule")
+async def operator_prefs_proposed_rule(
+    request: Request,
+    db: Database = Depends(get_db),
+    threshold: int = 5,
+):
+    """Return the AI-summarised candidate rule built from recent
+    unconsumed feedback rows. Writes nothing. The operator inspects the
+    response and POSTs /api/operator-prefs/apply-proposal to commit.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    # Determine which feedback ids are already reflected in the active
+    # profile (so we don't re-propose what was already absorbed).
+    active = await db.get_active_style_profile("planner_hebrew_default")
+    consumed_max_id = 0
+    raw_sources = (active or {}).get("source_feedback_ids") or ""
+    if raw_sources:
+        try:
+            ids = json.loads(raw_sources)
+            if isinstance(ids, list) and ids:
+                consumed_max_id = max(int(x) for x in ids if str(x).strip())
+        except Exception:
+            consumed_max_id = 0
+    rows = await db.list_content_feedback(limit=200)
+    new_rows = [r for r in rows if int(r.get("id") or 0) > consumed_max_id]
+    if len(new_rows) < threshold:
+        return {
+            "ready": False,
+            "new_feedback_count": len(new_rows),
+            "threshold": threshold,
+            "proposed_guidance": "",
+            "source_feedback_ids": [],
+        }
+    proposed = _summarize_feedback_to_guidance(new_rows)
+    return {
+        "ready": True,
+        "new_feedback_count": len(new_rows),
+        "threshold": threshold,
+        "proposed_guidance": proposed,
+        "source_feedback_ids": [int(r["id"]) for r in new_rows],
+    }
+
+
+@app.post("/api/operator-prefs/apply-proposal")
+async def operator_prefs_apply_proposal(request: Request, db: Database = Depends(get_db)):
+    """Append the operator-approved rules to config/operator_prefs.md
+    under the `### Hebrew content rules` section, with a citation block.
+    Also records the consumed feedback ids in the legacy
+    content_style_profile table so the proposal-trigger counter resets.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    guidance = str(body.get("guidance") or "").strip()
+    if not guidance:
+        raise HTTPException(status_code=400, detail="guidance is required")
+    source_ids = body.get("source_feedback_ids") or []
+    # Append to the markdown file under the Hebrew section.
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cannot read prefs file: {e}")
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        raise HTTPException(status_code=500, detail="Hebrew content rules section not found")
+    before, section_body, rest = parts
+    today = datetime.now().strftime("%Y-%m-%d")
+    citation = f"\n\n**Source:** dashboard proposal approved {today}, source feedback ids {source_ids}\n"
+    new_text = before + section_body.rstrip() + "\n\n" + guidance.strip() + citation + rest
+    try:
+        _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cannot write prefs file: {e}")
+    # Invalidate cache so the next prompt re-reads.
+    _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+    _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    # Mark the consumed feedback ids by inserting a tracking row in the
+    # legacy style_profile table — this keeps the proposal-counter logic
+    # working (consumed_max_id resolution) without making the DB the
+    # source of truth for the prompt.
+    try:
+        source_ids_json = json.dumps(source_ids, ensure_ascii=False) if source_ids else None
+        new_id = await db.insert_style_profile(
+            profile_key="planner_hebrew_default",
+            guidance=f"[approved at {today} — text lives in config/operator_prefs.md]",
+            source_feedback_ids=source_ids_json,
+            status="draft",
+        )
+        await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
+    except Exception as e:
+        logger.warning("[operator-prefs] consumed-id tracking failed: %s", e)
+    return {"ok": True, "appended_chars": len(guidance), "source_feedback_ids": source_ids}
+
+
+@app.post("/api/operator-prefs/teach")
+async def operator_prefs_teach(request: Request):
+    """Append a single operator-supplied rule line (with citation) to the
+    Hebrew section. Used by the `/teach-bot` skill from chat sessions.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    rule = str(body.get("rule") or "").strip()
+    cite = str(body.get("source") or "chat via /teach-bot").strip()
+    if not rule:
+        raise HTTPException(status_code=400, detail="rule is required")
+    rule_line = "- " + rule.lstrip("- ").strip()
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cannot read prefs file: {e}")
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        raise HTTPException(status_code=500, detail="Hebrew content rules section not found")
+    before, section_body, rest = parts
+    today = datetime.now().strftime("%Y-%m-%d")
+    citation = f"  \n  _**Source:** {cite}, {today}_"
+    new_text = before + section_body.rstrip() + "\n\n" + rule_line + "\n" + citation + "\n" + rest
+    _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+    _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+    _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    section = _read_operator_prefs_hebrew_section()
+    return {"ok": True, "rule_count": _OPERATOR_PREFS_CACHE.get("rule_count", 0), "appended": rule_line}
+
+
+@app.post("/api/operator-prefs/untrain")
+async def operator_prefs_untrain(request: Request):
+    """Remove every rule line in the Hebrew section that contains the
+    given substring. Returns the removed lines for operator audit.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    substring = str(body.get("substring") or "").strip()
+    if not substring:
+        raise HTTPException(status_code=400, detail="substring is required")
+    text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        raise HTTPException(status_code=500, detail="Hebrew content rules section not found")
+    before, section_body, rest = parts
+    removed: list[str] = []
+    kept_lines: list[str] = []
+    for ln in section_body.splitlines():
+        if ln.strip().startswith("- ") and substring in ln:
+            removed.append(ln)
+            continue
+        kept_lines.append(ln)
+    if not removed:
+        return {"ok": True, "removed_count": 0, "matches": []}
+    new_section_body = "\n".join(kept_lines)
+    new_text = before + new_section_body + rest
+    _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+    _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+    _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    return {"ok": True, "removed_count": len(removed), "matches": removed}
 
 
 # ── T-177: Quality review console ───────────────────────────────
@@ -9101,7 +9332,10 @@ async def qa_scoring_set_score(draft_id: int, request: Request, db: Database = D
                 corrected_text=None,
                 suggestion_metadata=None,
             )
-            await _maybe_auto_promote_style_profile(db)
+            # T-181: silent auto-promote removed; the rejection is journaled
+            # and surfaces on /operator-prefs/review as a proposed rule the
+            # operator must explicitly approve before it lands in
+            # config/operator_prefs.md.
         except Exception as e:
             logger.warning("[qa-scoring] feedback insert failed: %s", e)
     elif found_draft is not None and score in (4, 5):

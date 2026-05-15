@@ -110,13 +110,23 @@ class SummarizerProducesGuidanceFromFeedback(unittest.TestCase):
 
 
 class PromptBuilderPicksUpActiveStyle(unittest.TestCase):
+    """T-181: source of truth is config/operator_prefs.md (read on demand).
+    The DB cache is now only a fallback for the migration window."""
+
     def test_active_style_appears_in_finalize_prompt_output(self):
         from dashboard import app as dashboard_app
-        # Seed the cache directly — this is what /apply does post-DB write.
-        dashboard_app._STYLE_PROFILE_CACHE["planner_hebrew_default"] = (
+        # Point the file reader at an in-memory tmp file with a known rule.
+        import tempfile, pathlib
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "operator_prefs.md"
+        tmp.write_text(
+            "### Hebrew content rules\n\n"
             "- העדיפו זווית קונקרטית על פני שאלה כללית.\n"
-            "- אסור להזכיר ילדים או הורות."
+            "- אסור להזכיר ילדים או הורות.\n",
+            encoding="utf-8",
         )
+        orig_path = dashboard_app._OPERATOR_PREFS_PATH
+        dashboard_app._OPERATOR_PREFS_PATH = tmp
+        dashboard_app._OPERATOR_PREFS_CACHE.update({"section": None, "mtime": 0.0, "loaded_at": 0.0})
         try:
             prompt = dashboard_app.build_generation_prompt(
                 "discussion", "single", "", "movies",
@@ -127,19 +137,30 @@ class PromptBuilderPicksUpActiveStyle(unittest.TestCase):
             self.assertIn("זווית קונקרטית", prompt)
             self.assertIn("הורות", prompt)
         finally:
-            dashboard_app._STYLE_PROFILE_CACHE["planner_hebrew_default"] = None
+            dashboard_app._OPERATOR_PREFS_PATH = orig_path
+            dashboard_app._OPERATOR_PREFS_CACHE.update({"section": None, "mtime": 0.0, "loaded_at": 0.0})
 
     def test_no_active_style_means_no_style_block_in_prompt(self):
         from dashboard import app as dashboard_app
+        import tempfile, pathlib
+        # Empty Hebrew section AND empty fallback cache → no header line.
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "operator_prefs.md"
+        tmp.write_text("### Hebrew content rules\n\n*(empty)*\n", encoding="utf-8")
+        orig_path = dashboard_app._OPERATOR_PREFS_PATH
+        dashboard_app._OPERATOR_PREFS_PATH = tmp
+        dashboard_app._OPERATOR_PREFS_CACHE.update({"section": None, "mtime": 0.0, "loaded_at": 0.0})
         dashboard_app._STYLE_PROFILE_CACHE["planner_hebrew_default"] = None
-        prompt = dashboard_app.build_generation_prompt(
-            "discussion", "single", "", "movies",
-            recent_sent=[],
-            scheduled_date="2026-05-20",
-            scheduled_time="18:00",
-        )
-        # Header line should not appear when guidance is empty.
-        self.assertNotIn("הנחיות נוספות מבוססות-משוב", prompt)
+        try:
+            prompt = dashboard_app.build_generation_prompt(
+                "discussion", "single", "", "movies",
+                recent_sent=[],
+                scheduled_date="2026-05-20",
+                scheduled_time="18:00",
+            )
+            self.assertNotIn("הנחיות נוספות מבוססות-משוב", prompt)
+        finally:
+            dashboard_app._OPERATOR_PREFS_PATH = orig_path
+            dashboard_app._OPERATOR_PREFS_CACHE.update({"section": None, "mtime": 0.0, "loaded_at": 0.0})
 
 
 class StyleProfileDoesNotBypassHardValidators(unittest.TestCase):
