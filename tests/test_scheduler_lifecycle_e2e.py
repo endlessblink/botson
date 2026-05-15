@@ -387,6 +387,43 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["status"], "failed")
         self.assertIn("999999", row["error_message"] or "")
 
+    async def test_daily_recurrence_creates_next_day_row_after_send(self):
+        """REG-T156-a: prove the scheduler's recurrence branch fires.
+
+        A successful send of a `recurrence='daily'` row must create a fresh
+        `scheduled` row dated tomorrow with the same text/type/topic, so the
+        bot keeps firing on subsequent days without operator intervention.
+        Without this test pinning the branch, a regression there would only
+        surface after a missed daily slot in production."""
+        msg_id = await self._seed(
+            message_type="custom",
+            text="daily prompt",
+            recurrence="daily",
+        )
+        sent_obj = SimpleNamespace(message_id=1234)
+        with patch.object(cal, "send_message_with_optional_cover",
+                          new=AsyncMock(return_value=sent_obj)), \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+        # Original row now sent.
+        original = await self._row(msg_id)
+        self.assertEqual(original["status"], "sent")
+        # A new row exists for the next day with the same shape.
+        next_dt = self.due_dt + timedelta(days=1)
+        next_date = next_dt.strftime("%Y-%m-%d")
+        rows = await self.db.get_scheduled_messages(next_date, next_date)
+        future_rows = [r for r in rows if int(r["id"]) != msg_id]
+        self.assertEqual(
+            len(future_rows), 1,
+            "daily recurrence must create exactly one next-day row",
+        )
+        nxt = future_rows[0]
+        self.assertEqual(nxt["status"], "scheduled")
+        self.assertEqual(nxt["text"], "daily prompt")
+        self.assertEqual(nxt["message_type"], "custom")
+        self.assertEqual(nxt["recurrence"], "daily")
+        self.assertEqual(nxt["created_by"], "recurrence")
+
     async def test_due_messages_filters_drafts_and_cancelled(self):
         # Draft row is not due even at the same date/time.
         draft_id = await self.db.create_scheduled_message(
