@@ -7151,6 +7151,95 @@ async def style_profile_active(request: Request, db: Database = Depends(get_db))
     return {"profile": row}
 
 
+# ── T-177: Quality review console ───────────────────────────────
+# Operator pastes a list of candidate texts and gets the system's
+# verdict on each — same hard gates that planner uses (validation +
+# freshness fragments + near-duplicate vs recent sends + near-duplicate
+# vs pool). Used to calibrate operator-judgment vs system-judgment so
+# the operator knows where the gates over-/under-fire before trusting
+# them as authoritative.
+
+
+@app.post("/api/quality-review")
+async def quality_review(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    raw_texts = body.get("texts") or []
+    if isinstance(raw_texts, str):
+        raw_texts = [ln for ln in raw_texts.splitlines() if ln.strip()]
+    if not isinstance(raw_texts, list) or not raw_texts:
+        raise HTTPException(status_code=400, detail="texts is required (list or newline string)")
+    content_type = str(body.get("content_type") or "discussion").strip() or "discussion"
+    category = str(body.get("category") or "").strip() or None
+    scheduled_date = str(body.get("scheduled_date") or "").strip() or None
+
+    # Build the same context the planner uses so verdicts are comparable.
+    pool: set[str] = set()
+    try:
+        if content_type == "discussion":
+            discussions = load_yaml("discussions.yaml") or {}
+            if category:
+                pool = {str(x) for x in (discussions.get(category) or []) if x}
+            else:
+                for items in discussions.values():
+                    if isinstance(items, list):
+                        pool.update(str(x) for x in items)
+        elif content_type in ("morning", "evening"):
+            prompts = load_yaml("prompts.yaml") or {}
+            pool = {str(x) for x in (prompts.get(content_type) or []) if x}
+    except Exception:
+        pool = set()
+
+    # Recent sends from DB for the near-dup check.
+    avoid: set[str] = set()
+    try:
+        recent = await _fetch_recent_sent_for_dedup(db, content_type, limit=60)
+        avoid = {str(x).strip() for x in (recent or []) if x}
+    except Exception:
+        avoid = set()
+
+    results = []
+    for raw in raw_texts:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        validation_failures = _validate_draft_text(text)
+        freshness_failure = freshness_rejection(
+            text,
+            avoid_texts=avoid,
+            source_examples=pool,
+            scheduled_date=scheduled_date,
+        )
+        all_reasons = list(validation_failures)
+        if freshness_failure:
+            all_reasons.append(freshness_failure)
+        verdict = "pass" if not all_reasons else "fail"
+        results.append({
+            "text": text,
+            "verdict": verdict,
+            "reasons": all_reasons,
+        })
+    pass_count = sum(1 for r in results if r["verdict"] == "pass")
+    return {
+        "results": results,
+        "summary": {
+            "total": len(results),
+            "pass": pass_count,
+            "fail": len(results) - pass_count,
+        },
+        "context": {
+            "content_type": content_type,
+            "category": category,
+            "scheduled_date": scheduled_date,
+            "pool_size": len(pool),
+            "recent_dedup_size": len(avoid),
+        },
+    }
+
+
 @app.post("/api/weekplan/ai-fill-today")
 async def ai_fill_today(request: Request, db: Database = Depends(get_db)):
     """Fill empty slots + one reminder per event for a target day, with

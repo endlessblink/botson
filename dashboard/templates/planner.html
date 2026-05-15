@@ -976,10 +976,12 @@
             <div class="text-center text-[#71717a] py-8">טוען הצעות...</div>
         </div>
         <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between flex-shrink-0">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 flex-wrap">
                 <button onclick="aiSuggestToggleAll(true)" class="text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-md cursor-pointer transition-colors">סמן הכל</button>
                 <button onclick="aiSuggestToggleAll(false)" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 py-1.5 rounded-md cursor-pointer transition-colors">נקה הכל</button>
                 <button onclick="aiSuggestDenyChecked()" class="text-xs text-rose-300 hover:text-rose-200 border border-rose-500/30 hover:border-rose-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="דחה את כל המסומנות עם סיבה משותפת ושמור למשוב הלמידה">דחה מסומנים + סיבה</button>
+                <button onclick="openQualityReviewDrawer()" class="text-xs text-violet-300 hover:text-violet-200 border border-violet-500/30 hover:border-violet-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="הדבק רשימת שאלות וקבל ציון איכות + השוואה לשיפוט שלך">🔬 בדיקת איכות</button>
+                <button onclick="openLearnFromFeedbackPanel()" class="text-xs text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="צור הצעת עדכון לפרופיל הסגנון מהמשובים האחרונים">🧠 למד ממשוב</button>
                 <span id="ai-suggest-count" class="text-xs text-[#71717a]"></span>
             </div>
             <div class="flex items-center gap-3">
@@ -988,6 +990,76 @@
                     אשר וצור טיוטות
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- T-177: Quality review drawer — paste questions, see system verdict
+     side-by-side with your judgment. Calibration tool. -->
+<div id="quality-review-drawer" class="hidden fixed inset-y-0 left-0 right-0 lg:right-56 z-[115] flex items-center justify-center p-4" dir="rtl">
+    <div class="absolute inset-0 bg-black/75" onclick="closeQualityReviewDrawer()"></div>
+    <div class="relative bg-[#0a0a0a] border border-violet-500/30 rounded-lg shadow-2xl w-full max-w-[1100px] max-h-[92vh] flex flex-col overflow-hidden min-h-0">
+        <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-medium text-[#fafafa]">🔬 בדיקת איכות — מסוף כיול</h3>
+                <p class="text-xs text-[#71717a] mt-0.5">הדבק שאלות (שורה לכל אחת), קבל ציון מערכת, סמן אם אתה מסכים. ככל שהפער קטן — המערכת מכוילת לטעם שלך.</p>
+            </div>
+            <button onclick="closeQualityReviewDrawer()" class="text-[#71717a] hover:text-[#fafafa] text-xl leading-none">&times;</button>
+        </div>
+        <div class="px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] flex items-center gap-3 flex-wrap">
+            <label class="text-xs text-[#a1a1aa]">סוג תוכן:
+                <select id="qr-content-type" class="bg-[#0a0a0a] border border-[#272727] rounded px-2 py-1 text-xs text-[#fafafa] mr-1">
+                    <option value="discussion">שאלת דיון</option>
+                    <option value="morning">הודעת בוקר</option>
+                    <option value="evening">הודעת ערב</option>
+                </select>
+            </label>
+            <label class="text-xs text-[#a1a1aa]">קטגוריה (אופציונלי):
+                <input id="qr-category" type="text" placeholder="movies / gaming / politics..." class="bg-[#0a0a0a] border border-[#272727] rounded px-2 py-1 text-xs text-[#fafafa] mr-1 w-40" />
+            </label>
+            <button onclick="runQualityReview()" class="text-xs text-violet-300 hover:text-violet-200 border border-violet-500/40 hover:border-violet-500/70 bg-violet-500/10 hover:bg-violet-500/20 px-3 py-1.5 rounded-md">הרץ בדיקה</button>
+            <span id="qr-summary" class="text-xs text-[#71717a]"></span>
+        </div>
+        <div class="flex-1 overflow-y-auto px-5 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[400px]">
+            <div class="flex flex-col gap-2">
+                <label class="text-xs text-[#a1a1aa]">שאלות (שורה לכל שאלה):</label>
+                <textarea id="qr-input" rows="20" class="flex-1 bg-[#0a0a0a] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] resize-none font-mono leading-relaxed" placeholder="סרט שלא מצאתם איתו מישהו לצפות?
+מה ההרגל המוזר שלכם בבוקר?
+איזה משחק גרם לכם לוותר על שינה?"></textarea>
+            </div>
+            <div id="qr-results" class="flex flex-col gap-2 text-sm text-[#e4e4e7]">
+                <div class="text-xs text-[#71717a]">תוצאות יופיעו כאן אחרי "הרץ בדיקה".</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- T-177: Learn-from-feedback panel — propose a style-profile update
+     from recent denials, show diff, apply on operator approval. -->
+<div id="learn-feedback-drawer" class="hidden fixed inset-y-0 left-0 right-0 lg:right-56 z-[115] flex items-center justify-center p-4" dir="rtl">
+    <div class="absolute inset-0 bg-black/75" onclick="closeLearnFromFeedbackPanel()"></div>
+    <div class="relative bg-[#0a0a0a] border border-amber-500/30 rounded-lg shadow-2xl w-full max-w-[900px] max-h-[92vh] flex flex-col overflow-hidden min-h-0">
+        <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-medium text-[#fafafa]">🧠 למד ממשוב — עדכון פרופיל סגנון</h3>
+                <p class="text-xs text-[#71717a] mt-0.5">המערכת תקרא את המשובים האחרונים שלך ותציע עדכון להנחיות שמשפיעות על כל ה-Populate הבא. שום דבר לא נשמר עד שתאשר.</p>
+            </div>
+            <button onclick="closeLearnFromFeedbackPanel()" class="text-[#71717a] hover:text-[#fafafa] text-xl leading-none">&times;</button>
+        </div>
+        <div id="lf-summary" class="px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] text-xs text-[#a1a1aa]">טוען...</div>
+        <div class="flex-1 overflow-y-auto px-5 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[300px]">
+            <div>
+                <div class="text-xs text-[#a1a1aa] mb-1">פרופיל פעיל כעת:</div>
+                <pre id="lf-current" class="bg-[#0a0a0a] border border-[#272727] rounded-md px-3 py-2 text-xs text-[#a1a1aa] whitespace-pre-wrap overflow-auto max-h-[400px]">—</pre>
+            </div>
+            <div>
+                <div class="text-xs text-[#a1a1aa] mb-1">הצעת עדכון (ניתן לערוך לפני אישור):</div>
+                <textarea id="lf-proposed" rows="18" class="w-full bg-[#0a0a0a] border border-amber-500/30 rounded-md px-3 py-2 text-xs text-[#fafafa] font-mono leading-relaxed"></textarea>
+            </div>
+        </div>
+        <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between">
+            <button onclick="closeLearnFromFeedbackPanel()" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 py-1.5 rounded-md">ביטול</button>
+            <button onclick="applyLearnFromFeedback()" class="text-xs text-amber-300 hover:text-amber-200 border border-amber-500/40 hover:border-amber-500/70 bg-amber-500/10 hover:bg-amber-500/20 px-4 py-1.5 rounded-md">אשר והפעל</button>
         </div>
     </div>
 </div>
@@ -2775,6 +2847,147 @@ async function aiSuggestDenyChecked() {
         await _aiSuggestDenyOne(checkedKeys[i], {reason: reason, silent: true});
     }
     showToast(checkedKeys.length + ' הצעות נדחו, נשמרו למשוב');
+}
+
+// T-177: Quality Review drawer ─────────────────────────────────
+function openQualityReviewDrawer() {
+    var drawer = document.getElementById('quality-review-drawer');
+    if (drawer) drawer.classList.remove('hidden');
+}
+function closeQualityReviewDrawer() {
+    var drawer = document.getElementById('quality-review-drawer');
+    if (drawer) drawer.classList.add('hidden');
+}
+
+async function runQualityReview() {
+    var input = document.getElementById('qr-input');
+    var resultsEl = document.getElementById('qr-results');
+    var summaryEl = document.getElementById('qr-summary');
+    var ctype = document.getElementById('qr-content-type').value || 'discussion';
+    var category = (document.getElementById('qr-category').value || '').trim();
+    if (!input || !resultsEl) return;
+    var lines = (input.value || '').split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+    if (!lines.length) { showToast('הדבק לפחות שאלה אחת', 'error'); return; }
+    resultsEl.innerHTML = '<div class="text-xs text-[#71717a]">⏳ בודק...</div>';
+    summaryEl.textContent = '';
+    try {
+        var resp = await fetch('/api/quality-review', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({texts: lines, content_type: ctype, category: category || null}),
+        });
+        var data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+        var passed = data.summary.pass;
+        var total = data.summary.total;
+        summaryEl.textContent = 'מערכת: ' + passed + ' / ' + total + ' עברו · בריכת השוואה: ' + data.context.pool_size + ' פוסטים · מאגר חיים: ' + data.context.recent_dedup_size + ' שאלות';
+        resultsEl.innerHTML = '';
+        var stats = {systemPass: 0, systemFail: 0, agreePass: 0, agreeFail: 0, disagree: 0, unjudged: 0};
+        data.results.forEach(function(r, idx) {
+            if (r.verdict === 'pass') stats.systemPass++; else stats.systemFail++;
+            stats.unjudged++;
+            var card = document.createElement('div');
+            card.className = 'border border-[#272727] rounded-md bg-[#111318] p-3';
+            var badge = r.verdict === 'pass'
+                ? '<span class="text-[10px] text-emerald-300 border border-emerald-500/40 rounded px-1.5 py-0.5">🟢 עבר</span>'
+                : '<span class="text-[10px] text-rose-300 border border-rose-500/40 rounded px-1.5 py-0.5">🔴 נכשל</span>';
+            var reasons = (r.reasons || []).map(function(x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('');
+            var reasonsBlock = reasons ? '<ul class="text-[11px] text-rose-200/80 mt-1 list-disc pr-5">' + reasons + '</ul>' : '';
+            card.innerHTML = (
+                '<div class="flex items-start justify-between gap-2 mb-1">' +
+                    '<div class="text-sm text-[#e4e4e7] flex-1 whitespace-pre-wrap">' + escapeHtml(r.text) + '</div>' +
+                    badge +
+                '</div>' +
+                reasonsBlock +
+                '<div class="flex items-center gap-2 mt-2 text-[11px]">' +
+                    '<span class="text-[#71717a]">השיפוט שלך:</span>' +
+                    '<button data-qr-idx="' + idx + '" data-qr-vote="agree" class="border border-[#272727] hover:border-emerald-500/60 text-[#a1a1aa] hover:text-emerald-200 rounded px-2 py-0.5">✅ מסכים</button>' +
+                    '<button data-qr-idx="' + idx + '" data-qr-vote="disagree" class="border border-[#272727] hover:border-rose-500/60 text-[#a1a1aa] hover:text-rose-200 rounded px-2 py-0.5">❌ לא מסכים</button>' +
+                    '<span class="qr-vote-tag-' + idx + ' text-[10px]"></span>' +
+                '</div>'
+            );
+            resultsEl.appendChild(card);
+        });
+        // Track operator judgments
+        window._qrJudgments = {};
+        window._qrResults = data.results;
+        resultsEl.querySelectorAll('button[data-qr-vote]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var idx = parseInt(btn.getAttribute('data-qr-idx'), 10);
+                var vote = btn.getAttribute('data-qr-vote');
+                window._qrJudgments[idx] = vote;
+                var tag = resultsEl.querySelector('.qr-vote-tag-' + idx);
+                if (tag) {
+                    tag.textContent = vote === 'agree' ? '· סומן כמסכים' : '· סומן כלא-מסכים';
+                    tag.className = 'qr-vote-tag-' + idx + ' text-[10px] ' + (vote === 'agree' ? 'text-emerald-300' : 'text-rose-300');
+                }
+                _qrUpdateAlignment();
+            });
+        });
+    } catch (e) {
+        resultsEl.innerHTML = '<div class="text-xs text-rose-300">שגיאה: ' + escapeHtml(String(e.message || e)) + '</div>';
+    }
+}
+
+function _qrUpdateAlignment() {
+    var summaryEl = document.getElementById('qr-summary');
+    if (!summaryEl || !window._qrResults) return;
+    var total = window._qrResults.length;
+    var judged = Object.keys(window._qrJudgments || {}).length;
+    var agree = 0;
+    Object.keys(window._qrJudgments).forEach(function(k) {
+        if (window._qrJudgments[k] === 'agree') agree++;
+    });
+    var alignment = judged > 0 ? Math.round((agree / judged) * 100) : 0;
+    var passed = window._qrResults.filter(function(r) { return r.verdict === 'pass'; }).length;
+    summaryEl.textContent = 'מערכת: ' + passed + ' / ' + total + ' עברו · שפטת ' + judged + ' · התאמה לטעם שלך: ' + alignment + '%';
+}
+
+// T-177: Learn-from-feedback drawer ──────────────────────────────
+function openLearnFromFeedbackPanel() {
+    var drawer = document.getElementById('learn-feedback-drawer');
+    if (drawer) drawer.classList.remove('hidden');
+    document.getElementById('lf-summary').textContent = 'טוען משוב אחרון...';
+    document.getElementById('lf-current').textContent = '—';
+    document.getElementById('lf-proposed').value = '';
+    fetch('/api/style-profile/propose', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({limit: 25}),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.detail) throw new Error(data.detail);
+        var count = data.source_feedback_count || 0;
+        document.getElementById('lf-summary').textContent = 'נקרא משוב מ-' + count + ' רשומות · ' + (data.proposed_guidance ? 'הצעת עדכון מוכנה לעריכה ואישור' : 'אין משוב חדש מספיק כדי להציע עדכון');
+        document.getElementById('lf-current').textContent = data.current_guidance || '— (אין פרופיל פעיל)';
+        document.getElementById('lf-proposed').value = data.proposed_guidance || '';
+        window._lfSourceIds = data.source_feedback_ids || [];
+    }).catch(function(e) {
+        document.getElementById('lf-summary').textContent = 'שגיאה: ' + String(e.message || e);
+    });
+}
+function closeLearnFromFeedbackPanel() {
+    var drawer = document.getElementById('learn-feedback-drawer');
+    if (drawer) drawer.classList.add('hidden');
+}
+async function applyLearnFromFeedback() {
+    var guidance = (document.getElementById('lf-proposed').value || '').trim();
+    if (!guidance) { showToast('אין מה להפעיל — ההצעה ריקה', 'error'); return; }
+    try {
+        var resp = await fetch('/api/style-profile/apply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                guidance: guidance,
+                source_feedback_ids: window._lfSourceIds || [],
+            }),
+        });
+        var data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+        showToast('עודכן בהצלחה — הצעות הבאות ישתמשו בהנחיה החדשה');
+        closeLearnFromFeedbackPanel();
+    } catch (e) {
+        showToast('שגיאה: ' + String(e.message || e), 'error');
+    }
 }
 
 function _aiSuggestUpdateCount() {
