@@ -9555,7 +9555,22 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
                "poll_options", "poll_duration"}
     fields = {k: v for k, v in data.items() if k in allowed}
     if "text" in fields or "message_type" in fields:
-        raw_type = fields.get("message_type", data.get("message_type", "custom"))
+        # REG-T155-a fix: when the body sends only `text` (no message_type),
+        # preserve the existing row's message_type instead of defaulting
+        # to "custom". The previous default silently demoted morning /
+        # evening / discussion rows out of the quality-gate population,
+        # which let bad text reach /schedule unchecked.
+        body_type = data.get("message_type")
+        if body_type is None:
+            async with db._db.execute(
+                "SELECT message_type FROM scheduled_messages WHERE id = ?",
+                (msg_id,),
+            ) as cur:
+                existing = await cur.fetchone()
+            existing_type = (existing["message_type"] if existing else None) or "custom"
+        else:
+            existing_type = body_type
+        raw_type = fields.get("message_type", existing_type)
         raw_topic = fields.get("channel_topic_id", data.get("channel_topic_id"))
         coerced_type, coerced_poll_options = _coerce_game_message_fields(
             raw_type,
@@ -9744,14 +9759,40 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     group_id = int(os.getenv("TEST_GROUP_ID", "0") if target == "test" else os.getenv("GROUP_ID", "0"))
     context = SimpleNamespace(bot=bot, bot_data={"db": db})
 
+    async def _finalize(sent_message_id: int) -> None:
+        """Per-branch tail — mirrors the scheduler's end-of-dispatch block
+        (calendar.py:660+): optional auto-pin, mark sent, write audit row.
+        Test target stays a probe and skips all three. Without this helper,
+        send-now silently dropped the audit log AND the auto_pin field.
+        """
+        if target == "test":
+            return
+        if msg.get("auto_pin") and sent_message_id:
+            try:
+                await bot.pin_chat_message(
+                    chat_id=group_id,
+                    message_id=sent_message_id,
+                    disable_notification=True,
+                )
+            except Exception as e:
+                logger.warning("[send-now] failed to pin %d: %s", sent_message_id, e)
+        await db.mark_message_sent(msg["id"], sent_message_id)
+        try:
+            await db.log_activity(
+                msg.get("message_type", "custom"),
+                f"שלח: {(msg.get('text') or '')[:50]}",
+                target_channel=str(msg.get("channel_topic_id") or "general"),
+            )
+        except Exception as e:
+            logger.warning("[send-now] log_activity failed for %d: %s", msg["id"], e)
+
     if msg.get("message_type") == "trivia_round":
         msg = dict(msg)
         msg["_resolved_chat_id"] = group_id
         message_id = int(await start_scheduled_trivia_round(context, msg) or 0)
         if message_id <= 0:
             raise RuntimeError("trivia_round did not return a Telegram message_id")
-        if target != "test":
-            await db.mark_message_sent(msg["id"], message_id)
+        await _finalize(message_id)
         return message_id
     if msg.get("message_type") == "emoji_puzzle":
         # Mirror the scheduler: operator-set subject filters (media_types,
@@ -9775,8 +9816,7 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         )
         if session_id is None:
             raise RuntimeError("Emoji Night did not start")
-        if target != "test":
-            await db.mark_message_sent(msg["id"], session_id)
+        await _finalize(session_id)
         return session_id
     if msg.get("message_type") == "free_games":
         summary = await send_free_games(context, force=True)
@@ -9789,8 +9829,7 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
             if summary and (summary.get("error") in {None, "blackout date", "disabled"}):
                 raise SkippedActivity(f"free_games: {summary}")
             raise RuntimeError(f"free_games did not post: {summary}")
-        if target != "test":
-            await db.mark_message_sent(msg["id"], 1)
+        await _finalize(1)
         return 1
     if msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
         pool = msg.get("message_type", "").removeprefix("facts_")
@@ -9813,22 +9852,19 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         )
         if not sent_ok:
             raise RuntimeError(f"facts {pool} did not send")
-        if target != "test":
-            await db.mark_message_sent(msg["id"], 1)
+        await _finalize(1)
         return 1
     if msg.get("message_type") == "weekly_roundup":
         message_id = int(await send_weekly_roundup(context, force=True) or 0)
         if message_id <= 0:
             raise RuntimeError("weekly_roundup did not return a Telegram message_id")
-        if target != "test":
-            await db.mark_message_sent(msg["id"], message_id)
+        await _finalize(message_id)
         return message_id
     if msg.get("message_type") == "weekly_leaderboard":
         message_id = int(await send_weekly_leaderboard(context) or 0)
         if message_id <= 0:
             raise RuntimeError("weekly_leaderboard did not return a Telegram message_id")
-        if target != "test":
-            await db.mark_message_sent(msg["id"], message_id)
+        await _finalize(message_id)
         return message_id
 
     if msg.get("message_type") == "event":
@@ -9857,8 +9893,7 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         except Exception as e:
             logger.warning("[events] send-now failed to attach RSVP buttons to %d: %s", msg["id"], e)
         await db.update_event(event_id_for_rsvp, message_id=sent.message_id)
-        if target != "test":
-            await db.mark_message_sent(msg["id"], sent.message_id)
+        await _finalize(sent.message_id)
         return sent.message_id
 
     opts = _parse_poll_options(msg.get("poll_options"))
@@ -9882,8 +9917,7 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
             message_thread_id=msg.get("channel_topic_id"),
             cover_path=msg.get("cover_path"),
         )
-    if target != "test":
-        await db.mark_message_sent(msg["id"], sent.message_id)
+    await _finalize(sent.message_id)
     return sent.message_id
 
 

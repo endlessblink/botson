@@ -311,10 +311,13 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
     well-intentioned fix to send-now turns these tests red and forces an
     explicit revisit."""
 
-    async def test_emoji_puzzle_send_now_ignores_media_types_payload(self):
-        """REG-T157-bug-emoji-filter: scheduler passes payload['media_types']
-        and payload['theme_label'] to start_emoji_night; send-now passes
-        neither. Operator-fired Emoji Night may pick the wrong subject pool."""
+    async def test_emoji_puzzle_send_now_forwards_media_types_and_theme(self):
+        """Scheduler passes payload['media_types'] and payload['theme_label']
+        to start_emoji_night (bot/handlers/calendar.py:476); send-now must
+        match so an operator-fired Emoji Night picks from the right pool.
+
+        Previously asserted the broken behavior. Flipped when
+        REG-T157-bug-emoji-filter was fixed in _send_scheduled_row."""
         payload = {"media_types": ["movie"], "theme_label": "סרטים"}
         msg_id = await self._seed(
             message_type="emoji_puzzle", text="emoji w/ subject",
@@ -325,15 +328,17 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
                    new=AsyncMock(return_value=950)) as h:
             await self._send_now(msg_id, target="main")
         kwargs = h.await_args.kwargs
-        # CURRENT (bug) behavior pinned: neither media_types nor theme_label
-        # is forwarded. When the fix lands, update these to assert the values.
-        self.assertNotIn("media_types", kwargs)
-        self.assertNotIn("theme_label", kwargs)
+        self.assertEqual(kwargs.get("media_types"), ["movie"])
+        self.assertEqual(kwargs.get("theme_label"), "סרטים")
 
-    async def test_facts_send_now_ignores_pinned_fact_id_payload(self):
-        """REG-T157-bug-fact-id: scheduler reads payload['fact_id'] and pins
-        send_scheduled_fact to that exact fact; send-now does not, so the
-        operator's preview pin is silently ignored."""
+    async def test_facts_send_now_forwards_pinned_fact_id_payload(self):
+        """Operator pins a specific fact at preview time via
+        poll_options.fact_id; send-now must forward it to send_scheduled_fact
+        (matching the scheduler at bot/handlers/calendar.py:495).
+
+        Previously named ..._ignores_pinned_fact_id_payload and asserted
+        the broken behavior. Flipped when REG-T157-bug-fact-id was fixed
+        in dashboard/app.py:_send_scheduled_row."""
         payload = {"fact_id": "fact-xyz"}
         msg_id = await self._seed(
             message_type="facts_tidbit", text="pinned fact",
@@ -344,35 +349,47 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
                    new=AsyncMock(return_value=True)) as h:
             await self._send_now(msg_id, target="main")
         kwargs = h.await_args.kwargs
-        self.assertIsNone(kwargs.get("fact_id"), "send-now currently drops fact_id")
+        self.assertEqual(kwargs.get("fact_id"), "fact-xyz")
 
-    async def test_event_send_now_does_not_create_event_row_or_rsvp(self):
-        """REG-T157-bug-event-rsvp: scheduler dispatch for `event` rows calls
-        _create_event_row_from_scheduled and attaches RSVP buttons via
-        edit_message_reply_markup; send-now treats event as plain text."""
+    async def test_event_send_now_creates_event_row_and_attaches_rsvp(self):
+        """Scheduler dispatch for `event` rows calls
+        _create_event_row_from_scheduled, sends the card, then attaches
+        RSVP buttons via edit_message_reply_markup and persists message_id
+        on the event row. send-now must match so operator-fired events
+        appear on /events with working RSVP.
+
+        Previously asserted the broken behavior. Flipped when
+        REG-T157-bug-event-rsvp was fixed in _send_scheduled_row."""
         msg_id = await self._seed(
             message_type="event", text="כותרת אירוע\nתיאור",
             target_group="main", status="draft",
         )
         bot_mock = SimpleNamespace(edit_message_reply_markup=AsyncMock())
-        with patch("dashboard.app.Bot", return_value=bot_mock, create=True), \
+        with patch("telegram.Bot", return_value=bot_mock), \
              patch("bot.handlers.calendar.send_message_with_optional_cover",
                    new=AsyncMock(return_value=SimpleNamespace(message_id=960))):
             await self._send_now(msg_id, target="main")
-        # No events table row was inserted.
+        # The events table now has the freshly-created row, with the sent
+        # Telegram message_id persisted so the RSVP callback can find it.
         events = []
-        async with self.db._db.execute("SELECT id FROM events") as cur:
+        async with self.db._db.execute(
+            "SELECT id, message_id FROM events"
+        ) as cur:
             async for r in cur:
-                events.append(r)
-        self.assertEqual(events, [], "send-now currently does not create events row")
-        bot_mock.edit_message_reply_markup.assert_not_called()
+                events.append(dict(r))
+        self.assertEqual(len(events), 1, "send-now must create one events row")
+        self.assertEqual(events[0]["message_id"], 960)
+        bot_mock.edit_message_reply_markup.assert_awaited_once()
 
-    async def test_skippedactivity_from_send_now_propagates_as_exception(self):
-        """REG-T157-bug-skipped-status: scheduler catches SkippedActivity and
-        marks status='skipped' via mark_message_skipped, distinguishing real
-        failures from intentional skips. send-now lets the exception escape,
-        which the route turns into a 500 — the row stays in its prior status
-        and the 'skipped' distinction is lost on the calendar."""
+    async def test_skippedactivity_from_send_now_raises_for_caller(self):
+        """_send_scheduled_row now raises SkippedActivity for legitimate
+        skip cases (blackout date, pool exhausted, etc.) so the HTTP
+        wrapper can mark status='skipped' instead of returning a generic
+        500. This pins the helper-level contract; the HTTP-level
+        translation is verified separately by route-level tests.
+
+        Previously asserted the broken behavior (RuntimeError, no skipped
+        status). Flipped when REG-T157-bug-skipped-status was fixed."""
         from bot.utils.scheduling_errors import SkippedActivity
         msg_id = await self._seed(
             message_type="free_games", text="forced free games",
@@ -380,20 +397,19 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
         )
         with patch("bot.handlers.free_games.send_free_games",
                    new=AsyncMock(return_value={"posted": 0, "error": "blackout date"})):
-            # send-now currently raises RuntimeError (not SkippedActivity) for
-            # this case because _send_scheduled_row's free_games branch wraps
-            # the empty-summary case directly in RuntimeError.
-            with self.assertRaises(Exception) as ctx:
+            with self.assertRaises(SkippedActivity):
                 await self._send_now(msg_id, target="main")
-            self.assertNotIsInstance(ctx.exception, SkippedActivity)
+        # _send_scheduled_row itself doesn't mutate the row on skip — the
+        # HTTP wrapper does. Confirm the helper left the row alone so the
+        # wrapper sees the original status when deciding how to record it.
         row = await self._row(msg_id)
-        # Status not flipped to 'skipped' — gap pinned.
         self.assertEqual(row["status"], "draft")
 
-    async def test_send_now_does_not_log_activity(self):
-        """REG-T157-bug-activity-log: scheduler writes a db.log_activity entry
-        on success; send-now does not. Operator-fired messages disappear from
-        the activity audit."""
+    async def test_send_now_writes_activity_log_entry(self):
+        """REG-T157-bug-activity-log fix: every successful send-now now
+        mirrors the scheduler's tail block — log_activity audit row plus
+        auto_pin handling. Previously asserted the broken behavior; flipped
+        when _send_scheduled_row was refactored around a _finalize helper."""
         msg_id = await self._seed(
             message_type="custom", text="audit me",
             target_group="main", status="draft",
@@ -401,12 +417,30 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
         with patch("bot.handlers.calendar.send_message_with_optional_cover",
                    new=AsyncMock(return_value=SimpleNamespace(message_id=971))):
             await self._send_now(msg_id, target="main")
-        # Activity log table has no row for this send.
         rows = []
-        async with self.db._db.execute("SELECT action_type, description FROM activity_log") as cur:
+        async with self.db._db.execute(
+            "SELECT action_type, description FROM activity_log"
+        ) as cur:
             async for r in cur:
                 rows.append(dict(r))
-        self.assertEqual(rows, [], "send-now currently leaves no audit trail")
+        self.assertEqual(len(rows), 1, "send-now must write one audit row per send")
+        self.assertEqual(rows[0]["action_type"], "custom")
+        self.assertIn("audit me", rows[0]["description"])
+
+    async def test_send_now_auto_pin_field_triggers_pin(self):
+        """REG-T157-bug-pin fix: rows with auto_pin=True are pinned after
+        send, matching the scheduler. Test-target sends still skip the pin
+        to keep the probe non-destructive."""
+        msg_id = await self._seed(
+            message_type="custom", text="pin me",
+            target_group="main", status="draft", auto_pin=True,
+        )
+        bot_mock = SimpleNamespace(pin_chat_message=AsyncMock())
+        with patch("telegram.Bot", return_value=bot_mock), \
+             patch("bot.handlers.calendar.send_message_with_optional_cover",
+                   new=AsyncMock(return_value=SimpleNamespace(message_id=981))):
+            await self._send_now(msg_id, target="main")
+        bot_mock.pin_chat_message.assert_awaited_once()
 
 
 if __name__ == "__main__":

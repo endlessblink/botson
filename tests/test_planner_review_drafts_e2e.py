@@ -111,6 +111,45 @@ class ReviewDraftLifecycleTests(unittest.TestCase):
 
     # ── Happy lifecycle ────────────────────────────────────────────────
 
+    def test_put_text_only_preserves_existing_message_type_so_quality_gate_fires(self):
+        """REG-T155-a regression: PUT /api/calendar/{id} with body that
+        contains only `text` (no message_type) must keep the row's
+        existing message_type. Pre-fix the route coerced to 'custom',
+        which silently demoted morning/evening/discussion rows out of
+        _reject_bad_message_row, letting over-long text reach /schedule.
+
+        End-to-end repro: seed morning draft → PUT text-only with bad
+        body → /schedule. After the fix, /schedule MUST return 422."""
+        msg_id = asyncio.run(self._seed_draft(
+            message_type="morning",
+            text="בוקר טוב",
+        ))
+        bad_text = "א " * 130  # 260 chars, exceeds 200 ceiling
+        future = datetime.now(_IL_TZ) + timedelta(hours=2)
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            put_resp = client.put(
+                f"/api/calendar/{msg_id}",
+                json={"text": bad_text},
+            )
+            # PUT itself rejects too — the morning classification is now
+            # preserved, so _reject_bad_planner_text fires on the bad body.
+            self.assertEqual(put_resp.status_code, 422, put_resp.text)
+            # Sanity: row's message_type is still 'morning' on disk.
+            row = asyncio.run(self._read_row(msg_id))
+            self.assertEqual(row["message_type"], "morning")
+            # And /schedule continues to reject (defense in depth) if the
+            # bad text had reached the DB via some other path.
+            sched_resp = client.post(
+                f"/api/calendar/{msg_id}/schedule",
+                json={
+                    "scheduled_date": future.strftime("%Y-%m-%d"),
+                    "scheduled_time": future.strftime("%H:%M"),
+                },
+            )
+            # Original text is fine, so this should succeed.
+            self.assertEqual(sched_resp.status_code, 200, sched_resp.text)
+
     def test_edit_text_and_time_persists_without_flipping_status(self):
         msg_id = asyncio.run(self._seed_draft())
         future = (datetime.now(_IL_TZ) + timedelta(days=2))
@@ -293,6 +332,38 @@ class ReviewDraftLifecycleTests(unittest.TestCase):
         row = asyncio.run(self._read_row(msg_id))
         self.assertEqual(row["status"], "draft")
         self.assertIsNone(row["sent_message_id"])
+
+    def test_send_now_skipped_activity_marks_skipped_and_returns_200(self):
+        """REG-T157-bug-skipped-status fix: when _send_scheduled_row raises
+        SkippedActivity (legitimate skip — blackout / pool exhausted / etc.),
+        the route must mark the row status='skipped' and return 200 with
+        {"status":"skipped","reason":...}. Pre-fix this collapsed to a
+        generic 500 and the calendar lost the skip distinction."""
+        from bot.utils.scheduling_errors import SkippedActivity
+        msg_id = asyncio.run(self._seed_draft(
+            message_type="free_games", target_group="main",
+        ))
+
+        async def fake_send(db, msg, target):
+            raise SkippedActivity("blackout date")
+
+        with self._client()[0], \
+             patch.object(dashboard_app, "_send_scheduled_row", side_effect=fake_send), \
+             self._client()[1] as client:
+            self._login(client)
+            resp = client.post(
+                f"/api/calendar/{msg_id}/send-now",
+                json={"target": "main"},
+                headers={"content-type": "application/json"},
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+            body = resp.json()
+            self.assertEqual(body["status"], "skipped")
+            self.assertIn("blackout date", body["reason"])
+        row = asyncio.run(self._read_row(msg_id))
+        self.assertEqual(row["status"], "skipped",
+                         "row must persist as skipped so calendar renders it distinctly")
+        self.assertIn("blackout date", row["error_message"] or "")
 
     def test_send_now_with_test_target_does_not_mutate_row_state(self):
         # _send_scheduled_row only marks sent when target != 'test', so a test
