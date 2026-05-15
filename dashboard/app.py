@@ -167,6 +167,20 @@ async def startup():
     global _db
     _db = Database(DB_PATH)
     await _db.init()
+    # T-180: hydrate the active style-profile cache on boot so prompts
+    # built right after a restart still carry the operator's learned
+    # guidance. Previously the cache started as None and only filled
+    # when a UI page hit /api/style-profile/active — meaning every
+    # prompt fired in the first window after deploy.sh missed it.
+    try:
+        await _ensure_seed_style_profile(_db)
+        active = await _db.get_active_style_profile("planner_hebrew_default")
+        _STYLE_PROFILE_CACHE["planner_hebrew_default"] = (active or {}).get("guidance")
+        if _STYLE_PROFILE_CACHE["planner_hebrew_default"]:
+            logger.info("[style-profile] hydrated active guidance on startup (%d chars)",
+                        len(_STYLE_PROFILE_CACHE["planner_hebrew_default"]))
+    except Exception as e:
+        logger.warning("[style-profile] startup hydration failed: %s", e)
 
 
 @app.on_event("shutdown")
@@ -2954,6 +2968,126 @@ def _finalize_prompt(
 # directly when /api/style-profile/apply succeeds so subsequent prompts
 # pick up the new guidance without restarting the process.
 _STYLE_PROFILE_CACHE: dict[str, str | None] = {"planner_hebrew_default": None}
+
+
+# T-180: initial guidance synthesised from the operator corrections gathered
+# in conversation (the "I already gave so many responses about why and how
+# suggestions have been bad" thread). Seeded once on first boot when the
+# style_profiles table has no active row for planner_hebrew_default; never
+# overwrites a profile that has been edited via /apply.
+_SEED_GUIDANCE_HE = (
+    "סינתזה של עקרונות שעלו ממשובי האופרטור (גרסה ראשונית, מתעדכנת אוטומטית מכל פעולת דחייה):\n"
+    "- האיכות נמדדת קודם בעיני המפעיל, לא לפי ההשתתפות בקבוצה. אם המפעיל לא היה שולח את זה — אל תייצר את זה.\n"
+    "- כל שאלה חייבת לעבור את שני המבחנים: ספציפיות (עוגן לערוץ) ורוחב תחולה (לפחות 5 מ-10 קוראים יוכלו לענות מהזיכרון, בלי להמציא).\n"
+    "- אם רעיון נדחה פעם אחת בקטגוריה — אל תייצר אותו שוב, גם לא בנוסח שונה (פאראפראזה נחשבת חזרה).\n"
+    "- מגוון תבניות הוא חובה ולא המלצה. אותה תבנית פעמיים ברצף = פסילה אוטומטית.\n"
+    "- שאלות חכמות > שאלות פילר רגשי. עוגן קונקרטי (חפץ, פעולה, החלטה, רגע) > קופי פואטי.\n"
+    "- 'איך היה היום' / 'מה הדבר הטוב היום' / 'הריטואל שסוגר' — פסולים גם אם נראים תמימים, כי הם פילר.\n"
+    "- שאלת מאמץ (פסקה, רשימה, הסבר) פסולה. תמיד בקש פרט אחד, שם אחד, החלטה אחת.\n"
+    "- עברית של חבר בקבוצה, לא של קופירייטר. אם זה נשמע כמו תרגום מ-engagement prompt באנגלית — לפסול ולנסח שוב."
+)  # noqa: hardcoded-content (operator-authored seed guidance, persisted to DB on first boot)
+
+
+async def _ensure_seed_style_profile(db: Database) -> None:
+    """If no active profile exists, persist the seed guidance and activate it.
+
+    Idempotent: on subsequent boots `get_active_style_profile` returns a row
+    and this function no-ops. The operator can edit/replace it via the
+    normal /api/style-profile/apply flow.
+    """
+    try:
+        active = await db.get_active_style_profile("planner_hebrew_default")
+    except Exception:
+        return
+    if active and (active.get("guidance") or "").strip():
+        return
+    try:
+        new_id = await db.insert_style_profile(
+            profile_key="planner_hebrew_default",
+            guidance=_SEED_GUIDANCE_HE,
+            source_feedback_ids=None,
+            status="draft",
+        )
+        await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
+        logger.info("[style-profile] seeded initial guidance (id=%s)", new_id)
+    except Exception as e:
+        logger.warning("[style-profile] seed failed: %s", e)
+
+
+# T-180: auto-promote threshold. When this many new content_feedback rows
+# accumulate since the last applied style profile, the next call to
+# `_maybe_auto_promote_style_profile` will compose a fresh guidance,
+# persist it, activate it, and refresh the cache — without requiring the
+# operator to click propose→apply manually. Operator still owns the text
+# (the summarizer is deterministic; no LLM hallucination path).
+_AUTO_PROMOTE_THRESHOLD = 5
+
+
+async def _maybe_auto_promote_style_profile(db: Database) -> None:
+    """Called after every successful content-feedback insert.
+
+    Counts feedback rows newer than the most recent active profile's
+    `updated_at`. If the count crosses `_AUTO_PROMOTE_THRESHOLD`, builds a
+    new guidance by merging the existing active text with the deterministic
+    summary of the new rows, activates it, and updates the cache. Silent
+    no-op on any error so a feedback POST never fails because of learning.
+    """
+    try:
+        active = await db.get_active_style_profile("planner_hebrew_default")
+        existing = (active or {}).get("guidance") or ""
+        # Track novelty by feedback id, not timestamp: SQLite
+        # CURRENT_TIMESTAMP has second resolution and the seed profile +
+        # first batch of rejections can land in the same second, masking
+        # legitimately-new rows. Ids monotonically increase regardless.
+        consumed_max_id = 0
+        raw_sources = (active or {}).get("source_feedback_ids") or ""
+        if raw_sources:
+            try:
+                ids = json.loads(raw_sources)
+                if isinstance(ids, list) and ids:
+                    consumed_max_id = max(int(x) for x in ids if str(x).strip())
+            except Exception:
+                consumed_max_id = 0
+
+        all_recent = await db.list_content_feedback(limit=200)
+        if not all_recent:
+            return
+        new_rows = [
+            r for r in all_recent
+            if int(r.get("id") or 0) > consumed_max_id
+        ]
+        if len(new_rows) < _AUTO_PROMOTE_THRESHOLD:
+            return
+
+        addendum = _summarize_feedback_to_guidance(new_rows)
+        if not addendum.strip():
+            return
+
+        # Merge: keep the existing guidance, append new directives that
+        # aren't already present. Cap final size to keep prompts sane.
+        existing_lines = set(ln.strip() for ln in existing.splitlines() if ln.strip())
+        merged_extra = [ln for ln in addendum.splitlines() if ln.strip() and ln.strip() not in existing_lines]
+        if not merged_extra:
+            return
+        merged = (existing.rstrip() + "\n" + "\n".join(merged_extra)).strip()
+        # Hard cap: 60 lines so the prompt doesn't bloat unboundedly.
+        merged_lines = [ln for ln in merged.splitlines() if ln.strip()]
+        if len(merged_lines) > 60:
+            merged = "\n".join(merged_lines[-60:])
+
+        source_ids = json.dumps([int(r["id"]) for r in new_rows], ensure_ascii=False)
+        new_id = await db.insert_style_profile(
+            profile_key="planner_hebrew_default",
+            guidance=merged,
+            source_feedback_ids=source_ids,
+            status="draft",
+        )
+        await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
+        _STYLE_PROFILE_CACHE["planner_hebrew_default"] = merged
+        logger.info("[style-profile] auto-promoted on %d new feedback rows (profile id=%s, total_lines=%d)",
+                    len(new_rows), new_id, len(merged.splitlines()))
+    except Exception as e:
+        logger.warning("[style-profile] auto-promote failed: %s", e)
 
 
 def _active_style_profile_block_sync() -> str:
@@ -7055,6 +7189,10 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
         corrected_text=(str(body.get("corrected_text")).strip() if body.get("corrected_text") else None),
         suggestion_metadata=metadata,
     )
+    # T-180: try to auto-promote the style profile if enough rejections
+    # have accumulated since the last applied version. Best-effort; never
+    # fails the feedback insert.
+    await _maybe_auto_promote_style_profile(db)
     return {"id": row_id}
 
 
@@ -8918,7 +9056,7 @@ async def qa_scoring_generate(request: Request):
 
 
 @app.post("/api/qa-scoring/{draft_id}/score")
-async def qa_scoring_set_score(draft_id: int, request: Request):
+async def qa_scoring_set_score(draft_id: int, request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     body = await request.json() if await request.body() else {}
@@ -8932,16 +9070,54 @@ async def qa_scoring_set_score(draft_id: int, request: Request):
 
     items = _load_qa_drafts()
     found = False
+    found_draft: dict | None = None
     for d in items:
         if int(d.get("id", -1)) == int(draft_id):
             d["score"] = score
             d["score_comment"] = comment
             d["scored_at"] = datetime.now().isoformat(timespec="seconds")
             found = True
+            found_draft = d
             break
     if not found:
         raise HTTPException(status_code=404, detail="draft not found")
     _save_qa_drafts(items)
+    # T-180: low scores (1-2) feed the style-profile learning loop as
+    # `rejected` feedback; score 3 = neutral (ignored); 4-5 = accepted.
+    # Without this wire, qa-scoring verdicts stayed in a side table and
+    # never reached prompts.
+    if found_draft is not None and score in (1, 2):
+        try:
+            reason_bits = [f"qa_score={score}"]
+            if comment:
+                reason_bits.append(comment)
+            await db.record_content_feedback(
+                source="qa_scoring",
+                content_type=str(found_draft.get("draft_type") or "discussion"),
+                topic_key=(str(found_draft.get("category")) if found_draft.get("category") else None),
+                original_text=str(found_draft.get("text") or ""),
+                verdict="rejected",
+                reason=" · ".join(reason_bits),
+                corrected_text=None,
+                suggestion_metadata=None,
+            )
+            await _maybe_auto_promote_style_profile(db)
+        except Exception as e:
+            logger.warning("[qa-scoring] feedback insert failed: %s", e)
+    elif found_draft is not None and score in (4, 5):
+        try:
+            await db.record_content_feedback(
+                source="qa_scoring",
+                content_type=str(found_draft.get("draft_type") or "discussion"),
+                topic_key=(str(found_draft.get("category")) if found_draft.get("category") else None),
+                original_text=str(found_draft.get("text") or ""),
+                verdict="accepted",
+                reason=(f"qa_score={score}" + (f" · {comment}" if comment else "")),
+                corrected_text=None,
+                suggestion_metadata=None,
+            )
+        except Exception as e:
+            logger.warning("[qa-scoring] accepted feedback insert failed: %s", e)
     return {"ok": True, "id": draft_id, "score": score}
 
 

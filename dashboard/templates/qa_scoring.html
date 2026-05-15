@@ -270,6 +270,30 @@ async function qrRun() {
                     tag.textContent = vote === 'agree' ? '· סומן כמסכים' : '· סומן כלא־מסכים';
                     tag.className = 'qr-vote-tag-' + idx + ' text-[10px] mr-auto ' + (vote === 'agree' ? 'text-emerald-300' : 'text-rose-300');
                 }
+                // T-180: persist the judgment as content_feedback so the
+                // style-profile learner picks it up. Mapping:
+                //   agree+pass  → accepted   |  disagree+pass → rejected
+                //   agree+fail  → rejected   |  disagree+fail → accepted
+                try {
+                    var r = window._qrResults[idx] || {};
+                    var systemPass = r.verdict === 'pass';
+                    var operatorAgrees = vote === 'agree';
+                    var finalVerdict = (systemPass === operatorAgrees) ? 'accepted' : 'rejected';
+                    var reasonParts = ['qr_review', 'system=' + r.verdict, 'operator=' + vote];
+                    if (r.reasons && r.reasons.length) reasonParts.push('sys_reasons:' + r.reasons.slice(0, 3).join('|'));
+                    fetch('/api/content-feedback', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            source: 'qa_scoring_qr',
+                            content_type: (document.getElementById('qr-content-type').value || 'discussion'),
+                            topic_key: (document.getElementById('qr-category').value || '').trim() || null,
+                            original_text: r.text || '',
+                            verdict: finalVerdict,
+                            reason: reasonParts.join(' · '),
+                        }),
+                    });
+                } catch (_) { /* best-effort */ }
                 qrUpdateAlignment();
             });
         });
