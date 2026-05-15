@@ -30,6 +30,37 @@
         </div>
     </div>
 
+    <!-- T-179: Paste questions for review against the same hard gates the
+         planner uses. Operator sees system verdict + reasons and can mark
+         agree/disagree to calibrate. -->
+    <div class="bg-[#0a0a0a] border border-violet-500/30 rounded-lg px-4 py-4 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <div>
+                <h2 class="text-sm font-semibold text-[#fafafa]">🔬 בדוק שאלות משלך</h2>
+                <p class="text-[11px] text-[#71717a] mt-0.5">הדבק שאלות (שורה לכל אחת) ותקבל את אותו ציון איכות שהמערכת נותנת לפלט ה-AI. סמן מסכים/לא־מסכים כדי לכייל את שיקול הדעת של הבוט לטעם שלך.</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 mb-3 flex-wrap text-xs">
+            <label class="text-[#a1a1aa]">סוג תוכן:
+                <select id="qr-content-type" class="bg-[#111318] border border-[#272727] rounded h-8 px-2 text-[#fafafa] mr-1">
+                    <option value="discussion">שאלת דיון</option>
+                    <option value="morning">הודעת בוקר</option>
+                    <option value="evening">הודעת ערב</option>
+                </select>
+            </label>
+            <label class="text-[#a1a1aa]">קטגוריה (אופציונלי):
+                <input id="qr-category" type="text" placeholder="movies / gaming / politics..." class="bg-[#111318] border border-[#272727] rounded h-8 px-2 text-[#fafafa] mr-1 w-44" />
+            </label>
+            <button onclick="qrRun()" class="text-xs text-violet-300 hover:text-violet-200 border border-violet-500/40 hover:border-violet-500/70 bg-violet-500/10 hover:bg-violet-500/20 h-8 px-3 rounded-md cursor-pointer">הרץ בדיקה</button>
+            <button onclick="qrClear()" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] h-8 px-3 rounded-md cursor-pointer">נקה</button>
+            <span id="qr-summary" class="text-[11px] text-[#71717a] mr-auto"></span>
+        </div>
+        <textarea id="qr-input" rows="5" dir="rtl" class="w-full bg-[#111318] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] resize-y leading-relaxed focus:outline-none focus:border-violet-500/60" placeholder="סרט שלא מצאתם איתו מישהו לצפות?
+מה ההרגל המוזר שלכם בבוקר?
+איזה משחק ילדות הכי זכור לכם?"></textarea>
+        <div id="qr-results" class="mt-3 space-y-2"></div>
+    </div>
+
     <!-- Aggregate -->
     {% if drafts %}
     {% set scored_drafts = drafts | selectattr("score") | list %}
@@ -171,6 +202,102 @@ async function qaDelete(id) {
     } catch (e) {
         showToast('שגיאה: ' + e.message, 'error');
     }
+}
+
+// T-179: paste-and-review against /api/quality-review.
+function _qrEscape(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function qrRun() {
+    var input = document.getElementById('qr-input');
+    var resultsEl = document.getElementById('qr-results');
+    var summaryEl = document.getElementById('qr-summary');
+    var ctype = document.getElementById('qr-content-type').value || 'discussion';
+    var category = (document.getElementById('qr-category').value || '').trim();
+    var lines = (input.value || '').split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+    if (!lines.length) { showToast('הדבק לפחות שאלה אחת', 'error'); return; }
+    resultsEl.innerHTML = '<div class="text-xs text-[#71717a] py-2">⏳ בודק...</div>';
+    summaryEl.textContent = '';
+    try {
+        var resp = await fetch('/api/quality-review', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({texts: lines, content_type: ctype, category: category || null}),
+        });
+        var data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+        var passed = data.summary.pass;
+        var total = data.summary.total;
+        summaryEl.textContent = 'מערכת: ' + passed + ' / ' + total + ' עברו · בריכת השוואה: ' + data.context.pool_size + ' · מאגר חיים: ' + data.context.recent_dedup_size;
+        resultsEl.innerHTML = '';
+        window._qrJudgments = {};
+        window._qrResults = data.results;
+        data.results.forEach(function(r, idx) {
+            var badge = r.verdict === 'pass'
+                ? '<span class="text-[10px] text-emerald-300 border border-emerald-500/40 rounded px-1.5 py-0.5 whitespace-nowrap">🟢 עבר</span>'
+                : '<span class="text-[10px] text-rose-300 border border-rose-500/40 rounded px-1.5 py-0.5 whitespace-nowrap">🔴 נכשל</span>';
+            var reasons = (r.reasons || []).map(function(x) {
+                return '<li>' + _qrEscape(x) + '</li>';
+            }).join('');
+            var reasonsBlock = reasons ? '<ul class="text-[11px] text-rose-200/80 mt-2 list-disc pr-5">' + reasons + '</ul>' : '';
+            var card = document.createElement('div');
+            card.className = 'border border-[#272727] rounded-md bg-[#111318] p-3';
+            card.innerHTML = (
+                '<div class="flex items-start justify-between gap-2 mb-1">' +
+                    '<div class="text-sm text-[#e4e4e7] flex-1 whitespace-pre-wrap leading-relaxed">' + _qrEscape(r.text) + '</div>' +
+                    badge +
+                '</div>' +
+                reasonsBlock +
+                '<div class="flex items-center gap-2 mt-2 text-[11px]">' +
+                    '<span class="text-[#71717a]">השיפוט שלך:</span>' +
+                    '<button data-qr-idx="' + idx + '" data-qr-vote="agree" class="border border-[#272727] hover:border-emerald-500/60 text-[#a1a1aa] hover:text-emerald-200 rounded px-2 py-0.5 cursor-pointer transition-colors">✅ מסכים</button>' +
+                    '<button data-qr-idx="' + idx + '" data-qr-vote="disagree" class="border border-[#272727] hover:border-rose-500/60 text-[#a1a1aa] hover:text-rose-200 rounded px-2 py-0.5 cursor-pointer transition-colors">❌ לא מסכים</button>' +
+                    '<span class="qr-vote-tag-' + idx + ' text-[10px] mr-auto"></span>' +
+                '</div>'
+            );
+            resultsEl.appendChild(card);
+        });
+        resultsEl.querySelectorAll('button[data-qr-vote]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var idx = parseInt(btn.getAttribute('data-qr-idx'), 10);
+                var vote = btn.getAttribute('data-qr-vote');
+                window._qrJudgments[idx] = vote;
+                var tag = resultsEl.querySelector('.qr-vote-tag-' + idx);
+                if (tag) {
+                    tag.textContent = vote === 'agree' ? '· סומן כמסכים' : '· סומן כלא־מסכים';
+                    tag.className = 'qr-vote-tag-' + idx + ' text-[10px] mr-auto ' + (vote === 'agree' ? 'text-emerald-300' : 'text-rose-300');
+                }
+                qrUpdateAlignment();
+            });
+        });
+    } catch (e) {
+        resultsEl.innerHTML = '<div class="text-xs text-rose-300 py-2">שגיאה: ' + _qrEscape(String(e.message || e)) + '</div>';
+    }
+}
+
+function qrUpdateAlignment() {
+    var summaryEl = document.getElementById('qr-summary');
+    if (!summaryEl || !window._qrResults) return;
+    var total = window._qrResults.length;
+    var judged = Object.keys(window._qrJudgments || {}).length;
+    var agree = 0;
+    Object.keys(window._qrJudgments).forEach(function(k) {
+        if (window._qrJudgments[k] === 'agree') agree++;
+    });
+    var alignment = judged > 0 ? Math.round((agree / judged) * 100) : 0;
+    var passed = window._qrResults.filter(function(r) { return r.verdict === 'pass'; }).length;
+    summaryEl.textContent = 'מערכת: ' + passed + ' / ' + total + ' עברו · שפטת ' + judged + ' · התאמה לטעם שלך: ' + alignment + '%';
+}
+
+function qrClear() {
+    document.getElementById('qr-input').value = '';
+    document.getElementById('qr-results').innerHTML = '';
+    document.getElementById('qr-summary').textContent = '';
+    window._qrJudgments = {};
+    window._qrResults = [];
 }
 
 async function qaClearScored() {
