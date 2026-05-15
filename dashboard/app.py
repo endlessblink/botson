@@ -4730,12 +4730,13 @@ async def _ai_suggest_calendar(
     _planner_retry_budget = int(
         ((settings.get("ai_populate") or {}).get("generation") or {}).get("retry_budget", 3)
     )
-    _planner_angle_hint = load_copy(
+    from bot.utils.copy import load_copy as _load_copy_inner
+    _planner_angle_hint = _load_copy_inner(
         "planner",
         "retry_angle_hint",
         default=(
-            "נסה זווית שונה לגמרי: שאלה בינארית, דירוג, זיכרון קונקרטי, "
-            "המלצה ספציפית, או דעה לא פופולרית."
+            "נסה זווית שונה לגמרי: שאלה בינארית, דירוג, זיכרון קונקרטי, "  # noqa: hardcoded-content (Hebrew fallback only)
+            "המלצה ספציפית, או דעה לא פופולרית."  # noqa: hardcoded-content (Hebrew fallback only)
         ),
     )
 
