@@ -2701,24 +2701,26 @@ function _aiSuggestRowEmoji(mtype) {
     })[mtype] || '•';
 }
 
-// T-175: friendly Hebrew labels for message_type. The raw underscored
-// identifiers leaked into the AI-suggest modal — operators saw
-// `trivia_warmup_rsvp` instead of "חימום טריוויה (RSVP)".
+// T-175: friendly Hebrew/brand labels for message_type. Use the same
+// game/activity names operators already see in other UI surfaces
+// (drawer titles, week-plan summaries) so "Emoji Night" looks like a
+// real game, not a translation. Trivia/Emoji rows are the actual game
+// activity, not just a generic type — say so.
 function _aiSuggestTypeLabel(mtype) {
     return ({
-        morning: 'הודעת בוקר',
-        evening: 'הודעת ערב',
-        discussion: 'שאלת דיון',
-        custom: 'הודעה מותאמת',
-        trivia_round: 'סבב טריוויה',
-        trivia_warmup_rsvp: 'חימום טריוויה (RSVP)',
-        warmup_reminder: 'תזכורת חימום',
-        emoji_puzzle: 'חידת אימוג\'י',
-        free_games: 'משחקים חינם',
-        facts_tidbit: 'עובדה מעניינת',
-        facts_spooky: 'עובדה מצמררת',
-        weekly_roundup: 'סיכום שבועי',
-        weekly_leaderboard: 'לוח שבועי',
+        morning: '🌅 הודעת בוקר',
+        evening: '🌙 הודעת ערב',
+        discussion: '💬 שאלת דיון',
+        custom: '✍️ הודעה מותאמת',
+        trivia_round: '🧠 משחק טריוויה',
+        trivia_warmup_rsvp: '📣 הכרזת חימום + RSVP',
+        warmup_reminder: '⏰ תזכורת חימום',
+        emoji_puzzle: '🧩 Emoji Night',
+        free_games: '🎮 משחקים חינם',
+        facts_tidbit: '🔎 עובדה מעניינת',
+        facts_spooky: '🕯️ סיפור מסתורי',
+        weekly_roundup: '📊 סיכום שבועי',
+        weekly_leaderboard: '🏆 לוח שבועי',
     })[mtype] || mtype;
 }
 
