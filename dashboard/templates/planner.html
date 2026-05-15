@@ -979,6 +979,7 @@
             <div class="flex items-center gap-3">
                 <button onclick="aiSuggestToggleAll(true)" class="text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-md cursor-pointer transition-colors">סמן הכל</button>
                 <button onclick="aiSuggestToggleAll(false)" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 py-1.5 rounded-md cursor-pointer transition-colors">נקה הכל</button>
+                <button onclick="aiSuggestDenyChecked()" class="text-xs text-rose-300 hover:text-rose-200 border border-rose-500/30 hover:border-rose-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="דחה את כל המסומנות עם סיבה משותפת ושמור למשוב הלמידה">דחה מסומנים + סיבה</button>
                 <span id="ai-suggest-count" class="text-xs text-[#71717a]"></span>
             </div>
             <div class="flex items-center gap-3">
@@ -1786,6 +1787,7 @@ function renderPreview() {
         });
         pollContainer.classList.remove('hidden');
     } else {
+        pollContainer.innerHTML = '';
         pollContainer.classList.add('hidden');
     }
 
@@ -1798,9 +1800,11 @@ function renderPreview() {
             eventInfo.textContent = parts.join(' · ');
             eventInfo.classList.remove('hidden');
         } else {
+            eventInfo.textContent = '';
             eventInfo.classList.add('hidden');
         }
     } else {
+        eventInfo.textContent = '';
         eventInfo.classList.add('hidden');
     }
 
@@ -2613,8 +2617,7 @@ async function approveDraft(draftId, btn) {
         var resp = await fetch('/api/calendar/' + draftId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
         if (!resp.ok) {
             var err = await resp.json().catch(function() { return {}; });
-            var detail = err && (err.detail || err.message);
-            throw new Error(typeof detail === 'string' ? detail : ('HTTP ' + resp.status));
+            throw new Error(apiErrorMessage(err, 'HTTP ' + resp.status));
         }
         showToast('אושר');
         location.reload();
@@ -2652,6 +2655,7 @@ var _aiSuggestState = {
     suggestions: [],
     checked: {},
     controller: null,
+    jobId: null,
     timeoutHandle: null,
     timedOut: false,
     triggerLabel: '',
@@ -2665,6 +2669,11 @@ function openAiSuggestModal() {
 function closeAiSuggestModal() {
     var modal = document.getElementById('ai-suggest-modal');
     if (modal) modal.classList.add('hidden');
+    if (_aiSuggestState.jobId) {
+        fetch('/api/weekplan/ai-suggest/' + encodeURIComponent(_aiSuggestState.jobId) + '/cancel', {
+            method: 'POST',
+        }).catch(function() {});
+    }
     if (_aiSuggestState.controller) {
         _aiSuggestState.controller.abort();
         _aiSuggestState.controller = null;
@@ -2675,22 +2684,105 @@ function closeAiSuggestModal() {
     }
     _aiSuggestState.suggestions = [];
     _aiSuggestState.checked = {};
+    _aiSuggestState.jobId = null;
+    var listEl = document.getElementById('ai-suggest-list');
+    if (listEl) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">טוען הצעות...</div>';
+    var statsEl = document.getElementById('ai-suggest-stats');
+    if (statsEl) { statsEl.classList.add('hidden'); statsEl.textContent = ''; }
 }
 
 function _aiSuggestRowEmoji(mtype) {
     return ({
         morning: '🌅', evening: '🌙', discussion: '💬', custom: '✍️',
-        trivia_round: '🧠', emoji_puzzle: '🧩',
+        trivia_round: '🧠', trivia_warmup_rsvp: '📣', warmup_reminder: '⏰',
+        emoji_puzzle: '🧩',
         free_games: '🎮', facts_tidbit: '🔎', facts_spooky: '🕯️',
         weekly_roundup: '📊', weekly_leaderboard: '🏆',
     })[mtype] || '•';
 }
 
+// T-175: friendly Hebrew labels for message_type. The raw underscored
+// identifiers leaked into the AI-suggest modal — operators saw
+// `trivia_warmup_rsvp` instead of "חימום טריוויה (RSVP)".
+function _aiSuggestTypeLabel(mtype) {
+    return ({
+        morning: 'הודעת בוקר',
+        evening: 'הודעת ערב',
+        discussion: 'שאלת דיון',
+        custom: 'הודעה מותאמת',
+        trivia_round: 'סבב טריוויה',
+        trivia_warmup_rsvp: 'חימום טריוויה (RSVP)',
+        warmup_reminder: 'תזכורת חימום',
+        emoji_puzzle: 'חידת אימוג\'י',
+        free_games: 'משחקים חינם',
+        facts_tidbit: 'עובדה מעניינת',
+        facts_spooky: 'עובדה מצמררת',
+        weekly_roundup: 'סיכום שבועי',
+        weekly_leaderboard: 'לוח שבועי',
+    })[mtype] || mtype;
+}
+
+// T-175: deny a suggestion with optional reason, send to /api/content-feedback.
+// Multi-deny: ctrl-click checkbox to mark for bulk denial, then "דחה מסומנים".
+async function _aiSuggestDenyOne(suggestKey, opts) {
+    opts = opts || {};
+    var s = _aiSuggestState.suggestions.find(function(x) { return x.key === suggestKey; });
+    if (!s) return;
+    var reason = opts.reason;
+    if (typeof reason !== 'string') {
+        reason = window.prompt('סיבת הדחייה (לא חובה):', '');
+        if (reason === null) return;  // cancelled
+    }
+    try {
+        await fetch('/api/content-feedback', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                source: 'planner_ai_suggest',
+                content_type: s.message_type,
+                topic_key: s.category || null,
+                original_text: s.text || '',
+                verdict: 'rejected',
+                reason: reason || '',
+                suggestion_metadata: JSON.stringify({
+                    date: s.date, time: s.time, topic_id: s.topic_id,
+                    rationale: s.rationale || '',
+                }),
+            }),
+        });
+        // Visually mark the row as denied + uncheck.
+        _aiSuggestState.checked[s.key] = false;
+        s._denied = true;
+        s._deny_reason = reason || '';
+        _aiSuggestRenderSuggestions(document.getElementById('ai-suggest-list'));
+        _aiSuggestUpdateCount();
+        if (!opts.silent) showToast('נדחה, נשמר למשוב');
+    } catch (e) {
+        showToast('שגיאה בשמירת הדחייה', 'error');
+    }
+}
+
+async function aiSuggestDenyChecked() {
+    var checkedKeys = _aiSuggestState.suggestions
+        .filter(function(s) { return _aiSuggestState.checked[s.key]; })
+        .map(function(s) { return s.key; });
+    if (!checkedKeys.length) { showToast('לא מסומנות הצעות', 'error'); return; }
+    var reason = window.prompt('סיבת דחייה משותפת לכל ' + checkedKeys.length + ' המסומנות (לא חובה):', '');
+    if (reason === null) return;
+    for (var i = 0; i < checkedKeys.length; i++) {
+        await _aiSuggestDenyOne(checkedKeys[i], {reason: reason, silent: true});
+    }
+    showToast(checkedKeys.length + ' הצעות נדחו, נשמרו למשוב');
+}
+
 function _aiSuggestUpdateCount() {
     var checked = Object.values(_aiSuggestState.checked).filter(Boolean).length;
     var total = _aiSuggestState.suggestions.length;
+    var rejected = _aiSuggestState.suggestions.filter(function(s) {
+        return (s.quality_failures || []).length > 0;
+    }).length;
     var el = document.getElementById('ai-suggest-count');
-    if (el) el.textContent = total > 0 ? '(' + checked + ' / ' + total + ' מסומנות)' : '';
+    if (el) el.textContent = total > 0 ? '(' + checked + ' / ' + total + ' מסומנות' + (rejected ? ' · ' + rejected + ' בעיות איכות' : '') + ')' : '';
 }
 
 function aiSuggestToggleAll(value) {
@@ -2710,7 +2802,15 @@ function _aiSuggestIsChecked(s) {
 }
 
 function _formatApiError(data, fallback) {
+    if (fallback && String(fallback).indexOf('401') !== -1) {
+        setTimeout(function() { window.location.href = '/login'; }, 800);
+        return 'פג תוקף ההתחברות. מעביר למסך התחברות...';
+    }
     if (!data) return fallback;
+    if (data.detail === 'Unauthorized' || data.message === 'Unauthorized') {
+        setTimeout(function() { window.location.href = '/login'; }, 800);
+        return 'פג תוקף ההתחברות. מעביר למסך התחברות...';
+    }
     if (typeof data.detail === 'string') return data.detail;
     if (Array.isArray(data.detail)) {
         return data.detail.map(function(item) {
@@ -2836,35 +2936,56 @@ function _aiSuggestUpdateActivityTime(key, nextTime) {
 }
 
 function _aiSuggestRenderRow(s) {
-    var checked = _aiSuggestState.checked[s.key] !== false;
+    var checked = _aiSuggestState.checked[s.key] !== false && !s._denied;
     var emoji = _aiSuggestRowEmoji(s.message_type);
+    var typeLabel = _aiSuggestTypeLabel(s.message_type);
     var topicLabel = s.topic_name || ('topic ' + s.topic_id);
     var catLabel = s.category ? ' · ' + s.category : '';
     var rationale = s.rationale ? ' · ' + s.rationale : '';
-    var failTag = (s.validation_failures && s.validation_failures.length)
-        ? '<span class="text-[10px] text-amber-400 ml-1">⚠️ ' + s.validation_failures[0] + '</span>'
+    var validationFailures = Array.isArray(s.validation_failures) ? s.validation_failures : [];
+    var qualityFailures = Array.isArray(s.quality_failures) ? s.quality_failures : [];
+    var failTag = validationFailures.length
+        ? '<span class="text-[10px] text-amber-400 ml-1">⚠️ ' + escapeHtml(validationFailures[0]) + '</span>'
+        : '';
+    var qualityTag = qualityFailures.length
+        ? '<span class="text-[10px] text-red-300 border border-red-500/30 rounded px-1.5 py-0.5">איכות: ' + qualityFailures.length + ' בעיות</span>'
+        : '<span class="text-[10px] text-emerald-400/80 border border-emerald-500/20 rounded px-1.5 py-0.5">איכות תקינה</span>';
+    var deniedTag = s._denied
+        ? '<span class="text-[10px] text-rose-300 border border-rose-500/40 rounded px-1.5 py-0.5">נדחה' + (s._deny_reason ? ': ' + escapeHtml(s._deny_reason) : '') + '</span>'
+        : '';
+    var qualityWarning = qualityFailures.length
+        ? '<div class="mt-2 rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">בדיקת איכות: ' + qualityFailures.map(escapeHtml).join(', ') + '</div>'
         : '';
     var previewLink = s.preview_url
         ? '<a href="' + s.preview_url + '" target="_blank" rel="noopener" class="text-[11px] text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 rounded px-2 py-0.5">פתח תצוגה מקדימה</a>'
         : '';
     var card = document.createElement('div');
-    card.className = 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3';
+    card.className = 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3' + (s._denied ? ' opacity-50' : '');
     var safeText = (s.text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     var timeControl = _aiSuggestTimeControl(s, emoji);
+    var denyBtn = s._denied
+        ? ''
+        : '<button type="button" data-deny-key="' + escapeHtml(s.key) + '" class="text-[10px] text-rose-300 border border-rose-500/30 hover:border-rose-500/60 rounded px-2 py-0.5">דחה + סיבה</button>';
     card.innerHTML = (
         '<input type="checkbox" data-suggest-key="' + s.key + '" ' +
         (checked ? 'checked' : '') +
+        (s._denied ? ' disabled' : '') +
         ' class="mt-1 cursor-pointer accent-emerald-500" />' +
         '<div class="flex-1 min-w-0">' +
             '<div class="flex items-center gap-2 text-xs text-[#a1a1aa] mb-1.5 flex-wrap">' +
                 timeControl +
                 '<span class="text-[#71717a]">→</span>' +
-                '<span class="text-sky-300">' + topicLabel + '</span>' +
-                '<span class="text-[10px] text-[#52525b]">' + s.message_type + catLabel + rationale + '</span>' +
+                '<span class="text-sky-300">' + escapeHtml(topicLabel) + '</span>' +
+                '<span class="text-[10px] text-[#a1a1aa] border border-[#272727] rounded px-1.5 py-0.5">' + escapeHtml(typeLabel) + escapeHtml(catLabel) + '</span>' +
+                (rationale ? '<span class="text-[10px] text-[#52525b]">' + escapeHtml(rationale) + '</span>' : '') +
+                qualityTag +
                 failTag +
+                deniedTag +
                 previewLink +
+                denyBtn +
             '</div>' +
             '<div class="text-sm text-[#e4e4e7] whitespace-pre-wrap">' + safeText + '</div>' +
+            qualityWarning +
         '</div>'
     );
     var cb = card.querySelector('input[type=checkbox]');
@@ -2878,12 +2999,22 @@ function _aiSuggestRenderRow(s) {
             _aiSuggestUpdateActivityTime(s.key, timeInput.value);
         });
     }
+    var denyButton = card.querySelector('button[data-deny-key]');
+    if (denyButton) {
+        denyButton.addEventListener('click', function() {
+            _aiSuggestDenyOne(s.key, {});
+        });
+    }
     return card;
 }
 
 async function _aiSuggestFetch(targetDate, triggerLabel) {
+    if (_aiSuggestState.controller || _aiSuggestState.jobId) {
+        closeAiSuggestModal();
+    }
     _aiSuggestState.triggerLabel = triggerLabel || '';
     _aiSuggestState.timedOut = false;
+    _aiSuggestState.jobId = null;
     _aiSuggestState.controller = new AbortController();
     _aiSuggestState.timeoutHandle = setTimeout(function() {
         _aiSuggestState.timedOut = true;
@@ -2913,6 +3044,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
             throw new Error(_formatApiError(startData, 'HTTP ' + startResp.status));
         }
         if (!startData.job_id) throw new Error('Missing AI suggest job id');
+        _aiSuggestState.jobId = startData.job_id;
 
         var consecutivePollErrors = 0;
         while (true) {
@@ -2942,6 +3074,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
             }
             consecutivePollErrors = 0;
             if (statusData.status === 'completed') return statusData.result || {};
+            if (statusData.status === 'cancelled') throw new Error('AI suggest cancelled');
             if (statusData.status === 'failed') throw new Error(statusData.error || 'AI suggest failed');
         }
     }
@@ -2950,7 +3083,9 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
         var data = await requestSuggestions();
         _aiSuggestState.suggestions = data.suggestions || [];
         _aiSuggestState.checked = {};
-        _aiSuggestState.suggestions.forEach(function(s) { _aiSuggestState.checked[s.key] = true; });
+        _aiSuggestState.suggestions.forEach(function(s) {
+            _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length);
+        });
 
         if (listEl) {
             listEl.innerHTML = '';
@@ -2965,7 +3100,8 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
             statsEl.classList.remove('hidden');
         }
         var w = data.window || {};
-        if (subtitle) subtitle.textContent = (w.scope === 'day' ? 'יום ' + w.start : 'שבוע ' + w.start + ' — ' + w.end) + ' · ' + _aiSuggestState.suggestions.length + ' הצעות. סמן את אלה שתרצה לאשר.';
+        var rejected = _aiSuggestState.suggestions.filter(function(s) { return (s.quality_failures || []).length > 0; }).length;
+        if (subtitle) subtitle.textContent = (w.scope === 'day' ? 'יום ' + w.start : 'שבוע ' + w.start + ' — ' + w.end) + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן את אלה שתרצה לאשר.';
         _aiSuggestUpdateCount();
     } catch (e) {
         if (subtitle) subtitle.textContent = 'שגיאה: ' + (e && e.message || e);
@@ -2976,6 +3112,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
             _aiSuggestState.timeoutHandle = null;
         }
         _aiSuggestState.controller = null;
+        _aiSuggestState.jobId = null;
     }
 }
 
@@ -3149,14 +3286,14 @@ async function sendDraftNow(msgId) {
         });
         if (!r.ok) {
             var err = await r.json().catch(function() { return {}; });
-            var emsg = (err && (err.detail || err.message)) || ('HTTP ' + r.status);
-            throw new Error(emsg);
+            throw new Error(apiErrorMessage(err, 'HTTP ' + r.status));
         }
         showToast('נשלח לקבוצה');
         calendar.refetchEvents();
         refreshTodaySummary();
     } catch (e) {
         showToast('שליחה נכשלה: ' + (e && e.message || e), 'error');
+        throw e;
     }
 }
 
@@ -3212,6 +3349,26 @@ function escapeHtml(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function apiErrorMessage(err, fallback) {
+    if (fallback && String(fallback).indexOf('401') !== -1) {
+        setTimeout(function() { window.location.href = '/login'; }, 800);
+        return 'פג תוקף ההתחברות. מעביר למסך התחברות...';
+    }
+    var detail = err && (err.detail || err.message || err);
+    if (detail === 'Unauthorized') {
+        setTimeout(function() { window.location.href = '/login'; }, 800);
+        return 'פג תוקף ההתחברות. מעביר למסך התחברות...';
+    }
+    if (detail && typeof detail === 'object') {
+        if (detail.error === 'quality_rejected' && Array.isArray(detail.failures)) {
+            return 'טיוטה נדחתה בבדיקת איכות: ' + detail.failures.join(', ');
+        }
+        if (detail.message) return detail.message;
+        return JSON.stringify(detail);
+    }
+    return detail || fallback || 'שגיאה';
 }
 
 // Tiny safe markdown renderer for notes_for_admin. Supports:
@@ -3285,6 +3442,10 @@ function renderDraftCard(draft) {
     var topicId = props.channelTopicId ? String(props.channelTopicId) : '';
     var fullText = props.fullText || '';
     var emoji = TYPE_EMOJI[mtype] || '📌';
+    var qualityFailures = Array.isArray(props.qualityFailures) ? props.qualityFailures : [];
+    var qualityHtml = qualityFailures.length
+        ? '<div class="review-quality-warning mb-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">בדיקת איכות נכשלה: ' + escapeHtml(qualityFailures.join(', ')) + '. ערכו ושמרו לפני אישור.</div>'
+        : '<div class="review-quality-ok mb-2 text-[11px] text-emerald-400/80">בדיקת איכות: תקין</div>';
 
     var topicOptions = '<option value="">(ללא ערוץ)</option>';
     for (var i = 0; i < REVIEW_TOPICS.length; i++) {
@@ -3303,6 +3464,7 @@ function renderDraftCard(draft) {
                 '<span class="review-dirty text-amber-400 text-xs hidden">● לא נשמר</span>' +
             '</div>' +
             (draftDate !== (activeReviewDate || draftDate) ? '<div class="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">הטיוטה שייכת ל-' + escapeHtml(draftDate) + '. אישור מהמסך הזה יעביר אותה ל-' + escapeHtml(activeReviewDate) + '.</div>' : '') +
+            qualityHtml +
             '<textarea class="review-text w-full bg-[#0a0a0a] border border-[#272727] rounded text-sm text-[#fafafa] p-2 min-h-[70px] leading-relaxed" rows="3">' + escapeHtml(fullText) + '</textarea>' +
             '<div class="mt-2 flex items-center gap-1.5 flex-wrap">' +
                 '<button class="review-schedule-btn text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded cursor-pointer">⏰ קבע לזמן הזה</button>' +
@@ -3376,7 +3538,7 @@ function _wireCard(card) {
             }
             if (!r.ok) {
                 var err = await r.json().catch(function() { return {}; });
-                throw new Error((err && (err.detail || err.message)) || ('HTTP ' + r.status));
+                throw new Error(apiErrorMessage(err, 'HTTP ' + r.status));
             }
             var data = await r.json();
             showToast('נקבע ל-' + (data.scheduled_for || timeEl.value).slice(11, 16));
@@ -3417,7 +3579,10 @@ function _wireCard(card) {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
             });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (!r.ok) {
+                var err = await r.json().catch(function() { return {}; });
+                throw new Error(apiErrorMessage(err, 'HTTP ' + r.status));
+            }
             // Update originals so dirty indicator clears
             card.setAttribute('data-original-text', textEl.value);
             card.setAttribute('data-original-time', timeEl.value);
