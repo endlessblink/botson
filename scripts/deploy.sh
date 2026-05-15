@@ -60,9 +60,22 @@ if [ "${SKIP_HARDCODED_GUARDIAN:-0}" != "1" ]; then
       exit 1
     fi
   fi
+  # T-171 discussion pool validator: same blocking semantics. Bypass via
+  # the same SKIP_HARDCODED_GUARDIAN flag (the two guardians share a
+  # category of "content-shape rules enforced at deploy").
+  if [ -x .venv/bin/pytest ] && [ -f tests/test_discussion_pool_quality.py ]; then
+    echo
+    echo "=== Discussion pool validator ==="
+    if ! sudo -u "$SERVICE_USER" -H .venv/bin/pytest tests/test_discussion_pool_quality.py -q --tb=line; then
+      echo
+      echo "❌ Pool validator failed — blocking deploy. Fix the entries above,"
+      echo "   or allowlist them in config/discussion_pool_baseline.yaml."
+      exit 1
+    fi
+  fi
 else
   echo
-  echo "⚠️  SKIP_HARDCODED_GUARDIAN=1 — bypassing guardian (logged for audit)."
+  echo "⚠️  SKIP_HARDCODED_GUARDIAN=1 — bypassing guardians (logged for audit)."
 fi
 
 echo

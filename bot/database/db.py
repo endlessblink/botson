@@ -62,6 +62,37 @@ class Database:
             "CREATE TABLE IF NOT EXISTS message_engagement (scheduled_msg_id INTEGER PRIMARY KEY, telegram_message_id INTEGER NOT NULL, channel_topic_id INTEGER, reactions INTEGER NOT NULL DEFAULT 0, distinct_reactors INTEGER NOT NULL DEFAULT 0, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_message_engagement_tg_id ON message_engagement(telegram_message_id, channel_topic_id)",
             "CREATE TABLE IF NOT EXISTS message_reactors (scheduled_msg_id INTEGER NOT NULL, user_id INTEGER NOT NULL, reaction_type TEXT, reacted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (scheduled_msg_id, user_id))",
+            # T-172: operator feedback capture. Every rejection/edit of an
+            # AI suggestion is stored so future generation can learn from it
+            # (T-174). Data-capture only at this phase — no consumer yet.
+            "CREATE TABLE IF NOT EXISTS content_feedback ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "source TEXT NOT NULL, "
+            "content_type TEXT NOT NULL, "
+            "topic_key TEXT, "
+            "original_text TEXT NOT NULL, "
+            "verdict TEXT NOT NULL, "
+            "reason TEXT, "
+            "corrected_text TEXT, "
+            "suggestion_metadata TEXT"
+            ")",
+            "CREATE INDEX IF NOT EXISTS idx_content_feedback_type_time ON content_feedback(content_type, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_content_feedback_verdict ON content_feedback(verdict, created_at DESC)",
+            # T-174: operator-approved style guidance learned from feedback.
+            # Multiple versions can exist; status='active' is the one the
+            # prompt builder reads. Apply requires explicit operator action.
+            "CREATE TABLE IF NOT EXISTS content_style_profile ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "profile_key TEXT NOT NULL, "
+            "version INTEGER NOT NULL, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "guidance TEXT NOT NULL, "
+            "source_feedback_ids TEXT, "
+            "status TEXT NOT NULL DEFAULT 'draft', "
+            "UNIQUE (profile_key, version)"
+            ")",
+            "CREATE INDEX IF NOT EXISTS idx_style_profile_active ON content_style_profile(profile_key, status, version DESC)",
         ]
         for sql in migrations:
             try:
@@ -883,24 +914,47 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
-    async def get_used_discussion_texts(self) -> set[str]:
-        """Return the set of discussion texts that have ever appeared in the
-        scheduled_messages table — including cancelled rows. Used by the
-        materializer to dedupe pool picks: once a question has been proposed
-        in any form (preview that became a row, manual save, AI-fill), it is
-        considered used and won't be re-picked from the pool.
+    async def get_used_discussion_texts(self, *, window_days: int | None = None) -> list[str]:
+        """Return distinct discussion texts, most-recent-first.
 
-        The user's expectation is "questions should never repeat" — even
-        cancelled rows count as "previously seen". Empty text rows (skip
-        markers from the skip-slot UI) are excluded so they don't become
-        false positives.
+        Used by the materializer to dedupe pool picks: once a question has
+        been proposed in any form (preview that became a row, manual save,
+        AI-fill), it is considered used and won't be re-picked.
+
+        T-169: changed from `set[str]` to ordered `list[str]` (most-recent
+        first) and added an optional `window_days` bound so callers can feed
+        the LLM a deterministic, complete "do not repeat" list instead of a
+        non-deterministic set slice.
         """
-        async with self._db.execute(
-            "SELECT DISTINCT text FROM scheduled_messages "
-            "WHERE message_type = 'discussion' AND text != '' AND text IS NOT NULL"
-        ) as cursor:
+        if window_days is not None and window_days > 0:
+            from datetime import date as _date, timedelta as _td
+            cutoff = (_date.today() - _td(days=int(window_days))).isoformat()
+            query = (
+                "SELECT text, MAX(COALESCE(created_at, scheduled_date)) AS last_at "
+                "FROM scheduled_messages "
+                "WHERE message_type = 'discussion' AND text != '' AND text IS NOT NULL "
+                "AND COALESCE(scheduled_date, '') >= ? "
+                "GROUP BY text ORDER BY last_at DESC"
+            )
+            params: tuple = (cutoff,)
+        else:
+            query = (
+                "SELECT text, MAX(COALESCE(created_at, scheduled_date)) AS last_at "
+                "FROM scheduled_messages "
+                "WHERE message_type = 'discussion' AND text != '' AND text IS NOT NULL "
+                "GROUP BY text ORDER BY last_at DESC"
+            )
+            params = ()
+        async with self._db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
-            return {r[0] for r in rows if r[0]}
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for r in rows:
+            text = r[0]
+            if text and text not in seen:
+                seen.add(text)
+                ordered.append(text)
+        return ordered
 
     async def delete_scheduled_message(self, msg_id: int):
         """Cancel a scheduled message."""
@@ -1663,3 +1717,117 @@ class Database:
         ) as cur:
             rows = await cur.fetchall()
         return {int(r["scheduled_msg_id"]): dict(r) for r in rows}
+
+    # ── Content Feedback (T-172) ─────────────────────────────
+
+    async def record_content_feedback(
+        self,
+        *,
+        source: str,
+        content_type: str,
+        original_text: str,
+        verdict: str,
+        topic_key: str | None = None,
+        reason: str | None = None,
+        corrected_text: str | None = None,
+        suggestion_metadata: str | None = None,
+    ) -> int:
+        """Persist an operator verdict on an AI suggestion. Returns row id.
+
+        verdict is free-form but conventional values: 'rejected',
+        'bad_wording', 'accepted_after_edit', 'accepted'. Storage is
+        capture-only here; consumers (T-174 style-profile learning) read
+        from this table to shape future prompts.
+        """
+        cur = await self._db.execute(
+            """INSERT INTO content_feedback
+                   (source, content_type, topic_key, original_text, verdict,
+                    reason, corrected_text, suggestion_metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(source), str(content_type), topic_key,
+                str(original_text), str(verdict),
+                reason, corrected_text, suggestion_metadata,
+            ),
+        )
+        await self._db.commit()
+        return int(cur.lastrowid or 0)
+
+    async def get_active_style_profile(self, profile_key: str = "planner_hebrew_default") -> dict | None:
+        """Return the currently-active style profile, or None if none applied yet."""
+        async with self._db.execute(
+            "SELECT id, profile_key, version, updated_at, guidance, source_feedback_ids, status "
+            "FROM content_style_profile WHERE profile_key = ? AND status = 'active' "
+            "ORDER BY version DESC LIMIT 1",
+            (profile_key,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def insert_style_profile(
+        self,
+        *,
+        profile_key: str,
+        guidance: str,
+        source_feedback_ids: str | None = None,
+        status: str = "draft",
+    ) -> int:
+        """Insert a new style-profile version. Returns the new row id.
+
+        Caller (the apply endpoint) is responsible for flipping the prior
+        active row to status='superseded' atomically with the apply step.
+        """
+        async with self._db.execute(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM content_style_profile WHERE profile_key = ?",
+            (profile_key,),
+        ) as cur:
+            row = await cur.fetchone()
+        next_version = int((row[0] if row else 1) or 1)
+        cur2 = await self._db.execute(
+            "INSERT INTO content_style_profile (profile_key, version, guidance, source_feedback_ids, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (profile_key, next_version, guidance, source_feedback_ids, status),
+        )
+        await self._db.commit()
+        return int(cur2.lastrowid or 0)
+
+    async def activate_style_profile(self, profile_id: int, profile_key: str = "planner_hebrew_default") -> None:
+        """Atomically demote any active profile to 'superseded' and activate the given id."""
+        await self._db.execute(
+            "UPDATE content_style_profile SET status = 'superseded' "
+            "WHERE profile_key = ? AND status = 'active'",
+            (profile_key,),
+        )
+        await self._db.execute(
+            "UPDATE content_style_profile SET status = 'active' WHERE id = ?",
+            (int(profile_id),),
+        )
+        await self._db.commit()
+
+    async def list_content_feedback(
+        self,
+        *,
+        content_type: str | None = None,
+        verdict: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        clauses = []
+        params: list = []
+        if content_type:
+            clauses.append("content_type = ?")
+            params.append(content_type)
+        if verdict:
+            clauses.append("verdict = ?")
+            params.append(verdict)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(int(max(1, min(limit, 500))))
+        async with self._db.execute(
+            f"""SELECT id, created_at, source, content_type, topic_key,
+                       original_text, verdict, reason, corrected_text,
+                       suggestion_metadata
+                FROM content_feedback{where}
+                ORDER BY created_at DESC LIMIT ?""",
+            params,
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]

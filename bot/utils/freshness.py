@@ -58,6 +58,86 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
+# Hebrew nikud (cantillation/vowel marks) range, plus geresh/gershayim.
+_HEBREW_DIACRITICS = re.compile(r"[֑-ׇ]")  # noqa: hardcoded-content (unicode range constant, not user copy)
+_NON_WORD_CHARS = re.compile(r"[^\w֐-׿]+", flags=re.UNICODE)  # noqa: hardcoded-content (unicode range constant)
+
+
+def _load_hebrew_stopwords() -> frozenset[str]:
+    """Load near-duplicate stopwords from `config/hebrew_stopwords.yaml`.
+
+    Kept in YAML so the hardcoded-content guardian doesn't flag the Hebrew
+    strings inline. Falls back to empty on missing config — near-dup will
+    just be slightly less aggressive, which is safer than crashing.
+    """
+    try:
+        data = load_yaml("hebrew_stopwords.yaml") or {}
+    except FileNotFoundError:
+        logger.warning("freshness: config/hebrew_stopwords.yaml missing")
+        return frozenset()
+    except Exception as e:
+        logger.warning("freshness: failed to load hebrew_stopwords.yaml: %s", e)
+        return frozenset()
+    words = data.get("stopwords") or []
+    return frozenset(str(w) for w in words if w)
+
+
+_HEBREW_STOPWORDS = _load_hebrew_stopwords()
+
+
+def hebrew_normalize(text: str) -> str:
+    """Aggressively normalize Hebrew text for similarity comparison.
+
+    - lowercase (no-op for Hebrew but folds Latin/brands)
+    - strip nikud and Hebrew punctuation marks
+    - collapse non-word chars (punctuation, emoji, ZWJ) to single spaces
+    - collapse whitespace runs
+    Returns a stable, comparison-friendly string.
+    """
+    if not text:
+        return ""
+    s = text.lower()
+    s = _HEBREW_DIACRITICS.sub("", s)
+    s = _NON_WORD_CHARS.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Return content-stem tokens (no stopwords, length >= 2) for Jaccard."""
+    normalized = hebrew_normalize(text)
+    if not normalized:
+        return set()
+    return {
+        tok for tok in normalized.split(" ")
+        if len(tok) >= 2 and tok not in _HEBREW_STOPWORDS
+    }
+
+
+def near_duplicate(text: str, others: list[str] | set[str], threshold: float = 0.55) -> str | None:
+    """Return the first text in `others` whose token Jaccard similarity to
+    `text` exceeds `threshold`, or None.
+
+    Used to catch paraphrased repeats that exact-substring dedup misses
+    (e.g., "סרט שהשפיע עליכם הכי הרבה" vs "איזה סרט שינה אתכם הכי?").
+    """
+    tokens = _content_tokens(text)
+    if len(tokens) < 2:
+        return None
+    for other in others or ():
+        other_tokens = _content_tokens(other or "")
+        if len(other_tokens) < 2:
+            continue
+        intersection = len(tokens & other_tokens)
+        if intersection == 0:
+            continue
+        union = len(tokens | other_tokens)
+        if union == 0:
+            continue
+        if intersection / union >= threshold:
+            return other
+    return None
+
+
 def is_internal_label(text: str) -> bool:
     return normalize_text(text).startswith("[internal:")
 
@@ -133,6 +213,10 @@ def freshness_rejection(
             or existing_norm in normalized
         ):
             return "repeated scheduled text"
+    # Catch paraphrased repeats that exact-substring dedup misses.
+    near = near_duplicate(raw, list(avoid_texts or ()))
+    if near:
+        return f"near-duplicate of prior text: {near[:60]!r}"
     for example in source_examples or set():
         example_norm = normalize_text(example)
         if example_norm and (
@@ -141,6 +225,11 @@ def freshness_rejection(
             or example_norm in normalized
         ):
             return "copied static example"
+    # Echoing pool examples in paraphrased form is just as bad — the model
+    # likes to lightly reshape a few-shot anchor and ship it.
+    near_example = near_duplicate(raw, list(source_examples or ()))
+    if near_example:
+        return f"near-duplicate of static example: {near_example[:60]!r}"
     day_reason = day_anchor_rejection(raw, scheduled_date)
     if day_reason:
         return day_reason

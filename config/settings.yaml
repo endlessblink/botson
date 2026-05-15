@@ -128,6 +128,22 @@ llm:
   cli_model: haiku
   prompt_rules: {}  # Phase B.6 populates from dashboard/app.py:1080+, 3000+
 
+# T-169: knobs for the daily auto-refill (bot/scheduler/materializer.py).
+# The materializer is the bulk surface for community-facing text quality;
+# these defaults exist to be tuned in production without code changes.
+materializer:
+  # Days of recent history to feed the LLM as a deterministic "do not
+  # repeat" list. Previously the materializer truncated to the first 25
+  # set entries (non-deterministic) and older repeats silently slipped
+  # through, causing the 7-day cycling we saw in May 2026.
+  used_texts_window_days: 45
+  # Number of pool examples shown as style references in each generation
+  # prompt. Fewer anchors = less verbatim echo. Default 2 (was 5).
+  examples_per_prompt: 2
+  # LLM candidates per slot before falling through to "skip". Each retry
+  # adds the prior rejection reason so the model gets concrete guidance.
+  retry_budget: 3
+
 ai_populate:
   weekly_target: 10
   flex:

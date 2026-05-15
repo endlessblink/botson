@@ -2737,11 +2737,20 @@ _DRAFT_BANNED_REGEXES = (
     (re.compile(r"שלב הסינגלות הנוכחי"), "concrete_failure_bad_singles_wording"),
     (re.compile(r"בשעה שהמטבח כבר קר"), "concrete_failure_unclear_vegan_late_food"),
     (re.compile(r"אוכלים שהוא בקרוב צמחי"), "concrete_failure_bad_vegan_hebrew"),
+    (re.compile(r"לסמן כ-Done"), "english_jargon:Done"),
+    (re.compile(r"איך היה היום"), "concrete_failure_generic_day_checkin"),
+    (re.compile(r"הרגע הכי שווה מהיום"), "concrete_failure_generic_day_highlight"),
+    (re.compile(r"מה עשיתם היום בשביל עצמכם"), "concrete_failure_generic_self_care"),
+    (re.compile(r"אם הייתם יכולים לחיות בעולם של סדרה/משחק/ספר"), "concrete_failure_generic_fandom_fantasy"),
+    (re.compile(r"סרט שראיתם יותר מ-?3 פעמים"), "concrete_failure_generic_movie_rewatch"),
+    (re.compile(r"מה אתם עושים בערב.*(ישן|בשבילכם|בשבילו)"), "concrete_failure_generic_evening_plan"),
+    (re.compile(r"קפה בידיים.*לפטופ עוד סגור"), "concrete_failure_generic_morning_laptop"),
+    (re.compile(r"גיליתם שלבד עדיף"), "concrete_failure_singles_smug_framing"),
 )
 
 _DRAFT_ENGLISH_JARGON = (
     "mechanic", "WIP", "NPC", "build", "meta", "pipeline",
-    "stack", "loop", "boss", "spawn",
+    "stack", "loop", "boss", "spawn", "Done",
 )
 
 
@@ -2782,6 +2791,28 @@ def _reject_bad_planner_text(text: str) -> None:
     freshness_failure = freshness_rejection(text)
     if freshness_failure:
         failures.append(freshness_failure)
+    if failures:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "quality_rejected", "failures": failures},
+        )
+
+
+def _quality_failures_for_planner_text(text: str, *, scheduled_date: str | None = None) -> list[str]:
+    failures = _validate_draft_text(text)
+    freshness_failure = freshness_rejection(text, scheduled_date=scheduled_date)
+    if freshness_failure:
+        failures.append(freshness_failure)
+    return failures
+
+
+def _reject_bad_message_row(row: dict) -> None:
+    if row.get("message_type") not in {"morning", "evening", "discussion"}:
+        return
+    failures = _quality_failures_for_planner_text(
+        str(row.get("text") or ""),
+        scheduled_date=row.get("scheduled_date"),
+    )
     if failures:
         raise HTTPException(
             status_code=422,
@@ -2847,6 +2878,31 @@ def _sample_pool_examples(field: str, category: str, n: int = 3) -> str:
         return ""
 
 
+def _load_channel_rubric(category: str) -> str:
+    """T-173: per-channel guidance block injected for discussion prompts.
+
+    Returns an empty string when no rubric is configured for the category
+    (a quiet no-op so missing entries don't break generation).
+    """
+    if not category:
+        return ""
+    try:
+        data = load_yaml("channel_rubrics.yaml") or {}
+    except Exception:
+        return ""
+    rubrics = (data.get("rubrics") or {}).get(category) or []
+    lines = [str(x).strip() for x in rubrics if str(x).strip()]
+    if not lines:
+        return ""
+    from bot.utils.copy import load_copy as _load_copy
+    header = _load_copy(
+        "planner",
+        "channel_rubric_header",
+        default="הנחיות ספציפיות לערוץ זה:",  # noqa: hardcoded-content (Hebrew header, fallback only)
+    )
+    return "\n\n" + header + "\n" + "\n".join(f"- {ln}" for ln in lines)
+
+
 def _finalize_prompt(
     base: str,
     field: str,
@@ -2859,8 +2915,9 @@ def _finalize_prompt(
     group_stats: str | None = None,
 ) -> str:
     """Wrap the per-field base prompt with the canonical layers:
-    context (weekday+time), few-shot from pool, dedup block, optional
-    group-stats block, and the question_quality.md rules at the very top.
+    context (weekday+time), few-shot from pool, dedup block, channel
+    rubric (T-173), optional group-stats block, and the
+    question_quality.md rules at the very top.
 
     Used by both single-mode and multi-mode generation paths so quality
     enforcement isn't silently bypassed in the single-row drawer (the
@@ -2872,6 +2929,14 @@ def _finalize_prompt(
     out += _sample_pool_examples(field, category, n=3)
     if add_dedup and field != "trivia":
         out += _format_dedup_block(recent_sent)
+    if field == "discussion" and category:
+        out += _load_channel_rubric(category)
+    # T-174: active style profile (operator-approved guidance learned from
+    # rejected feedback). Loaded synchronously from a process-level cache
+    # so prompt building stays sync; cache invalidates on apply.
+    style_block = _active_style_profile_block_sync()
+    if style_block:
+        out += style_block
     if group_stats:
         out += "\n\n" + group_stats
     rules = _load_quality_rules()
@@ -2883,6 +2948,25 @@ def _finalize_prompt(
             f"{out}"
         )
     return out
+
+
+# T-174: cached active style profile. The dashboard mutates this cache
+# directly when /api/style-profile/apply succeeds so subsequent prompts
+# pick up the new guidance without restarting the process.
+_STYLE_PROFILE_CACHE: dict[str, str | None] = {"planner_hebrew_default": None}
+
+
+def _active_style_profile_block_sync() -> str:
+    guidance = _STYLE_PROFILE_CACHE.get("planner_hebrew_default")
+    if not guidance:
+        return ""
+    from bot.utils.copy import load_copy as _load_copy
+    header = _load_copy(
+        "planner",
+        "style_profile_header",
+        default="הנחיות נוספות מבוססות-משוב אופרטור (אושרו ידנית):",  # noqa: hardcoded-content (Hebrew header, fallback only)
+    )
+    return "\n\n" + header + "\n" + str(guidance).strip()
 
 
 async def _render_group_stats_context(db: Database, since_days: int = 7) -> str:
@@ -4639,68 +4723,96 @@ async def _ai_suggest_calendar(
     cap_per_window = _ai_populate_caps(settings, scope, slot_map)
     counts = {k: 0 for k in cap_per_window}
 
+    # T-170: retry budget configurable; default 3 (was effectively 1 retry,
+    # then silent pool fallback). Each retry appends the prior draft + the
+    # specific rejection reason + a "try a different angle" hint so the
+    # model gets concrete guidance instead of repeating the same shape.
+    _planner_retry_budget = int(
+        ((settings.get("ai_populate") or {}).get("generation") or {}).get("retry_budget", 3)
+    )
+    _planner_angle_hint = load_copy(
+        "planner",
+        "retry_angle_hint",
+        default=(
+            "נסה זווית שונה לגמרי: שאלה בינארית, דירוג, זיכרון קונקרטי, "
+            "המלצה ספציפית, או דעה לא פופולרית."
+        ),
+    )
+
     async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list) -> tuple[str, list]:
-        """Run LLM with retry-once + validate. Returns (text, validation_failures).
-        On total failure returns ("", [reason])."""
-        prompt = build_generation_prompt(
+        """Run LLM with bounded retries + validate. Returns (text, validation_failures).
+
+        On total failure returns ("", [last_reason, ...]) so the operator sees
+        why generation failed instead of getting a silent pool fallback. Pool
+        draws are a separate, explicit operator action (T-170).
+        """
+        base_prompt = build_generation_prompt(
             field, "single", "", cat,
             recent_sent=recent,
             scheduled_date=d_iso,
             scheduled_time=t,
             group_stats=stats_block,
         )
-        try:
-            raw = await _generate_via_cli(prompt)
-        except Exception:
-            try:
-                raw = await _generate_via_api(prompt)
-            except Exception as e:
-                return "", [f"generation failed: {e}"]
-        text = raw.strip().replace('"', '').replace("'", "")
-        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-        text = lines[0] if lines else text
-        fails = _validate_draft_text(text)
-        freshness_failure = freshness_rejection(text, scheduled_date=d_iso)
-        if freshness_failure:
-            fails.append(freshness_failure)
-        if fails:
-            try:
-                retry = await _generate_via_cli(
-                    prompt + "\n\n(הניסיון הקודם נדחה: " + ", ".join(fails) +
-                    ". נסח שאלה ספציפית אחרת בעברית טבעית.)"
-                )
-                rtext = retry.strip().replace('"', '').replace("'", "")
-                rlines = [ln.strip() for ln in rtext.split("\n") if ln.strip()]
-                rtext = rlines[0] if rlines else rtext
-                rfails = _validate_draft_text(rtext)
-                rfreshness_failure = freshness_rejection(rtext, scheduled_date=d_iso)
-                if rfreshness_failure:
-                    rfails.append(rfreshness_failure)
-                if not rfails:
-                    return rtext, []
-                # discussion can fall back to curated pool
-                if field == "discussion" and cat:
-                    pool_items = discussions_pool.get(cat) or []
-                    if pool_items:
-                        shuffled_pool_items = list(pool_items)
-                        random.shuffle(shuffled_pool_items)
-                        for chosen in shuffled_pool_items:
-                            chosen_clean = chosen.strip().replace('"', '').replace("'", "")
-                            chosen_fails = _validate_draft_text(chosen_clean)
-                            chosen_freshness_failure = freshness_rejection(chosen_clean, scheduled_date=d_iso)
-                            if chosen_freshness_failure:
-                                chosen_fails.append(chosen_freshness_failure)
-                            if not chosen_fails:
-                                return chosen_clean, []  # tagged via source="ai-fill-pool" upstream
-            except Exception:
-                pass
-            return text, fails
-        return text, []
+        # Source examples for the planner near-dup check: the curated
+        # discussion pool for this category. Catches the LLM echoing
+        # a pool item verbatim or paraphrasing it.
+        sources: set[str] = set()
+        if field == "discussion" and cat:
+            sources = {
+                str(x).strip()
+                for x in (discussions_pool.get(cat) or [])
+                if x
+            }
+        avoid_set = {str(x).strip() for x in (recent or []) if x}
 
-    # Recent dedup blocks per type
+        prompt = base_prompt
+        last_text = ""
+        last_fails: list[str] = []
+        for attempt in range(max(1, _planner_retry_budget)):
+            try:
+                raw = await _generate_via_cli(prompt)
+            except Exception:
+                try:
+                    raw = await _generate_via_api(prompt)
+                except Exception as e:
+                    return "", [f"generation failed: {e}"]
+            text = (raw or "").strip().replace('"', '').replace("'", "")
+            lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+            text = lines[0] if lines else text
+            fails = _validate_draft_text(text)
+            freshness_failure = freshness_rejection(
+                text,
+                avoid_texts=avoid_set,
+                source_examples=sources,
+                scheduled_date=d_iso,
+            )
+            if freshness_failure:
+                fails.append(freshness_failure)
+            if not fails:
+                return text, []
+            last_text = text
+            last_fails = fails
+            if attempt + 1 < _planner_retry_budget:
+                prompt = (
+                    base_prompt
+                    + "\n\n(הניסיון הקודם נדחה: " + ", ".join(fails)
+                    + f". {_planner_angle_hint})"
+                )
+        # All retries exhausted — return the last failure loudly. No silent
+        # pool fallback (T-170): pool draws are an explicit operator button,
+        # not a quality-failure hiding mechanism.
+        return last_text, last_fails
+
+    # Recent dedup blocks per type. T-170: limit shrunk 60→25 — the old
+    # 60-item ceiling collided with ~25-item pool sizes and exhausted the
+    # model's variance room. Near-dup detection (Jaccard via freshness) now
+    # picks up paraphrases the substring check missed.
+    _dedup_limit = int(
+        ((settings.get("ai_populate") or {}).get("generation") or {}).get("dedup_window", 25)
+    )
     recent_by_type: dict = {
-        "morning": await _fetch_recent_sent_for_dedup(db, "morning", limit=60),
-        "evening": await _fetch_recent_sent_for_dedup(db, "evening", limit=60),
+        "morning": await _fetch_recent_sent_for_dedup(db, "morning", limit=_dedup_limit),
+        "evening": await _fetch_recent_sent_for_dedup(db, "evening", limit=_dedup_limit),
     }
 
     def _emoji_media_aliases(media_type: str) -> list[str]:
@@ -4945,6 +5057,11 @@ async def _ai_suggest_calendar(
                         count_as: str | None = "__self__") -> None:
         if not _slot_future(d_iso, t):
             return
+        quality_failures = (
+            _quality_failures_for_planner_text(text, scheduled_date=d_iso)
+            if mtype in {"morning", "evening", "discussion", "custom"}
+            else []
+        )
         suggestions.append({
             "key": _uuid.uuid4().hex,
             "date": d_iso,
@@ -4959,6 +5076,8 @@ async def _ai_suggest_calendar(
             "poll_options_json": poll_options_json,
             "preview_url": preview_url,
             "validation_failures": validation_failures or [],
+            "quality_status": "rejected" if quality_failures else "passed",
+            "quality_failures": quality_failures,
         })
         if count_as == "__self__":
             count_as = mtype
@@ -5027,7 +5146,7 @@ async def _ai_suggest_calendar(
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(
-                        db, "discussion", category_topic_id=int(expected_topic), limit=60,
+                        db, "discussion", category_topic_id=int(expected_topic), limit=_dedup_limit,
                     )
                     text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan)
                     if not text:
@@ -5364,7 +5483,7 @@ async def _ai_suggest_calendar(
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(
-                        db, "discussion", category_topic_id=int(expected_topic), limit=60,
+                        db, "discussion", category_topic_id=int(expected_topic), limit=_dedup_limit,
                     )
                     text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan)
                     if not text:
@@ -5434,6 +5553,9 @@ async def _run_ai_suggest_job(job_id: str, db: Database, target_date: str | None
     try:
         result = await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
         job.update({"status": "completed", "result": result, "completed_at": time.monotonic()})
+    except asyncio.CancelledError:
+        job.update({"status": "cancelled", "error": "AI suggest cancelled", "completed_at": time.monotonic()})
+        raise
     except Exception as e:
         logger.exception("[weekplan.ai-suggest] job failed id=%s target_date=%r week_offset=%s", job_id, target_date, week_offset)
         job.update({"status": "failed", "error": f"AI suggest failed: {type(e).__name__}: {e}", "completed_at": time.monotonic()})
@@ -5458,7 +5580,8 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
         "target_date": target_date,
         "week_offset": week_offset,
     }
-    asyncio.create_task(_run_ai_suggest_job(job_id, db, target_date, week_offset))
+    task = asyncio.create_task(_run_ai_suggest_job(job_id, db, target_date, week_offset))
+    _AI_SUGGEST_JOBS[job_id]["task"] = task
     return {"job_id": job_id, "status": "pending"}
 
 
@@ -5474,9 +5597,25 @@ async def ai_suggest_status(job_id: str, request: Request):
     response = {"job_id": job_id, "status": status}
     if status == "completed":
         response["result"] = job.get("result") or {}
-    elif status == "failed":
+    elif status in {"failed", "cancelled"}:
         response["error"] = job.get("error") or "AI suggest failed"
     return response
+
+
+@app.post("/api/weekplan/ai-suggest/{job_id}/cancel")
+async def ai_suggest_cancel(job_id: str, request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    _cleanup_ai_suggest_jobs()
+    job = _AI_SUGGEST_JOBS.get(job_id)
+    if not job:
+        return {"job_id": job_id, "status": "missing"}
+    task = job.get("task")
+    if task and not task.done():
+        task.cancel()
+    if str(job.get("status") or "") not in {"completed", "failed", "cancelled"}:
+        job.update({"status": "cancelled", "error": "AI suggest cancelled", "completed_at": time.monotonic()})
+    return {"job_id": job_id, "status": job.get("status")}
 
 
 @app.post("/api/weekplan/ai-suggest-commit")
@@ -6798,6 +6937,178 @@ async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
 
     logger.error("[ai-fill-today] all transports failed: %s", " | ".join(errors))
     raise RuntimeError("digest failed on all transports: " + " | ".join(errors))
+
+
+# ── T-172: Operator content feedback capture ─────────────────────
+# These endpoints record operator verdicts on AI suggestions so future
+# generation can learn from them (T-174). Storage only at this phase;
+# no live consumer beyond the operator history page.
+
+
+@app.post("/api/content-feedback")
+async def content_feedback_create(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    original_text = str(body.get("original_text") or "").strip()
+    verdict = str(body.get("verdict") or "").strip()
+    content_type = str(body.get("content_type") or "").strip()
+    source = str(body.get("source") or "planner_ai_suggest").strip()
+    if not original_text or not verdict or not content_type:
+        raise HTTPException(
+            status_code=400,
+            detail="original_text, verdict, content_type are required",
+        )
+    metadata = body.get("suggestion_metadata")
+    if metadata is not None and not isinstance(metadata, str):
+        try:
+            metadata = json.dumps(metadata, ensure_ascii=False)
+        except Exception:
+            metadata = None
+    row_id = await db.record_content_feedback(
+        source=source,
+        content_type=content_type,
+        topic_key=(str(body.get("topic_key")).strip() if body.get("topic_key") else None),
+        original_text=original_text,
+        verdict=verdict,
+        reason=(str(body.get("reason")).strip() if body.get("reason") else None),
+        corrected_text=(str(body.get("corrected_text")).strip() if body.get("corrected_text") else None),
+        suggestion_metadata=metadata,
+    )
+    return {"id": row_id}
+
+
+@app.get("/api/content-feedback")
+async def content_feedback_list(
+    request: Request,
+    content_type: str | None = None,
+    verdict: str | None = None,
+    limit: int = 50,
+    db: Database = Depends(get_db),
+):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    rows = await db.list_content_feedback(
+        content_type=content_type, verdict=verdict, limit=int(limit),
+    )
+    return {"feedback": rows, "count": len(rows)}
+
+
+# ── T-174: Operator-approved style-profile learning ─────────────
+# Two-step flow:
+#   1. POST /api/style-profile/propose — bot summarizes recent feedback
+#      into a markdown guidance patch. Returns the diff; writes NOTHING.
+#   2. POST /api/style-profile/apply — operator accepts the patch; new
+#      version is inserted and activated, cache invalidated.
+# Hard invariant: AI proposes, operator applies. No auto-deploy.
+
+
+def _summarize_feedback_to_guidance(feedback_rows: list[dict]) -> str:
+    """Deterministic summarizer (no LLM call for the MVP) — pulls out the
+    distinct rejection reasons and lists the bad/corrected text pairs as
+    explicit "avoid X, prefer Y" guidance.
+
+    A future enhancement can swap this for an LLM call; the contract
+    (input feedback rows → markdown guidance string) stays stable so
+    callers don't change.
+    """
+    if not feedback_rows:
+        return ""
+    lines: list[str] = []
+    seen_reasons: set[str] = set()
+    for row in feedback_rows:
+        reason = (row.get("reason") or "").strip()
+        original = (row.get("original_text") or "").strip()
+        corrected = (row.get("corrected_text") or "").strip()
+        verdict = (row.get("verdict") or "").strip()
+        if reason and reason not in seen_reasons:
+            seen_reasons.add(reason)
+            lines.append(f"- {reason}")
+        if verdict in ("rejected", "bad_wording") and original:
+            short = original[:80] + ("…" if len(original) > 80 else "")
+            lines.append(f"- אל תייצרו טקסט בסגנון: \"{short}\"")
+        if corrected and original:
+            short_orig = original[:60] + ("…" if len(original) > 60 else "")
+            short_corr = corrected[:60] + ("…" if len(corrected) > 60 else "")
+            lines.append(f"- במקום \"{short_orig}\" — עדיף \"{short_corr}\"")
+    return "\n".join(lines[:20])  # cap so prompts don't bloat
+
+
+@app.post("/api/style-profile/propose")
+async def style_profile_propose(request: Request, db: Database = Depends(get_db)):
+    """Read recent feedback and return a proposed guidance patch + diff.
+    Writes nothing — operator must explicitly call /apply to persist."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json() if request.headers.get("content-length") else {}
+    if not isinstance(body, dict):
+        body = {}
+    content_type = (body.get("content_type") or None)
+    limit = int(body.get("limit") or 25)
+    feedback = await db.list_content_feedback(content_type=content_type, limit=limit)
+    proposed_guidance = _summarize_feedback_to_guidance(feedback)
+    active = await db.get_active_style_profile()
+    current_guidance = (active or {}).get("guidance") or ""
+    source_ids = [int(r["id"]) for r in feedback]
+    return {
+        "current_guidance": current_guidance,
+        "proposed_guidance": proposed_guidance,
+        "source_feedback_count": len(feedback),
+        "source_feedback_ids": source_ids,
+        "diff_preview": {
+            "added_lines": [
+                ln for ln in proposed_guidance.splitlines()
+                if ln and ln not in current_guidance
+            ],
+            "removed_lines": [
+                ln for ln in current_guidance.splitlines()
+                if ln and ln not in proposed_guidance
+            ],
+        },
+    }
+
+
+@app.post("/api/style-profile/apply")
+async def style_profile_apply(request: Request, db: Database = Depends(get_db)):
+    """Persist + activate a new style-profile version. Body must include
+    the exact `guidance` text the operator approved (NOT a re-fetch — the
+    operator-approved text is what gets stored)."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    guidance = str(body.get("guidance") or "").strip()
+    if not guidance:
+        raise HTTPException(status_code=400, detail="guidance is required")
+    source_ids = body.get("source_feedback_ids") or []
+    source_ids_json = json.dumps(source_ids, ensure_ascii=False) if source_ids else None
+    profile_key = str(body.get("profile_key") or "planner_hebrew_default")
+    new_id = await db.insert_style_profile(
+        profile_key=profile_key,
+        guidance=guidance,
+        source_feedback_ids=source_ids_json,
+        status="draft",
+    )
+    await db.activate_style_profile(new_id, profile_key=profile_key)
+    # Invalidate the in-process cache so subsequent prompts pick up the
+    # new guidance without restarting the dashboard.
+    _STYLE_PROFILE_CACHE[profile_key] = guidance
+    return {"id": new_id, "profile_key": profile_key, "status": "active"}
+
+
+@app.get("/api/style-profile/active")
+async def style_profile_active(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    profile_key = "planner_hebrew_default"
+    row = await db.get_active_style_profile(profile_key)
+    # Sync the cache opportunistically — covers the case where the
+    # dashboard process restarted between apply and prompt build.
+    _STYLE_PROFILE_CACHE[profile_key] = (row or {}).get("guidance")
+    return {"profile": row}
 
 
 @app.post("/api/weekplan/ai-fill-today")
@@ -8696,11 +9007,27 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
             "draft": "טיוטה: לא תישלח עד תזמון או שליחה ידנית",
             "scheduled": "מתוזמן: הסקזולר ינסה לשלוח בזמן הזה",
             "sent": "נשלח: הפעולה כבר הסתיימה",
-            "skipped": "דולג: הסקזולר החליט לא לשלוח",
         }.get(status, "")
-        if status == "failed":
+        if status == "skipped":
+            reason = (m.get("error_message") or "").strip()
+            diagnostic_detail = f"דולג: {reason}" if reason else "דולג: הסקזולר החליט לא לשלוח"
+        elif status == "failed":
             err = (m.get("error_message") or "").strip()
-            diagnostic_detail = f"נכשל: {err}" if err else "נכשל: לא נשמרה סיבת כשל"
+            if err.startswith("stale:"):
+                # Stale-drop is operationally distinct from a real Telegram
+                # failure — the row was just too late for the worker to fire.
+                # Surface it explicitly so operators don't chase a phantom bug.
+                diagnostic_label = "איחור"
+                diagnostic_detail = f"איחור: {err}"
+            else:
+                diagnostic_detail = f"נכשל: {err}" if err else "נכשל: לא נשמרה סיבת כשל"
+
+        quality_failures: list[str] = []
+        if status == "draft" and m.get("message_type") in {"morning", "evening", "discussion"}:
+            quality_failures = _quality_failures_for_planner_text(
+                str(m.get("text") or ""),
+                scheduled_date=m.get("scheduled_date"),
+            )
 
         poll_options_raw = m.get("poll_options")
         poll_options: list | None = None
@@ -8739,6 +9066,8 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
                 "pollOptions": poll_options,
                 "gamePayload": game_payload,
                 "pollDuration": m.get("poll_duration"),
+                "qualityStatus": "rejected" if quality_failures else "passed",
+                "qualityFailures": quality_failures,
             },
         }
         events.append(event)
@@ -8813,6 +9142,66 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
     return events
 
 
+_EXECUTABLE_HANDLERS_REQUIRING_ROUTING = {
+    "trivia_round", "emoji_puzzle", "free_games",
+    "facts_tidbit", "facts_spooky",
+    "weekly_roundup", "weekly_leaderboard",
+    "events_publish", "events_reminder",
+}
+
+
+def _planner_day_diagnostic_reason(
+    *,
+    status: str,
+    error_message: str | None,
+    target_group: str | None,
+    channel_topic_id: int | None,
+    topic_verified: bool | None,
+    message_type: str | None,
+    routing_by_handler: dict,
+    minutes_from_now: int | None,
+    will_calendar_checker_consider: bool,
+) -> str:
+    """Render a one-line Hebrew explanation of why a row is in its current
+    state. Operators use this via /api/diagnostics/planner-day instead of
+    parsing raw status + error_message combinations.
+
+    The result must be short and self-contained: it is shown in tooltips and
+    diagnostic tables, not in a Telegram message.
+    """
+    err = (error_message or "").strip()
+    if status == "sent":
+        return "נשלח בהצלחה"
+    if status == "draft":
+        return "טיוטה — לא תישלח עד תזמון או שליחה ידנית"
+    if status == "cancelled":
+        return "בוטל"
+    if status == "skipped":
+        return f"דולג: {err}" if err else "דולג ללא סיבה שמורה"
+    if status == "failed":
+        if err.startswith("stale:"):
+            return f"איחור — הסקזולר לא הספיק לשלוח בזמן ({err})"
+        if "No group ID" in err:
+            return "כשל הגדרה: לא הוגדר ID לקבוצת היעד (GROUP_ID/TEST_GROUP_ID)"
+        return f"נכשל: {err}" if err else "נכשל ללא סיבה שמורה"
+    if status == "scheduled":
+        notes: list[str] = []
+        # Hazards an operator should know about BEFORE the scheduler ticks:
+        if target_group == "main" and channel_topic_id is not None and topic_verified is False:
+            notes.append(f"אזהרה: ערוץ {channel_topic_id} לא מאומת ב-verified_forum_topics")
+        if message_type in _EXECUTABLE_HANDLERS_REQUIRING_ROUTING:
+            if message_type not in routing_by_handler:
+                notes.append(f"אזהרה: אין רשומת ניתוב ל-{message_type} ב-bot_message_routing")
+        if minutes_from_now is not None and minutes_from_now < -30:
+            notes.append(f"אזהרה: הזמן עבר ב-{abs(minutes_from_now)} דק׳ — צפוי stale-drop בטיק הבא")
+        elif will_calendar_checker_consider:
+            notes.append("יישקל בטיק הבא של הסקזולר")
+        else:
+            notes.append("ממתין לזמן השליחה")
+        return " · ".join(notes)
+    return status
+
+
 @app.get("/api/diagnostics/planner-day")
 async def planner_day_diagnostics(request: Request, db: Database = Depends(get_db)):
     """Read-only diagnostics for scheduled_messages on one planner date.
@@ -8885,6 +9274,18 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
         will_calendar_checker_consider = status == "scheduled" and (
             target_date < now.date() or (target_date == now.date() and sched_time <= now.strftime("%H:%M"))
         )
+        topic_verified = topic_id_int in verified_topics if topic_id_int is not None else None
+        diagnostic_reason = _planner_day_diagnostic_reason(
+            status=status,
+            error_message=msg.get("error_message"),
+            target_group=msg.get("target_group"),
+            channel_topic_id=topic_id_int,
+            topic_verified=topic_verified,
+            message_type=msg.get("message_type"),
+            routing_by_handler=routing_by_handler,
+            minutes_from_now=minutes_from_now,
+            will_calendar_checker_consider=will_calendar_checker_consider,
+        )
         rows.append({
             "id": msg.get("id"),
             "scheduled_date": msg.get("scheduled_date"),
@@ -8895,7 +9296,7 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
             "target_group": msg.get("target_group"),
             "created_by": msg.get("created_by"),
             "channel_topic_id": topic_id_int,
-            "topic_verified": topic_id_int in verified_topics if topic_id_int is not None else None,
+            "topic_verified": topic_verified,
             "topic_name": (verified_topics.get(topic_id_int) or {}).get("name") if topic_id_int is not None else None,
             "text_preview": (msg.get("text") or "").replace("\n", " ")[:120],
             "payload": payload,
@@ -8905,6 +9306,7 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
             "sent_message_id": msg.get("sent_message_id"),
             "due_now": int(msg.get("id")) in due_ids,
             "will_calendar_checker_consider": will_calendar_checker_consider,
+            "diagnostic_reason": diagnostic_reason,
         })
 
     by_status: dict[str, int] = {}
@@ -9028,10 +9430,16 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
     trivia_topup = None
     if fields.get("status") == "scheduled":
         async with db._db.execute(
-            "SELECT id, message_type, poll_options FROM scheduled_messages WHERE id = ?",
+            "SELECT id, text, scheduled_date, message_type, poll_options FROM scheduled_messages WHERE id = ?",
             (msg_id,),
         ) as cur:
             existing_row = await cur.fetchone()
+        if existing_row:
+            _reject_bad_message_row({
+                "text": fields.get("text", existing_row["text"]),
+                "message_type": fields.get("message_type", existing_row["message_type"]),
+                "scheduled_date": fields.get("scheduled_date", existing_row["scheduled_date"]),
+            })
         effective_type = fields.get("message_type") or (existing_row["message_type"] if existing_row else None)
         if effective_type == "trivia_round":
             trivia_topup = await _ensure_trivia_pool_ready_for_round({
@@ -9121,9 +9529,34 @@ async def cancel_auto_future_rows(request: Request, db: Database = Depends(get_d
 async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     """Send one scheduled_messages row to Telegram immediately.
 
-    Handles message_type=poll vs default, respects topic_guard via safe_send
-    (reached by send_message_with_optional_cover / send_poll_message), and
-    marks the row status='sent' with sent_message_id when target != 'test'.
+    This is the operator-triggered counterpart to
+    ``bot.handlers.calendar.check_and_send_due_messages`` — both routes call
+    the same per-type handlers (start_scheduled_trivia_round, start_emoji_night,
+    send_scheduled_fact, send_weekly_*, send_poll_message,
+    send_message_with_optional_cover) and reach status='sent' on the same row.
+
+    Intentional differences from the scheduler (pinned by
+    ``tests/test_send_now_parity.py::IntentionalDivergenceTests``):
+
+    * No stale-drop guard — operator explicitly said "send now".
+    * No recurrence next-occurrence — operator firing once is one-shot.
+    * No warm-up RSVP gate — operator override of the attendance check.
+    * No ``should_skip_scheduled_message`` blackout check — operator override.
+    * Test target (``target == 'test'``) skips ``mark_message_sent`` so a
+      probe doesn't burn the row.
+    * Failures propagate as exceptions (the route turns them into HTTP 500);
+      the row keeps its prior status rather than flipping to ``failed``.
+
+    Known gaps vs the scheduler (filed as REG-T157-* regression tasks; current
+    behavior pinned by
+    ``tests/test_send_now_parity.py::CurrentBugBehaviorPinnedTests``):
+
+    * Emoji puzzle: ignores ``media_types`` and ``theme_label`` from poll_options.
+    * Facts: ignores pinned ``fact_id`` from poll_options.
+    * Event: no events-table row, no RSVP button attachment.
+    * SkippedActivity: not surfaced as ``status='skipped'``; lost to a 500.
+    * Activity log: no ``db.log_activity`` audit entry.
+    * Auto-pin: ``auto_pin`` field on the row is not honored.
 
     Returns the sent Telegram message_id. Raises on error.
     """
@@ -9228,13 +9661,16 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
-    data = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    headers = getattr(request, "headers", {}) or {}
+    data = await request.json() if headers.get("content-type") == "application/json" else {}
     target = data.get("target", "main")
 
     messages = await db.get_scheduled_messages("2000-01-01", "2099-12-31")
     msg = next((m for m in messages if m["id"] == msg_id), None)
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
+
+    _reject_bad_message_row(msg)
 
     try:
         sent_id = await _send_scheduled_row(db, msg, target)
@@ -9267,12 +9703,18 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     force = bool(body.get("force", False))
 
     async with db._db.execute(
-        "SELECT id, scheduled_date, scheduled_time, status, message_type, poll_options FROM scheduled_messages WHERE id = ?",
+        "SELECT id, text, scheduled_date, scheduled_time, status, message_type, poll_options FROM scheduled_messages WHERE id = ?",
         (msg_id,),
     ) as cur:
         row = await cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="message not found")
+
+    _reject_bad_message_row({
+        "text": row["text"],
+        "message_type": row["message_type"],
+        "scheduled_date": new_date or row["scheduled_date"],
+    })
 
     target_date_str = new_date or row["scheduled_date"]
     target_time_str = new_time or (row["scheduled_time"] or "")[:5]
@@ -9360,6 +9802,7 @@ async def send_today_drafts_now(request: Request, db: Database = Depends(get_db)
         if i > 0:
             await asyncio.sleep(2)  # Telegram rate-limit hygiene
         try:
+            _reject_bad_message_row(msg)
             sent_id = await _send_scheduled_row(db, msg, target)
             sent_list.append({"id": msg["id"], "message_id": sent_id})
             logger.info("[send-today-now] msg_id=%d sent message_id=%s", msg["id"], sent_id)

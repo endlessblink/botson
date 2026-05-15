@@ -1,0 +1,30 @@
+# T-171 baseline: pool entries that currently fail the validator but are
+# being kept in-tree intentionally. The guardian runs green against this
+# allowlist; bring the list down to zero over time.
+#
+# Format:
+#   allowlist:
+#     <category>: ["<exact text>", ...]
+#
+# Each entry should have a one-line comment in the burn-down list below
+# explaining why it's allowlisted and how to retire it.
+
+# Burn-down notes:
+# - cute/"מה הדבר הכי חמוד שראיתם השבוע מחוץ למסך?": collides with the
+#   freshness fragment "מה הדבר הכי חמוד שראיתם השבוע". Either rewrite the
+#   pool entry or remove the fragment from freshness.yaml — fragment was
+#   added during Hermes feedback so the pool needs adjustment.
+# - funny/"תמונה בלי הקשר ...": imperative show-form ending with period,
+#   doesn't fit the validator's accepted prompt shapes. Rewrite with `?`
+#   or `👇` to retire.
+# - general/<category>: this category isn't wired into
+#   settings.yaml:topics.discussions. Either wire it up or drop the
+#   category and its entries.
+
+allowlist:
+  cute:
+    - "מה הדבר הכי חמוד שראיתם השבוע מחוץ למסך?"
+  funny:
+    - "תמונה בלי הקשר שמצחיקה אתכם — תנו אחת."
+  general:
+    - "<category itself>"

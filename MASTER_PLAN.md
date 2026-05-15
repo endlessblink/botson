@@ -154,60 +154,64 @@
 | T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | TODO | P1 | T-147 |
 | T-150 | 26 | Populate flex regression suite 🧪 — evening fallback, custom commit, no hardcoding | TODO | P1 | T-147, T-148, T-149 |
 | T-151 | 26 | Long-form facts pass 🌱 — expand fact previews into richer 5–8 line mini-stories, starting with spooky | DONE | P2 | T-133 |
-| T-152 | 27 | E2E lane: control-surface action inventory | TODO | P0 | — |
-| T-153 | 27 | E2E lane: scheduled-card persistence invariant | TODO | P0 | T-152 |
-| T-154 | 27 | E2E lane: create drawer state isolation | TODO | P0 | T-152 |
-| T-155 | 27 | E2E lane: review-draft lifecycle proof | TODO | P0 | T-152 |
-| T-156 | 27 | E2E lane: scheduler due-row lifecycle proof | TODO | P0 | T-152 |
-| T-157 | 27 | E2E lane: send-now vs scheduler parity | TODO | P1 | T-156 |
-| T-158 | 27 | E2E lane: failure visibility diagnostics | TODO | P1 | T-153, T-156 |
+| T-152 | 27 | E2E lane: control-surface action inventory | DONE | P0 | — |
+| T-153 | 27 | E2E lane: scheduled-card persistence invariant | DONE | P0 | T-152 |
+| T-154 | 27 | E2E lane: create drawer state isolation | DONE | P0 | T-152 |
+| T-155 | 27 | E2E lane: review-draft lifecycle proof | DONE | P0 | T-152 |
+| T-156 | 27 | E2E lane: scheduler due-row lifecycle proof | DONE | P0 | T-152 |
+| T-157 | 27 | E2E lane: send-now vs scheduler parity | DONE | P1 | T-156 |
+| T-158 | 27 | E2E lane: failure visibility diagnostics | DONE | P1 | T-153, T-156 |
 | T-159 | 27 | E2E lane: Sherlocks Den smoke harness | TODO | P1 | T-153..T-158 |
 | T-160 | 27 | E2E lane: one-command local/CI gate | TODO | P1 | T-153..T-159 |
 | T-161 | 27 | E2E lane: audit remaining dashboards | TODO | P2 | T-152 |
+| T-162 | 28 | Question quality review queue | IN PROGRESS | P0 | T-134, T-135 |
+| T-163 | 28 | Draft review quality approval loop | IN PROGRESS | P0 | T-162 |
+| T-164 | 28 | Real-output regression corpus | TODO | P1 | T-162 |
+| T-165 | 28 | Channel-specific question rubrics | TODO | P1 | T-162 |
+| T-166 | 29 | Reaction-informed bot cadence loop | TODO | P1 | T-136 |
+| T-167 | 29 | Trivia emoji facts review flows | TODO | P2 | T-163 |
+| T-168 | 29 | Community health metrics loop | TODO | P2 | T-136 |
+| T-169 | 30 | Materializer dedup + source-echo fix 🩸 — bulk auto-refill quality leak | TODO | P0 | T-134, T-135 |
+| T-170 | 30 | Planner Populate hardening — loud failures + retry budget + near-dup | TODO | P0 | T-169 |
+| T-171 | 30 | Discussion pool validator + CLI + guardian test | TODO | P0 | T-169 |
+| T-172 | 30 | Operator feedback capture — content_feedback schema + dashboard controls | TODO | P0 | T-163 |
+| T-173 | 30 | Regression corpus + per-channel rubrics injected into prompts | TODO | P1 | T-172 |
+| T-174 | 30 | Style-profile learning loop — operator-approved generation guidance updates | TODO | P1 | T-172, T-173 |
 
 ## Lanes (active queues)
 
-Three parallel work tracks. Tasks in different lanes don't block each other; tasks within a lane run sequentially. Use `grep '🌱'` / `grep '🔧'` / `grep '🧪'` over this file to pull a queue. Lane tags also appear in the summary-table titles above so a `grep '🌱' MASTER_PLAN.md` pulls every relevant row.
+Active queues should reflect what to work on next, not historical shipped phases. Tasks in different lanes don't block each other; tasks within a lane run sequentially.
 
-### 🌱 Content lane (curation, no code)
-- ✅ **T-151** — Long-form facts pass (DONE 2026-05-11) — `spooky` now has 5–8 lines per entry, `tidbit` has 4–8 lines, guarded by `tests/test_facts_pool.py`.
-- ✅ **T-133** — Grow content pools (DONE 2026-05-11) — facts.yaml `tidbit=46`, `spooky=48`; every discussions category ≥25; guarded by `tests/test_facts_pool.py`.
-- ✅ **T-146** — Discussion seeds for חדר מוסיקה (DONE 2026-05-11) — `config/discussions.yaml:music` now has 25 Hebrew prompts; topic id 4502 was already wired.
-- ✅ **T-138** — Welcome DM lurker exit-ramp (DONE 2026-05-10).
+### 🌱 Question quality lane (curation + review)
+- **T-162** — Question quality review queue (IN PROGRESS, P0) — review generated/scheduled/pending discussion prompts against `config/question_quality.md`, rewrite or reject weak rows, and capture every new failure pattern as a rule/test.
+- **T-165** — Channel-specific question rubrics (TODO, P1) — add concrete positive/negative examples per active discussion channel so generic rules become channel-aware guidance.
+- **T-164** — Real-output regression corpus (TODO, P1) — turn bad and good real generated outputs into fixtures that guard `_validate_draft_text`, quality prompts, and pool false positives.
+- ✅ **T-133** — Grow content pools (DONE) — facts and discussions pool sizes are sufficient; future work is quality review, not raw volume.
 
-### 🔧 Code lane (Python/template changes, no curation)
-- ✅ **T-147** — Planner Populate flex slots (DONE 2026-05-10) — config-defined time windows suggest non-game rows when fixed schedule/game rows are unavailable.
-- ✅ **T-148** — Populate skip diagnostics (DONE 2026-05-10) — API/UI explains past slots, occupied rows, and too-soon flex windows instead of a generic empty modal.
+### 🔧 Bot enhancement lane (runtime/product behavior)
+- **T-166** — Reaction-informed bot cadence loop (TODO, P1) — use `message_engagement` to tune which slots/content types continue, pause, or move.
 - **T-149** — Populate flex routing config (TODO, P1) — custom/discussion topic choice must be operator-controlled, not inferred from hardcoded defaults.
-- **T-110** — Emoji Night cleanup + dry-run in Den (TODO, P2).
-- **T-113** — Cleanup stale `target_channel="general"` rows (TODO, P2).
-- **T-114** — Handler Routing UI: teaser_topic_ids multi-select (TODO, P2).
 - **T-143** — Calendar checker delete-race fix (TODO, P1) — re-check row status in dispatch window so dashboard cancels stop the send.
+- **T-110** — Emoji Night cleanup + dry-run in Den (TODO, P2).
 - **T-144** — Phase A onboarding follow-up cadence (TODO, P2) — depends on T-136 telemetry + opt-out wiring before deploy.
-- **T-145** — Layer 3 nightly smoke test (TODO, P3) — periodic real-LLM call asserting day-anchor + freshness; backlog until T-139/T-140 prove stable.
-- ✅ **T-115** — Trivia hardcoded-string audit (DONE 2026-05-10).
-- ✅ **T-116** — Events title overwrite (DONE 2026-05-10).
-- ✅ **T-135** — Quality gate: generate-3-pick-best (DONE 2026-05-09, materializer only). T-135b (LLM-judge) deferred unless quality stays weak after T-133 lands.
-- ✅ **T-136** — Phase B reaction tracking (DONE 2026-05-10).
-- ✅ **T-139** — Day-anchor prompt fix Layer 1 (DONE 2026-05-10).
-- ✅ **T-140** — Day-anchor output validation Layer 2 (DONE 2026-05-10).
-- ✅ **T-142** — Facts preview-image button (DONE 2026-05-10).
-- *In flight (Phase F + A.1 + A.1.4 + B-partial shipped):* hardcoded-content cleanup. Remaining work tracked in `~/.claude/plans/` history; remaining xfails in `tests/test_no_hardcoded_content.py`: Hebrew-in-utils (Phase B.6), `[internal:*]` migration (Phase B.2), template `selected` gating (Phase C.3), milestone array (Phase A.2.4).
+- **T-168** — Community health metrics loop (TODO, P2) — expose lightweight health signals so bot changes are based on participation, not vibes.
 
-### 🧪 Hybrid lane (Code + Content together)
+### 🧪 Quality systems lane (code + content together)
+- **T-163** — Draft review quality approval loop (IN PROGRESS, P0) — make dashboard draft review enforce quality decisions before scheduling/sending.
 - **T-150** — Populate flex regression suite (TODO, P1) — tests must prove today-evening non-game fallback, custom commit support, config-driven windows, and guardian compatibility.
-- ✅ **T-134** — Wire `config/question_quality.md` into every prompt path (DONE 2026-05-09). The remaining content-side polish (more positive ✅ examples per discussion category) can roll into T-133.
-- ✅ **T-137** — Slow-chat cadence (DONE 2026-05-10) — config-side decision but informed by external research; cadence may need re-tuning once T-136 reaction telemetry shows which slots resonate.
-- ✅ **T-141** — Facts caption preface (DONE 2026-05-10) — copy lives in `settings.yaml:copy.facts.preface_*`, code reads it via `load_copy`.
+- **T-145** — Layer 3 nightly smoke test (TODO, P3) — periodic real-LLM call asserting day-anchor + freshness; now belongs after the review/corpus loop, not before it.
+- **T-167** — Trivia emoji facts review flows (TODO, P2) — apply the same preview/approve/reject discipline beyond discussion prompts.
+- ✅ **T-134** — Wire `config/question_quality.md` into every prompt path (DONE).
+- ✅ **T-135** — Quality gate: generate-3-pick-best (DONE, materializer only); future LLM-judge work should be justified by real corpus failures.
 
 ### 🧪 E2E trust lane (control-surface reliability)
-- **T-152** — Control-surface action inventory (TODO, P0) — map every dashboard action to API, DB state, worker owner, external side effect, visible result, and unknowns.
-- **T-153** — Scheduled-card persistence invariant (TODO, P0) — prove every `יישלח` calendar card has one persisted `scheduled_messages.status='scheduled'` row and preview/draft/scheduled are visually distinct.
-- **T-154** — Create drawer state isolation (TODO, P0) — browser E2E for type switches, generated text, cover/poll/event fields, and preview rows.
-- **T-155** — Review-draft lifecycle proof (TODO, P0) — draft -> edit -> schedule -> send-now -> delete paths with DB assertions and visible diagnostics.
-- **T-156** — Scheduler due-row lifecycle proof (TODO, P0) — due scheduled row -> mocked Telegram send -> sent/failed/skipped terminal state -> dashboard visibility.
-- **T-157** — Send-now vs scheduler parity (TODO, P1) — contract tests for shared behavior and documented differences across event/poll/trivia/emoji/facts/weekly rows.
-- **T-158** — Failure visibility diagnostics (TODO, P1) — failed/skipped/stale/missing-topic cases must be visible in calendar and diagnostics endpoints without log reading.
+- **T-152** — Control-surface action inventory (DONE, P0) — map every dashboard action to API, DB state, worker owner, external side effect, visible result, and unknowns.
+- **T-153** — Scheduled-card persistence invariant (DONE, P0) — prove every `יישלח` calendar card has one persisted `scheduled_messages.status='scheduled'` row and preview/draft/scheduled are visually distinct.
+- **T-154** — Create drawer state isolation (DONE, P0) — browser E2E for type switches, generated text, cover/poll/event fields, and preview rows.
+- **T-155** — Review-draft lifecycle proof (DONE, P0) — draft -> edit -> schedule -> send-now -> delete paths with DB assertions and visible diagnostics.
+- **T-156** — Scheduler due-row lifecycle proof (DONE, P0) — due scheduled row -> mocked Telegram send -> sent/failed/skipped terminal state -> dashboard visibility.
+- **T-157** — Send-now vs scheduler parity (DONE, P1) — contract tests for shared behavior and documented differences across event/poll/trivia/emoji/facts/weekly rows.
+- **T-158** — Failure visibility diagnostics (DONE, P1) — failed/skipped/stale/missing-topic cases must be visible in calendar and diagnostics endpoints without log reading.
 - **T-159** — Sherlocks Den smoke harness (TODO, P1) — production-safe dry-run that sends only to Den, records row ID/status/message ID, and never touches main chat.
 - **T-160** — One-command local/CI gate (TODO, P1) — stable command that runs the trust E2E suite, browser smoke, guardian, and scheduler contracts.
 - **T-161** — Audit remaining dashboards (TODO, P2) — repeat `control-surface-audit` for puzzles/trivia, settings/config, moderation, content pools, and onboarding.
@@ -217,7 +221,7 @@ Three parallel work tracks. Tasks in different lanes don't block each other; tas
 ---
 
 #### T-152: E2E lane: control-surface action inventory
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** —
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** —
 
 Create the authoritative action inventory for Botson's dashboard/control surfaces. This is the root map for discovering unknown holes before adding more tests.
 
@@ -237,7 +241,7 @@ Verification:
 ---
 
 #### T-153: E2E lane: scheduled-card persistence invariant
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
 
 Prove the planner calendar cannot show a sendable card unless the backend has durable scheduled state.
 
@@ -256,7 +260,7 @@ Verification:
 ---
 
 #### T-154: E2E lane: create drawer state isolation
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
 
 Convert the create-drawer trust fixes into real browser E2E coverage.
 
@@ -276,7 +280,7 @@ Verification:
 ---
 
 #### T-155: E2E lane: review-draft lifecycle proof
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
 
 Prove the review-drafts modal has a reliable lifecycle from generated draft to durable terminal state.
 
@@ -297,7 +301,7 @@ Verification:
 ---
 
 #### T-156: E2E lane: scheduler due-row lifecycle proof
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-152
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
 
 Prove scheduled rows move through the scheduler lifecycle exactly once and always reach a visible terminal state.
 
@@ -315,7 +319,7 @@ Verification:
 ---
 
 #### T-157: E2E lane: send-now vs scheduler parity
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-156
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-156
 
 Make the two dispatch paths intentionally consistent, and document the differences that must remain.
 
@@ -333,7 +337,7 @@ Verification:
 ---
 
 #### T-158: E2E lane: failure visibility diagnostics
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-153, T-156
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-153, T-156
 
 Make every failure mode visible from the dashboard without reading logs.
 
@@ -406,6 +410,145 @@ Deliverable:
 
 Verification:
 - Each audited area has an action inventory, lifecycle map, trust gaps, invariants, and test matrix.
+
+---
+
+#### T-162: Question quality review queue
+**Phase:** 28 — Question quality review | **Priority:** P0 | **Status:** IN PROGRESS | **Deps:** T-134, T-135
+
+The next work is not adding more raw questions. It is reviewing real generated and scheduled prompts against `config/question_quality.md`, removing weak sendable content, and feeding concrete failures back into the validator and prompt rules.
+
+Scope:
+- Inspect upcoming `scheduled_messages`, pending review drafts, and any recent generated text available locally.
+- Classify each questionable prompt as keep, rewrite, reject, or needs-channel-context.
+- Promote only concrete recurring failures into `config/question_quality.md` and `_validate_draft_text` tests.
+- Avoid broad subjective rules. Every new rule needs at least one real bad output and one false-positive check against curated pools.
+- Rewrite weak `config/discussions.yaml` entries only when they are genuinely likely to underperform or violate the rules.
+
+Deliverable:
+- A short review log in the task notes or a dedicated doc, plus targeted config/test changes.
+
+Verification:
+- `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py tests/test_quality_rules_wiring.py tests/test_quality_gate.py -q`
+- If `config/discussions.yaml` changes: `PYTHONPATH=. uv run pytest tests/test_facts_pool.py -q` only if fact/content validators are touched.
+
+Progress:
+- 2026-05-14: First concrete review batch inspected local `data/bot.db` scheduled/draft rows, `data/pending_reviews.json`, `config/prompts.yaml`, and `config/discussions.yaml`. The existing validator had zero failures on live rows/pools, but manual review found weak legacy text patterns: English `Done` in Hebrew prompt copy, generic day/evening check-ins (`איך היה היום`, `הרגע הכי שווה מהיום`, `מה עשיתם היום בשביל עצמכם`), broad fandom fantasy (`לחיות בעולם של סדרה/משחק/ספר`), and generic movie rewatch (`סרט שראיתם יותר מ-3 פעמים`).
+- Rewrote the tiny morning/evening pool in `config/prompts.yaml` to use more concrete micro-scenes and no English jargon.
+- Added the concrete failures to `config/question_quality.md`, `config/freshness.yaml`, `_validate_draft_text`, and `tests/test_digest_quality_consolidation.py` so the same weak drafts are rejected before scheduling.
+- Verified with `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py tests/test_quality_rules_wiring.py tests/test_quality_gate.py -q` — 29 passed, 55 subtests passed.
+
+---
+
+#### T-163: Draft review quality approval loop
+**Phase:** 28 — Question quality review | **Priority:** P0 | **Status:** IN PROGRESS | **Deps:** T-162
+
+Dashboard review should make weak AI drafts hard to accidentally schedule. The operator needs explicit quality status, visible rejection reasons, and a durable approve/rewrite/reject path before content becomes sendable.
+
+Scope:
+- Add quality status to review-draft rows: unreviewed, accepted, rejected, needs rewrite.
+- Surface validator failures and quality-rule excerpts near the draft text.
+- Ensure schedule/send-now refuses rejected or failing drafts unless the operator explicitly overrides with a visible reason.
+- Persist edits and review decisions so drafts cannot disappear without a durable state change.
+- Keep `/api/weekplan/ai-suggest` preview-only; only the commit/review path may write scheduled rows.
+
+Regression target:
+- A draft with known-bad wording cannot silently become a scheduled message.
+
+Verification:
+- Add/extend focused review-draft tests, likely alongside T-155.
+- `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py tests/test_planner_coercion_and_chips.py -q`
+
+Progress:
+- 2026-05-14: Closed the first bypass: saving edited draft text was already validated, but approving/scheduling an existing draft with no text payload, scheduling through `/api/calendar/{id}/schedule`, and send-now paths could reuse bad stored text. Added a shared row-level quality gate for `morning`, `evening`, and `discussion` rows.
+- `/api/calendar` now exposes `qualityStatus` and `qualityFailures` for draft rows so the review modal can show a visible rejection panel before the operator clicks schedule/send.
+- The review modal now formats `quality_rejected` API errors instead of showing `[object Object]`, keeps failed send-now cards in place, and shows quality warnings next to failing drafts.
+- Added regressions proving low-quality drafts remain `draft` when scheduled via the review endpoint or promoted through `PUT /api/calendar/{id}` without a replacement text payload.
+- Verified with `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py tests/test_digest_quality_consolidation.py -q` — 108 passed, 172 subtests passed; and `PYTHONPATH=. uv run pytest tests/test_quality_rules_wiring.py tests/test_quality_gate.py tests/test_no_hardcoded_content.py -q` — 22 passed, 13 subtests passed.
+
+---
+
+#### T-164: Real-output regression corpus
+**Phase:** 28 — Question quality review | **Priority:** P1 | **Status:** TODO | **Deps:** T-162
+
+The quality gate should learn from real misses, not imagined generic examples. Create a small corpus of actual accepted/rejected outputs that can be reused by tests and future prompt work.
+
+Scope:
+- Store bad outputs, corrected rewrites, channel/category, failure reason, and expected validator result in a versioned fixture.
+- Include good borderline examples to protect against over-aggressive validator rules.
+- Wire the corpus into `tests/test_digest_quality_consolidation.py` or a focused quality-corpus suite.
+- Keep private/user-identifying text out of fixtures unless already public and safe.
+
+Verification:
+- Corpus tests fail when a known-bad output passes or a known-good curated output is rejected.
+- `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py -q`
+
+---
+
+#### T-165: Channel-specific question rubrics
+**Phase:** 28 — Question quality review | **Priority:** P1 | **Status:** TODO | **Deps:** T-162
+
+The global rules are useful but still too generic. Each active channel should have a compact rubric with local examples: what a good prompt sounds like there, what fails, and which participation pattern it is trying to trigger.
+
+Scope:
+- Add channel-specific examples for active discussion categories in `config/question_quality.md` or a linked config file loaded by generation prompts.
+- Cover at least: general, movies, gaming, vegan, art, politics, singles, cute, music.
+- For each channel, include positive examples, reject examples, and 2-3 preferred prompt patterns.
+- Keep the prompt payload short enough for current CLI timeout constraints.
+
+Verification:
+- `PYTHONPATH=. uv run pytest tests/test_quality_rules_wiring.py tests/test_digest_quality_consolidation.py -q`
+- Manual review of generated prompts for at least three channels.
+
+---
+
+#### T-166: Reaction-informed bot cadence loop
+**Phase:** 29 — Bot enhancement | **Priority:** P1 | **Status:** TODO | **Deps:** T-136
+
+Now that reaction tracking exists, cadence decisions should be based on actual participation. Add a lightweight loop that shows which content types and slots are working and lets the operator adjust the schedule deliberately.
+
+Scope:
+- Aggregate recent engagement by content type, channel/topic, weekday, and time slot.
+- Flag slots with repeated low engagement or high replies/reactions.
+- Show recommendations as diagnostics only; do not auto-change schedule.
+- Keep copy and thresholds config-driven.
+
+Verification:
+- API tests for aggregation and empty-data behavior.
+- Dashboard smoke or HTML test for visible cadence diagnostics.
+
+---
+
+#### T-167: Trivia emoji facts review flows
+**Phase:** 29 — Bot enhancement | **Priority:** P2 | **Status:** TODO | **Deps:** T-163
+
+The review discipline should not stop at discussion prompts. Trivia launches, Emoji Night announcements, and facts captions also need preview/approve/reject flows before they become scheduled content.
+
+Scope:
+- Inventory current preview/review behavior for trivia, emoji, and facts suggestions.
+- Add missing quality status and rejection reasons where generated text can become sendable.
+- Ensure pinned executable payloads match previewed content.
+- Avoid duplicating question-quality rules where a content type needs its own rubric.
+
+Verification:
+- Focused tests for preview payload matching committed/sent payload.
+- `PYTHONPATH=. uv run pytest tests/test_calendar_scheduled_games.py tests/test_digest_quality_consolidation.py -q`
+
+---
+
+#### T-168: Community health metrics loop
+**Phase:** 29 — Bot enhancement | **Priority:** P2 | **Status:** TODO | **Deps:** T-136
+
+Bot enhancements should preserve the community's feel: useful prompts, low spam, enough quiet space, and no forced participation. Add small health signals that help decide what to change next.
+
+Scope:
+- Track simple signals: active responders, unique reactors, unanswered bot prompts, muted/disabled content types, and manual sends.
+- Show trends without gamifying members or shaming quiet users.
+- Use metrics to inform future queue ordering, not automatic interventions.
+
+Verification:
+- API tests for aggregation with empty and populated DBs.
+- Manual dashboard check that labels are neutral and not member-shaming.
 
 ---
 

@@ -23,10 +23,33 @@ from ..utils.time_context import hebrew_day_name
 
 logger = logging.getLogger(__name__)
 _CLAUDE_CLI_TIMEOUT = 90
-# T-135: per-slot generation attempts; first candidate that passes the
-# freshness/quality gate wins. Trades up to 3× LLM calls in failure mode
-# for a higher chance of usable text before falling through to "skip".
-_QUALITY_GATE_CANDIDATES = 3
+
+
+def _materializer_setting(key: str, default):
+    """Read materializer-specific knobs from settings.materializer.*."""
+    try:
+        block = (get_settings().get("materializer") or {})
+    except Exception:
+        return default
+    value = block.get(key)
+    return value if value is not None else default
+
+
+def _quality_gate_candidates() -> int:
+    # T-135 default kept at 3; operator can raise via settings.materializer.retry_budget.
+    return int(_materializer_setting("retry_budget", 3))
+
+
+def _used_texts_window_days() -> int:
+    # T-169: bound dedup history to a window so the LLM gets a complete
+    # "do not repeat" list it can actually reason about, instead of the
+    # legacy `list(set)[:25]` slice that dropped older repeats silently.
+    return int(_materializer_setting("used_texts_window_days", 45))
+
+
+def _examples_per_prompt() -> int:
+    # T-169: fewer in-prompt examples = less verbatim echo. Default 2.
+    return int(_materializer_setting("examples_per_prompt", 2))
 
 
 def compute_week_previews(
@@ -77,13 +100,46 @@ async def _build_committed_index(
     return index, skipped
 
 
-async def _used_texts_for_type(db: Database, message_type: str) -> set[str]:
-    async with db._db.execute(
-        "SELECT DISTINCT text FROM scheduled_messages WHERE message_type = ? AND text IS NOT NULL AND text != ''",
-        (message_type,),
-    ) as cursor:
+async def _used_texts_for_type(
+    db: Database, message_type: str, *, window_days: int | None = None
+) -> list[str]:
+    """Return distinct texts for `message_type`, most-recent-first.
+
+    T-169: this used to return an unbounded `set[str]` from which callers
+    sliced `[:25]` via non-deterministic set iteration — the slice silently
+    dropped older repeats so the same questions cycled every 7 days. Now
+    ordered by recency and bounded by `window_days` (default from
+    `settings.materializer.used_texts_window_days`).
+    """
+    window = int(window_days if window_days is not None else _used_texts_window_days())
+    if window <= 0:
+        query = (
+            "SELECT text, MAX(COALESCE(created_at, scheduled_date)) AS last_at "
+            "FROM scheduled_messages "
+            "WHERE message_type = ? AND text IS NOT NULL AND text != '' "
+            "GROUP BY text ORDER BY last_at DESC"
+        )
+        params: tuple = (message_type,)
+    else:
+        cutoff = (date.today() - timedelta(days=window)).isoformat()
+        query = (
+            "SELECT text, MAX(COALESCE(created_at, scheduled_date)) AS last_at "
+            "FROM scheduled_messages "
+            "WHERE message_type = ? AND text IS NOT NULL AND text != '' "
+            "AND COALESCE(scheduled_date, '') >= ? "
+            "GROUP BY text ORDER BY last_at DESC"
+        )
+        params = (message_type, cutoff)
+    async with db._db.execute(query, params) as cursor:
         rows = await cursor.fetchall()
-    return {r[0] for r in rows if r[0]}
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for r in rows:
+        text = r[0]
+        if text and text not in seen:
+            seen.add(text)
+            ordered.append(text)
+    return ordered
 
 
 def _extract_generated_text(raw: str) -> str | None:
@@ -177,7 +233,7 @@ async def _generate_fresh_text(
     *,
     category: str | None,
     examples: list[str],
-    used_texts: set[str],
+    used_texts: list[str] | set[str],
     scheduled_date: str,
     scheduled_time: str,
 ) -> str | None:
@@ -190,7 +246,10 @@ async def _generate_fresh_text(
             category=category or default_category,
         ),
     }.get(message_type, message_type)
-    sample = random.sample(examples, min(5, len(examples))) if examples else []
+    # T-169: fewer in-prompt examples (default 2, was 5). Each shot is an
+    # anchor the model gravitates toward; cap the bias surface.
+    shots = _examples_per_prompt()
+    sample = random.sample(examples, min(shots, len(examples))) if examples else []
     canonical_rules = load_quality_rules_short()
     canonical_block = f"\n\n{canonical_rules}" if canonical_rules else ""
     # Anchor the prompt on the actual Hebrew day-of-week so the model
@@ -205,7 +264,13 @@ async def _generate_fresh_text(
     )
     no_examples = load_copy("materializer", "no_examples", default="none")
     examples_block = chr(10).join(f"- {x}" for x in sample) if sample else f"- {no_examples}"
-    used_block = chr(10).join(f"- {x}" for x in list(used_texts)[:25]) if used_texts else f"- {no_examples}"
+    # T-169: the previous `list(set)[:25]` slice was the proximate cause of
+    # 7-day cycling — set iteration order silently dropped older repeats so
+    # the LLM never saw them in the "do not repeat" block. Pass the full
+    # ordered window now (most-recent-first); the freshness gate already
+    # protects against prompt bloat by running post-hoc.
+    used_iter = list(used_texts) if used_texts else []
+    used_block = chr(10).join(f"- {x}" for x in used_iter) if used_iter else f"- {no_examples}"
     prompt = load_copy(
         "materializer", "prompt", default="{kind}\n{date_line}\n{time}\n{examples}\n{used_texts}{canonical_block}",
         kind=kind_he,
@@ -219,7 +284,8 @@ async def _generate_fresh_text(
     avoid = {str(x).strip() for x in used_texts}
     sources = {str(x).strip() for x in examples}
     rejections: list[str] = []
-    for attempt in range(_QUALITY_GATE_CANDIDATES):
+    gate_candidates = _quality_gate_candidates()
+    for attempt in range(gate_candidates):
         raw = await _generate_with_claude(prompt)
         text = _extract_generated_text(raw or "")
         if not text:
@@ -236,11 +302,11 @@ async def _generate_fresh_text(
             rejections.append(f"attempt {attempt + 1}: {rejection} (text={normalized[:80]!r})")
             continue
         if attempt > 0:
-            logger.info("[materializer] quality gate accepted candidate %d/%d", attempt + 1, _QUALITY_GATE_CANDIDATES)
+            logger.info("[materializer] quality gate accepted candidate %d/%d", attempt + 1, gate_candidates)
         return normalized
     logger.warning(
         "[materializer] all %d candidates rejected for %s @ %s %s; %s",
-        _QUALITY_GATE_CANDIDATES,
+        gate_candidates,
         message_type,
         scheduled_date,
         scheduled_time,
@@ -364,7 +430,9 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
                 created_by="auto",
             )
             committed_index[key] = {"id": msg_id}
-            used_by_type[msg_type].add(text)
+            # Prepend the freshly-inserted text so it appears most-recent-first
+            # for the next slot in this same materialization pass.
+            used_by_type[msg_type].insert(0, text)
             inserted += 1
         day += timedelta(days=1)
 

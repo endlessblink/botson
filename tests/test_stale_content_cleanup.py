@@ -59,7 +59,10 @@ class StaleContentCleanupTests(unittest.TestCase):
                     "ai-fill",
                 ),
                 (
-                    "בוקר טוב 🌞 מה 3 הדברים שאתם רוצים לסמן כ-Done היום?",
+                    # Verbatim echo of a current `prompts.yaml:morning` pool
+                    # item — the static-example check should catch it. Kept
+                    # in sync with the live pool; refresh if the pool rotates.
+                    "בוקר טוב 🌞 מה הדבר הקטן שאם תסיימו היום יפנה לכם אוויר בראש?",
                     "morning",
                     "2099-01-02",
                     "09:00",
