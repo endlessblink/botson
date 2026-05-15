@@ -994,6 +994,27 @@
     </div>
 </div>
 
+<!-- T-178: styled RTL prompt modal — replaces browser-native window.prompt()
+     for deny+reason and similar Hebrew text-input asks. Promise-based:
+     resolves with the typed string or null on cancel. -->
+<div id="rtl-prompt-modal" class="hidden fixed inset-0 z-[125] flex items-center justify-center p-4" dir="rtl">
+    <div class="absolute inset-0 bg-black/70" id="rtl-prompt-backdrop"></div>
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-md overflow-hidden">
+        <div class="px-5 py-4 border-b border-[#1f1f1f]">
+            <h3 id="rtl-prompt-title" class="text-sm font-medium text-[#fafafa]">סיבת הדחייה</h3>
+            <p id="rtl-prompt-subtitle" class="text-xs text-[#71717a] mt-1">בחר סיבה מהירה או הקלד הסבר משלך — שמור למשוב הלמידה.</p>
+        </div>
+        <div class="px-5 py-4">
+            <div id="rtl-prompt-presets" class="flex flex-wrap gap-2 mb-3"></div>
+            <textarea id="rtl-prompt-input" rows="3" class="w-full bg-[#0a0a0a] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] resize-none focus:outline-none focus:border-rose-500/60" dir="rtl" placeholder="(אופציונלי) למה דחית? למשל: נישתי מדי, לא מתאים לערוץ, גנרי, חוזר על עצמו..."></textarea>
+        </div>
+        <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between">
+            <button id="rtl-prompt-cancel" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-4 py-1.5 rounded-md">ביטול</button>
+            <button id="rtl-prompt-ok" class="text-xs text-rose-300 hover:text-rose-200 border border-rose-500/40 hover:border-rose-500/70 bg-rose-500/10 hover:bg-rose-500/20 px-5 py-1.5 rounded-md font-medium">דחה ושמור</button>
+        </div>
+    </div>
+</div>
+
 <!-- T-177: Quality review drawer — paste questions, see system verdict
      side-by-side with your judgment. Calibration tool. -->
 <div id="quality-review-drawer" class="hidden fixed inset-y-0 left-0 right-0 lg:right-56 z-[115] flex items-center justify-center p-4" dir="rtl">
@@ -2797,6 +2818,71 @@ function _aiSuggestTypeLabel(mtype) {
 }
 
 // T-175: deny a suggestion with optional reason, send to /api/content-feedback.
+// T-178: styled RTL prompt — Promise-based replacement for window.prompt().
+// Resolves with the trimmed string, or null on cancel.
+function showRtlPrompt(opts) {
+    opts = opts || {};
+    return new Promise(function(resolve) {
+        var modal = document.getElementById('rtl-prompt-modal');
+        var title = document.getElementById('rtl-prompt-title');
+        var subtitle = document.getElementById('rtl-prompt-subtitle');
+        var input = document.getElementById('rtl-prompt-input');
+        var presetsEl = document.getElementById('rtl-prompt-presets');
+        var okBtn = document.getElementById('rtl-prompt-ok');
+        var cancelBtn = document.getElementById('rtl-prompt-cancel');
+        var backdrop = document.getElementById('rtl-prompt-backdrop');
+        if (!modal || !input || !okBtn || !cancelBtn) {
+            // Fallback (shouldn't happen on planner page).
+            var fallback = window.prompt(opts.title || '', opts.defaultValue || '');
+            resolve(fallback);
+            return;
+        }
+        title.textContent = opts.title || 'סיבת הדחייה';
+        subtitle.textContent = opts.subtitle || 'בחר סיבה מהירה או הקלד הסבר משלך — שמור למשוב הלמידה.';
+        input.value = opts.defaultValue || '';
+        input.placeholder = opts.placeholder || '(אופציונלי) למה דחית?';
+        okBtn.textContent = opts.okLabel || 'דחה ושמור';
+        // Preset chips for common reasons — one click fills the textarea.
+        presetsEl.innerHTML = '';
+        var presets = opts.presets || [
+            'נישתי מדי', 'גנרי / שטחי', 'לא מתאים לערוץ',
+            'חוזר על עצמו', 'תרגום מלאכותי', 'מאמץ גבוה מדי',
+        ];
+        presets.forEach(function(preset) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'text-[11px] text-rose-200/80 hover:text-rose-100 border border-rose-500/20 hover:border-rose-500/50 bg-rose-500/5 hover:bg-rose-500/10 rounded-full px-2.5 py-0.5 transition-colors';
+            btn.textContent = preset;
+            btn.onclick = function() {
+                input.value = input.value ? (input.value.trim() + ' · ' + preset) : preset;
+                input.focus();
+            };
+            presetsEl.appendChild(btn);
+        });
+        modal.classList.remove('hidden');
+        // Defer focus so the modal animation doesn't fight the input.
+        setTimeout(function() { input.focus(); }, 50);
+        function cleanup(value) {
+            modal.classList.add('hidden');
+            okBtn.onclick = null;
+            cancelBtn.onclick = null;
+            backdrop.onclick = null;
+            input.onkeydown = null;
+            resolve(value);
+        }
+        okBtn.onclick = function() { cleanup(input.value.trim()); };
+        cancelBtn.onclick = function() { cleanup(null); };
+        backdrop.onclick = function() { cleanup(null); };
+        input.onkeydown = function(e) {
+            // Cmd/Ctrl+Enter submits, Escape cancels.
+            if (e.key === 'Escape') { e.preventDefault(); cleanup(null); }
+            else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault(); cleanup(input.value.trim());
+            }
+        };
+    });
+}
+
 // Multi-deny: ctrl-click checkbox to mark for bulk denial, then "דחה מסומנים".
 async function _aiSuggestDenyOne(suggestKey, opts) {
     opts = opts || {};
@@ -2804,7 +2890,10 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
     if (!s) return;
     var reason = opts.reason;
     if (typeof reason !== 'string') {
-        reason = window.prompt('סיבת הדחייה (לא חובה):', '');
+        reason = await showRtlPrompt({
+            title: 'דחיית הצעה — ' + (s.text || '').slice(0, 60) + ((s.text || '').length > 60 ? '…' : ''),
+            subtitle: 'למה ההצעה הזו לא טובה? הסיבה תיכנס למשוב ותעצב את ה-Populate הבא.',
+        });
         if (reason === null) return;  // cancelled
     }
     try {
@@ -2841,7 +2930,10 @@ async function aiSuggestDenyChecked() {
         .filter(function(s) { return _aiSuggestState.checked[s.key]; })
         .map(function(s) { return s.key; });
     if (!checkedKeys.length) { showToast('לא מסומנות הצעות', 'error'); return; }
-    var reason = window.prompt('סיבת דחייה משותפת לכל ' + checkedKeys.length + ' המסומנות (לא חובה):', '');
+    var reason = await showRtlPrompt({
+        title: 'דחיית ' + checkedKeys.length + ' הצעות',
+        subtitle: 'סיבה משותפת לכל ההצעות המסומנות. תיכנס למשוב ותעצב את ה-Populate הבא.',
+    });
     if (reason === null) return;
     for (var i = 0; i < checkedKeys.length; i++) {
         await _aiSuggestDenyOne(checkedKeys[i], {reason: reason, silent: true});
