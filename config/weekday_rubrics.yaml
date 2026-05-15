@@ -1,0 +1,20 @@
+# Per-Hebrew-day tone/framing for discussion / morning / evening
+# generation. Loaded by bot.utils.time_context.format_time_context()
+# and appended to the time-context block so the LLM anchors on the
+# right register for the day.
+#
+# Keys must match the day names in
+# config/settings.yaml:copy.time_context.day_names.
+#
+# Empty list = no special framing for that day (regular weekday tone).
+
+rubrics:
+  שישי:
+    - "סוף שבוע — שאלה אינטליגנטית לרפלקציה על השבוע שעבר. לא רשימת הישגים, אלא בחירה, החלטה, שינוי, רגע, או תובנה שמייצגים את השבוע. הימנעו מ-'איך היה השבוע' גנרי."
+  שבת:
+    - "סוף שבוע — מבט קדימה לשבוע הבא. שאלה על תכנון, ציפייה, החלטה שצריך לקבל, או דבר אחד שרוצים להתחיל / לשנות / לסיים בשבוע הקרוב."
+  ראשון: []
+  שני: []
+  שלישי: []
+  רביעי: []
+  חמישי: []

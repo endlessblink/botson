@@ -89,6 +89,7 @@ copy:
     time_part: "בשעה {time} ({bucket})"
     context_prefix: "\n\nהקשר זמן ההודעה: "
     context_suffix: ". התוכן צריך להרגיש מתאים ליום ולשעה האלה — לא טקסט גנרי שיכול להיות בכל זמן. אם הטקסט מציין יום בשבוע, חייב להיות בדיוק היום הזה ולא יום אחר."
+    weekday_rubric_header: "\n\nניואנס היום (חובה לעגן בו):"
   materializer:
     kind_morning: "פתיחת יום"
     kind_evening: "סגירת יום"

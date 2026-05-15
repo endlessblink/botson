@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from .config import get_settings
+from .config import get_settings, load_yaml
 from .copy import load_copy
 
 
@@ -58,6 +58,25 @@ def time_of_day_bucket(scheduled_time: str | None) -> str | None:
     return str(buckets.get("night") or "night")
 
 
+def _weekday_rubric_lines(day_name: str) -> list[str]:
+    """Read per-day framing guidance from config/weekday_rubrics.yaml.
+
+    Returns an empty list when the day isn't configured or the file is
+    missing — the time-context block then renders without an extra
+    "nuance for today" section, which is the safe default.
+    """
+    if not day_name:
+        return []
+    try:
+        data = load_yaml("weekday_rubrics.yaml") or {}
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    rubrics = (data.get("rubrics") or {}).get(day_name) or []
+    return [str(x).strip() for x in rubrics if str(x).strip()]
+
+
 def format_time_context(
     scheduled_date: str | None, scheduled_time: str | None
 ) -> str:
@@ -66,6 +85,10 @@ def format_time_context(
     Empty string when neither input is supplied. Otherwise returns a
     leading double-newline followed by a one-line context plus an
     instruction telling the model to anchor on it.
+
+    T-176: when the date falls on a day with a configured rubric (e.g.,
+    Friday = weekly reflection, Saturday = next-week forward-look), the
+    rubric lines are appended so the LLM gets day-specific framing.
     """
     parts: list[str] = []
     day = hebrew_day_name(scheduled_date or "")
@@ -78,4 +101,12 @@ def format_time_context(
         return ""
     prefix = load_copy("time_context", "context_prefix", default="\n\nTime context: ")
     suffix = load_copy("time_context", "context_suffix", default="")
-    return prefix + " · ".join(parts) + suffix
+    out = prefix + " · ".join(parts) + suffix
+    rubric_lines = _weekday_rubric_lines(day or "")
+    if rubric_lines:
+        rubric_header = load_copy(
+            "time_context", "weekday_rubric_header",
+            default="\n\nDay-specific framing:",
+        )
+        out += rubric_header + "\n" + "\n".join(f"- {ln}" for ln in rubric_lines)
+    return out
