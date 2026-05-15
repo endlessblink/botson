@@ -3107,25 +3107,63 @@ def build_generation_prompt(
     count = "5-8" if mode == "append" else "15-20"
 
     if field == "morning":
-        base = f"""צור {count} הודעות בוקר מעוררות השראה בעברית עבור {COMMUNITY_CONTEXT}
+        base = f"""צור {count} הודעות בוקר בעברית עבור {COMMUNITY_CONTEXT}
 
-כל הודעה צריכה להיות שורה אחת, לפתוח באמוג'י רלוונטי, ולעודד את חברי הקהילה לבוקר טוב.
-הטון: חם, מעודד, קליל. אל תחזור על אמוג'ים.
-פלט: רק את ההודעות, שורה אחת לכל הודעה, בלי מספור ובלי הסברים."""
+מטרה: כל הודעה פותחת את היום לשיחה שכמעט כל בוגר/ת בקהילה יכולים להגיב עליה ישירות מהחיים שלהם — בחירה קטנה, הרגל, החלטה של היום, רגע עכשיו.
+
+מבחן הקבלה לכל הודעה (חייב לעבור את שניהם):
+1. ספציפיות: עוגן קונקרטי (חפץ, פעולה, החלטה, רגע) — לא "מה התכנון" / "איך אתם פותחים את היום".
+2. רוחב תחולה: אם 10 קוראים יראו את ההודעה — לפחות 5 יוכלו לענות תשובה אמיתית בלי להמציא.
+
+פסול:
+- "מה הדבר הטוב היום" / "אחרי כל מה שהיה" / "מה נשאר איתכם" — פילר רגשי גנרי.
+- "הגענו לאמצע השבוע" / "כמעט סוף שבוע" — פילר לוח-שנה.
+- "מה הדבר הכי שווה שאתם מכניסים אליו" — אבסטרקטי.
+- תרחיש נדיר ("מתי בפעם האחרונה צחקתם לבד") שרוב הקוראים לא חוו היום.
+
+מגוון: השתמש בלפחות 5 תבניות שונות (דעה לא פופולרית, בחירה כפויה, דירוג, המלצה, A/B, זיכרון, השלמת משפט, טיפ של ותיק). אל תחזור על אותה תבנית פעמיים ברצף.
+פורמט: שורה אחת לכל הודעה, אמוג'י אחד בהתחלה, עד 140 תווים, עברית תקנית בלבד.
+פלט: רק ההודעות, שורה אחת לכל אחת, בלי מספור ובלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
 
     elif field == "evening":
-        base = f"""צור {count} הודעות ערב רפלקטיביות בעברית עבור {COMMUNITY_CONTEXT}
+        base = f"""צור {count} הודעות ערב בעברית עבור {COMMUNITY_CONTEXT}
 
-כל הודעה צריכה להיות שורה אחת, לפתוח באמוג'י רלוונטי, ולעודד חשיבה על היום שעבר.
-הטון: רגוע, מחבק, מעודד רפלקציה. אל תחזור על אמוג'ים.
-פלט: רק את ההודעות, שורה אחת לכל הודעה, בלי מספור ובלי הסברים."""
+מטרה: רגע סגירה ליום שכמעט כל בוגר/ת בקהילה יכולים להגיב עליו ישירות מהיום שלהם — משהו שכבר קרה (בחירה, מטלה, פגישה, ארוחה, רגע פנוי, החלטה לזרוק או להשאיר).
+
+מבחן הקבלה לכל הודעה (חייב לעבור את שניהם):
+1. ספציפיות: עוגן קונקרטי מהיום (חפץ, אדם, החלטה, רגע) — לא "איך היה" / "מה עשה לכם את היום".
+2. רוחב תחולה: לפחות 5 מתוך 10 קוראים יחזיקו תשובה אמיתית ספציפית מהיום, לא "אולי פעם".
+
+פסול:
+- "מה הדבר הטוב היום" / "איך היה היום" / "הרגע הכי שווה מהיום" — גנרי לחלוטין.
+- "מה עדיין זוהר אצלכם" / "מה נשאר איתכם ללילה" — קופי פואטי בלי עוגן.
+- "מה עשיתם היום בשביל עצמכם" / "רגע של חסד מוחלט" — שאלת מאמץ או נדירות.
+- "מתי בדיוק החלטתם שהיום נגמר" / "קפה, מקלחת, סגירת המחשב" — רשימה לא ברורה.
+
+מגוון: השתמש בלפחות 5 תבניות שונות (דעה לא פופולרית, בחירה כפויה, זיכרון ספציפי, A/B, השלמת משפט, rabbit hole, גילוי קטן מהיום). אל תחזור על תבנית ברצף.
+פורמט: שורה אחת לכל הודעה, אמוג'י אחד בהתחלה, עד 140 תווים, עברית תקנית בלבד.
+פלט: רק ההודעות, שורה אחת לכל אחת, בלי מספור ובלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
 
     elif field == "discussion":
         base = f"""צור {count} שאלות לדיון בקטגוריה "{category}" בעברית עבור {COMMUNITY_CONTEXT}
 
-כל שאלה צריכה להיות שורה אחת, מעוררת שיחה ומעניינת.
-הטון: סקרני, פתוח, מזמין. שאלות שיגרמו לאנשים לשתף ולענות.
-פלט: רק את השאלות, שורה אחת לכל שאלה, בלי מספור ובלי הסברים."""
+מטרה: כל שאלה גם ספציפית (לא "מה הסרט האהוב") וגם רחבת תחולה — רוב חברי הערוץ הזה אמורים להחזיק תשובה אמיתית מהחיים שלהם.
+
+מבחן הקבלה לכל שאלה (חייב לעבור את שניהם):
+1. ספציפיות: אי-אפשר להעתיק את השאלה לקטגוריה אחרת בלי לשנות מילה. עוגן לקטגוריה "{category}" (פעולה, סצנה, פרט מאפיין) חייב להופיע.
+2. רוחב תחולה: אם 10 קוראים מהערוץ יראו — לפחות 5 יוכלו לענות תשובה אמיתית מהזיכרון, בלי להמציא.
+
+פסול:
+- "מה הX האהוב עליכם" — מסטיק קליפ.
+- "ספרו על X" / "מה היה היום" — הזמנה מעורפלת.
+- שאלה שדורשת פסקה / רשימה / הסבר — בקש פרט אחד, שם אחד, החלטה אחת.
+- תרחיש נישתי שרק לאחוז קטן מהקוראים יש בו תשובה אמיתית.
+- שרשרת שאלות במשפט אחד.
+
+מגוון: השתמש בלפחות 5 תבניות שונות מתוך הרובריקה (A דעה לא פופולרית, B בחירה כפויה, C דירוג קצר, D המלצה, E A/B בינארי, F זיכרון ספציפי, G תמונה, H טיפ פנימי, I השלמת משפט, J rabbit hole, K גילוי נישתי, L would-you-rather, M רשימה משותפת, N meta, O תוכן אל-הורי ייחודי). אל תחזור על אותה תבנית פעמיים ברצף.
+
+פורמט: שורה אחת לכל שאלה, אמוג'י אחד בהתחלה, עד 140 תווים, עברית תקנית בלבד, בלי מילים באנגלית באמצע משפט עברי.
+פלט: רק השאלות, שורה אחת לכל אחת, בלי מספור ובלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
 
     elif field == "trivia":
         # `category` is the user's categories input (comma-separated, e.g.
@@ -9716,7 +9754,25 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
             await db.mark_message_sent(msg["id"], message_id)
         return message_id
     if msg.get("message_type") == "emoji_puzzle":
-        session_id = await start_emoji_night(context, group_id, msg.get("channel_topic_id"), force=True)
+        # Mirror the scheduler: operator-set subject filters (media_types,
+        # theme_label) live in poll_options at preview time. Without
+        # forwarding them, send-now ignored the pinned subject and the
+        # session picked from the wrong pool.
+        emoji_media_types: list[str] | None = None
+        emoji_theme: str | None = None
+        try:
+            emoji_payload = json.loads(msg.get("poll_options") or "{}")
+            if isinstance(emoji_payload, dict):
+                emoji_media_types = emoji_payload.get("media_types") or None
+                emoji_theme = (emoji_payload.get("theme_label") or None) or None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        session_id = await start_emoji_night(
+            context, group_id, msg.get("channel_topic_id"),
+            force=True,
+            media_types=emoji_media_types,
+            theme_label=emoji_theme,
+        )
         if session_id is None:
             raise RuntimeError("Emoji Night did not start")
         if target != "test":
@@ -9725,18 +9781,35 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     if msg.get("message_type") == "free_games":
         summary = await send_free_games(context, force=True)
         if not summary or int(summary.get("posted") or 0) <= 0:
+            # Mirror the scheduler: blackout/disabled are legitimate skips,
+            # not failures. Letting send_calendar_item_now catch
+            # SkippedActivity preserves the status='skipped' distinction
+            # on the calendar instead of collapsing to a generic 500.
+            from bot.utils.scheduling_errors import SkippedActivity
+            if summary and (summary.get("error") in {None, "blackout date", "disabled"}):
+                raise SkippedActivity(f"free_games: {summary}")
             raise RuntimeError(f"free_games did not post: {summary}")
         if target != "test":
             await db.mark_message_sent(msg["id"], 1)
         return 1
     if msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
         pool = msg.get("message_type", "").removeprefix("facts_")
+        # Mirror the scheduler: an operator can pin a specific fact at
+        # preview time via poll_options.fact_id. Without this, send-now
+        # ignores the pin and the pool picker chooses something else.
+        fact_id = None
+        try:
+            payload = json.loads(msg.get("poll_options") or "{}")
+            fact_id = str(payload.get("fact_id") or "").strip() or None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            fact_id = None
         sent_ok = await send_scheduled_fact(
             bot,
             db,
             pool=pool,
             chat_id=group_id,
             thread_id=msg.get("channel_topic_id"),
+            fact_id=fact_id,
         )
         if not sent_ok:
             raise RuntimeError(f"facts {pool} did not send")
@@ -9757,6 +9830,36 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         if target != "test":
             await db.mark_message_sent(msg["id"], message_id)
         return message_id
+
+    if msg.get("message_type") == "event":
+        # Mirror the scheduler: create the events-table row, send the card,
+        # attach RSVP buttons so rsvp_yes_/rsvp_maybe_ callbacks can update
+        # this exact message, then persist message_id on the event row.
+        # Without this, operator-fired events had no RSVP UI and never
+        # appeared on the /events page.
+        from bot.handlers.calendar import _create_event_row_from_scheduled
+        event_id_for_rsvp = await _create_event_row_from_scheduled(db, msg)
+        sent = await send_message_with_optional_cover(
+            bot, db=db, chat_id=group_id, text=msg["text"],
+            message_thread_id=msg.get("channel_topic_id"),
+            cover_path=msg.get("cover_path"),
+        )
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            await bot.edit_message_reply_markup(
+                chat_id=group_id,
+                message_id=sent.message_id,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ מגיע/ה", callback_data=f"rsvp_yes_{event_id_for_rsvp}"),
+                    InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id_for_rsvp}"),
+                ]]),
+            )
+        except Exception as e:
+            logger.warning("[events] send-now failed to attach RSVP buttons to %d: %s", msg["id"], e)
+        await db.update_event(event_id_for_rsvp, message_id=sent.message_id)
+        if target != "test":
+            await db.mark_message_sent(msg["id"], sent.message_id)
+        return sent.message_id
 
     opts = _parse_poll_options(msg.get("poll_options"))
     if msg.get("message_type") == "poll" and len(opts) >= 2:
@@ -9800,11 +9903,27 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
         raise HTTPException(status_code=404, detail="Message not found")
 
     _reject_bad_message_row(msg)
+    from bot.utils.scheduling_errors import SkippedActivity
 
     try:
         sent_id = await _send_scheduled_row(db, msg, target)
         logger.info("[send-now] msg_id=%d target=%s sent_message_id=%s", msg_id, target, sent_id)
         return {"status": "ok", "message_id": sent_id}
+    except SkippedActivity as e:
+        # Legitimate skip (blackout, pool exhausted, etc.) — not a Telegram
+        # failure. Mirror the scheduler: stamp status='skipped' so the
+        # calendar UI renders it distinctly from "נכשל", and return 200 so
+        # the dashboard JS doesn't show a generic 500-error toast for what
+        # is actually an intentional outcome.
+        reason = str(e)
+        if target != "test":
+            mark_skipped = getattr(db, "mark_message_skipped", None)
+            if mark_skipped:
+                await mark_skipped(msg_id, reason)
+            else:
+                await db.mark_message_failed(msg_id, f"skipped: {reason}")
+        logger.info("[send-now] msg_id=%d skipped: %s", msg_id, reason)
+        return {"status": "skipped", "reason": reason}
     except Exception as e:
         logger.exception("[send-now] failed for msg_id=%d", msg_id)
         raise HTTPException(status_code=500, detail=str(e))
