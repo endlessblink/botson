@@ -93,6 +93,21 @@ class Database:
             "UNIQUE (profile_key, version)"
             ")",
             "CREATE INDEX IF NOT EXISTS idx_style_profile_active ON content_style_profile(profile_key, status, version DESC)",
+            # T-184 (Gap 4): audit trail of changes to config/operator_prefs.md.
+            # Written by /teach, /apply-proposal, /untrain, /canonize (later).
+            # Read by /api/operator-prefs/session-report so the operator can
+            # see "what did the system learn this session?" in one place.
+            "CREATE TABLE IF NOT EXISTS operator_prefs_changes ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "source TEXT NOT NULL, "       # teach | apply-proposal | untrain | canonize
+            "section TEXT NOT NULL, "      # e.g. 'Hebrew content rules', 'Good examples'
+            "change_kind TEXT NOT NULL, "  # 'add' | 'remove' | 'replace'
+            "before_excerpt TEXT, "
+            "after_excerpt TEXT, "
+            "source_feedback_ids TEXT"
+            ")",
+            "CREATE INDEX IF NOT EXISTS idx_prefs_changes_time ON operator_prefs_changes(created_at DESC)",
         ]
         for sql in migrations:
             try:
@@ -1803,6 +1818,55 @@ class Database:
             (int(profile_id),),
         )
         await self._db.commit()
+
+    # ── Operator-prefs change audit (T-184, Gap 4) ──────────────────
+
+    async def record_prefs_change(
+        self,
+        *,
+        source: str,
+        section: str,
+        change_kind: str,
+        before_excerpt: str | None = None,
+        after_excerpt: str | None = None,
+        source_feedback_ids: str | None = None,
+    ) -> int:
+        """Append an audit row for a change to config/operator_prefs.md.
+        Best-effort: callers wrap in try/except so an audit failure never
+        blocks the actual write."""
+        cur = await self._db.execute(
+            "INSERT INTO operator_prefs_changes "
+            "(source, section, change_kind, before_excerpt, after_excerpt, source_feedback_ids) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (str(source), str(section), str(change_kind),
+             (before_excerpt or None), (after_excerpt or None),
+             (source_feedback_ids or None)),
+        )
+        await self._db.commit()
+        return int(cur.lastrowid or 0)
+
+    async def list_prefs_changes(
+        self,
+        *,
+        since_iso: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        clauses: list[str] = []
+        params: list = []
+        if since_iso:
+            clauses.append("created_at >= ?")
+            params.append(str(since_iso))
+        params.append(int(max(1, min(limit, 2000))))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        async with self._db.execute(
+            "SELECT id, created_at, source, section, change_kind, "
+            "before_excerpt, after_excerpt, source_feedback_ids "
+            f"FROM operator_prefs_changes{where} "
+            "ORDER BY created_at DESC LIMIT ?",
+            params,
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
     async def get_rejected_pool_texts(
         self,

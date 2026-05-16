@@ -7622,11 +7622,20 @@ async def operator_prefs_apply_proposal(request: Request, db: Database = Depends
         await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
     except Exception as e:
         logger.warning("[operator-prefs] consumed-id tracking failed: %s", e)
+    # T-184 (Gap 4): audit the proposal application for the session report.
+    try:
+        await db.record_prefs_change(
+            source="apply-proposal", section="Hebrew content rules", change_kind="add",
+            before_excerpt=None, after_excerpt=guidance.strip()[:500],
+            source_feedback_ids=json.dumps(source_ids, ensure_ascii=False) if source_ids else None,
+        )
+    except Exception as e:
+        logger.warning("[operator-prefs] audit-row insert failed (apply-proposal): %s", e)
     return {"ok": True, "appended_chars": len(guidance), "source_feedback_ids": source_ids}
 
 
 @app.post("/api/operator-prefs/teach")
-async def operator_prefs_teach(request: Request):
+async def operator_prefs_teach(request: Request, db: Database = Depends(get_db)):
     """Append a single operator-supplied rule line (with citation) to the
     Hebrew section. Used by the `/teach-bot` skill from chat sessions.
     """
@@ -7655,11 +7664,20 @@ async def operator_prefs_teach(request: Request):
     _OPERATOR_PREFS_CACHE["mtime"] = 0.0
     _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
     section = _read_operator_prefs_hebrew_section()
+    # T-184 (Gap 4): audit trail for the session-report endpoint.
+    try:
+        await db.record_prefs_change(
+            source="teach", section="Hebrew content rules", change_kind="add",
+            before_excerpt=None, after_excerpt=rule_line,
+            source_feedback_ids=None,
+        )
+    except Exception as e:
+        logger.warning("[operator-prefs] audit-row insert failed (teach): %s", e)
     return {"ok": True, "rule_count": _OPERATOR_PREFS_CACHE.get("rule_count", 0), "appended": rule_line}
 
 
 @app.post("/api/operator-prefs/untrain")
-async def operator_prefs_untrain(request: Request):
+async def operator_prefs_untrain(request: Request, db: Database = Depends(get_db)):
     """Remove every rule line in the Hebrew section that contains the
     given substring. Returns the removed lines for operator audit.
     """
@@ -7690,7 +7708,92 @@ async def operator_prefs_untrain(request: Request):
     _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
     _OPERATOR_PREFS_CACHE["mtime"] = 0.0
     _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    # T-184 (Gap 4): audit each removed line for the session report.
+    for removed_line in removed:
+        try:
+            await db.record_prefs_change(
+                source="untrain", section="Hebrew content rules", change_kind="remove",
+                before_excerpt=removed_line, after_excerpt=None,
+                source_feedback_ids=None,
+            )
+        except Exception as e:
+            logger.warning("[operator-prefs] audit-row insert failed (untrain): %s", e)
     return {"ok": True, "removed_count": len(removed), "matches": removed}
+
+
+# ── T-184 (Gap 4): session learning report ──────────────────────
+# Aggregates "what did the system learn this session?" into one
+# response: rules added, feedback rows added (rejected/accepted), and
+# the current working-memory state.
+
+
+@app.get("/api/operator-prefs/session-report")
+async def operator_prefs_session_report(
+    request: Request,
+    since: str | None = None,
+    db: Database = Depends(get_db),
+):
+    """Return a structured summary of all preference changes + feedback
+    activity since the given ISO timestamp (default: 24 hours ago).
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    if since:
+        since_iso = since
+    else:
+        since_iso = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+
+    # Rules / examples added (from audit table).
+    try:
+        prefs_changes = await db.list_prefs_changes(since_iso=since_iso, limit=500)
+    except Exception as e:
+        logger.warning("[session-report] prefs-changes lookup failed: %s", e)
+        prefs_changes = []
+
+    # Feedback rows added.
+    try:
+        all_feedback = await db.list_content_feedback(limit=500)
+        feedback_rows = [r for r in all_feedback if str(r.get("created_at") or "") >= since_iso]
+    except Exception as e:
+        logger.warning("[session-report] feedback lookup failed: %s", e)
+        feedback_rows = []
+
+    by_verdict: dict = {}
+    by_category: dict = {}
+    for r in feedback_rows:
+        v = (r.get("verdict") or "").strip() or "unknown"
+        by_verdict[v] = by_verdict.get(v, 0) + 1
+        tk = (r.get("topic_key") or "(global)").strip() or "(global)"
+        by_category.setdefault(tk, {"rejected": 0, "accepted": 0, "other": 0})
+        if v in ("rejected", "bad_wording"):
+            by_category[tk]["rejected"] += 1
+        elif v in ("accepted", "accepted_after_edit"):
+            by_category[tk]["accepted"] += 1
+        else:
+            by_category[tk]["other"] += 1
+
+    # Working-memory snapshot.
+    wm_summary: dict = {
+        "global_size": len(_RECENT_FEEDBACK_CACHE.get("__global__", [])),
+        "categories": sorted(k for k in _RECENT_FEEDBACK_CACHE if k != "__global__"),
+        "category_sizes": {
+            k: len(v) for k, v in _RECENT_FEEDBACK_CACHE.items() if k != "__global__"
+        },
+    }
+
+    return {
+        "since": since_iso,
+        "now": datetime.now().isoformat(timespec="seconds"),
+        "rules_added": [c for c in prefs_changes if c.get("change_kind") == "add"],
+        "rules_removed": [c for c in prefs_changes if c.get("change_kind") == "remove"],
+        "feedback_summary": {
+            "total": len(feedback_rows),
+            "by_verdict": by_verdict,
+            "by_category": by_category,
+        },
+        "feedback_samples": feedback_rows[:20],
+        "working_memory": wm_summary,
+    }
 
 
 # ── T-177: Quality review console ───────────────────────────────

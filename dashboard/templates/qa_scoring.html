@@ -13,6 +13,21 @@
 
 <div class="px-4 py-4 max-w-5xl mx-auto" dir="rtl">
 
+    <!-- T-184 (Gap 4): session learning report — "what did the system
+         learn this session?" — collapsed by default, expands on click. -->
+    <details class="mb-4 bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+        <summary class="cursor-pointer px-4 py-2 text-xs text-[#a1a1aa] hover:text-[#e4e4e7] flex items-center gap-2">
+            <span>📊</span>
+            <span>מה המערכת למדה הסשן (24 שעות אחרונות)</span>
+            <span id="session-report-count" class="mr-auto text-[#71717a]"></span>
+        </summary>
+        <div class="px-4 py-3 border-t border-[#1f1f1f]">
+            <div id="session-report-body" class="text-xs text-[#a1a1aa] leading-relaxed">
+                <span class="text-[#71717a]">⏳ טוען...</span>
+            </div>
+        </div>
+    </details>
+
     <!-- T-181: proposal banner — surfaces a learned-rule candidate when
          enough rejections have accumulated. HITL by design: nothing
          lands in config/operator_prefs.md without the operator clicking
@@ -365,6 +380,65 @@ async function qaClearScored() {
         showToast('שגיאה: ' + e.message, 'error');
     }
 }
+
+// T-184 (Gap 4): session learning report — render summary inside the <details>.
+async function loadSessionReport() {
+    var body = document.getElementById('session-report-body');
+    var counter = document.getElementById('session-report-count');
+    if (!body) return;
+    try {
+        var r = await fetch('/api/operator-prefs/session-report');
+        if (!r.ok) {
+            body.innerHTML = '<span class="text-rose-300">שגיאה: HTTP ' + r.status + '</span>';
+            return;
+        }
+        var data = await r.json();
+        var rulesAdded = (data.rules_added || []).length;
+        var rulesRemoved = (data.rules_removed || []).length;
+        var fbTotal = (data.feedback_summary || {}).total || 0;
+        var fbBy = (data.feedback_summary || {}).by_verdict || {};
+        var fbRejected = fbBy.rejected || 0;
+        var fbAccepted = fbBy.accepted || 0;
+        if (counter) {
+            counter.textContent =
+                '· ' + rulesAdded + ' כללים חדשים · ' +
+                fbRejected + ' דחיות · ' + fbAccepted + ' אישורים';
+        }
+        var byCat = (data.feedback_summary || {}).by_category || {};
+        var catRows = Object.keys(byCat).sort().map(function(cat) {
+            var c = byCat[cat];
+            return '<div class="flex gap-2 text-[11px]"><span class="text-[#a1a1aa] min-w-[90px]">' + cat + '</span>' +
+                '<span class="text-rose-300">דחו ' + (c.rejected || 0) + '</span>' +
+                '<span class="text-emerald-300">אושרו ' + (c.accepted || 0) + '</span></div>';
+        }).join('');
+        var ruleList = (data.rules_added || []).map(function(c) {
+            var t = (c.after_excerpt || '').slice(0, 120);
+            return '<li class="text-[11px]"><span class="text-[#71717a]">[' + (c.source || '') + ']</span> ' + t + '</li>';
+        }).join('');
+        var wm = data.working_memory || {};
+        body.innerHTML =
+            '<div class="grid grid-cols-2 gap-3">' +
+                '<div>' +
+                    '<div class="text-[#fafafa] font-medium mb-1">כללים חדשים בסשן</div>' +
+                    (ruleList ? '<ul class="space-y-0.5 list-disc pr-4">' + ruleList + '</ul>' :
+                        '<div class="text-[11px] text-[#71717a]">אין שינויים</div>') +
+                '</div>' +
+                '<div>' +
+                    '<div class="text-[#fafafa] font-medium mb-1">משובים לפי קטגוריה</div>' +
+                    (catRows || '<div class="text-[11px] text-[#71717a]">אין משובים בסשן</div>') +
+                '</div>' +
+            '</div>' +
+            '<div class="mt-3 pt-2 border-t border-[#1f1f1f] text-[10px] text-[#71717a]">' +
+                'זיכרון עבודה: ' + (wm.global_size || 0) + ' פריטים גלובלי · ' +
+                ((wm.categories || []).length) + ' קטגוריות בקאש · מאז: ' +
+                (data.since || '').slice(0, 19) +
+            '</div>';
+    } catch (e) {
+        body.innerHTML = '<span class="text-rose-300">שגיאה: ' + (e.message || e) + '</span>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() { loadSessionReport(); });
 
 // T-181: proposal banner — poll the endpoint, show banner when a rule is ready.
 async function checkProposalBanner() {

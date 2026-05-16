@@ -290,6 +290,59 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
 
     # ── /qa-scoring page renders (banner smoke) ──
 
+    # ── T-184 (Gap 4): session-report endpoint ──
+
+    def test_session_report_returns_structured_summary(self):
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            # Seed a rejection + a teach so both surfaces have data.
+            client.post(
+                "/api/content-feedback",
+                json={
+                    "source": "test", "content_type": "discussion",
+                    "topic_key": "movies", "original_text": "bad draft for report",
+                    "verdict": "rejected", "reason": "test",
+                },
+            )
+            client.post(
+                "/api/operator-prefs/teach",
+                json={"rule": "SESSION_REPORT_TEST_RULE", "source": "test"},
+            )
+            r = client.get("/api/operator-prefs/session-report")
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertIn("since", data)
+            self.assertIn("now", data)
+            self.assertIn("rules_added", data)
+            self.assertIn("feedback_summary", data)
+            self.assertIn("working_memory", data)
+            # The just-inserted rule should appear in rules_added.
+            rule_texts = [
+                (c.get("after_excerpt") or "") for c in data["rules_added"]
+            ]
+            self.assertTrue(
+                any("SESSION_REPORT_TEST_RULE" in t for t in rule_texts),
+                rule_texts,
+            )
+            # Feedback summary should count the rejection.
+            self.assertGreaterEqual(data["feedback_summary"]["total"], 1)
+            self.assertGreaterEqual(
+                data["feedback_summary"]["by_verdict"].get("rejected", 0), 1,
+            )
+
+    def test_session_report_respects_since_filter(self):
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            client.post(
+                "/api/operator-prefs/teach",
+                json={"rule": "OLDER_RULE", "source": "test"},
+            )
+            # Query with a future timestamp → should see zero rules.
+            future = "2099-01-01T00:00:00"
+            r = client.get(f"/api/operator-prefs/session-report?since={future}")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["rules_added"], [])
+
     def test_qa_scoring_page_renders_with_banner_markup(self):
         with self._client()[0], self._client()[1] as client:
             self._login(client)
