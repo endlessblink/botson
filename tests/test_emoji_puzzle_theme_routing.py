@@ -19,6 +19,25 @@ def test_song_puzzle_asks_about_song_not_movie():
     assert "סרט" not in text and "סדרה" not in text, text
 
 
+def test_music_alias_routes_to_song_wording():
+    """Prod DB has rows with media_type='music' (non-canonical). The
+    formatter must still produce music wording, not the general fallback.
+    """
+    text = _format_puzzle_text(_puzzle("👑🎸🥁", "music"), 1, 5)
+    assert "שיר" in text or "אמן" in text, text
+    assert "סרט" not in text and "סדרה" not in text, text
+
+
+def test_tv_alias_routes_to_series_wording():
+    text = _format_puzzle_text(_puzzle("👨‍👩‍👧‍👦🏠", "tv"), 1, 3)
+    assert "סדרה" in text, text
+
+
+def test_movies_alias_routes_to_movie_wording():
+    text = _format_puzzle_text(_puzzle("🦁👑", "movies"), 1, 3)
+    assert "סרט" in text, text
+
+
 def test_movie_puzzle_asks_about_movie():
     text = _format_puzzle_text(_puzzle("🦁👑", "movie"), 2, 5)
     assert "סרט" in text, text
@@ -54,3 +73,51 @@ def test_header_includes_index_and_total():
 def test_emoji_prompt_is_present():
     text = _format_puzzle_text(_puzzle("👑🎸🥁", "song"), 1, 5)
     assert "👑🎸🥁" in text, text
+
+
+# ── Normalization endpoint coverage ──────────────────────────
+
+import asyncio  # noqa: E402
+
+from bot.database.db import Database  # noqa: E402
+
+
+def test_normalize_emoji_puzzle_media_types_rewrites_aliases():
+    async def run():
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.create_emoji_puzzle("👑🎸🥁", "Queen", "Queen", media_type="music")
+            await db.create_emoji_puzzle("📺", "Friends", "Friends", media_type="tv")
+            await db.create_emoji_puzzle("🦁", "Lion King", "Lion King", media_type="movies")
+            await db.create_emoji_puzzle("📖", "Hobbit", "Hobbit", media_type="general")
+            report = await db.normalize_emoji_puzzle_media_types()
+            after = report["after"]
+            return report, after
+        finally:
+            await db.close()
+
+    report, after = asyncio.run(run())
+    assert report["updated"] == 3, report
+    assert after.get("song") == 1, after
+    assert after.get("series") == 1, after
+    assert after.get("movie") == 1, after
+    assert after.get("general") == 1, after
+    assert "music" not in after and "tv" not in after and "movies" not in after, after
+
+
+def test_normalize_emoji_puzzle_media_types_is_idempotent():
+    async def run():
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.create_emoji_puzzle("👑🎸🥁", "Queen", "Queen", media_type="music")
+            first = await db.normalize_emoji_puzzle_media_types()
+            second = await db.normalize_emoji_puzzle_media_types()
+            return first, second
+        finally:
+            await db.close()
+
+    first, second = asyncio.run(run())
+    assert first["updated"] == 1
+    assert second["updated"] == 0, second

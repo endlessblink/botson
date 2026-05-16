@@ -1951,6 +1951,52 @@ class Database:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
+    # ── Emoji puzzle data hygiene (BUG-1, 2026-05-17) ────────
+
+    async def normalize_emoji_puzzle_media_types(self) -> dict:
+        """Rewrite legacy media_type aliases to canonical values.
+
+        Uses bot.utils.game_categories.EMOJI_PUZZLE_ALIASES as the single
+        source of truth. Returns {mappings, updated, before, after}.
+        Idempotent.
+        """
+        from ..utils.game_categories import EMOJI_PUZZLE_ALIASES
+
+        async with self._db.execute(
+            "SELECT media_type, COUNT(*) FROM emoji_puzzles GROUP BY media_type"
+        ) as cur:
+            before_rows = await cur.fetchall()
+        before = {str(r[0] or ""): int(r[1]) for r in before_rows}
+
+        applied: dict[str, str] = {}
+        total_updated = 0
+        for alias, canonical in EMOJI_PUZZLE_ALIASES.items():
+            if alias == canonical:
+                continue
+            async with self._db.execute(
+                "UPDATE emoji_puzzles SET media_type = ? WHERE media_type = ?",
+                (canonical, alias),
+            ) as cur:
+                changed = int(cur.rowcount or 0)
+            if changed:
+                applied[alias] = canonical
+                total_updated += changed
+        if total_updated:
+            await self._db.commit()
+
+        async with self._db.execute(
+            "SELECT media_type, COUNT(*) FROM emoji_puzzles GROUP BY media_type"
+        ) as cur:
+            after_rows = await cur.fetchall()
+        after = {str(r[0] or ""): int(r[1]) for r in after_rows}
+
+        return {
+            "mappings": applied,
+            "updated": total_updated,
+            "before": before,
+            "after": after,
+        }
+
     # ── AI suggest jobs (Gap 10: survive dashboard restarts) ──
 
     async def create_ai_suggest_job(

@@ -161,6 +161,25 @@ Every Hebrew string a user sees, every magic number that shapes UX, every fallba
 
 **Cross-references**: this rule consolidates and supersedes the narrower memories `feedback_no_hardcoded_slot_config.md` (slot config), `feedback_no_content_bias.md` (defaults bias), `feedback_no_default_toggles.md` (toggle bloat), `feedback_verify_before_claiming_done.md` (incomplete audits). Those remain as historical context; this section is the active rule.
 
+## Game category taxonomy (HARD RULE — applies to trivia, emoji, and every future game)
+
+**Every interactive game's category/media_type values flow through `bot/utils/game_categories.py`.** That module is the single source of truth for canonical tokens, alias normalization, and dashboard ↔ pool consistency. The BUG-1 (2026-05-17) class of regression — "the announcement says music but the questions ask about movies" — happens whenever a handler hardcodes per-category Hebrew strings or branches on raw category values without normalization.
+
+**Required when adding a new game (or new category to an existing game):**
+
+1. Add the canonical tuple + alias dict to `bot/utils/game_categories.py` (e.g., `EMOJI_PUZZLE_TAXONOMY`, `EMOJI_PUZZLE_ALIASES`, `canonical_emoji_media_type`). Aliases handle historical data drift.
+2. Put per-category user-facing wording (badge emoji, question line, headers) in `config/settings.yaml:copy.<game>.*` keyed by the canonical token. Never inline.
+3. Add the new game handler's basename to `GAME_HANDLER_PATTERNS` in `tests/test_no_hardcoded_game_categories.py` so the cross-game guardian protects it.
+4. At write boundaries (e.g., `POST /api/<game>s/create`), canonicalize before insert. The DB then carries only canonical tokens; the render layer's normalize is defense-in-depth.
+5. If legacy rows already exist with non-canonical values, add a one-shot `normalize_<game>_categories()` DB method (idempotent UPDATE) and expose it via `POST /api/<game>s/normalize-categories`. Re-runnable; no-op once clean.
+
+**Forbidden:**
+- Hardcoded category-specific Hebrew in any `bot/handlers/<game>*.py` (`איזה סרט`, `איזו סדרה`, `איזה שיר/אמן/ספר/משחק` …). The guardian test fails CI on these.
+- Per-handler duplicate alias dicts. There is exactly one alias map per game type, in `game_categories.py`.
+- Branching on raw category strings (`if media_type == "music":`) — always pipe through `canonical_<game>_*()` first.
+
+**Enforcement:** `tests/test_no_hardcoded_game_categories.py` scans every entry in `GAME_HANDLER_PATTERNS` for forbidden substrings + verifies the canonicalization helper is imported. `tests/test_emoji_puzzle_theme_routing.py` covers the render-layer alias coverage for emoji_puzzle specifically.
+
 ## Warm-up RSVP system
 
 Trivia and Emoji Night announcements use **`message_type="trivia_warmup_rsvp"`**. Calendar dispatch attaches an inline `🙋 אני בפנים!` button (callback `trivint_<scheduled_msg_id>`). Clicks are written to `trivia_interest_responses(scheduled_msg_id, user_id)`; when the count reaches `poll_options.min_ready_players`, a confirmation message fires in the warm-up topic.

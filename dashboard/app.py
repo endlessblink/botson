@@ -34,6 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from bot.database.db import Database
 from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.freshness import freshness_rejection
+from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
@@ -2441,7 +2442,7 @@ async def create_puzzle(request: Request, db: Database = Depends(get_db)):
         answer_en=answer_en,
         aliases=json.dumps(aliases, ensure_ascii=False),
         difficulty=int(data.get("difficulty", 2) or 2),
-        media_type=str(data.get("media_type") or "general").strip() or "general",
+        media_type=canonical_emoji_media_type(data.get("media_type")),
     )
     if "enabled" in data:
         await db.update_emoji_puzzle(puzzle_id, enabled=1 if data.get("enabled") else 0)
@@ -2458,6 +2459,10 @@ async def update_puzzle(puzzle_id: int, request: Request, db: Database = Depends
     for key in ("emoji_prompt", "answer_he", "answer_en", "media_type"):
         if key in data:
             fields[key] = str(data.get(key) or "").strip()
+    if "media_type" in fields:
+        # Normalize at the write boundary so the pool stays canonical even
+        # if the operator edits a row to a legacy alias (BUG-1).
+        fields["media_type"] = canonical_emoji_media_type(fields["media_type"])
     if "difficulty" in data:
         fields["difficulty"] = int(data.get("difficulty") or 2)
     if "enabled" in data:
@@ -2482,6 +2487,23 @@ async def delete_puzzle(puzzle_id: int, request: Request, db: Database = Depends
     if not changed:
         raise HTTPException(status_code=404, detail="puzzle not found")
     return {"status": "ok"}
+
+
+@app.post("/api/puzzles/normalize-media-types")
+async def normalize_puzzle_media_types(request: Request, db: Database = Depends(get_db)):
+    """One-shot (idempotent) data hygiene: rewrite legacy media_type aliases
+    on emoji_puzzles to the canonical taxonomy in
+    bot.utils.game_categories. Returns before/after counts and the
+    mappings actually applied. Re-runnable; no-op once the pool is clean.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    report = await db.normalize_emoji_puzzle_media_types()
+    logger.info(
+        "[puzzles.normalize] updated=%d mappings=%s before=%s after=%s",
+        report["updated"], report["mappings"], report["before"], report["after"],
+    )
+    return report
 
 
 @app.post("/api/puzzles/schedule")
