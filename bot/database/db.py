@@ -267,6 +267,7 @@ class Database:
         if count > 0 or not puzzles:
             return
 
+        from ..utils.game_categories import canonical_emoji_media_type
         for puzzle in puzzles:
             aliases = puzzle.get("aliases", []) or []
             await self._db.execute(
@@ -279,7 +280,7 @@ class Database:
                     puzzle["answer_en"],
                     json.dumps(aliases, ensure_ascii=False),
                     int(puzzle.get("difficulty", 2)),
-                    puzzle.get("media_type", "general"),
+                    canonical_emoji_media_type(puzzle.get("media_type", "general")),
                     1 if puzzle.get("enabled", True) else 0,
                     _now_il(),
                 ),
@@ -1110,7 +1111,14 @@ class Database:
         difficulty: int = 2,
         media_type: str = "general",
     ) -> int:
-        """Insert a new puzzle into the pool. `aliases` is a JSON-encoded list of strings."""
+        """Insert a new puzzle into the pool. `aliases` is a JSON-encoded list of strings.
+
+        BUG-1 chokepoint: media_type is canonicalized at the lowest write
+        layer so every caller (dashboard endpoints, bulk import, AI seed,
+        future paths) writes canonical values without needing to know.
+        """
+        from ..utils.game_categories import canonical_emoji_media_type
+        media_type = canonical_emoji_media_type(media_type)
         async with self._db.execute(
             """INSERT INTO emoji_puzzles
                (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, created_at)
@@ -1140,7 +1148,11 @@ class Database:
             return dict(row) if row else None
 
     async def update_emoji_puzzle(self, puzzle_id: int, **fields) -> bool:
-        """Update puzzle fields. Only known columns are applied."""
+        """Update puzzle fields. Only known columns are applied.
+
+        BUG-1 chokepoint: media_type is canonicalized at the lowest write
+        layer (same as create_emoji_puzzle).
+        """
         allowed = {
             "emoji_prompt", "answer_he", "answer_en", "aliases",
             "difficulty", "media_type", "enabled",
@@ -1148,6 +1160,9 @@ class Database:
         sets = {k: v for k, v in fields.items() if k in allowed}
         if not sets:
             return False
+        if "media_type" in sets:
+            from ..utils.game_categories import canonical_emoji_media_type
+            sets["media_type"] = canonical_emoji_media_type(sets["media_type"])
         cols = ", ".join(f"{k} = ?" for k in sets)
         params = list(sets.values()) + [puzzle_id]
         async with self._db.execute(

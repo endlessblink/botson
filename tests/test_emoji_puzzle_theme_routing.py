@@ -82,15 +82,29 @@ import asyncio  # noqa: E402
 from bot.database.db import Database  # noqa: E402
 
 
-def test_normalize_emoji_puzzle_media_types_rewrites_aliases():
+async def _insert_legacy_puzzle(db: Database, media_type: str) -> int:
+    """Bypass create_emoji_puzzle's canonicalization to seed legacy/dirty
+    rows the way prod has them. Simulates pre-fix data."""
+    async with db._db.execute(  # noqa: SLF001
+        "INSERT INTO emoji_puzzles (emoji_prompt, answer_he, answer_en, "
+        "aliases, difficulty, media_type, enabled, created_at) "
+        "VALUES ('x','x','x','[]', 2, ?, 1, datetime('now'))",
+        (media_type,),
+    ) as cur:
+        pid = cur.lastrowid
+    await db._db.commit()  # noqa: SLF001
+    return int(pid or 0)
+
+
+def test_normalize_emoji_puzzle_media_types_rewrites_legacy_aliases():
     async def run():
         db = Database(":memory:")
         await db.init()
         try:
-            await db.create_emoji_puzzle("👑🎸🥁", "Queen", "Queen", media_type="music")
-            await db.create_emoji_puzzle("📺", "Friends", "Friends", media_type="tv")
-            await db.create_emoji_puzzle("🦁", "Lion King", "Lion King", media_type="movies")
-            await db.create_emoji_puzzle("📖", "Hobbit", "Hobbit", media_type="general")
+            await _insert_legacy_puzzle(db, "music")
+            await _insert_legacy_puzzle(db, "tv")
+            await _insert_legacy_puzzle(db, "movies")
+            await _insert_legacy_puzzle(db, "general")
             report = await db.normalize_emoji_puzzle_media_types()
             after = report["after"]
             return report, after
@@ -106,12 +120,56 @@ def test_normalize_emoji_puzzle_media_types_rewrites_aliases():
     assert "music" not in after and "tv" not in after and "movies" not in after, after
 
 
+def test_create_emoji_puzzle_canonicalizes_at_db_layer():
+    """Chokepoint test: the Database method itself canonicalizes media_type,
+    so every caller (dashboard endpoints, bulk import, AI seed, future
+    paths) gets clean writes regardless of what they pass.
+    """
+    async def run():
+        db = Database(":memory:")
+        await db.init()
+        try:
+            pid_music = await db.create_emoji_puzzle("👑🎸🥁", "Queen", "Queen", media_type="music")
+            pid_tv = await db.create_emoji_puzzle("📺", "Friends", "Friends", media_type="tv")
+            pid_movies = await db.create_emoji_puzzle("🦁", "Lion", "Lion", media_type="movies")
+            pid_empty = await db.create_emoji_puzzle("🤷", "X", "X", media_type="")
+            rows = await db.list_emoji_puzzles()
+            by_id = {r["id"]: r["media_type"] for r in rows}
+            return by_id, pid_music, pid_tv, pid_movies, pid_empty
+        finally:
+            await db.close()
+
+    by_id, pid_music, pid_tv, pid_movies, pid_empty = asyncio.run(run())
+    assert by_id[pid_music] == "song", by_id
+    assert by_id[pid_tv] == "series", by_id
+    assert by_id[pid_movies] == "movie", by_id
+    assert by_id[pid_empty] == "general", by_id
+
+
+def test_update_emoji_puzzle_canonicalizes_at_db_layer():
+    """Same chokepoint for UPDATE: editing a row to a legacy alias must
+    still land in canonical form."""
+    async def run():
+        db = Database(":memory:")
+        await db.init()
+        try:
+            pid = await db.create_emoji_puzzle("👑", "Queen", "Queen", media_type="general")
+            await db.update_emoji_puzzle(pid, media_type="music")
+            row = await db.get_emoji_puzzle(pid)
+            return row
+        finally:
+            await db.close()
+
+    row = asyncio.run(run())
+    assert row["media_type"] == "song", row
+
+
 def test_normalize_emoji_puzzle_media_types_is_idempotent():
     async def run():
         db = Database(":memory:")
         await db.init()
         try:
-            await db.create_emoji_puzzle("👑🎸🥁", "Queen", "Queen", media_type="music")
+            await _insert_legacy_puzzle(db, "music")
             first = await db.normalize_emoji_puzzle_media_types()
             second = await db.normalize_emoji_puzzle_media_types()
             return first, second
