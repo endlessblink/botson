@@ -7725,11 +7725,24 @@ async def _llm_abstract_rules(feedback_rows: list[dict]) -> str:
         'פלט: 2-5 שורות בעברית, כל אחת מתחילה ב-"- ", בצורת הוראה אבסטרקטית. '
         "אל תצטט. אל תוסיף הסברים."
     )
+    # Try Claude CLI first (works without ANTHROPIC_API_KEY — the
+    # bot's other generations use this path). Fall back to the API
+    # only if the CLI isn't available. On total failure, return "" —
+    # NEVER fall back to deterministic verbatim concat.
+    raw = ""
     try:
-        raw = await _generate_via_api(prompt)
-    except Exception as e:
-        logger.warning("[abstract-rules] LLM call failed: %s", e)
-        return ""
+        raw = await _generate_via_cli(prompt)
+    except Exception as cli_err:
+        logger.info("[abstract-rules] CLI unavailable, trying API: %s", cli_err)
+        try:
+            raw = await _generate_via_api(prompt)
+        except Exception as api_err:
+            logger.warning(
+                "[abstract-rules] both CLI and API failed (cli=%s api=%s) — "
+                "returning empty, no fallback to verbatim concat",
+                cli_err, api_err,
+            )
+            return ""
     # Clean: keep only lines starting with "- ", trim other model chatter.
     lines = [
         ln.rstrip()

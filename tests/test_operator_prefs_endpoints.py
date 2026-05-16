@@ -57,6 +57,7 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
         # so tests can assert "the LLM path ran" without asserting on the
         # specific draft text (which would defeat the abstraction).
         self._orig_generate_via_api = dashboard_app._generate_via_api
+        self._orig_generate_via_cli = dashboard_app._generate_via_cli
 
         async def _mock_llm(prompt: str) -> str:
             # Echo the test's expected token if the prompt mentions it,
@@ -69,7 +70,9 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
                 return "- LLM_ABSTRACTED: כלל שנלמד מהדחייה (לא ציטוט מילולי)."
             return "- LLM_ABSTRACTED: כלל מופשט גנרי לבדיקה."
 
+        # Patch both — the production path tries CLI first, then API.
         dashboard_app._generate_via_api = _mock_llm
+        dashboard_app._generate_via_cli = _mock_llm
         # T-189: collapse debounce to ~instant for tests.
         self._orig_debounce = dashboard_app._ABSTRACTION_DEBOUNCE_SECONDS
         dashboard_app._ABSTRACTION_DEBOUNCE_SECONDS = 0.01
@@ -80,6 +83,7 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             {"section": None, "mtime": 0.0, "loaded_at": 0.0}
         )
         dashboard_app._generate_via_api = self._orig_generate_via_api
+        dashboard_app._generate_via_cli = self._orig_generate_via_cli
         dashboard_app._ABSTRACTION_DEBOUNCE_SECONDS = self._orig_debounce
         # Make sure any in-flight debounced task finishes before next test.
         task = dashboard_app._PENDING_ABSTRACTION_TASK

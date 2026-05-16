@@ -137,7 +137,7 @@ class LlmAbstractRulesShape(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await _llm_abstract_rules([]), "")
 
     async def test_llm_failure_returns_empty_not_fallback(self):
-        """When the LLM call raises, we must return '' — NOT fall back
+        """When both LLM paths fail, we must return '' — NOT fall back
         to a deterministic quote-the-text path."""
         sys.path.insert(0, str(REPO_ROOT))
         from unittest.mock import patch
@@ -147,8 +147,10 @@ class LlmAbstractRulesShape(unittest.IsolatedAsyncioTestCase):
             "verdict": "rejected", "topic_key": "movies", "content_type": "discussion",
         }]
         async def boom(prompt):
-            raise RuntimeError("simulated API failure")
-        with patch.object(dashboard_app, "_generate_via_api", boom):
+            raise RuntimeError("simulated LLM failure")
+        # Patch BOTH CLI and API — production tries CLI first, then API.
+        with patch.object(dashboard_app, "_generate_via_cli", boom), \
+             patch.object(dashboard_app, "_generate_via_api", boom):
             result = await dashboard_app._llm_abstract_rules(rows)
         self.assertEqual(result, "")  # NOT "אל תייצרו טקסט בסגנון..."
 
