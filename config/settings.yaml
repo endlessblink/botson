@@ -70,6 +70,25 @@ copy:
   activity_copy:
     emoji_warmup: "🧩 Emoji Night על {theme_label} מתחיל ב-{game_time}. {puzzle_count} חידות; לחצו 🙋 כדי להיכנס."
     emoji_warmup_reminder: "תזכורת קצרה: Emoji Night על {theme_label} מתחיל ב-{game_time}. אם אתם בפנים, לחצו 🙋 בהודעה המקורית."
+  # Per-puzzle text inside an Emoji Night round. Keyed by puzzle.media_type
+  # so a music round asks about songs, a book round asks about books, etc.
+  # Without these keys the per-puzzle prompt would default to movies/TV
+  # regardless of the announced theme (BUG-1, 2026-05-17).
+  emoji_puzzle:
+    header: "חידת אימוג'י {index}/{total}"
+    reply_hint: "השיבו ב-reply להודעה הזו. גם אם פספסתם חידה קודמת, היא עדיין פתוחה עד סוף המשחק."
+    badge_general: "🧩"
+    badge_movie: "🎬"
+    badge_tv: "📺"
+    badge_series: "📺"
+    badge_book: "📚"
+    badge_song: "🎵"
+    question_general: "מה זה?"
+    question_movie: "איזה סרט זה?"
+    question_tv: "איזו סדרה זו?"
+    question_series: "איזו סדרה זו?"
+    question_book: "איזה ספר זה?"
+    question_song: "איזה שיר או אמן זה?"
   time_context:
     day_names:
     - "ראשון"

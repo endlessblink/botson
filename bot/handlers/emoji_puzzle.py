@@ -17,6 +17,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
 from ..utils.config import GROUP_ID, TEST_GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
+from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name, is_bot_user
 from ..utils.levels import check_level_up
 from ..utils.scoring import get_points
@@ -80,11 +81,21 @@ def _format_intro_text(puzzle_count: int, theme_label: str | None = None) -> str
 
 
 def _format_puzzle_text(puzzle: dict, index: int, total: int) -> str:
+    media = str(puzzle.get("media_type") or "general").strip().lower() or "general"
+    # Fall back to the "general" variant when the round uses a media_type
+    # for which no specific copy is registered (e.g., a new category added
+    # to puzzles.html without a matching copy.emoji_puzzle.* key).
+    badge_general = load_copy("emoji_puzzle", "badge_general")
+    question_general = load_copy("emoji_puzzle", "question_general")
+    badge = load_copy("emoji_puzzle", f"badge_{media}", default=badge_general)
+    question = load_copy("emoji_puzzle", f"question_{media}", default=question_general)
+    header = load_copy("emoji_puzzle", "header", index=index, total=total)
+    reply_hint = load_copy("emoji_puzzle", "reply_hint")
     return (
-        f"🎬 חידת אימוג'י {index}/{total}\n\n"
+        f"{badge} {header}\n\n"
         f"{puzzle['emoji_prompt']}\n\n"
-        "איזה סרט או סדרה זה?\n"
-        "השיבו ב-reply להודעה הזו. גם אם פספסתם חידה קודמת, היא עדיין פתוחה עד סוף המשחק."
+        f"{question}\n"
+        f"{reply_hint}"
     )
 
 

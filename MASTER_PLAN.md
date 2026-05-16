@@ -1807,3 +1807,10 @@ Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, 
 | Scheduler | APScheduler |
 | Config | YAML files |
 | Hosting | Railway or Render |
+
+
+### BUG-1: Emoji game serves questions from a different category than announced
+
+**Priority**: P0
+**Status**: Backlog
+
