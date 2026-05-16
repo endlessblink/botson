@@ -358,6 +358,52 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
                           "excluded_scheduled", "usable", "exhausted"):
                     self.assertIn(k, p)
 
+    # ── T-187 (Gap 2): promote-feedback endpoint ──
+
+    def test_promote_feedback_appends_rule_immediately(self):
+        """A single rejection becomes a permanent rule via /promote-feedback
+        — no N=5 wait. Reuses _summarize_feedback_to_guidance and the
+        same write path as /apply-proposal."""
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            # Seed one detailed rejection with a non-trivial reason (this is
+            # the realistic case Gap 2 was built for).
+            fb = client.post(
+                "/api/content-feedback",
+                json={
+                    "source": "planner_ai_suggest", "content_type": "discussion",
+                    "topic_key": "vegan",
+                    "original_text": "PROMOTE_TEST — בדיקת קידום",
+                    "verdict": "rejected",
+                    "reason": "good direction but bad wording — instead of סל maybe מקרר?",
+                },
+            )
+            self.assertEqual(fb.status_code, 200, fb.text)
+            feedback_id = fb.json()["id"]
+            # Promote it.
+            r = client.post(f"/api/operator-prefs/promote-feedback/{feedback_id}")
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["feedback_id"], feedback_id)
+            self.assertGreater(data["appended_chars"], 0)
+            # File must contain the rejection's text or reason.
+            text = self.prefs_path.read_text(encoding="utf-8")
+            self.assertIn("planner deny → promote-now", text)
+            # The summary must include the operator's reason.
+            self.assertIn("bad wording", text)
+
+    def test_promote_feedback_404_for_unknown_id(self):
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.post("/api/operator-prefs/promote-feedback/999999")
+            self.assertEqual(r.status_code, 404, r.text)
+
+    def test_promote_feedback_requires_auth(self):
+        with self._client()[0], self._client()[1] as client:
+            r = client.post("/api/operator-prefs/promote-feedback/1")
+            self.assertEqual(r.status_code, 401)
+
     def test_qa_scoring_page_renders_with_banner_markup(self):
         with self._client()[0], self._client()[1] as client:
             self._login(client)

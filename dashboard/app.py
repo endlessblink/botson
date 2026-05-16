@@ -7734,6 +7734,82 @@ async def operator_prefs_apply_proposal(request: Request, db: Database = Depends
     return {"ok": True, "appended_chars": len(guidance), "source_feedback_ids": source_ids}
 
 
+# T-187 (Gap 2): promote-now — convert a single feedback row into a
+# durable rule immediately, bypassing the N=5 threshold. Reuses the
+# existing apply-proposal write path so universality lives in exactly
+# one place (the Hebrew rules section of config/operator_prefs.md).
+
+
+@app.post("/api/operator-prefs/promote-feedback/{feedback_id}")
+async def operator_prefs_promote_feedback(
+    feedback_id: int,
+    request: Request,
+    db: Database = Depends(get_db),
+):
+    """Take one content_feedback row and append it directly to the
+    Hebrew content rules as a learned directive. No threshold gate.
+    Used by the planner deny modal's "promote now" checkbox so a
+    single high-signal rejection (e.g., one with detailed reason text)
+    becomes a permanent rule in the same flow.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    # Fetch the row by id.
+    rows = await db.list_content_feedback(limit=500)
+    row = next((r for r in rows if int(r.get("id") or 0) == int(feedback_id)), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"feedback id {feedback_id} not found")
+    guidance = _summarize_feedback_to_guidance([row]).strip()
+    if not guidance:
+        raise HTTPException(status_code=400,
+                            detail="feedback row lacks usable text (no reason / original_text)")
+    # Append to operator_prefs.md under the Hebrew section, with citation.
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cannot read prefs file: {e}")
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        raise HTTPException(status_code=500, detail="Hebrew content rules section not found")
+    before, section_body, rest = parts
+    today = datetime.now().strftime("%Y-%m-%d")
+    citation = (
+        f"\n  _**Source:** planner deny → promote-now, {today}, "
+        f"feedback id {feedback_id} (topic={row.get('topic_key') or '-'}, "
+        f"type={row.get('content_type')})_\n"
+    )
+    new_text = before + section_body.rstrip() + "\n\n" + guidance + citation + rest
+    _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+    _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+    _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    # Track the consumed feedback id so /proposed-rule's counter resets.
+    try:
+        new_id = await db.insert_style_profile(
+            profile_key="planner_hebrew_default",
+            guidance=f"[promote-now {today} — text in operator_prefs.md]",
+            source_feedback_ids=json.dumps([int(feedback_id)], ensure_ascii=False),
+            status="draft",
+        )
+        await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
+    except Exception as e:
+        logger.warning("[promote-now] style-profile bookkeeping failed: %s", e)
+    # Audit trail.
+    try:
+        await db.record_prefs_change(
+            source="promote-now", section="Hebrew content rules", change_kind="add",
+            before_excerpt=None, after_excerpt=guidance[:500],
+            source_feedback_ids=json.dumps([int(feedback_id)], ensure_ascii=False),
+        )
+    except Exception as e:
+        logger.warning("[promote-now] audit-row insert failed: %s", e)
+    return {
+        "ok": True,
+        "appended_chars": len(guidance),
+        "feedback_id": int(feedback_id),
+        "guidance_preview": guidance[:200],
+    }
+
+
 @app.post("/api/operator-prefs/teach")
 async def operator_prefs_teach(request: Request, db: Database = Depends(get_db)):
     """Append a single operator-supplied rule line (with citation) to the
