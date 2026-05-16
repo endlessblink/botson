@@ -179,6 +179,10 @@
             if (data && method !== 'GET') opts.body = JSON.stringify(data);
             const res = await fetch(url, opts);
             if (!res.ok) {
+                if (res.status === 401) {
+                    setTimeout(function () { window.location.href = '/login'; }, 800);
+                    throw new Error('פג תוקף ההתחברות. מעביר למסך התחברות...');
+                }
                 let detail = '';
                 try {
                     const payload = await res.json();

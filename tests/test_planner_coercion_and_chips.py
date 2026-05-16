@@ -125,6 +125,7 @@ class TestTriviaCoercion(unittest.TestCase):
 
 class FakeCalendarRequest:
     session = {"authenticated": True}
+    headers = {"content-type": "application/json"}
 
     def __init__(self, body):
         self._body = body
@@ -661,6 +662,30 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(suggest.await_args.kwargs["target_date"])
         self.assertEqual(suggest.await_args.kwargs["week_offset"], 0)
 
+    async def test_ai_suggest_cancel_stops_running_job(self):
+        db = Database(":memory:")
+        await db.init()
+        dashboard_app._AI_SUGGEST_JOBS.clear()
+        started_event = asyncio.Event()
+
+        async def slow_suggest(*args, **kwargs):
+            started_event.set()
+            await asyncio.sleep(60)
+
+        try:
+            with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(side_effect=slow_suggest)):
+                started = await dashboard_app.ai_suggest(FakeCalendarRequest({"target_date": "2099-01-01"}), db)
+                await asyncio.wait_for(started_event.wait(), timeout=1)
+                cancelled = await dashboard_app.ai_suggest_cancel(started["job_id"], FakeCalendarRequest({}))
+                await asyncio.sleep(0)
+                status = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+        finally:
+            await db.close()
+            dashboard_app._AI_SUGGEST_JOBS.clear()
+
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(status["status"], "cancelled")
+
     async def test_calendar_api_does_not_render_static_pool_preview_events(self):
         db = Database(":memory:")
         await db.init()
@@ -723,6 +748,85 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(by_id[failed_id]["willSend"])
         self.assertEqual(by_id[failed_id]["diagnosticLabel"], "נכשל")
         self.assertIn("telegram rejected", by_id[failed_id]["diagnosticDetail"])
+
+    async def test_calendar_will_send_events_have_exactly_one_scheduled_row(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            scheduled_id = await db.create_scheduled_message(
+                text="sendable row",
+                message_type="morning",
+                channel_topic_id=2184,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="09:00",
+                status="scheduled",
+            )
+            draft_id = await db.create_scheduled_message(
+                text="draft row",
+                message_type="discussion",
+                channel_topic_id=54,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="18:00",
+                status="draft",
+            )
+            sent_id = await db.create_scheduled_message(
+                text="sent row",
+                message_type="evening",
+                channel_topic_id=2184,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="21:00",
+                status="scheduled",
+            )
+            await db.mark_message_sent(sent_id, 123)
+            skipped_id = await db.create_scheduled_message(
+                text="skipped row",
+                message_type="custom",
+                channel_topic_id=341,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="22:00",
+                status="scheduled",
+            )
+            await db.mark_message_skipped(skipped_id, "operator skipped")
+            failed_id = await db.create_scheduled_message(
+                text="failed row",
+                message_type="custom",
+                channel_topic_id=341,
+                target_group="main",
+                scheduled_date="2099-01-04",
+                scheduled_time="23:00",
+                status="scheduled",
+            )
+            await db.mark_message_failed(failed_id, "telegram rejected")
+
+            events = await dashboard_app.get_calendar(
+                FakeQueryRequest({"start": "2099-01-04", "end": "2099-01-05"}),
+                db,
+            )
+            sendable = [event for event in events if event["extendedProps"].get("willSend")]
+            for event in sendable:
+                async with db._db.execute(
+                    "SELECT COUNT(*) AS count FROM scheduled_messages WHERE id = ? AND status = 'scheduled'",
+                    (int(event["id"]),),
+                ) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["count"], 1, event)
+        finally:
+            await db.close()
+
+        self.assertEqual([int(event["id"]) for event in sendable], [scheduled_id])
+        by_id = {int(event["id"]): event["extendedProps"] for event in events if not str(event["id"]).startswith("preview-")}
+        self.assertFalse(by_id[draft_id]["willSend"])
+        self.assertFalse(by_id[sent_id]["willSend"])
+        self.assertFalse(by_id[skipped_id]["willSend"])
+        self.assertFalse(by_id[failed_id]["willSend"])
+        for event in events:
+            if str(event["id"]).startswith("preview-"):
+                self.assertFalse(event["extendedProps"].get("willSend"))
+                self.assertEqual(event["extendedProps"].get("diagnosticLabel"), "תצוגה בלבד")
 
     async def test_bot_reload_materializer_generates_fresh_auto_content(self):
         db = Database(":memory:")
@@ -975,7 +1079,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             await db.init()
             try:
                 msg_id = await db.create_scheduled_message(
-                    text="old ai draft",
+                    text="🎬 סרט שראיתם לבד והפתיע אתכם לטובה?",
                     message_type="discussion",
                     channel_topic_id=59,
                     target_group="main",
@@ -1001,6 +1105,70 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(row["scheduled_date"], "2099-01-02")
                 self.assertEqual(row["scheduled_time"], "20:00")
                 self.assertEqual(row["status"], "scheduled")
+            finally:
+                await db.close()
+
+    async def test_review_schedule_rejects_existing_low_quality_draft(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                msg_id = await db.create_scheduled_message(
+                    text="ערב טוב 🌙 איך היה היום? ספרו דבר אחד טוב שקרה",
+                    message_type="evening",
+                    channel_topic_id=2184,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="21:00",
+                    status="draft",
+                    created_by="ai-fill-today",
+                )
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await dashboard_app.schedule_calendar_item(
+                        msg_id,
+                        FakeCalendarRequest({"scheduled_date": "2099-01-01", "scheduled_time": "21:00"}),
+                        db,
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 422)
+                self.assertEqual(ctx.exception.detail["error"], "quality_rejected")
+                self.assertIn("concrete_failure_generic_day_checkin", ctx.exception.detail["failures"])
+                async with db._db.execute("SELECT status FROM scheduled_messages WHERE id = ?", (msg_id,)) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["status"], "draft")
+            finally:
+                await db.close()
+
+    async def test_put_approval_rejects_existing_low_quality_draft_without_text_payload(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                msg_id = await db.create_scheduled_message(
+                    text="סרט שראיתם יותר מ-3 פעמים?",
+                    message_type="discussion",
+                    channel_topic_id=54,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="18:00",
+                    status="draft",
+                    created_by="ai-fill-today",
+                )
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await dashboard_app.update_calendar_item(
+                        msg_id,
+                        FakeCalendarRequest({"status": "scheduled", "scheduled_time": "18:00"}),
+                        db,
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 422)
+                self.assertEqual(ctx.exception.detail["error"], "quality_rejected")
+                self.assertIn("concrete_failure_generic_movie_rewatch", ctx.exception.detail["failures"])
+                async with db._db.execute("SELECT status FROM scheduled_messages WHERE id = ?", (msg_id,)) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["status"], "draft")
             finally:
                 await db.close()
 
@@ -1903,9 +2071,15 @@ class TestPlannerTemplateExposure(unittest.TestCase):
     def test_draft_approval_checks_failed_http_response(self):
         planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
         self.assertIn("if (!resp.ok)", planner_html)
-        self.assertIn("throw new Error", planner_html)
+        self.assertIn("apiErrorMessage", planner_html)
 
         self.assertIn("'custom','poll'", planner_html)
+
+    def test_review_modal_surfaces_quality_failures(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        self.assertIn("props.qualityFailures", planner_html)
+        self.assertIn("review-quality-warning", planner_html)
+        self.assertIn("טיוטה נדחתה בבדיקת איכות", planner_html)
 
     def test_review_schedule_sends_date_and_uses_local_date_formatter(self):
         planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
@@ -2148,9 +2322,27 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "suggest status polling endpoint url missing in JS",
         )
         self.assertIn(
+            "'/api/weekplan/ai-suggest/' + encodeURIComponent(_aiSuggestState.jobId) + '/cancel'", self.html,
+            "suggest cancel endpoint url missing in JS",
+        )
+        self.assertIn(
             "statusData.status === 'completed'", self.html,
             "suggest modal must poll until background generation completes",
         )
+        self.assertIn(
+            "statusData.status === 'cancelled'", self.html,
+            "suggest modal must stop polling when backend job is cancelled",
+        )
+
+    def test_suggest_modal_surfaces_and_unchecks_quality_failures(self):
+        self.assertIn("s.quality_failures", self.html)
+        self.assertIn("בעיות איכות", self.html)
+        self.assertIn("איכות תקינה", self.html)
+        self.assertIn("_aiSuggestState.checked[s.key] = !((s.quality_failures || []).length)", self.html)
+
+    def test_planner_handles_expired_auth_without_raw_unauthorized(self):
+        self.assertIn("פג תוקף ההתחברות", self.html)
+        self.assertIn("window.location.href = '/login'", self.html)
 
     def test_trivia_form_defaults_not_hardcoded_to_israel(self):
         self.assertNotIn('id="trivia-theme" type="text" value="ישראל"', self.html)
@@ -2200,11 +2392,19 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         block = self.html[content_start:content_start + 1800]
         self.assertIn("תצוגה בלבד", block)
         self.assertIn("יישלח", block)
+        self.assertIn("טיוטה", block)
+        self.assertIn("נשלח", block)
+        self.assertIn("נכשל", block)
+        self.assertIn("דולג", block)
         self.assertIn("event-chip-state", block)
         mount_start = self.html.index("eventDidMount: function(info)")
         mount_block = self.html[mount_start:mount_start + 1000]
+        self.assertIn("תצוגה בלבד — לא יישלח עד שמירה", mount_block)
         self.assertIn("מתוזמן — ייבדק על ידי הסקזולר", mount_block)
         self.assertIn("טיוטה — לא תישלח אוטומטית", mount_block)
+        self.assertIn("נשלח", mount_block)
+        self.assertIn("נכשל", mount_block)
+        self.assertIn("דולג", mount_block)
         self.assertIn("props.diagnosticDetail", mount_block)
 
     def test_create_preview_never_renders_fake_rsvp_buttons(self):

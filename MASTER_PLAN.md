@@ -161,8 +161,8 @@
 | T-156 | 27 | E2E lane: scheduler due-row lifecycle proof | DONE | P0 | T-152 |
 | T-157 | 27 | E2E lane: send-now vs scheduler parity | DONE | P1 | T-156 |
 | T-158 | 27 | E2E lane: failure visibility diagnostics | DONE | P1 | T-153, T-156 |
-| T-159 | 27 | E2E lane: Sherlocks Den smoke harness | TODO | P1 | T-153..T-158 |
-| T-160 | 27 | E2E lane: one-command local/CI gate | TODO | P1 | T-153..T-159 |
+| T-159 | 27 | E2E lane: Sherlocks Den smoke harness | DONE | P1 | T-153..T-158 |
+| T-160 | 27 | E2E lane: one-command local/CI gate | DONE | P1 | T-153..T-159 |
 | T-161 | 27 | E2E lane: audit remaining dashboards | TODO | P2 | T-152 |
 | T-162 | 28 | Question quality review queue | IN PROGRESS | P0 | T-134, T-135 |
 | T-163 | 28 | Draft review quality approval loop | IN PROGRESS | P0 | T-162 |
@@ -212,8 +212,8 @@ Active queues should reflect what to work on next, not historical shipped phases
 - **T-156** — Scheduler due-row lifecycle proof (DONE, P0) — due scheduled row -> mocked Telegram send -> sent/failed/skipped terminal state -> dashboard visibility.
 - **T-157** — Send-now vs scheduler parity (DONE, P1) — contract tests for shared behavior and documented differences across event/poll/trivia/emoji/facts/weekly rows.
 - **T-158** — Failure visibility diagnostics (DONE, P1) — failed/skipped/stale/missing-topic cases must be visible in calendar and diagnostics endpoints without log reading.
-- **T-159** — Sherlocks Den smoke harness (TODO, P1) — production-safe dry-run that sends only to Den, records row ID/status/message ID, and never touches main chat.
-- **T-160** — One-command local/CI gate (TODO, P1) — stable command that runs the trust E2E suite, browser smoke, guardian, and scheduler contracts.
+- **T-159** — Sherlocks Den smoke harness (DONE, P1) — production-safe dry-run that sends only to Den, records row ID/status/message ID, and never touches main chat.
+- **T-160** — One-command local/CI gate (DONE, P1) — `scripts/run_control_surface_e2e.py` bundles the trust-lane pytest files, supporting planner/calendar contracts, the hardcoded-content guardian, and the Den smoke dry-run. JSON output via `--json` for CI parsing. — stable command that runs the trust E2E suite, browser smoke, guardian, and scheduler contracts.
 - **T-161** — Audit remaining dashboards (TODO, P2) — repeat `control-surface-audit` for puzzles/trivia, settings/config, moderation, content pools, and onboarding.
 
 ## Detailed Tasks
@@ -357,7 +357,7 @@ Verification:
 ---
 
 #### T-159: E2E lane: Sherlocks Den smoke harness
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158
 
 Create a production-safe dry-run harness that proves the full lane against Sherlocks Den only.
 
@@ -378,7 +378,7 @@ Verification:
 ---
 
 #### T-160: E2E lane: one-command local/CI gate
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158, T-159
+**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158, T-159
 
 Bundle the trust suite into one reliable command that can run locally and in CI-like checks.
 

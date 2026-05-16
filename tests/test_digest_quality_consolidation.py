@@ -97,6 +97,15 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("מה הכי הפתיע אתכם בעצמכם מאז שנכנסתם לשלב הסינגלות הנוכחי?", "concrete_failure_bad_singles_wording"),
             ("🌱 בשעה שהמטבח כבר קר — מה הדבר הכי פשוט שאתם אוכלים שהוא בקרוב צמחי, בלי שתכננתם?", "concrete_failure_unclear_vegan_late_food"),
             ("🌱 בשעה שהמטבח כבר קר — מה הדבר הכי פשוט שאתם אוכלים שהוא בקרוב צמחי, בלי שתכננתם?", "concrete_failure_bad_vegan_hebrew"),
+            ("בוקר טוב 🌞 מה 3 הדברים שאתם רוצים לסמן כ-Done היום?", "english_jargon:Done"),
+            ("ערב טוב 🌙 איך היה היום? ספרו דבר אחד טוב שקרה", "concrete_failure_generic_day_checkin"),
+            ("ערב! ✨ מה הרגע הכי שווה מהיום?", "concrete_failure_generic_day_highlight"),
+            ("🌙 מה עשיתם היום בשביל עצמכם?", "concrete_failure_generic_self_care"),
+            ("אם הייתם יכולים לחיות בעולם של סדרה/משחק/ספר, איזה?", "concrete_failure_generic_fandom_fantasy"),
+            ("סרט שראיתם יותר מ-3 פעמים?", "concrete_failure_generic_movie_rewatch"),
+            ("שישי בילוי — מה אתם עושים בערב כשמתם לעצמכם משהו שרק עכשיו יש זמן בשבילו?", "concrete_failure_generic_evening_plan"),
+            ("שישי בבוקר — קפה בידיים, הלפטופ עוד סגור. מה הדבר הראשון שבא לכם לסיים?", "concrete_failure_generic_morning_laptop"),
+            ("מה אתם עושים בערב שישי שמבחינתכם צריך להישמר לצד — וואו גיליתם שלבד עדיף?", "concrete_failure_singles_smug_framing"),
         ]
         for text, expected in cases:
             with self.subTest(text=text):

@@ -52,7 +52,9 @@ class PlannerVisualTests(unittest.TestCase):
         # Bring up the dashboard on a random port so this test runs even if
         # 8080 is in use. Reuse the project venv's python.
         cls.port = _free_port()
-        env = {**os.environ, "DASHBOARD_PORT": str(cls.port)}
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        cls.db_path = str(Path(cls.tmpdir.name) / "planner-visual.db")
+        env = {**os.environ, "DASHBOARD_PORT": str(cls.port), "DB_PATH": cls.db_path}
         cls.log = tempfile.NamedTemporaryFile(suffix=".log", delete=False, mode="w")
         venv_python = Path(".venv/bin/python")
         python_bin = str(venv_python) if venv_python.exists() else sys.executable
@@ -95,6 +97,8 @@ class PlannerVisualTests(unittest.TestCase):
                 cls.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 cls.proc.kill()
+        if getattr(cls, "tmpdir", None):
+            cls.tmpdir.cleanup()
 
     def _open_planner(self, ctx):
         page = ctx.new_page()
@@ -184,6 +188,160 @@ class PlannerVisualTests(unittest.TestCase):
                     page.locator("#ai-suggest-facts-btn").count(), 0,
                     "🔎 facts button is back — it should be folded into Populate",
                 )
+            finally:
+                browser.close()
+
+    def test_create_drawer_type_switches_do_not_leak_state(self):
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            try:
+                page, js_errors = self._open_planner(ctx)
+                page.evaluate(
+                    """
+                    () => {
+                        openDrawer('2099-01-04');
+                        selectType('morning');
+                        wizardState.text = 'generated morning text that must not leak';
+                        wizardState.coverPath = 'covers/leak.jpg';
+                        wizardState.coverUrl = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+                        document.getElementById('create-text').value = wizardState.text;
+                        renderPreview();
+                    }
+                    """
+                )
+                page.evaluate("selectType('event')")
+                page.wait_for_timeout(200)
+                event_after_morning = page.evaluate(
+                    """
+                    () => {
+                        renderPreview();
+                        return {
+                            type: wizardState.type,
+                            text: wizardState.text,
+                            coverUrl: wizardState.coverUrl,
+                            coverHidden: document.getElementById('preview-cover').classList.contains('hidden'),
+                            rsvpHidden: document.getElementById('preview-rsvp').classList.contains('hidden'),
+                            rsvpText: document.getElementById('preview-rsvp').textContent,
+                            previewText: document.getElementById('create-preview').textContent,
+                        };
+                    }
+                    """
+                )
+                self.assertEqual(event_after_morning["type"], "event")
+                self.assertEqual(event_after_morning["text"], "")
+                self.assertIsNone(event_after_morning["coverUrl"])
+                self.assertTrue(event_after_morning["coverHidden"])
+                self.assertTrue(event_after_morning["rsvpHidden"])
+                self.assertEqual(event_after_morning["rsvpText"], "")
+                self.assertNotIn("generated morning text", event_after_morning["previewText"])
+
+                page.evaluate(
+                    """
+                    () => {
+                        wizardState.text = 'event text';
+                        wizardState.eventLocation = 'leaky venue';
+                        wizardState.eventMaxAttendees = 9;
+                        document.getElementById('event-location').value = wizardState.eventLocation;
+                        document.getElementById('event-max').value = String(wizardState.eventMaxAttendees);
+                        renderPreview();
+                    }
+                    """
+                )
+                page.evaluate("selectType('poll')")
+                page.wait_for_timeout(200)
+                poll_after_event = page.evaluate(
+                    """
+                    () => {
+                        renderPreview();
+                        return {
+                            type: wizardState.type,
+                            text: wizardState.text,
+                            eventLocation: wizardState.eventLocation,
+                            eventMaxAttendees: wizardState.eventMaxAttendees,
+                            eventInfoHidden: document.getElementById('preview-event-info').classList.contains('hidden'),
+                            eventLocationInput: document.getElementById('event-location').value,
+                            eventMaxInput: document.getElementById('event-max').value,
+                            pollOptions: wizardState.pollOptions.slice(),
+                        };
+                    }
+                    """
+                )
+                self.assertEqual(poll_after_event["type"], "poll")
+                self.assertEqual(poll_after_event["text"], "")
+                self.assertEqual(poll_after_event["eventLocation"], "")
+                self.assertIsNone(poll_after_event["eventMaxAttendees"])
+                self.assertTrue(poll_after_event["eventInfoHidden"])
+                self.assertEqual(poll_after_event["eventLocationInput"], "")
+                self.assertEqual(poll_after_event["eventMaxInput"], "")
+                self.assertEqual(poll_after_event["pollOptions"], ["", ""])
+
+                page.evaluate(
+                    """
+                    () => {
+                        wizardState.pollOptions = ['yes leak', 'no leak'];
+                        renderPreview();
+                    }
+                    """
+                )
+                page.evaluate("selectType('morning')")
+                page.wait_for_timeout(200)
+                morning_after_poll = page.evaluate(
+                    """
+                    () => {
+                        renderPreview();
+                        return {
+                            type: wizardState.type,
+                            pollOptions: wizardState.pollOptions.slice(),
+                            pollPreviewHidden: document.getElementById('preview-poll-options').classList.contains('hidden'),
+                            pollPreviewText: document.getElementById('preview-poll-options').textContent,
+                        };
+                    }
+                    """
+                )
+                self.assertEqual(morning_after_poll["type"], "morning")
+                self.assertEqual(morning_after_poll["pollOptions"], ["", ""])
+                self.assertTrue(morning_after_poll["pollPreviewHidden"])
+                self.assertNotIn("yes leak", morning_after_poll["pollPreviewText"])
+
+                page.evaluate(
+                    """
+                    () => {
+                        selectType('custom');
+                        wizardState.text = 'custom text that must not become an event';
+                        wizardState.coverPath = 'covers/custom.jpg';
+                        wizardState.coverUrl = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+                        renderPreview();
+                    }
+                    """
+                )
+                page.evaluate("selectType('event')")
+                page.wait_for_timeout(200)
+                event_after_custom = page.evaluate(
+                    """
+                    () => {
+                        renderPreview();
+                        return {
+                            type: wizardState.type,
+                            text: wizardState.text,
+                            coverUrl: wizardState.coverUrl,
+                            coverHidden: document.getElementById('preview-cover').classList.contains('hidden'),
+                            rsvpHidden: document.getElementById('preview-rsvp').classList.contains('hidden'),
+                            rsvpText: document.getElementById('preview-rsvp').textContent,
+                            previewText: document.getElementById('create-preview').textContent,
+                        };
+                    }
+                    """
+                )
+                self.assertEqual(event_after_custom["type"], "event")
+                self.assertEqual(event_after_custom["text"], "")
+                self.assertIsNone(event_after_custom["coverUrl"])
+                self.assertTrue(event_after_custom["coverHidden"])
+                self.assertTrue(event_after_custom["rsvpHidden"])
+                self.assertEqual(event_after_custom["rsvpText"], "")
+                self.assertNotIn("custom text", event_after_custom["previewText"])
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
             finally:
                 browser.close()
 
