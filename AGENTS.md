@@ -1,5 +1,15 @@
 # Agent Notes
 
+## ⚠ DESIGN PRINCIPLE — Autonomous learning, not operator-as-rule-author
+
+The operator (Noam) wants dynamic learning from feedback signals — NOT to manually propose rules one-by-one. Default behavior on any operator-action (rejection / score=1 / deny+reason): the system auto-extracts a rule and persists it. Operator's role is *correct after the fact* (one-click undo), not *approve before the fact*.
+
+**Don't build:** promote-now checkboxes, N=K silent-threshold banners that wait, manual diff-review UIs, any flow whose default is "wait for the operator to formalize the rule."
+
+**Do build:** auto-promote substantive rejections (>15 chars reason OR corrected_text OR English-mixed Hebrew commentary), visible toast after, one-click undo. Reversibility (not gate-keeping) addresses the research's "silent rule install" concern.
+
+**Why:** the operator explicitly said this multiple times on 2026-05-16. Research consensus on operator-approved writes is for massive-scale RLHF — for single-operator product, the operator IS ground truth, and auto-learn with undo is the right tradeoff. See CLAUDE.md for full rationale.
+
 ## Canonical operator preferences
 
 **Single source of truth for operator-learned preferences: `config/operator_prefs.md`** (T-181, 2026-05-16).

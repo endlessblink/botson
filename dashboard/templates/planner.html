@@ -1007,14 +1007,14 @@
         <div class="px-5 py-4">
             <div id="rtl-prompt-presets" class="flex flex-wrap gap-2 mb-3"></div>
             <textarea id="rtl-prompt-input" rows="3" class="w-full bg-[#0a0a0a] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] resize-none focus:outline-none focus:border-rose-500/60" dir="rtl" placeholder="(אופציונלי) למה דחית? למשל: נישתי מדי, לא מתאים לערוץ, גנרי, חוזר על עצמו..."></textarea>
-            <!-- T-187 (Gap 2): promote-now checkbox — convert this single rejection
-                 into a permanent rule immediately, bypassing the N=5 threshold.
-                 Use when the rejection reason carries durable insight (e.g.
-                 "good direction but bad wording — מקרר not סל"). -->
-            <label class="flex items-center gap-2 mt-3 text-xs text-amber-200/90 cursor-pointer hover:text-amber-100">
-                <input type="checkbox" id="rtl-prompt-promote" class="rounded border-[#272727] bg-[#0a0a0a] text-amber-500 focus:ring-amber-500/40">
-                <span>✨ קדם לכלל קבוע מיידית (operator_prefs.md) — בלי להמתין ל-5 דחיות</span>
-            </label>
+            <!-- T-188 (Gap 2 v2): NO promote-now checkbox. The system
+                 auto-promotes substantive rejections to durable rules
+                 (>15 chars of reason, or English-mixed Hebrew commentary).
+                 Reversible via one-click undo in the session-report panel.
+                 See CLAUDE.md "Autonomous learning" principle. -->
+            <p class="mt-2 text-[10px] text-[#71717a]">
+                💡 דחיות עם הסבר מהותי הופכות אוטומטית לכללים קבועים. תוכל לבטל בלוח הסשן.
+            </p>
         </div>
         <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between">
             <button id="rtl-prompt-cancel" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-4 py-1.5 rounded-md">ביטול</button>
@@ -2905,21 +2905,18 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
     opts = opts || {};
     var s = _aiSuggestState.suggestions.find(function(x) { return x.key === suggestKey; });
     if (!s) return;
-    // T-187: showRtlPrompt now returns {reason, promote} | null. Back-compat:
-    // if a string is passed via opts.reason (bulk-deny path), wrap it.
+    // T-188: showRtlPrompt returns {reason, promote} | string | null.
+    // promote is ignored (auto-learn is now default); reason still extracted.
     var reason;
-    var promote = false;
     if (typeof opts.reason === 'string') {
         reason = opts.reason;
-        promote = !!opts.promote;
     } else {
         var resp = await showRtlPrompt({
             title: 'דחיית הצעה — ' + (s.text || '').slice(0, 60) + ((s.text || '').length > 60 ? '…' : ''),
             subtitle: 'למה ההצעה הזו לא טובה? הסיבה תיכנס למשוב ותעצב את ה-Populate הבא.',
         });
         if (resp === null) return;  // cancelled
-        reason = (resp.reason || '');
-        promote = !!resp.promote;
+        reason = (typeof resp === 'string') ? resp : (resp.reason || '');
     }
     try {
         var fbResp = await fetch('/api/content-feedback', {
@@ -2938,22 +2935,15 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
                 }),
             }),
         });
-        // T-187: promote-now path. Need the new feedback id to call
-        // /api/operator-prefs/promote-feedback/{id}.
-        if (promote && fbResp.ok) {
-            try {
-                var fbData = await fbResp.clone().json();
-                var fid = fbData && fbData.id;
-                if (fid) {
-                    var pr = await fetch('/api/operator-prefs/promote-feedback/' + fid, {method: 'POST'});
-                    if (pr.ok) {
-                        if (!opts.silent) showToast('✨ קודם לכלל קבוע ב-operator_prefs.md', 'success');
-                    } else {
-                        if (!opts.silent) showToast('דחה נשמר, אך קידום נכשל: HTTP ' + pr.status, 'error');
-                    }
-                }
-            } catch (e) { /* best-effort */ }
-        }
+        // T-188: server may have auto-promoted this rejection to a permanent
+        // rule. Show a visible toast (visibility, not approval) and remember
+        // the feedback_id for one-click undo from the session-report panel.
+        try {
+            var fbData = await fbResp.clone().json();
+            if (fbData && fbData.auto_promoted && !opts.silent) {
+                showToast('📚 כלל חדש נלמד אוטומטית — ביטול בלוח הסשן', 'success');
+            }
+        } catch (_) { /* best-effort */ }
         // Visually mark the row as denied + uncheck.
         _aiSuggestState.checked[s.key] = false;
         s._denied = true;
@@ -2971,18 +2961,17 @@ async function aiSuggestDenyChecked() {
         .filter(function(s) { return _aiSuggestState.checked[s.key]; })
         .map(function(s) { return s.key; });
     if (!checkedKeys.length) { showToast('לא מסומנות הצעות', 'error'); return; }
-    // T-187: showRtlPrompt returns {reason, promote} | null.
+    // T-188: showRtlPrompt returns {reason} | null.
     var resp = await showRtlPrompt({
         title: 'דחיית ' + checkedKeys.length + ' הצעות',
         subtitle: 'סיבה משותפת לכל ההצעות המסומנות. תיכנס למשוב ותעצב את ה-Populate הבא.',
     });
     if (resp === null) return;
+    var reasonText = (typeof resp === 'string') ? resp : (resp.reason || '');
     for (var i = 0; i < checkedKeys.length; i++) {
-        await _aiSuggestDenyOne(checkedKeys[i], {reason: resp.reason || '', promote: resp.promote, silent: true});
+        await _aiSuggestDenyOne(checkedKeys[i], {reason: reasonText, silent: true});
     }
-    var msg = checkedKeys.length + ' הצעות נדחו, נשמרו למשוב';
-    if (resp.promote) msg += ' · ✨ קודמו לכללים קבועים';
-    showToast(msg);
+    showToast(checkedKeys.length + ' הצעות נדחו · 📚 כללים נלמדו אוטומטית מהסיבה');
 }
 
 // T-177: Quality Review drawer ─────────────────────────────────

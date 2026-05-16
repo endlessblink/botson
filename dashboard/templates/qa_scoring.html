@@ -382,6 +382,27 @@ async function qaClearScored() {
 }
 
 // T-184 (Gap 4): session learning report — render summary inside the <details>.
+// T-188: one-click undo of an auto-learned rule. Calls /untrain with a
+// distinctive substring of the rule text; the server removes any matching
+// line(s). Reversibility for the autonomous learning path.
+async function undoAutoRule(substring) {
+    if (!substring) return;
+    if (!confirm('לבטל את הכלל הזה?\n\nתוכל ללמד אותו שוב בכל רגע על-ידי דחיית הצעה דומה.')) return;
+    try {
+        var r = await fetch('/api/operator-prefs/untrain', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({substring: substring}),
+        });
+        var data = await r.json();
+        if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+        showToast('הוסר ' + (data.removed_count || 0) + ' כלל(ים)', 'success');
+        loadSessionReport();  // refresh the panel
+    } catch (e) {
+        showToast('שגיאה: ' + (e.message || e), 'error');
+    }
+}
+
 async function loadPoolHealth() {
     try {
         var r = await fetch('/api/operator-prefs/pool-health');
@@ -421,7 +442,15 @@ async function loadSessionReport() {
         }).join('');
         var ruleList = (data.rules_added || []).map(function(c) {
             var t = (c.after_excerpt || '').slice(0, 120);
-            return '<li class="text-[11px]"><span class="text-[#71717a]">[' + (c.source || '') + ']</span> ' + t + '</li>';
+            var srcTag = (c.source || '');
+            // T-188: auto-learned rules get a one-click undo button (calls
+            // /api/operator-prefs/untrain with a unique substring of the rule).
+            var undoBtn = '';
+            if (srcTag === 'auto-learned' || srcTag === 'promote-now') {
+                var sub = t.slice(0, 50).replace(/"/g, '&quot;');
+                undoBtn = ' <button onclick="undoAutoRule(\'' + sub + '\')" class="text-[10px] text-rose-300 hover:text-rose-200 border border-rose-500/30 hover:border-rose-500/60 rounded px-1.5 ml-1" title="בטל את הכלל הזה">בטל</button>';
+            }
+            return '<li class="text-[11px] flex items-start gap-1"><span class="text-[#71717a] shrink-0">[' + srcTag + ']</span> <span class="flex-1">' + t + undoBtn + '</span></li>';
         }).join('');
         var wm = data.working_memory || {};
         var ph = await loadPoolHealth();

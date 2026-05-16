@@ -1,5 +1,25 @@
 # Robotnik (Botson) — Project Directives
 
+## ⚠ DESIGN PRINCIPLE — Autonomous learning, not operator-as-rule-author
+
+**The operator (Noam) wants the system to learn dynamically from feedback signals — NOT to manually propose rules one by one.** When you see an operator-action (rejection, score=1, deny+reason), the default behavior is: the system auto-extracts a rule and persists it. The operator's role is to *correct after the fact* (one-click undo), not to *approve before the fact*.
+
+**Anti-patterns — do NOT build these:**
+- "Promote-now" checkboxes that require explicit opt-in for each rule (Gap 2 v1, 2026-05-16 — reverted).
+- N=K silent-threshold banners that wait for K rejections before proposing.
+- Manual diff-review UIs the operator must click through.
+- Any flow whose default is "wait for the operator to formalize the rule."
+
+**Correct patterns:**
+- Auto-promote every substantive rejection (>15 chars of reason text, OR has corrected_text, OR English-mixed Hebrew commentary).
+- Show a visible toast/audit after the write — visibility ≠ approval.
+- Provide one-click undo on every auto-learned rule.
+- Reversibility (not gate-keeping) is what addresses the research's "silent rule install" concern.
+
+**Why this matters:** the operator explicitly said this multiple times in the 2026-05-16 unification session. The research consensus on operator-approved rule writes was applied too rigidly — it's for massive-scale RLHF, not single-operator product. For a one-operator preference loop, the operator IS the ground truth; auto-learn with undo is the right tradeoff.
+
+If you find yourself adding a "should the operator click to confirm?" gate to any preference-learning surface, stop and re-read this section. The answer is: no, just learn, and let them undo.
+
 ## Canonical operator preferences (single source of truth)
 
 **Learned soft rules for Hebrew-content generation live in `config/operator_prefs.md`** — symlinked to `~/.codex/skills/noam-personal-preferences/SKILL.md` and `~/.claude/skills/noam-personal-preferences/SKILL.md` so every agent (Claude Code, Codex, OpenCode, Botson dashboard) reads from the same file.

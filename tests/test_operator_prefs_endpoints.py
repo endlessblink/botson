@@ -358,6 +358,83 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
                           "excluded_scheduled", "usable", "exhausted"):
                     self.assertIn(k, p)
 
+    # ── T-188 (Gap 2 v2): autonomous learning on rejection ──
+
+    def test_substantive_rejection_auto_promotes_to_rule(self):
+        """A rejection with a real reason (>15 chars) auto-promotes to
+        operator_prefs.md WITHOUT operator action. Visibility via the
+        auto_promoted flag in the response."""
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.post(
+                "/api/content-feedback",
+                json={
+                    "source": "planner_ai_suggest", "content_type": "discussion",
+                    "topic_key": "movies",
+                    "original_text": "AUTO_LEARN_TEST — שאלת קלות גנרית",
+                    "verdict": "rejected",
+                    "reason": "good direction but bad wording — say מקרר not סל, pantry/freezer questions are good",
+                },
+            )
+            self.assertEqual(r.status_code, 200, r.text)
+            body = r.json()
+            self.assertTrue(body["auto_promoted"], body)
+            self.assertIsNotNone(body["promoted_excerpt"])
+            # File must contain the new rule.
+            text = self.prefs_path.read_text(encoding="utf-8")
+            self.assertIn("auto-learned from rejection", text)
+
+    def test_trivial_rejection_does_not_auto_promote(self):
+        """An empty or near-empty reason stays in working memory only —
+        not auto-promoted. Avoids noise from bare qa_score=1 verdicts."""
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.post(
+                "/api/content-feedback",
+                json={
+                    "source": "qa_scoring", "content_type": "discussion",
+                    "topic_key": "art", "original_text": "trivial",
+                    "verdict": "rejected", "reason": "qa_score=1",
+                },
+            )
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertFalse(r.json()["auto_promoted"])
+
+    def test_corrected_text_always_auto_promotes(self):
+        """When the operator provides corrected_text — even with a short
+        reason — that's the highest-signal case and must auto-promote."""
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.post(
+                "/api/content-feedback",
+                json={
+                    "source": "planner_ai_suggest", "content_type": "discussion",
+                    "topic_key": "vegan", "original_text": "X",
+                    "verdict": "rejected", "reason": "wording",
+                    "corrected_text": "AUTO_CORRECTED_TOKEN — better text",
+                },
+            )
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(r.json()["auto_promoted"])
+            text = self.prefs_path.read_text(encoding="utf-8")
+            self.assertIn("AUTO_CORRECTED_TOKEN", text)
+
+    def test_accepted_verdict_does_not_auto_promote(self):
+        """Acceptances feed working memory as positive anchors, but
+        don't trigger rule writes (asymmetric by design)."""
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.post(
+                "/api/content-feedback",
+                json={
+                    "source": "qa_scoring", "content_type": "discussion",
+                    "topic_key": "movies", "original_text": "good draft",
+                    "verdict": "accepted", "reason": "qa_score=5 · great anchor and shape",
+                },
+            )
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertFalse(r.json()["auto_promoted"])
+
     # ── T-187 (Gap 2): promote-feedback endpoint ──
 
     def test_promote_feedback_appends_rule_immediately(self):

@@ -21,16 +21,18 @@ This file is the **single source of truth** for operator preferences across ever
 - If Noam says "actually I prefer the opposite now" — replace, don't accumulate stale versions.
 - Periodically (every ~10 rules), the agent should ask Noam to review accumulated rules and prune the dead ones.
 
-## How writes happen (no silent inference)
+## How writes happen (autonomous learning, reversible)
 
-Every write requires an explicit operator-approved action:
+Default behavior: **the system auto-extracts a rule and persists it** when the operator gives a substantive rejection signal. The operator's role is to correct after the fact (one-click undo), not approve before the fact.
 
-1. **`/teach-bot <text>` skill** — Noam (or the agent acting under Noam's instruction in chat) appends a rule with citation to the current conversation.
-2. **Dashboard proposal banner** — when ≥5 new content rejections accumulate (planner deny, qa-scoring score 1-2, etc.), the dashboard shows a one-click "approve this proposed rule" banner. Click approve → rule lands here with citation to the source feedback ids.
-3. **Direct markdown edit** — Noam can always open this file and edit. Re-read happens on next mtime change.
-4. **`/untrain-bot <substring>` skill** — operator-triggered removal of any rule line matching the substring, with confirmation.
+1. **Auto-learn from rejections** (T-188, 2026-05-16) — any planner deny or qa-scoring score-1 with a substantive reason (>15 chars, OR a corrected_text, OR English-mixed Hebrew commentary) is summarised by `_summarize_feedback_to_guidance` and appended to this file immediately, with citation `auto-learned from rejection, <date>, feedback id <N>`. Visible via toast `📚 כלל חדש נלמד אוטומטית — ביטול בלוח הסשן`. **No checkbox, no banner, no N=5 wait.**
+2. **`/teach-bot <text>` skill** — chat-driven explicit teach when the operator wants to author a rule directly in conversation. Appends with citation to the current chat.
+3. **Direct markdown edit** — open this file and edit. Re-read happens on next mtime change.
+4. **Undo paths** — one-click undo in the session-report panel on `/qa-scoring` (the visible audit list), `/untrain-bot <substring>` skill in chat, or `POST /api/operator-prefs/untrain`.
 
-**The bot does NOT auto-promote rules from feedback without operator approval** (the silent N=5 auto-promote that existed briefly was reversed on 2026-05-16; research consensus is against it — see plan file).
+**Rationale:** for a single-operator product the operator IS the ground truth. The research consensus on "operator-approved writes" is for massive-scale RLHF (sycophancy, sparse-signal noise) and doesn't transfer to a one-operator preference loop. Reversibility (undo) addresses the legitimate concern about silent rule install; *gate-keeping* addresses a different, irrelevant concern. See CLAUDE.md "Autonomous learning" principle.
+
+**Low-signal rejections (empty reason, bare `qa_score=1`) are NOT auto-promoted** — they're already captured by working memory which feeds every prompt automatically. Auto-promote requires the operator's words.
 
 ## How reads happen (no synced copies)
 
@@ -81,6 +83,27 @@ If a correction doesn't fit any of these, add a new context category.
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
 ### Motion grammar
+
+#### Match visual weight of the treatment to the weight of the feature
+Kinetic typography, macro UI close-ups, particle bursts, dramatic dissolves, multi-layer ambient — all of these read as "big announcement" grammar. When a minor feature (one new chip, one new state) is shown with big-feature grammar, the viewer waits for a payoff that never lands. The mismatch reads as marketing fluff or confusion, not clarity. This is the umbrella rule that produced [[rhetorical-question-typography-overshoots]] and [[macro-ui-shot-oversells]].
+- **Context:** Any product-demo / feature-reveal video. The minor-vs-major axis is independent of the simple-vs-complex axis in [[a-simple-feature-deserves-a-simple-video]] — a minor feature can still need 2 shots to read, but neither of those shots should be a *heavy* shot.
+- **Why:** Noam, reviewing v7 (kinetic-type hero) + v6 (macro button): "this is unclear, takes too much attention... and this too to a minor feature that is not that clear from this sequence so it fails."
+- **How to apply:** Before building, rate the feature: **minor** (one chip/state/toggle), **medium** (new flow with 2–3 steps), **major** (new mode / new primary action). Then match grammar: minor → in-context change at native scale, no dramatization; medium → 2 shots, one type beat OK if it labels (doesn't dramatize); major → kinetic-type + macro + multi-shot is on the table. If in doubt, downgrade. An undersold minor feature is forgettable; an oversold minor feature is confusing — confusion is worse.
+- **Source:** v7 single-shot + v8.2 multi-shot review, 2026-05-16 — Noam: "[hero type] is unclear, takes too much attention... [macro button] too to a minor feature that is not that clear from this sequence so it fails."
+
+#### Rhetorical-question hero typography overshoots for minor features
+Big center-frame typography that asks the viewer a question ("מסמן הוגש?") forces a setup-and-payoff cognitive pattern: parse the question, then look for the answer. That pattern signals "major announcement." For a minor feature the answer is too small to justify the setup — the viewer ends up unsure what they were supposed to learn.
+- **Context:** Any feature-reveal video using kinetic typography as the lead beat.
+- **Why:** Noam on v7's "מסמן הוגש? הקול עוזב את הקטלוג" hero: "this is unclear, takes too much attention."
+- **How to apply:** Reserve rhetorical-question hero type for features that genuinely warrant headline weight (new product mode, new primary action, full redesign). For minor features (chip appears, view toggled, item hidden), use **declarative in-context labels** instead — a short caption sitting *next to* the actual UI change, not a center-frame question. If you find yourself writing "X? Y." as the hero phrase for a minor feature, replace it with a 2–4 word label on the change itself.
+- **Source:** v7 prototype review, 2026-05-16. Related: [[match-visual-weight-to-feature-weight]].
+
+#### Macro UI close-ups oversell minor features
+A single UI control (button, chip, toggle) filling the frame for 2–3 seconds with glow and 3D tilt implies "this control IS the product." The viewer braces for a major payoff. When the feature is minor — the control just adds one chip to a card — the macro shot creates an expectation mismatch and the rest of the sequence reads as anti-climax.
+- **Context:** Any feature-reveal video considering a hero close-up of one UI element.
+- **Why:** Noam on v6/v8.2's macro `סמן כהוגש` button: "this too to a minor feature that is not that clear from this sequence so it fails."
+- **How to apply:** Reserve macro UI close-ups for features where the **control itself is the headline** — a brand-new primary action, a new mode toggle, a redesigned input. For minor features show the control at native scale **inside its real context** (card, toolbar, sidebar) so the viewer sees the change happen where it actually lives. Native scale + correct context > hero scale + isolation.
+- **Source:** v6/v8.2 prototype review, 2026-05-16. Related: [[match-visual-weight-to-feature-weight]].
 
 #### A simple feature deserves a simple video — don't over-explain
 "Mark as submitted" is a one-line feature: a chip appears on a card. It does not need 3 shots, kinetic typography, macro close-ups, cursor choreography, particle bursts, and a pull-back reveal. Over-production on a simple feature reads as defensive padding, not clarity.

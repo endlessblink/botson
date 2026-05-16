@@ -7464,13 +7464,93 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
         "corrected_text": corrected_clean,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     })
-    # T-181: silent auto-promote at N=5 was reversed (research consensus:
-    # sycophancy / sparse-signal noise makes silent rule-installation
-    # unreliable; see plans/i-need-to-understand-elegant-goblet.md sources).
-    # Promotion now goes through the proposal banner on
-    # /operator-prefs/review where the operator clicks approve before any
-    # rule lands in config/operator_prefs.md.
-    return {"id": row_id}
+    # T-188 (Gap 2 v2): autonomous learning — substantive rejections
+    # auto-promote to durable rules in operator_prefs.md immediately.
+    # Reversible via one-click undo in /qa-scoring session report.
+    # See CLAUDE.md "Autonomous learning" principle.
+    auto_promoted = False
+    promoted_excerpt = None
+    if verdict in ("rejected", "bad_wording") and _is_substantive_reason(reason_clean, corrected_clean):
+        try:
+            row = {
+                "id": row_id, "source": source, "content_type": content_type,
+                "topic_key": topic_key_clean, "original_text": original_text,
+                "verdict": verdict, "reason": reason_clean,
+                "corrected_text": corrected_clean,
+            }
+            guidance = _summarize_feedback_to_guidance([row]).strip()
+            if guidance:
+                _auto_append_rule_to_operator_prefs(guidance, row_id, content_type, topic_key_clean)
+                await _audit_auto_promotion(db, guidance, row_id)
+                auto_promoted = True
+                promoted_excerpt = guidance[:200]
+        except Exception as e:
+            logger.warning("[auto-promote] failed for feedback %s: %s", row_id, e)
+    return {
+        "id": row_id,
+        "auto_promoted": auto_promoted,
+        "promoted_excerpt": promoted_excerpt,
+    }
+
+
+def _is_substantive_reason(reason: str | None, corrected: str | None) -> bool:
+    """T-188 heuristic: does this rejection carry durable insight worth
+    learning? Empty reasons, bare scores, or one-word verdicts don't
+    qualify — they're already captured by working memory. Auto-promote
+    only when the operator gave us something to learn from."""
+    if corrected and corrected.strip():
+        return True  # operator wrote a corrected version → very high signal
+    r = (reason or "").strip()
+    if not r or len(r) < 15:
+        return False
+    # Bare qa-score reasons like "qa_score=1" or "qa_score=2 · " are too sparse.
+    if r.lower().startswith("qa_score=") and len(r) < 30:
+        return False
+    return True
+
+
+def _auto_append_rule_to_operator_prefs(
+    guidance: str, feedback_id: int,
+    content_type: str, topic_key: str | None,
+) -> None:
+    """Append a single auto-learned rule to operator_prefs.md with
+    citation. Mirrors the /promote-feedback endpoint logic but inline
+    so the content-feedback POST stays atomic."""
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("[auto-promote] cannot read prefs file: %s", e)
+        return
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        logger.warning("[auto-promote] Hebrew section not found in prefs file")
+        return
+    before, section_body, rest = parts
+    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+    citation = (
+        f"\n  _**Source:** auto-learned from rejection, {today}, "
+        f"feedback id {feedback_id} (topic={topic_key or '-'}, type={content_type}). "
+        f"Undo: POST /api/operator-prefs/untrain with substring._\n"
+    )
+    new_text = before + section_body.rstrip() + "\n\n" + guidance + citation + rest
+    _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+    _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+    _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    logger.info("[auto-promote] feedback id %s → rule added (%d chars)", feedback_id, len(guidance))
+
+
+async def _audit_auto_promotion(db: Database, guidance: str, feedback_id: int) -> None:
+    try:
+        await db.record_prefs_change(
+            source="auto-learned",
+            section="Hebrew content rules",
+            change_kind="add",
+            before_excerpt=None,
+            after_excerpt=guidance[:500],
+            source_feedback_ids=json.dumps([int(feedback_id)], ensure_ascii=False),
+        )
+    except Exception as e:
+        logger.warning("[auto-promote] audit insert failed: %s", e)
 
 
 @app.get("/api/content-feedback")
