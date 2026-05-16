@@ -1,5 +1,17 @@
 # Robotnik (Botson) — Project Directives
 
+## ⚠ DESIGN PRINCIPLE — Abstraction over enumeration (rules are SYNTHESES, not quotes)
+
+**A rule is an abstraction over a pattern. If a "learned rule" contains a direct quote of rejected text (e.g., `אל תייצרו טקסט בסגנון: "..."`), you have built memorization, not learning. The file grows; the bot does not get smarter.**
+
+**Required path:** LLM synthesis (`_llm_abstract_rules` in `dashboard/app.py`). The LLM sees the rejections + reasons and outputs 2–5 abstract Hebrew directives that cluster related rejections into named patterns.
+
+**Forbidden path:** mechanical string concatenation that lists rejection reasons + quotes the bad draft text verbatim. The `_summarize_feedback_to_guidance` deterministic function was DELETED on 2026-05-16 for this reason. **Do not bring it back, even as a fallback.** When the LLM is unavailable, leave the rule unwritten and surface a retry banner. Silent fallback to mechanical concat is exactly what shipped the same anti-pattern three times in this session.
+
+A guardian test (`tests/test_no_verbatim_quotes_in_rules.py`) makes the wrong pattern undeployable: any auto-learned rule containing >40 consecutive characters from an input draft fails CI.
+
+**Source:** Operator pushback 2026-05-16, on commit `30b563c`: *"this is the 100th time we went in the same loophole. how do we avoid it? this shouldn't ever happen if you would have followed the direction we already established."* My default reach was "deterministic = safe, LLM = risky." For a learning system that is **backwards**. Mechanical = wrong. LLM synthesis = correct.
+
 ## ⚠ DESIGN PRINCIPLE — Autonomous learning, not operator-as-rule-author
 
 **The operator (Noam) wants the system to learn dynamically from feedback signals — NOT to manually propose rules one by one.** When you see an operator-action (rejection, score=1, deny+reason), the default behavior is: the system auto-extracts a rule and persists it. The operator's role is to *correct after the fact* (one-click undo), not to *approve before the fact*.

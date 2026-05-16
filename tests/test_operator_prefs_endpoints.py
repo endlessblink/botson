@@ -52,12 +52,40 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
         dashboard_app._OPERATOR_PREFS_CACHE.update(
             {"section": None, "mtime": 0.0, "loaded_at": 0.0}
         )
+        # T-189: mock the LLM call so tests don't hit Anthropic API.
+        # Returns a synthetic abstract rule that contains a unique token
+        # so tests can assert "the LLM path ran" without asserting on the
+        # specific draft text (which would defeat the abstraction).
+        self._orig_generate_via_api = dashboard_app._generate_via_api
+
+        async def _mock_llm(prompt: str) -> str:
+            # Echo the test's expected token if the prompt mentions it,
+            # otherwise return a generic abstract rule.
+            if "AUTO_LEARN_TEST" in prompt:
+                return "- LLM_ABSTRACTED: אל תייצר שאלות גנריות שמתאימות לכל ערוץ."
+            if "AUTO_CORRECTED_TOKEN" in prompt:
+                return "- LLM_ABSTRACTED: השתמש בניסוח חבר-בקבוצה כפי שהאופרטור הראה."
+            if "PROMOTE_TEST" in prompt:
+                return "- LLM_ABSTRACTED: כלל שנלמד מהדחייה (לא ציטוט מילולי)."
+            return "- LLM_ABSTRACTED: כלל מופשט גנרי לבדיקה."
+
+        dashboard_app._generate_via_api = _mock_llm
+        # T-189: collapse debounce to ~instant for tests.
+        self._orig_debounce = dashboard_app._ABSTRACTION_DEBOUNCE_SECONDS
+        dashboard_app._ABSTRACTION_DEBOUNCE_SECONDS = 0.01
 
     def tearDown(self):
         dashboard_app._OPERATOR_PREFS_PATH = self._orig_prefs_path
         dashboard_app._OPERATOR_PREFS_CACHE.update(
             {"section": None, "mtime": 0.0, "loaded_at": 0.0}
         )
+        dashboard_app._generate_via_api = self._orig_generate_via_api
+        dashboard_app._ABSTRACTION_DEBOUNCE_SECONDS = self._orig_debounce
+        # Make sure any in-flight debounced task finishes before next test.
+        task = dashboard_app._PENDING_ABSTRACTION_TASK
+        if task is not None and not task.done():
+            task.cancel()
+        dashboard_app._PENDING_ABSTRACTION_IDS.clear()
 
     def _client(self):
         return patch.object(dashboard_app, "DB_PATH", self.db_path), TestClient(dashboard_app.app)
@@ -361,9 +389,10 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
     # ── T-188 (Gap 2 v2): autonomous learning on rejection ──
 
     def test_substantive_rejection_auto_promotes_to_rule(self):
-        """A rejection with a real reason (>15 chars) auto-promotes to
-        operator_prefs.md WITHOUT operator action. Visibility via the
-        auto_promoted flag in the response."""
+        """A rejection with a real reason (>15 chars) schedules an LLM
+        abstraction. After the debounced task fires, the file has an
+        ABSTRACTED rule (not a verbatim quote of the rejected text)."""
+        import time
         with self._client()[0], self._client()[1] as client:
             self._login(client)
             r = client.post(
@@ -379,10 +408,19 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
             body = r.json()
             self.assertTrue(body["auto_promoted"], body)
-            self.assertIsNotNone(body["promoted_excerpt"])
-            # File must contain the new rule.
+            # T-189: excerpt is "pending" — the actual write happens
+            # asynchronously via the debounce task.
+            self.assertIn("pending", (body["promoted_excerpt"] or "").lower())
+            # Wait for the debounced LLM task to land the rule.
+            for _ in range(20):
+                time.sleep(0.05)
+                if "LLM_ABSTRACTED" in self.prefs_path.read_text(encoding="utf-8"):
+                    break
             text = self.prefs_path.read_text(encoding="utf-8")
-            self.assertIn("auto-learned from rejection", text)
+            # T-189: rule is ABSTRACTED, not a verbatim quote.
+            self.assertIn("LLM_ABSTRACTED", text)
+            # Anti-regression: the rejected draft text must NOT appear verbatim.
+            self.assertNotIn("AUTO_LEARN_TEST — שאלת קלות גנרית", text)
 
     def test_trivial_rejection_does_not_auto_promote(self):
         """An empty or near-empty reason stays in working memory only —
@@ -403,6 +441,7 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
     def test_corrected_text_always_auto_promotes(self):
         """When the operator provides corrected_text — even with a short
         reason — that's the highest-signal case and must auto-promote."""
+        import time
         with self._client()[0], self._client()[1] as client:
             self._login(client)
             r = client.post(
@@ -416,8 +455,13 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             )
             self.assertEqual(r.status_code, 200, r.text)
             self.assertTrue(r.json()["auto_promoted"])
+            # Wait for debounce + mock LLM to write the abstracted rule.
+            for _ in range(20):
+                time.sleep(0.05)
+                if "LLM_ABSTRACTED" in self.prefs_path.read_text(encoding="utf-8"):
+                    break
             text = self.prefs_path.read_text(encoding="utf-8")
-            self.assertIn("AUTO_CORRECTED_TOKEN", text)
+            self.assertIn("LLM_ABSTRACTED", text)
 
     def test_accepted_verdict_does_not_auto_promote(self):
         """Acceptances feed working memory as positive anchors, but
@@ -438,13 +482,10 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
     # ── T-187 (Gap 2): promote-feedback endpoint ──
 
     def test_promote_feedback_appends_rule_immediately(self):
-        """A single rejection becomes a permanent rule via /promote-feedback
-        — no N=5 wait. Reuses _summarize_feedback_to_guidance and the
-        same write path as /apply-proposal."""
+        """A single rejection promotes via /promote-feedback. T-189:
+        rule content is LLM-abstracted (not verbatim quotes)."""
         with self._client()[0], self._client()[1] as client:
             self._login(client)
-            # Seed one detailed rejection with a non-trivial reason (this is
-            # the realistic case Gap 2 was built for).
             fb = client.post(
                 "/api/content-feedback",
                 json={
@@ -457,18 +498,18 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             )
             self.assertEqual(fb.status_code, 200, fb.text)
             feedback_id = fb.json()["id"]
-            # Promote it.
             r = client.post(f"/api/operator-prefs/promote-feedback/{feedback_id}")
             self.assertEqual(r.status_code, 200, r.text)
             data = r.json()
             self.assertTrue(data["ok"])
             self.assertEqual(data["feedback_id"], feedback_id)
             self.assertGreater(data["appended_chars"], 0)
-            # File must contain the rejection's text or reason.
             text = self.prefs_path.read_text(encoding="utf-8")
             self.assertIn("planner deny → promote-now", text)
-            # The summary must include the operator's reason.
-            self.assertIn("bad wording", text)
+            # T-189: rule is LLM-abstracted (mock returns LLM_ABSTRACTED token).
+            self.assertIn("LLM_ABSTRACTED", text)
+            # Anti-regression: the rejected text must NOT appear verbatim.
+            self.assertNotIn("PROMOTE_TEST — בדיקת קידום", text)
 
     def test_promote_feedback_404_for_unknown_id(self):
         with self._client()[0], self._client()[1] as client:

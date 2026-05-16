@@ -1,5 +1,9 @@
 # Agent Notes
 
+## ⚠ DESIGN PRINCIPLE — Abstraction over enumeration (rules are SYNTHESES, not quotes)
+
+A rule is an abstraction over a pattern. If a "learned rule" contains a direct quote of rejected text, you have built memorization, not learning. The file grows; the bot does not get smarter. **Required path:** `_llm_abstract_rules` (LLM synthesis). **Forbidden path:** deterministic concat with verbatim draft quotes — the deleted `_summarize_feedback_to_guidance` function. Do not resurrect it as a fallback. When the LLM is unavailable, leave the rule unwritten and surface a retry banner. Guardian test `tests/test_no_verbatim_quotes_in_rules.py` enforces — >40-char verbatim substring fails CI. **Source:** operator pushback 2026-05-16: *"this is the 100th time we went in the same loophole."* See CLAUDE.md for full context.
+
 ## ⚠ DESIGN PRINCIPLE — Autonomous learning, not operator-as-rule-author
 
 The operator (Noam) wants dynamic learning from feedback signals — NOT to manually propose rules one-by-one. Default behavior on any operator-action (rejection / score=1 / deny+reason): the system auto-extracts a rule and persists it. Operator's role is *correct after the fact* (one-click undo), not *approve before the fact*.

@@ -73,6 +73,22 @@ if [ "${SKIP_HARDCODED_GUARDIAN:-0}" != "1" ]; then
       exit 1
     fi
   fi
+
+  # T-189 abstraction-over-enumeration guardian: any auto-learned rule
+  # that quotes a draft >40 chars verbatim is memorization, not learning.
+  # See CLAUDE.md ⚠ "Abstraction over enumeration".
+  if [ -x .venv/bin/pytest ] && [ -f tests/test_no_verbatim_quotes_in_rules.py ]; then
+    echo
+    echo "=== No-verbatim-quotes guardian ==="
+    if ! sudo -u "$SERVICE_USER" -H .venv/bin/pytest tests/test_no_verbatim_quotes_in_rules.py -q --tb=line; then
+      echo
+      echo "❌ Verbatim-quote guardian failed — blocking deploy."
+      echo "   A learned rule contains too much of a rejected draft (>40 chars)."
+      echo "   This is memorization, not learning."
+      echo "   Fix: ensure _llm_abstract_rules wrote the rules, not a concat fallback."
+      exit 1
+    fi
+  fi
 else
   echo
   echo "⚠️  SKIP_HARDCODED_GUARDIAN=1 — bypassing guardians (logged for audit)."

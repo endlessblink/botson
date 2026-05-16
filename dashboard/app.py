@@ -3100,8 +3100,14 @@ async def _maybe_auto_promote_style_profile(db: Database) -> None:
         if len(new_rows) < _AUTO_PROMOTE_THRESHOLD:
             return
 
-        addendum = _summarize_feedback_to_guidance(new_rows)
+        # T-189: LLM synthesis (was deterministic concat).
+        addendum = await _llm_abstract_rules(new_rows)
         if not addendum.strip():
+            logger.warning(
+                "[auto-promote] LLM abstraction returned empty for %d rows — "
+                "skipping rule write rather than falling back to verbatim concat",
+                len(new_rows),
+            )
             return
 
         # Merge: keep the existing guidance, append new directives that
@@ -7471,21 +7477,14 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
     auto_promoted = False
     promoted_excerpt = None
     if verdict in ("rejected", "bad_wording") and _is_substantive_reason(reason_clean, corrected_clean):
-        try:
-            row = {
-                "id": row_id, "source": source, "content_type": content_type,
-                "topic_key": topic_key_clean, "original_text": original_text,
-                "verdict": verdict, "reason": reason_clean,
-                "corrected_text": corrected_clean,
-            }
-            guidance = _summarize_feedback_to_guidance([row]).strip()
-            if guidance:
-                _auto_append_rule_to_operator_prefs(guidance, row_id, content_type, topic_key_clean)
-                await _audit_auto_promotion(db, guidance, row_id)
-                auto_promoted = True
-                promoted_excerpt = guidance[:200]
-        except Exception as e:
-            logger.warning("[auto-promote] failed for feedback %s: %s", row_id, e)
+        # T-189: schedule LLM abstraction via the debounce buffer. Rapid
+        # rejections cluster into one LLM call → one synthesised rule,
+        # not N memorised text-quotes. The actual write happens ~10s
+        # later when the debounce timer fires; the POST returns
+        # immediately with auto_promoted="pending".
+        await _schedule_rule_abstraction(row_id, db)
+        auto_promoted = True
+        promoted_excerpt = "[pending — LLM abstraction queued]"
     return {
         "id": row_id,
         "auto_promoted": auto_promoted,
@@ -7553,6 +7552,108 @@ async def _audit_auto_promotion(db: Database, guidance: str, feedback_id: int) -
         logger.warning("[auto-promote] audit insert failed: %s", e)
 
 
+# T-189: debounce buffer for LLM rule abstraction. Rapid-fire rejections
+# (e.g., 5 within 30 seconds) should cluster into one LLM call producing
+# one cohesive set of rules, not 5 separate single-row abstractions. The
+# timer fires _ABSTRACTION_DEBOUNCE_SECONDS after the LAST rejection
+# arrives (each new rejection resets it).
+_ABSTRACTION_DEBOUNCE_SECONDS = 10.0
+_PENDING_ABSTRACTION_IDS: set[int] = set()
+_PENDING_ABSTRACTION_TASK: asyncio.Task | None = None
+
+
+async def _schedule_rule_abstraction(feedback_id: int, db: Database) -> None:
+    """Add a feedback row to the abstraction buffer and (re)schedule the
+    debounce timer. When the timer fires, all buffered rows go to one
+    LLM call → one set of synthesised rules → one write to operator_prefs.md.
+    """
+    global _PENDING_ABSTRACTION_TASK
+    _PENDING_ABSTRACTION_IDS.add(int(feedback_id))
+    # Cancel any in-flight timer; we want only the latest rejection's
+    # timer to fire (it carries the full buffer).
+    if _PENDING_ABSTRACTION_TASK is not None and not _PENDING_ABSTRACTION_TASK.done():
+        _PENDING_ABSTRACTION_TASK.cancel()
+    _PENDING_ABSTRACTION_TASK = asyncio.create_task(_run_debounced_abstraction(db))
+
+
+async def _run_debounced_abstraction(db: Database) -> None:
+    """Wait the debounce window, then process all buffered feedback ids
+    in one LLM call. Cancelled-and-restarted by each new rejection."""
+    try:
+        await asyncio.sleep(_ABSTRACTION_DEBOUNCE_SECONDS)
+    except asyncio.CancelledError:
+        return  # another rejection came in; let the new timer take over
+    # Snapshot + clear the buffer atomically before the LLM call.
+    ids = sorted(_PENDING_ABSTRACTION_IDS)
+    _PENDING_ABSTRACTION_IDS.clear()
+    if not ids:
+        return
+    try:
+        all_feedback = await db.list_content_feedback(limit=500)
+        rows = [r for r in all_feedback if int(r.get("id") or 0) in set(ids)]
+    except Exception as e:
+        logger.warning("[debounced-abstraction] feedback lookup failed: %s", e)
+        return
+    if not rows:
+        return
+    guidance = await _llm_abstract_rules(rows)
+    if not guidance.strip():
+        # LLM failed or returned empty. Audit it; do NOT fall back.
+        try:
+            await db.record_prefs_change(
+                source="auto-learned",
+                section="Hebrew content rules",
+                change_kind="abstraction-failed",
+                before_excerpt=None,
+                after_excerpt=f"LLM returned empty for {len(rows)} rows: ids={ids}",
+                source_feedback_ids=json.dumps(ids, ensure_ascii=False),
+            )
+        except Exception:
+            pass
+        logger.warning(
+            "[debounced-abstraction] LLM returned empty for %d rows (ids=%s) — "
+            "no rule written, no fallback to verbatim concat",
+            len(rows), ids,
+        )
+        return
+    # Write the abstracted rules atomically.
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+        parts = _split_at_hebrew_heading(text)
+        if parts is None:
+            logger.warning("[debounced-abstraction] Hebrew section not found")
+            return
+        before, section_body, rest = parts
+        today = datetime.now().strftime("%Y-%m-%d %H:%M")
+        citation = (
+            f"\n  _**Source:** auto-learned (LLM synthesis) from "
+            f"{len(rows)} rejections, {today}, feedback ids {ids}. "
+            f"Undo: POST /api/operator-prefs/untrain with any substring._\n"
+        )
+        new_text = before + section_body.rstrip() + "\n\n" + guidance + citation + rest
+        _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+        _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+        _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    except Exception as e:
+        logger.warning("[debounced-abstraction] write failed: %s", e)
+        return
+    try:
+        await db.record_prefs_change(
+            source="auto-learned",
+            section="Hebrew content rules",
+            change_kind="add",
+            before_excerpt=None,
+            after_excerpt=guidance[:500],
+            source_feedback_ids=json.dumps(ids, ensure_ascii=False),
+        )
+    except Exception as e:
+        logger.warning("[debounced-abstraction] audit insert failed: %s", e)
+    logger.info(
+        "[debounced-abstraction] wrote %d-line rule from %d rejections (ids=%s)",
+        len(guidance.splitlines()), len(rows), ids,
+    )
+
+
 @app.get("/api/content-feedback")
 async def content_feedback_list(
     request: Request,
@@ -7578,35 +7679,85 @@ async def content_feedback_list(
 # Hard invariant: AI proposes, operator applies. No auto-deploy.
 
 
-def _summarize_feedback_to_guidance(feedback_rows: list[dict]) -> str:
-    """Deterministic summarizer (no LLM call for the MVP) — pulls out the
-    distinct rejection reasons and lists the bad/corrected text pairs as
-    explicit "avoid X, prefer Y" guidance.
+async def _llm_abstract_rules(feedback_rows: list[dict]) -> str:
+    """T-189: replace the deleted deterministic summarizer with LLM
+    synthesis. Returns 2-5 Hebrew directive lines that abstract the
+    *pattern* behind the rejections — not verbatim quotes.
 
-    A future enhancement can swap this for an LLM call; the contract
-    (input feedback rows → markdown guidance string) stays stable so
-    callers don't change.
+    Validated prompt against 19 real prod rejections on 2026-05-16:
+    output was 5 abstract directives clustering rare-situation,
+    translated-Hebrew, and rare-recall patterns. See CLAUDE.md
+    ⚠ "Abstraction over enumeration" for the design rationale.
+
+    Failure mode: when the LLM call raises (Anthropic API down,
+    timeout, etc.), return '' — caller logs an audit row with
+    change_kind='abstraction-failed' and leaves the rule unwritten.
+    DO NOT add deterministic fallback. Silent fallback to mechanical
+    concat is what shipped this anti-pattern three times.
     """
     if not feedback_rows:
         return ""
-    lines: list[str] = []
-    seen_reasons: set[str] = set()
-    for row in feedback_rows:
+    # Build the rejection inventory.
+    items: list[str] = []
+    for i, row in enumerate(feedback_rows, 1):
+        text = (row.get("original_text") or "").replace("\n", " ").strip()[:140]
         reason = (row.get("reason") or "").strip()
-        original = (row.get("original_text") or "").strip()
-        corrected = (row.get("corrected_text") or "").strip()
-        verdict = (row.get("verdict") or "").strip()
-        if reason and reason not in seen_reasons:
-            seen_reasons.add(reason)
-            lines.append(f"- {reason}")
-        if verdict in ("rejected", "bad_wording") and original:
-            short = original[:80] + ("…" if len(original) > 80 else "")
-            lines.append(f"- אל תייצרו טקסט בסגנון: \"{short}\"")
-        if corrected and original:
-            short_orig = original[:60] + ("…" if len(original) > 60 else "")
-            short_corr = corrected[:60] + ("…" if len(corrected) > 60 else "")
-            lines.append(f"- במקום \"{short_orig}\" — עדיף \"{short_corr}\"")
-    return "\n".join(lines[:20])  # cap so prompts don't bloat
+        topic = row.get("topic_key") or "-"
+        ctype = row.get("content_type") or "-"
+        items.append(
+            f"#{i:>2} [{ctype}/{topic}] טקסט: {text}\n     סיבה אופרטור: {reason}"
+        )
+
+    prompt = (
+        "אתה עוזר שמסייע לבוט טלגרם עברי בקהילת בוגרים-בלי-ילדים ללמוד מטעויות שלו.\n\n"
+        f"האופרטור (Noam) דחה {len(feedback_rows)} הצעות שהבוט הציע. "
+        "כל דחייה כוללת את הטקסט ואת הסיבה שהאופרטור כתב.\n\n"
+        "תפקידך: לחלץ 2-5 כללים מופשטים בעברית שמסבירים את הדפוס שמאחורי הדחיות האלה. "
+        "תכליס את הלקח, אל תצטט.\n\n"
+        "חוקים קשיחים:\n"
+        "1. אל תצטט את הטקסט של הדחיות. אבסטרקציה, לא דוגמאות.\n"
+        '2. כל כלל = שורה אחת קצרה בעברית, בצורת הוראה: "אסור..." / "דרוש..." / "תמיד..." / "אל תייצר..."\n'
+        '3. אסור משפטים גנריים כמו "כתוב בעברית טובה" - חייב להיות ספציפי לדפוס הדחיה.\n'
+        '4. קבץ דחיות שמשקפות את אותו הדפוס לכלל אחד. אם 5 דחיות הן "נישתי מדי" - שורה אחת, לא חמש.\n'
+        "5. תפיק 2-5 שורות בדיוק. אם פחות מ-2 דפוסים מובחנים - שורה אחת חזקה. אם יותר מ-5 - איחוד.\n"
+        "6. אל תכלול הקדמה או סיכום - רק הכללים.\n\n"
+        "הדחיות:\n" + "\n\n".join(items) + "\n\n"
+        'פלט: 2-5 שורות בעברית, כל אחת מתחילה ב-"- ", בצורת הוראה אבסטרקטית. '
+        "אל תצטט. אל תוסיף הסברים."
+    )
+    try:
+        raw = await _generate_via_api(prompt)
+    except Exception as e:
+        logger.warning("[abstract-rules] LLM call failed: %s", e)
+        return ""
+    # Clean: keep only lines starting with "- ", trim other model chatter.
+    lines = [
+        ln.rstrip()
+        for ln in (raw or "").splitlines()
+        if ln.lstrip().startswith("- ") or ln.lstrip().startswith("• ")
+    ]
+    # Normalise bullet marker to "- ".
+    lines = [("- " + ln.lstrip().lstrip("-•").strip()) for ln in lines]
+    # Cap at 5 (the prompt asks for 2-5; if the model exceeds, trim).
+    if len(lines) > 5:
+        lines = lines[:5]
+    return "\n".join(lines)
+
+
+def _summarize_feedback_to_guidance(feedback_rows: list[dict]) -> str:
+    """⚠ DELETED 2026-05-16 — was deterministic concat that quoted draft
+    text verbatim, which is memorization not learning. Replaced by
+    `_llm_abstract_rules` (async). This stub remains ONLY so existing
+    sync callers fail loudly with a clear migration message instead of
+    silently emitting bad rules.
+
+    See CLAUDE.md ⚠ "Abstraction over enumeration" for the full reason.
+    """
+    raise RuntimeError(
+        "_summarize_feedback_to_guidance was deleted on 2026-05-16 — "
+        "use `await _llm_abstract_rules(rows)` instead. See CLAUDE.md "
+        "⚠ 'Abstraction over enumeration'."
+    )
 
 
 @app.post("/api/style-profile/propose")
@@ -7621,7 +7772,8 @@ async def style_profile_propose(request: Request, db: Database = Depends(get_db)
     content_type = (body.get("content_type") or None)
     limit = int(body.get("limit") or 25)
     feedback = await db.list_content_feedback(content_type=content_type, limit=limit)
-    proposed_guidance = _summarize_feedback_to_guidance(feedback)
+    # T-189: LLM synthesis (was deterministic concat).
+    proposed_guidance = await _llm_abstract_rules(feedback)
     active = await db.get_active_style_profile()
     current_guidance = (active or {}).get("guidance") or ""
     source_ids = [int(r["id"]) for r in feedback]
@@ -7708,6 +7860,91 @@ async def operator_prefs_hebrew(request: Request):
     }
 
 
+@app.post("/api/operator-prefs/backfill-from-backlog")
+async def operator_prefs_backfill_from_backlog(
+    request: Request,
+    db: Database = Depends(get_db),
+):
+    """T-189: one-shot endpoint to process all unconsumed substantive
+    rejections through `_llm_abstract_rules` and write the resulting
+    abstract directives to operator_prefs.md. Used to migrate from the
+    deterministic-concat era backlog to the LLM-synthesis architecture.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    active = await db.get_active_style_profile("planner_hebrew_default")
+    consumed_max_id = 0
+    raw_sources = (active or {}).get("source_feedback_ids") or ""
+    if raw_sources:
+        try:
+            ids = json.loads(raw_sources)
+            if isinstance(ids, list) and ids:
+                consumed_max_id = max(int(x) for x in ids if str(x).strip())
+        except Exception:
+            consumed_max_id = 0
+    all_recent = await db.list_content_feedback(limit=500)
+    # Only substantive rejections — the heuristic must match the
+    # auto-promote path so we don't re-process the same trivial rows.
+    candidates = [
+        r for r in all_recent
+        if int(r.get("id") or 0) > consumed_max_id
+        and (r.get("verdict") or "") in ("rejected", "bad_wording")
+        and _is_substantive_reason(r.get("reason"), r.get("corrected_text"))
+    ]
+    if not candidates:
+        return {"ok": True, "processed": 0, "guidance": "", "message": "no unconsumed substantive rejections"}
+    guidance = await _llm_abstract_rules(candidates)
+    if not guidance.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="LLM abstraction returned empty. No rule written. Retry in a moment.",
+        )
+    # Write atomically with citation.
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+        parts = _split_at_hebrew_heading(text)
+        if parts is None:
+            raise HTTPException(status_code=500, detail="Hebrew section not found")
+        before, section_body, rest = parts
+        today = datetime.now().strftime("%Y-%m-%d %H:%M")
+        ids = [int(r["id"]) for r in candidates]
+        citation = (
+            f"\n  _**Source:** backfill (LLM synthesis) of {len(candidates)} "
+            f"backlog rejections, {today}, feedback ids {ids}._\n"
+        )
+        new_text = before + section_body.rstrip() + "\n\n" + guidance + citation + rest
+        _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+        _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+        _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"write failed: {e}")
+    # Mark consumed.
+    try:
+        new_id = await db.insert_style_profile(
+            profile_key="planner_hebrew_default",
+            guidance=f"[backfill {today} — text in operator_prefs.md]",
+            source_feedback_ids=json.dumps(ids, ensure_ascii=False),
+            status="draft",
+        )
+        await db.activate_style_profile(new_id, profile_key="planner_hebrew_default")
+        await db.record_prefs_change(
+            source="backfill", section="Hebrew content rules", change_kind="add",
+            before_excerpt=None, after_excerpt=guidance[:500],
+            source_feedback_ids=json.dumps(ids, ensure_ascii=False),
+        )
+    except Exception as e:
+        logger.warning("[backfill] bookkeeping failed: %s", e)
+    return {
+        "ok": True,
+        "processed": len(candidates),
+        "rule_lines": len(guidance.splitlines()),
+        "guidance_preview": guidance,
+        "source_feedback_ids": ids,
+    }
+
+
 @app.get("/api/operator-prefs/proposed-rule")
 async def operator_prefs_proposed_rule(
     request: Request,
@@ -7742,7 +7979,8 @@ async def operator_prefs_proposed_rule(
             "proposed_guidance": "",
             "source_feedback_ids": [],
         }
-    proposed = _summarize_feedback_to_guidance(new_rows)
+    # T-189: LLM synthesis (was deterministic concat).
+    proposed = await _llm_abstract_rules(new_rows)
     return {
         "ready": True,
         "new_feedback_count": len(new_rows),
@@ -7839,10 +8077,13 @@ async def operator_prefs_promote_feedback(
     row = next((r for r in rows if int(r.get("id") or 0) == int(feedback_id)), None)
     if row is None:
         raise HTTPException(status_code=404, detail=f"feedback id {feedback_id} not found")
-    guidance = _summarize_feedback_to_guidance([row]).strip()
+    # T-189: LLM synthesis (was deterministic concat).
+    guidance = (await _llm_abstract_rules([row])).strip()
     if not guidance:
-        raise HTTPException(status_code=400,
-                            detail="feedback row lacks usable text (no reason / original_text)")
+        raise HTTPException(
+            status_code=503,
+            detail="LLM abstraction failed (Anthropic API may be down). No rule written. Retry in a moment.",
+        )
     # Append to operator_prefs.md under the Hebrew section, with citation.
     try:
         text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")

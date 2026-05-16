@@ -21,6 +21,10 @@ This file is the **single source of truth** for operator preferences across ever
 - If Noam says "actually I prefer the opposite now" — replace, don't accumulate stale versions.
 - Periodically (every ~10 rules), the agent should ask Noam to review accumulated rules and prune the dead ones.
 
+## ⚠ How rules are SHAPED (abstraction, not enumeration)
+
+Rules in this file MUST be abstractions over patterns, not verbatim quotes of rejected drafts. The Botson runtime uses `_llm_abstract_rules` (LLM synthesis) to extract 2–5 directives from a batch of rejections. The deterministic `_summarize_feedback_to_guidance` concatenator was deleted on 2026-05-16 because its output ("don't write text in style: <full draft>") was memorization, not learning. Guardian test `tests/test_no_verbatim_quotes_in_rules.py` enforces — any rule line containing >40 consecutive chars from a draft fails CI.
+
 ## How writes happen (autonomous learning, reversible)
 
 Default behavior: **the system auto-extracts a rule and persists it** when the operator gives a substantive rejection signal. The operator's role is to correct after the fact (one-click undo), not approve before the fact.

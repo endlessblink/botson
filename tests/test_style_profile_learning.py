@@ -75,38 +75,21 @@ class StyleProfilePersistence(unittest.IsolatedAsyncioTestCase):
 
 
 class SummarizerProducesGuidanceFromFeedback(unittest.TestCase):
-    def test_distinct_reasons_and_pairs_are_listed(self):
-        from dashboard.app import _summarize_feedback_to_guidance
-        guidance = _summarize_feedback_to_guidance([
-            {
-                "reason": "too generic",
-                "original_text": "מה הסרט האהוב?",
-                "verdict": "rejected",
-                "corrected_text": "",
-            },
-            {
-                "reason": "too generic",  # dedup
-                "original_text": "מה הספר?",
-                "verdict": "rejected",
-                "corrected_text": "",
-            },
-            {
-                "reason": "off-tone",
-                "original_text": "כל הכבוד אלופים!",
-                "corrected_text": "ערב טוב, מה היה הרגע הכי טוב היום?",
-                "verdict": "accepted_after_edit",
-            },
-        ])
-        # "too generic" should appear once (dedup); "off-tone" once;
-        # rejected text should be quoted; corrected pair should be in.
-        self.assertIn("too generic", guidance)
-        self.assertIn("off-tone", guidance)
-        self.assertIn("מה הסרט האהוב", guidance)
-        self.assertIn("ערב טוב", guidance)
+    """T-189: the deterministic summarizer was deleted because its
+    output was verbatim-quote memorization, not learned-rule
+    abstraction. The replacement (`_llm_abstract_rules`) is async and
+    calls Claude — covered by `test_no_verbatim_quotes_in_rules.py`."""
 
-    def test_empty_feedback_yields_empty_guidance(self):
+    def test_deleted_summarizer_raises_loudly(self):
         from dashboard.app import _summarize_feedback_to_guidance
-        self.assertEqual(_summarize_feedback_to_guidance([]), "")
+        with self.assertRaises(RuntimeError) as ctx:
+            _summarize_feedback_to_guidance([{
+                "reason": "x", "original_text": "y", "verdict": "rejected",
+            }])
+        # The error message must point at the replacement function so
+        # any agent that accidentally re-imports gets a clear migration
+        # message, not a silent text return.
+        self.assertIn("_llm_abstract_rules", str(ctx.exception))
 
 
 class PromptBuilderPicksUpActiveStyle(unittest.TestCase):
