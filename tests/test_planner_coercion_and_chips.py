@@ -2139,7 +2139,12 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         mapped = settings.get("topics", {}).get("discussions", {}) or {}
 
         # Telegram General/root is deliberately not used by this bot.
-        expected = set(discussions) - {"general"}
+        # `funny` is intentionally disabled from auto-generation
+        # (2026-05-16) — humor-as-discussion-question doesn't work; pool
+        # entries are kept for when a curated joke pool replaces them.
+        # See config/operator_prefs.md "no humor as discussion question" rule.
+        intentionally_disabled = {"general", "funny"}
+        expected = set(discussions) - intentionally_disabled
         self.assertGreaterEqual(set(mapped), expected)
         for category in expected:
             self.assertTrue(mapped.get(category), f"{category} must have a topic id")
