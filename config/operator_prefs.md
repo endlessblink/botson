@@ -73,10 +73,28 @@ If a correction doesn't fit any of these, add a new context category.
 - "איך היה היום" / "מה הדבר הטוב היום" / "הריטואל שסוגר" — פסולים גם אם נראים תמימים, כי הם פילר.
 - שאלת מאמץ (פסקה, רשימה, הסבר) פסולה. תמיד בקש פרט אחד, שם אחד, החלטה אחת.
 - עברית של חבר בקבוצה, לא של קופירייטר. אם זה נשמע כמו תרגום מ-engagement prompt באנגלית — לפסול ולנסח שוב.
+- אל תשתמש ב-"נקודה" לבד כשהכוונה לאירוע, מועד, או נקודת ציון. השם המופשט "נקודה" נשמע כמו טקסט-מציין-מקום. נסח עם המילה הספציפית: "נקודת ציון", "אירוע", "מועד", "משהו ספציפי", או שם הדבר עצמו (פגישה, ארוחה, יציאה, סרט, התחלה).
+  _**Source:** chat via /teach-bot, 2026-05-16 — operator flagged "יש כבר נקודה אחת שאתם מחכים לה" as wrong; "נקודה" reads as placeholder, not a real noun in this context._
+- אסור לייצר שאלות דיון לקטגוריית "funny" / מצחיק. הומור עובד כסיפור או כבדיחה מוכנה מראש, לא כשאלה. שאלת "תכננתם משהו ונגנב — מה היה?" איננה מצחיקה. אם הקטגוריה היא funny — או דלג, או הצע סטוריפרומפט קצר ("ספרו רגע מצחיק מהבוקר") במקום שאלה כללית. ערוץ funny מושבת מאוטו-יצירה ב-2026-05-16 עד שיש מאגר בדיחות מוכן.
+  _**Source:** chat via /teach-bot, 2026-05-16 — operator: "humor-as-discussion-question doesn't work; remove channel from rotation or generate jokes instead."_
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
 ### Motion grammar
+
+#### A simple feature deserves a simple video — don't over-explain
+"Mark as submitted" is a one-line feature: a chip appears on a card. It does not need 3 shots, kinetic typography, macro close-ups, cursor choreography, particle bursts, and a pull-back reveal. Over-production on a simple feature reads as defensive padding, not clarity.
+- **Context:** Any product video where the new feature is a single visual change (chip appears, badge added, view toggled, item hidden).
+- **Why:** Noam said v8.2 (3 shots, 11s) "still too much explanation for such a simple feature."
+- **How to apply:** Before building, ask "if I had to do this in 5 seconds with ONE shot, what would it be?" That's usually the right answer. Defaults: a 5-line feature = 1 shot, 5–8s. A 2-line feature = 2 shots, 8–10s. **Only escalate to 3+ shots when the feature is genuinely multi-part** (e.g. "you can mark submitted, AND the catalogue auto-hides them, AND your profile shows a separate view" — 3 distinct user benefits warrants 3 shots).
+- **Source:** v8.2 prototype, 2026-05-16 — Noam: "still too much 'explanation' for such a simple featre."
+
+#### Match shot count to message complexity — simple features ≤ 3 shots
+A motion piece's shot count must match how complex the message is. Explaining "this feature is now on" needs 2–3 shots maximum. Padding to 4–5 shots to look impressive makes a simple message feel laboured.
+- **Context:** Any product-demo / feature-reveal video.
+- **Why:** Noam said v8 (4 shots in 14s) was "too many shots to explain something really simple... we don't need to stay on that for so long."
+- **How to apply:** Decision tree → "Can I name the new feature in one sentence?" If yes → 2–3 shots: (1) what + why, (2) how it looks, (3) optional consequence/proof. "Can I name 3 separate user benefits?" → up to 4 shots. Never default to 4 shots; default to 3. If you find yourself padding a final "wide hold" shot — kill it and let the previous shot end.
+- **Source:** v8.1 prototype, 2026-05-16 — Noam: "its too many shots to explain something really simple... we don't need to stay on that for so long."
 
 #### Per-shot duration in multi-shot motion design: 3–5 seconds
 When a motion piece is split into multiple visual shots (type-as-hero → macro close-up → wide reveal, etc.), each individual shot needs **3–5 seconds** to land. Shorter and the viewer doesn't process the shot's content before the cut — reads as rushed / "ad-fast" rather than confident.
@@ -114,6 +132,13 @@ When a UI element transforms (button → chip, card → tile), the SAME DOM elem
 - **Source:** v6 prototype, 2026-05-15 — Noam: "this transition is super low quality and lazy."
 
 ### Visual style
+
+#### Never overlap UI elements with one another
+Stat overlays, badges, captions, wordmarks, callouts — nothing should visually overlap with the main UI mockup or with each other. Even partial overlap reads as a layout bug, not as intentional layering.
+- **Context:** Any composition with overlays, stats, callouts, badges, captions adjacent to a hero element (browser mock, card, device).
+- **Why:** Noam circled `1 of 17 SUBMITTED` clipping into the browser frame: "anything should ever overlap."
+- **How to apply:** Place overlays in safe zones outside the hero element's bounding box. Top-left, top-right corners are safe IF the hero is centered vertically with margin. If the hero is full-width, push overlays above or below it. **Test:** at every keyframe, no two visible elements should share a pixel. If they do, move one or shrink the hero.
+- **Source:** v8.1 prototype, 2026-05-16 — Noam: "overlap... anything should ever overlap."
 
 #### Type for 1920×1080 video is 1.5–2× browser scale
 What looks fine at 16px on a browser at 1× device pixel ratio looks tiny when the same 1920×1080 frame is rendered as a video file viewed at fit-to-screen. Default video-scale for body text: 22–28px. Card titles: 48–56px. Headlines: 64–80px. Days-left counters or hero numerals: 72–100px+.
@@ -180,7 +205,12 @@ Two competing constraints: text must communicate enough to be understood without
 
 ### AI collaboration
 
-*(No rules captured yet.)*
+#### Before every motion-design output, re-cite which rules apply (Meta / Self-enforcement)
+The storage of rules is reliable; the **application** is not. Without an explicit citation step, the agent reverts to intuition and ships outputs that violate rules added in the same session.
+- **Context:** Any motion design / video / animation task once this prefs file has >2 rules.
+- **Why:** Noam: "is your learning process from e really reliable right now?" — and the agent honestly said no, because rules added one message ago weren't being consulted before the next ship.
+- **How to apply:** Before each motion-design output, the agent must write a one-line citation list: `Applying: per-shot 3–5s · no overlap · clear-not-long text · …`. The list goes in the user-facing message AND in code comments at the top of the file. Forces the agent to load the relevant rules into immediate attention instead of relying on the rules being "available."
+- **Source:** v8.1 prototype, 2026-05-16 — Noam asked whether the learning process is reliable.
 
 ---
 
