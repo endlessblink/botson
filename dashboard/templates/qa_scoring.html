@@ -13,6 +13,32 @@
 
 <div class="px-4 py-4 max-w-5xl mx-auto" dir="rtl">
 
+    <!-- T-181: proposal banner — surfaces a learned-rule candidate when
+         enough rejections have accumulated. HITL by design: nothing
+         lands in config/operator_prefs.md without the operator clicking
+         approve. -->
+    <div id="prefs-banner" class="hidden mb-4 bg-[#0a0a0a] border border-amber-500/50 rounded-lg px-4 py-3">
+        <div class="flex items-start gap-3">
+            <span class="text-amber-400 text-xl">💡</span>
+            <div class="flex-1 min-w-0">
+                <h3 class="text-sm font-semibold text-[#fafafa]">כלל מוצע על-בסיס משובים</h3>
+                <p class="text-[11px] text-[#71717a] mt-0.5" id="prefs-banner-meta">
+                    מבוסס על דחיות אחרונות. אישור יוסיף את הכלל ל-<code class="text-[#a1a1aa]">config/operator_prefs.md</code> וכל פרומפט הבא יראה אותו.
+                </p>
+                <pre id="prefs-banner-guidance" class="text-xs text-[#e4e4e7] bg-[#111318] border border-[#272727] rounded-md p-2 mt-2 whitespace-pre-wrap leading-relaxed"></pre>
+                <div class="flex items-center gap-2 mt-3">
+                    <button id="prefs-banner-approve" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white h-8 px-3 rounded-md cursor-pointer transition-colors">
+                        ✓ אשר והוסף ל-operator_prefs.md
+                    </button>
+                    <button id="prefs-banner-dismiss" class="text-xs text-[#71717a] hover:text-[#a1a1aa] border border-[#272727] hover:border-[#3f3f46] h-8 px-3 rounded-md cursor-pointer transition-colors">
+                        דחה זמנית
+                    </button>
+                    <span id="prefs-banner-status" class="text-[11px] text-[#71717a] mr-auto"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Header -->
     <div class="flex items-center justify-between mb-4">
         <div>
@@ -339,5 +365,61 @@ async function qaClearScored() {
         showToast('שגיאה: ' + e.message, 'error');
     }
 }
+
+// T-181: proposal banner — poll the endpoint, show banner when a rule is ready.
+async function checkProposalBanner() {
+    var banner = document.getElementById('prefs-banner');
+    if (!banner) return;
+    if (sessionStorage.getItem('prefs-banner-dismissed') === '1') return;
+    try {
+        var r = await fetch('/api/operator-prefs/proposed-rule', {
+            method: 'GET',
+            headers: {'Content-Type': 'application/json'},
+        });
+        if (!r.ok) return;
+        var data = await r.json();
+        if (!data.ready || !data.proposed_guidance) return;
+        document.getElementById('prefs-banner-guidance').textContent = data.proposed_guidance;
+        document.getElementById('prefs-banner-meta').textContent =
+            'מבוסס על ' + data.new_feedback_count + ' דחיות אחרונות. אישור יוסיף את הכלל ל-config/operator_prefs.md.';
+        banner.classList.remove('hidden');
+        window._prefsBannerSourceIds = data.source_feedback_ids || [];
+        window._prefsBannerGuidance = data.proposed_guidance;
+    } catch (_) { /* best-effort */ }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var approve = document.getElementById('prefs-banner-approve');
+    var dismiss = document.getElementById('prefs-banner-dismiss');
+    var statusEl = document.getElementById('prefs-banner-status');
+    if (approve) approve.addEventListener('click', async function() {
+        if (!window._prefsBannerGuidance) return;
+        statusEl.textContent = '⏳ שומר...';
+        approve.disabled = true;
+        try {
+            var r = await fetch('/api/operator-prefs/apply-proposal', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    guidance: window._prefsBannerGuidance,
+                    source_feedback_ids: window._prefsBannerSourceIds || [],
+                }),
+            });
+            var data = await r.json();
+            if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+            statusEl.textContent = '✓ נוסף ל-operator_prefs.md (' + (data.appended_chars || 0) + ' תווים)';
+            document.getElementById('prefs-banner').style.opacity = '0.5';
+            showToast('הכלל נוסף — הפרומפט הבא יראה אותו', 'success');
+        } catch (e) {
+            statusEl.textContent = 'שגיאה: ' + e.message;
+            approve.disabled = false;
+        }
+    });
+    if (dismiss) dismiss.addEventListener('click', function() {
+        sessionStorage.setItem('prefs-banner-dismissed', '1');
+        document.getElementById('prefs-banner').classList.add('hidden');
+    });
+    checkProposalBanner();
+});
 </script>
 {% endblock %}

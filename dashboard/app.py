@@ -182,6 +182,12 @@ async def startup():
             logger.warning("[operator-prefs] config/operator_prefs.md Hebrew section missing or empty")
     except Exception as e:
         logger.warning("[operator-prefs] startup probe failed: %s", e)
+    # T-182: hydrate working-memory cache from content_feedback so prompts
+    # built right after a restart still see recent operator rejections.
+    try:
+        await _hydrate_recent_feedback_cache(_db)
+    except Exception as e:
+        logger.warning("[working-memory] startup hydration failed: %s", e)
 
 
 @app.on_event("shutdown")
@@ -2952,6 +2958,12 @@ def _finalize_prompt(
     style_block = _active_style_profile_block_sync()
     if style_block:
         out += style_block
+    # T-182: working memory — labeled recent rejections + acceptances,
+    # category-filtered, end-positioned (highest-recall slot per
+    # Lost-in-the-Middle 2307.03172 + Anthropic 2025 context-engineering).
+    wm_block = _recent_feedback_block_sync(field, category)
+    if wm_block:
+        out += wm_block
     if group_stats:
         out += "\n\n" + group_stats
     rules = _load_quality_rules()
@@ -3117,6 +3129,113 @@ async def _maybe_auto_promote_style_profile(db: Database) -> None:
                     len(new_rows), new_id, len(merged.splitlines()))
     except Exception as e:
         logger.warning("[style-profile] auto-promote failed: %s", e)
+
+
+# T-182: working-memory cache of recent operator feedback per category.
+# Populated by record_content_feedback POST path and hydrated on startup
+# from the last N rows of content_feedback. Read synchronously by the
+# prompt builder so each generation sees the most recent rejections/
+# acceptances without waiting on DB.
+#
+# Caps reflect the research consensus (Lost-in-the-Middle 2307.03172,
+# Few-shot diminishing returns 2509.13196, Anthropic context-rot Sep
+# 2025): the prompt block is small (5 category + 3 global) but the cache
+# itself can hold a larger pool for selection.
+_RECENT_FEEDBACK_PER_CATEGORY_CAP = 50
+_RECENT_FEEDBACK_GLOBAL_CAP = 30
+_PROMPT_CATEGORY_LIMIT = 5
+_PROMPT_GLOBAL_LIMIT = 3
+
+# Module-level cache. {"<category>": [dict, ...], "__global__": [dict, ...]}.
+# Each list is ordered newest-first.
+_RECENT_FEEDBACK_CACHE: dict = {"__global__": []}
+
+
+def _record_feedback_to_cache(row: dict) -> None:
+    """Add a single feedback row to the in-memory cache. Caller passes a
+    dict matching content_feedback columns (id, content_type, topic_key,
+    original_text, verdict, reason, created_at). Idempotent on id."""
+    if not isinstance(row, dict) or not row.get("original_text"):
+        return
+    cat = (row.get("topic_key") or "").strip() or None
+    # Global list — newest first, cap.
+    g = _RECENT_FEEDBACK_CACHE.setdefault("__global__", [])
+    if any(int(r.get("id") or -1) == int(row.get("id") or -2) for r in g):
+        return  # already cached
+    g.insert(0, row)
+    if len(g) > _RECENT_FEEDBACK_GLOBAL_CAP:
+        del g[_RECENT_FEEDBACK_GLOBAL_CAP:]
+    if cat:
+        c = _RECENT_FEEDBACK_CACHE.setdefault(cat, [])
+        c.insert(0, row)
+        if len(c) > _RECENT_FEEDBACK_PER_CATEGORY_CAP:
+            del c[_RECENT_FEEDBACK_PER_CATEGORY_CAP:]
+
+
+async def _hydrate_recent_feedback_cache(db: Database) -> None:
+    """Pull the most recent content_feedback rows from the DB into the
+    process cache. Called on dashboard startup so prompts built right
+    after a restart still have working memory (otherwise the cache would
+    be empty until the next operator rejection).
+    """
+    try:
+        rows = await db.list_content_feedback(limit=_RECENT_FEEDBACK_GLOBAL_CAP * 2)
+    except Exception as e:
+        logger.warning("[working-memory] hydration failed: %s", e)
+        return
+    # list_content_feedback returns newest-first; iterate reversed so the
+    # cache ends up newest-first after sequential prepends.
+    for r in reversed(rows):
+        _record_feedback_to_cache(dict(r))
+    logger.info(
+        "[working-memory] hydrated cache: %d global rows, %d categories",
+        len(_RECENT_FEEDBACK_CACHE.get("__global__", [])),
+        sum(1 for k in _RECENT_FEEDBACK_CACHE if k != "__global__"),
+    )
+
+
+def _recent_feedback_block_sync(field: str, category: str | None) -> str:
+    """Return a Hebrew-labeled feedback block for the current prompt.
+    Composition (research-backed): top N category + top M global recent,
+    labeled ACCEPT/REJECT explicitly, end-positioned within the style
+    section so the strongest signal lands at the highest-recall position.
+    Returns '' if nothing to inject.
+    """
+    cat = (category or "").strip() or None
+    cat_rows: list[dict] = []
+    if cat:
+        cat_rows = list(_RECENT_FEEDBACK_CACHE.get(cat, []))[:_PROMPT_CATEGORY_LIMIT]
+    seen_ids = {int(r.get("id") or -1) for r in cat_rows}
+    global_rows = [
+        r for r in _RECENT_FEEDBACK_CACHE.get("__global__", [])
+        if int(r.get("id") or -1) not in seen_ids
+    ][:_PROMPT_GLOBAL_LIMIT]
+    selected = cat_rows + global_rows
+    if not selected:
+        return ""
+    rejected = [r for r in selected if (r.get("verdict") or "").strip() in ("rejected", "bad_wording")]
+    accepted = [r for r in selected if (r.get("verdict") or "").strip() in ("accepted", "accepted_after_edit")]
+
+    def _fmt(row: dict) -> str:
+        text = (row.get("original_text") or "").strip().replace("\n", " ")[:140]
+        reason = (row.get("reason") or "").strip().replace("\n", " ")[:100]
+        bits = [f'"{text}"']
+        if reason:
+            bits.append(f"סיבה: {reason}")
+        return "- " + " — ".join(bits)
+
+    parts: list[str] = []
+    if rejected:
+        parts.append("דוגמאות שנדחו לאחרונה על-ידי האופרטור (אסור לשחזר רעיון או נוסח):")
+        parts.extend(_fmt(r) for r in rejected)
+    if accepted:
+        if parts:
+            parts.append("")  # blank line separator
+        parts.append("דוגמאות שאושרו לאחרונה על-ידי האופרטור (זה הכיוון):")
+        parts.extend(_fmt(r) for r in accepted)
+    if not parts:
+        return ""
+    return "\n\n" + "\n".join(parts)
 
 
 def _active_style_profile_block_sync() -> str:
@@ -7219,16 +7338,32 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
             metadata = json.dumps(metadata, ensure_ascii=False)
         except Exception:
             metadata = None
+    topic_key_clean = (str(body.get("topic_key")).strip() if body.get("topic_key") else None)
+    reason_clean = (str(body.get("reason")).strip() if body.get("reason") else None)
+    corrected_clean = (str(body.get("corrected_text")).strip() if body.get("corrected_text") else None)
     row_id = await db.record_content_feedback(
         source=source,
         content_type=content_type,
-        topic_key=(str(body.get("topic_key")).strip() if body.get("topic_key") else None),
+        topic_key=topic_key_clean,
         original_text=original_text,
         verdict=verdict,
-        reason=(str(body.get("reason")).strip() if body.get("reason") else None),
-        corrected_text=(str(body.get("corrected_text")).strip() if body.get("corrected_text") else None),
+        reason=reason_clean,
+        corrected_text=corrected_clean,
         suggestion_metadata=metadata,
     )
+    # T-182: write-through to working-memory cache so the next prompt
+    # sees this rejection immediately (no DB round-trip).
+    _record_feedback_to_cache({
+        "id": row_id,
+        "source": source,
+        "content_type": content_type,
+        "topic_key": topic_key_clean,
+        "original_text": original_text,
+        "verdict": verdict,
+        "reason": reason_clean,
+        "corrected_text": corrected_clean,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    })
     # T-181: silent auto-promote at N=5 was reversed (research consensus:
     # sycophancy / sparse-signal noise makes silent rule-installation
     # unreliable; see plans/i-need-to-understand-elegant-goblet.md sources).
@@ -9322,16 +9457,22 @@ async def qa_scoring_set_score(draft_id: int, request: Request, db: Database = D
             reason_bits = [f"qa_score={score}"]
             if comment:
                 reason_bits.append(comment)
-            await db.record_content_feedback(
+            ct = str(found_draft.get("draft_type") or "discussion")
+            tk = (str(found_draft.get("category")) if found_draft.get("category") else None)
+            ot = str(found_draft.get("text") or "")
+            rsn = " · ".join(reason_bits)
+            fid = await db.record_content_feedback(
                 source="qa_scoring",
-                content_type=str(found_draft.get("draft_type") or "discussion"),
-                topic_key=(str(found_draft.get("category")) if found_draft.get("category") else None),
-                original_text=str(found_draft.get("text") or ""),
-                verdict="rejected",
-                reason=" · ".join(reason_bits),
-                corrected_text=None,
-                suggestion_metadata=None,
+                content_type=ct, topic_key=tk, original_text=ot,
+                verdict="rejected", reason=rsn,
+                corrected_text=None, suggestion_metadata=None,
             )
+            # T-182: write-through to working-memory cache.
+            _record_feedback_to_cache({
+                "id": fid, "source": "qa_scoring", "content_type": ct,
+                "topic_key": tk, "original_text": ot, "verdict": "rejected",
+                "reason": rsn, "created_at": datetime.now().isoformat(timespec="seconds"),
+            })
             # T-181: silent auto-promote removed; the rejection is journaled
             # and surfaces on /operator-prefs/review as a proposed rule the
             # operator must explicitly approve before it lands in
@@ -9340,16 +9481,21 @@ async def qa_scoring_set_score(draft_id: int, request: Request, db: Database = D
             logger.warning("[qa-scoring] feedback insert failed: %s", e)
     elif found_draft is not None and score in (4, 5):
         try:
-            await db.record_content_feedback(
+            ct = str(found_draft.get("draft_type") or "discussion")
+            tk = (str(found_draft.get("category")) if found_draft.get("category") else None)
+            ot = str(found_draft.get("text") or "")
+            rsn = f"qa_score={score}" + (f" · {comment}" if comment else "")
+            fid = await db.record_content_feedback(
                 source="qa_scoring",
-                content_type=str(found_draft.get("draft_type") or "discussion"),
-                topic_key=(str(found_draft.get("category")) if found_draft.get("category") else None),
-                original_text=str(found_draft.get("text") or ""),
-                verdict="accepted",
-                reason=(f"qa_score={score}" + (f" · {comment}" if comment else "")),
-                corrected_text=None,
-                suggestion_metadata=None,
+                content_type=ct, topic_key=tk, original_text=ot,
+                verdict="accepted", reason=rsn,
+                corrected_text=None, suggestion_metadata=None,
             )
+            _record_feedback_to_cache({
+                "id": fid, "source": "qa_scoring", "content_type": ct,
+                "topic_key": tk, "original_text": ot, "verdict": "accepted",
+                "reason": rsn, "created_at": datetime.now().isoformat(timespec="seconds"),
+            })
         except Exception as e:
             logger.warning("[qa-scoring] accepted feedback insert failed: %s", e)
     return {"ok": True, "id": draft_id, "score": score}

@@ -87,6 +87,53 @@ def test_untrain_removes_matching_rule(prefs_path):
     assert "REMOVE_ME_TOKEN" not in _read_operator_prefs_hebrew_section()
 
 
+def test_working_memory_category_filter_and_injection(prefs_path):
+    """T-182: a rejection on category X must appear in next prompt for X."""
+    from dashboard import app as dash
+    dash._RECENT_FEEDBACK_CACHE.clear()
+    dash._RECENT_FEEDBACK_CACHE["__global__"] = []
+    dash._record_feedback_to_cache({
+        "id": 101, "topic_key": "movies",
+        "original_text": "TEST_REJECTED_movies_token",
+        "verdict": "rejected", "reason": "test rejection",
+    })
+    dash._record_feedback_to_cache({
+        "id": 102, "topic_key": "gaming",
+        "original_text": "TEST_REJECTED_gaming_token",
+        "verdict": "rejected", "reason": "different cat",
+    })
+    # movies prompt should see movies rejection AND globally-recent gaming.
+    p = dash.build_generation_prompt(
+        "discussion", "append", "", "movies",
+        scheduled_date="2026-05-17", scheduled_time="20:00",
+    )
+    assert "TEST_REJECTED_movies_token" in p
+    # gaming rejection is globally recent → fills top-3 global slot.
+    assert "TEST_REJECTED_gaming_token" in p
+    # Singles prompt should NOT see movies-specific feedback by default,
+    # but globally-recent rows DO appear cross-category (drift signal).
+    # That's by design — verify it's labeled correctly.
+    p2 = dash.build_generation_prompt(
+        "discussion", "append", "", "singles",
+        scheduled_date="2026-05-17", scheduled_time="20:00",
+    )
+    assert "דוגמאות שנדחו" in p2  # the labeled rejection header
+
+
+def test_working_memory_cache_caps(prefs_path):
+    from dashboard import app as dash
+    dash._RECENT_FEEDBACK_CACHE.clear()
+    dash._RECENT_FEEDBACK_CACHE["__global__"] = []
+    # Push 100 movies rejections; cache should cap at 50.
+    for i in range(100):
+        dash._record_feedback_to_cache({
+            "id": 1000 + i, "topic_key": "movies",
+            "original_text": f"rejection_{i}", "verdict": "rejected",
+        })
+    assert len(dash._RECENT_FEEDBACK_CACHE.get("movies", [])) == 50
+    assert len(dash._RECENT_FEEDBACK_CACHE.get("__global__", [])) == 30
+
+
 def test_cache_invalidates_on_mtime_change(prefs_path):
     """When the file changes, the next read picks it up (no stale prompts)."""
     import time
