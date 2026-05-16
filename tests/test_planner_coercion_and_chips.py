@@ -516,7 +516,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_endpoint_returns_pollable_job(self):
         db = Database(":memory:")
         await db.init()
-        dashboard_app._AI_SUGGEST_JOBS.clear()
+        dashboard_app._AI_SUGGEST_TASKS.clear()
         expected = {
             "window": {"start": "2099-01-01", "end": "2099-01-01", "scope": "day"},
             "suggestions": [],
@@ -531,13 +531,13 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 FakeCalendarRequest({"target_date": "2099-01-01", "week_offset": 0}), db,
             )
             for _ in range(10):
-                status = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                status = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}), db)
                 if status["status"] == "completed":
                     break
                 await asyncio.sleep(0.01)
 
         await db.close()
-        dashboard_app._AI_SUGGEST_JOBS.clear()
+        dashboard_app._AI_SUGGEST_TASKS.clear()
 
         self.assertEqual(started["status"], "pending")
         self.assertEqual(status["status"], "completed")
@@ -625,18 +625,18 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_today_token_uses_server_israel_date(self):
         db = Database(":memory:")
         await db.init()
-        dashboard_app._AI_SUGGEST_JOBS.clear()
+        dashboard_app._AI_SUGGEST_TASKS.clear()
         try:
             with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value={"ok": True})) as suggest:
                 started = await dashboard_app.ai_suggest(FakeCalendarRequest({"target_date": "today"}), db)
                 for _ in range(10):
-                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}), db)
                     if res["status"] == "completed":
                         break
                     await asyncio.sleep(0.01)
         finally:
             await db.close()
-            dashboard_app._AI_SUGGEST_JOBS.clear()
+            dashboard_app._AI_SUGGEST_TASKS.clear()
 
         self.assertEqual(res["result"], {"ok": True})
         called_date = suggest.await_args.kwargs["target_date"]
@@ -645,18 +645,18 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_empty_body_uses_defaults(self):
         db = Database(":memory:")
         await db.init()
-        dashboard_app._AI_SUGGEST_JOBS.clear()
+        dashboard_app._AI_SUGGEST_TASKS.clear()
         try:
             with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(return_value={"ok": True})) as suggest:
                 started = await dashboard_app.ai_suggest(FakeCalendarRequest(None), db)
                 for _ in range(10):
-                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}), db)
                     if res["status"] == "completed":
                         break
                     await asyncio.sleep(0.01)
         finally:
             await db.close()
-            dashboard_app._AI_SUGGEST_JOBS.clear()
+            dashboard_app._AI_SUGGEST_TASKS.clear()
 
         self.assertEqual(res["result"], {"ok": True})
         self.assertIsNone(suggest.await_args.kwargs["target_date"])
@@ -665,7 +665,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_cancel_stops_running_job(self):
         db = Database(":memory:")
         await db.init()
-        dashboard_app._AI_SUGGEST_JOBS.clear()
+        dashboard_app._AI_SUGGEST_TASKS.clear()
         started_event = asyncio.Event()
 
         async def slow_suggest(*args, **kwargs):
@@ -676,15 +676,67 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             with patch.object(dashboard_app, "_ai_suggest_calendar", new=AsyncMock(side_effect=slow_suggest)):
                 started = await dashboard_app.ai_suggest(FakeCalendarRequest({"target_date": "2099-01-01"}), db)
                 await asyncio.wait_for(started_event.wait(), timeout=1)
-                cancelled = await dashboard_app.ai_suggest_cancel(started["job_id"], FakeCalendarRequest({}))
+                cancelled = await dashboard_app.ai_suggest_cancel(started["job_id"], FakeCalendarRequest({}), db)
                 await asyncio.sleep(0)
-                status = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}))
+                status = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}), db)
         finally:
             await db.close()
-            dashboard_app._AI_SUGGEST_JOBS.clear()
+            dashboard_app._AI_SUGGEST_TASKS.clear()
 
         self.assertEqual(cancelled["status"], "cancelled")
         self.assertEqual(status["status"], "cancelled")
+
+    async def test_ai_suggest_survives_dashboard_restart(self):
+        """Gap 10: completed job state in SQLite must be readable across processes."""
+        db = Database(":memory:")
+        await db.init()
+        dashboard_app._AI_SUGGEST_TASKS.clear()
+        try:
+            with patch.object(
+                dashboard_app, "_ai_suggest_calendar",
+                new=AsyncMock(return_value={"ok": True, "suggestions": []}),
+            ):
+                started = await dashboard_app.ai_suggest(
+                    FakeCalendarRequest({"target_date": "2099-01-01"}), db,
+                )
+                for _ in range(20):
+                    res = await dashboard_app.ai_suggest_status(started["job_id"], FakeCalendarRequest({}), db)
+                    if res["status"] == "completed":
+                        break
+                    await asyncio.sleep(0.01)
+            # Simulate dashboard restart: drop the in-memory task handle.
+            # The job row in SQLite must still answer status queries.
+            dashboard_app._AI_SUGGEST_TASKS.clear()
+            after_restart = await dashboard_app.ai_suggest_status(
+                started["job_id"], FakeCalendarRequest({}), db,
+            )
+        finally:
+            await db.close()
+            dashboard_app._AI_SUGGEST_TASKS.clear()
+
+        self.assertEqual(after_restart["status"], "completed")
+        self.assertEqual(after_restart["result"], {"ok": True, "suggestions": []})
+
+    async def test_ai_suggest_orphan_recovery_marks_pending_failed(self):
+        """Gap 10: pending/running rows from a prior process are reclassified."""
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.create_ai_suggest_job("orphan-1", target_date="2099-01-01", week_offset=0)
+            await db.update_ai_suggest_job("orphan-1", status="running")
+            await db.create_ai_suggest_job("orphan-2", target_date=None, week_offset=1)
+            # leave orphan-2 at status='pending'
+
+            recovered = await db.recover_orphaned_ai_suggest_jobs()
+            row1 = await db.get_ai_suggest_job("orphan-1")
+            row2 = await db.get_ai_suggest_job("orphan-2")
+        finally:
+            await db.close()
+
+        self.assertEqual(recovered, 2)
+        self.assertEqual(row1["status"], "failed")
+        self.assertIn("restart", (row1["error"] or "").lower())
+        self.assertEqual(row2["status"], "failed")
 
     async def test_calendar_api_does_not_render_static_pool_preview_events(self):
         db = Database(":memory:")

@@ -108,6 +108,23 @@ class Database:
             "source_feedback_ids TEXT"
             ")",
             "CREATE INDEX IF NOT EXISTS idx_prefs_changes_time ON operator_prefs_changes(created_at DESC)",
+            # Gap 10 (2026-05-16): persist AI suggest jobs so a dashboard
+            # restart mid-run doesn't return "AI suggest job not found".
+            # The in-memory _AI_SUGGEST_JOBS dict still holds the live
+            # asyncio.Task reference (not picklable); on startup any row
+            # still marked pending/running is reclassified as failed so
+            # the operator can retry.
+            "CREATE TABLE IF NOT EXISTS ai_suggest_jobs ("
+            "id TEXT PRIMARY KEY, "
+            "status TEXT NOT NULL, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "completed_at TIMESTAMP, "
+            "target_date TEXT, "
+            "week_offset INTEGER NOT NULL DEFAULT 0, "
+            "result_json TEXT, "
+            "error TEXT"
+            ")",
+            "CREATE INDEX IF NOT EXISTS idx_ai_suggest_jobs_created ON ai_suggest_jobs(created_at DESC)",
         ]
         for sql in migrations:
             try:
@@ -1933,3 +1950,76 @@ class Database:
         ) as cur:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+    # ── AI suggest jobs (Gap 10: survive dashboard restarts) ──
+
+    async def create_ai_suggest_job(
+        self, job_id: str, *, target_date: str | None, week_offset: int
+    ) -> None:
+        await self._db.execute(
+            "INSERT INTO ai_suggest_jobs (id, status, target_date, week_offset) "
+            "VALUES (?, 'pending', ?, ?)",
+            (job_id, target_date, int(week_offset)),
+        )
+        await self._db.commit()
+
+    async def update_ai_suggest_job(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        result_json: str | None = None,
+        error: str | None = None,
+        mark_completed: bool = False,
+    ) -> None:
+        sets = ["status = ?"]
+        params: list = [status]
+        if result_json is not None:
+            sets.append("result_json = ?")
+            params.append(result_json)
+        if error is not None:
+            sets.append("error = ?")
+            params.append(error)
+        if mark_completed:
+            sets.append("completed_at = CURRENT_TIMESTAMP")
+        params.append(job_id)
+        await self._db.execute(
+            f"UPDATE ai_suggest_jobs SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        await self._db.commit()
+
+    async def get_ai_suggest_job(self, job_id: str) -> dict | None:
+        async with self._db.execute(
+            "SELECT id, status, created_at, completed_at, target_date, "
+            "week_offset, result_json, error FROM ai_suggest_jobs WHERE id = ?",
+            (job_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def cleanup_ai_suggest_jobs(self, ttl_seconds: int = 900) -> int:
+        async with self._db.execute(
+            f"DELETE FROM ai_suggest_jobs "
+            f"WHERE created_at < datetime('now', '-{int(ttl_seconds)} seconds')"
+        ) as cur:
+            deleted = cur.rowcount
+        await self._db.commit()
+        return int(deleted or 0)
+
+    async def recover_orphaned_ai_suggest_jobs(self) -> int:
+        """Mark any pending/running jobs as failed at startup.
+
+        Their asyncio.Task died with the previous process, so the operator
+        must retry. Returns the count of recovered rows.
+        """
+        async with self._db.execute(
+            "UPDATE ai_suggest_jobs "
+            "SET status = 'failed', "
+            "    error = 'AI suggest interrupted by dashboard restart — retry', "
+            "    completed_at = CURRENT_TIMESTAMP "
+            "WHERE status IN ('pending', 'running')"
+        ) as cur:
+            recovered = cur.rowcount
+        await self._db.commit()
+        return int(recovered or 0)

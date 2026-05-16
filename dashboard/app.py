@@ -151,15 +151,23 @@ DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "botson-admin")
 
 # DB instance (initialized on startup)
 _db: Database | None = None
-_AI_SUGGEST_JOBS: dict[str, dict] = {}
+# Gap 10 (2026-05-16): job state lives in the ai_suggest_jobs SQLite table
+# so a dashboard restart no longer returns "AI suggest job not found".
+# This in-memory map holds ONLY the live asyncio.Task reference (not picklable);
+# orphan rows from a previous process are reclassified at startup.
+_AI_SUGGEST_TASKS: dict[str, asyncio.Task] = {}
 _AI_SUGGEST_JOB_TTL_SECONDS = 15 * 60
 
 
-def _cleanup_ai_suggest_jobs() -> None:
-    cutoff = time.monotonic() - _AI_SUGGEST_JOB_TTL_SECONDS
-    stale = [job_id for job_id, job in _AI_SUGGEST_JOBS.items() if float(job.get("created_at") or 0) < cutoff]
-    for job_id in stale:
-        _AI_SUGGEST_JOBS.pop(job_id, None)
+async def _cleanup_ai_suggest_jobs(db: Database) -> None:
+    try:
+        await db.cleanup_ai_suggest_jobs(_AI_SUGGEST_JOB_TTL_SECONDS)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[weekplan.ai-suggest] cleanup failed: %s", e)
+    # Drop task handles for jobs no longer in the DB (or already done).
+    stale = [jid for jid, task in _AI_SUGGEST_TASKS.items() if task.done()]
+    for jid in stale:
+        _AI_SUGGEST_TASKS.pop(jid, None)
 
 
 @app.on_event("startup")
@@ -188,6 +196,15 @@ async def startup():
         await _hydrate_recent_feedback_cache(_db)
     except Exception as e:
         logger.warning("[working-memory] startup hydration failed: %s", e)
+    # Gap 10: any ai-suggest jobs still pending/running in the DB belonged
+    # to the previous process — their asyncio.Task is gone. Mark them
+    # failed so the operator's poll sees a real status instead of 404.
+    try:
+        recovered = await _db.recover_orphaned_ai_suggest_jobs()
+        if recovered:
+            logger.info("[weekplan.ai-suggest] recovered %d orphaned job(s)", recovered)
+    except Exception as e:
+        logger.warning("[weekplan.ai-suggest] orphan recovery failed: %s", e)
 
 
 @app.on_event("shutdown")
@@ -6023,19 +6040,43 @@ def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int]:
 
 
 async def _run_ai_suggest_job(job_id: str, db: Database, target_date: str | None, week_offset: int) -> None:
-    job = _AI_SUGGEST_JOBS.get(job_id)
-    if not job:
-        return
-    job["status"] = "running"
+    try:
+        await db.update_ai_suggest_job(job_id, status="running")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[weekplan.ai-suggest] mark-running failed id=%s: %s", job_id, e)
     try:
         result = await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
-        job.update({"status": "completed", "result": result, "completed_at": time.monotonic()})
+        try:
+            result_json = json.dumps(result, ensure_ascii=False)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[weekplan.ai-suggest] result not JSON-serializable id=%s: %s", job_id, e)
+            await db.update_ai_suggest_job(
+                job_id,
+                status="failed",
+                error=f"result encode failed: {type(e).__name__}: {e}",
+                mark_completed=True,
+            )
+            return
+        await db.update_ai_suggest_job(job_id, status="completed", result_json=result_json, mark_completed=True)
     except asyncio.CancelledError:
-        job.update({"status": "cancelled", "error": "AI suggest cancelled", "completed_at": time.monotonic()})
+        try:
+            await db.update_ai_suggest_job(
+                job_id, status="cancelled", error="AI suggest cancelled", mark_completed=True
+            )
+        except Exception:  # noqa: BLE001
+            pass
         raise
     except Exception as e:
         logger.exception("[weekplan.ai-suggest] job failed id=%s target_date=%r week_offset=%s", job_id, target_date, week_offset)
-        job.update({"status": "failed", "error": f"AI suggest failed: {type(e).__name__}: {e}", "completed_at": time.monotonic()})
+        try:
+            await db.update_ai_suggest_job(
+                job_id,
+                status="failed",
+                error=f"AI suggest failed: {type(e).__name__}: {e}",
+                mark_completed=True,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.post("/api/weekplan/ai-suggest")
@@ -6048,50 +6089,54 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=401)
     data = await _read_json_object_body(request, "weekplan.ai-suggest")
     target_date, week_offset = _parse_ai_suggest_request(data)
-    _cleanup_ai_suggest_jobs()
+    await _cleanup_ai_suggest_jobs(db)
     job_id = secrets.token_urlsafe(18)
-    _AI_SUGGEST_JOBS[job_id] = {
-        "id": job_id,
-        "status": "pending",
-        "created_at": time.monotonic(),
-        "target_date": target_date,
-        "week_offset": week_offset,
-    }
+    await db.create_ai_suggest_job(job_id, target_date=target_date, week_offset=week_offset)
     task = asyncio.create_task(_run_ai_suggest_job(job_id, db, target_date, week_offset))
-    _AI_SUGGEST_JOBS[job_id]["task"] = task
+    _AI_SUGGEST_TASKS[job_id] = task
     return {"job_id": job_id, "status": "pending"}
 
 
 @app.get("/api/weekplan/ai-suggest/{job_id}")
-async def ai_suggest_status(job_id: str, request: Request):
+async def ai_suggest_status(job_id: str, request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    _cleanup_ai_suggest_jobs()
-    job = _AI_SUGGEST_JOBS.get(job_id)
+    await _cleanup_ai_suggest_jobs(db)
+    job = await db.get_ai_suggest_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="AI suggest job not found")
     status = str(job.get("status") or "pending")
     response = {"job_id": job_id, "status": status}
     if status == "completed":
-        response["result"] = job.get("result") or {}
+        raw = job.get("result_json")
+        if raw:
+            try:
+                response["result"] = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                response["result"] = {}
+        else:
+            response["result"] = {}
     elif status in {"failed", "cancelled"}:
         response["error"] = job.get("error") or "AI suggest failed"
     return response
 
 
 @app.post("/api/weekplan/ai-suggest/{job_id}/cancel")
-async def ai_suggest_cancel(job_id: str, request: Request):
+async def ai_suggest_cancel(job_id: str, request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
-    _cleanup_ai_suggest_jobs()
-    job = _AI_SUGGEST_JOBS.get(job_id)
+    await _cleanup_ai_suggest_jobs(db)
+    job = await db.get_ai_suggest_job(job_id)
     if not job:
         return {"job_id": job_id, "status": "missing"}
-    task = job.get("task")
+    task = _AI_SUGGEST_TASKS.get(job_id)
     if task and not task.done():
         task.cancel()
     if str(job.get("status") or "") not in {"completed", "failed", "cancelled"}:
-        job.update({"status": "cancelled", "error": "AI suggest cancelled", "completed_at": time.monotonic()})
+        await db.update_ai_suggest_job(
+            job_id, status="cancelled", error="AI suggest cancelled", mark_completed=True
+        )
+        job = await db.get_ai_suggest_job(job_id) or job
     return {"job_id": job_id, "status": job.get("status")}
 
 
