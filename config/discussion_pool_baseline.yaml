@@ -26,5 +26,6 @@ allowlist:
     - "מה הדבר הכי חמוד שראיתם השבוע מחוץ למסך?"
   funny:
     - "תמונה בלי הקשר שמצחיקה אתכם — תנו אחת."
+    - "<category itself>"  # 2026-05-16: funny disabled from topics.discussions until curated joke pool exists; pool entries kept for re-enable.
   general:
     - "<category itself>"
