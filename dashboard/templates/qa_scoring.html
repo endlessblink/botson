@@ -382,6 +382,14 @@ async function qaClearScored() {
 }
 
 // T-184 (Gap 4): session learning report — render summary inside the <details>.
+async function loadPoolHealth() {
+    try {
+        var r = await fetch('/api/operator-prefs/pool-health');
+        if (!r.ok) return null;
+        return await r.json();
+    } catch (_) { return null; }
+}
+
 async function loadSessionReport() {
     var body = document.getElementById('session-report-body');
     var counter = document.getElementById('session-report-count');
@@ -416,6 +424,16 @@ async function loadSessionReport() {
             return '<li class="text-[11px]"><span class="text-[#71717a]">[' + (c.source || '') + ']</span> ' + t + '</li>';
         }).join('');
         var wm = data.working_memory || {};
+        var ph = await loadPoolHealth();
+        var phRows = '';
+        if (ph && ph.pools) {
+            phRows = Object.keys(ph.pools).map(function(k) {
+                var p = ph.pools[k];
+                var color = p.exhausted ? 'text-rose-300' : (p.usable < 3 ? 'text-amber-300' : 'text-emerald-300');
+                var warn = p.exhausted ? ' ⚠ ריק' : (p.usable < 3 ? ' · נמוך' : '');
+                return '<span class="' + color + '">' + k + ': ' + p.usable + '/' + p.total + warn + '</span>';
+            }).join(' · ');
+        }
         body.innerHTML =
             '<div class="grid grid-cols-2 gap-3">' +
                 '<div>' +
@@ -428,7 +446,11 @@ async function loadSessionReport() {
                     (catRows || '<div class="text-[11px] text-[#71717a]">אין משובים בסשן</div>') +
                 '</div>' +
             '</div>' +
-            '<div class="mt-3 pt-2 border-t border-[#1f1f1f] text-[10px] text-[#71717a]">' +
+            (phRows ?
+                '<div class="mt-3 pt-2 border-t border-[#1f1f1f] text-[10px]">' +
+                    '<span class="text-[#71717a]">מצב מאגרים:</span> ' + phRows +
+                '</div>' : '') +
+            '<div class="mt-2 pt-2 border-t border-[#1f1f1f] text-[10px] text-[#71717a]">' +
                 'זיכרון עבודה: ' + (wm.global_size || 0) + ' פריטים גלובלי · ' +
                 ((wm.categories || []).length) + ' קטגוריות בקאש · מאז: ' +
                 (data.since || '').slice(0, 19) +

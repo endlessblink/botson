@@ -343,6 +343,21 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(r.json()["rules_added"], [])
 
+    def test_pool_health_returns_per_pool_breakdown(self):
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.get("/api/operator-prefs/pool-health")
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertIn("pools", data)
+            for pool_key in ("facts_tidbit", "facts_spooky"):
+                self.assertIn(pool_key, data["pools"], data)
+                p = data["pools"][pool_key]
+                # Each pool must report all five counts.
+                for k in ("total", "excluded_recent", "excluded_rejected",
+                          "excluded_scheduled", "usable", "exhausted"):
+                    self.assertIn(k, p)
+
     def test_qa_scoring_page_renders_with_banner_markup(self):
         with self._client()[0], self._client()[1] as client:
             self._login(client)

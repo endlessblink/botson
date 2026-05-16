@@ -5738,14 +5738,24 @@ async def _ai_suggest_calendar(
                 if not _slot_available_or_skip(d_iso, t, "facts_tidbit"):
                     continue
                 preview_fact = _choose_fact_preview("tidbit")
-                fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
+                if preview_fact is None:
+                    # T-186 (Gap 7): pool exhausted (filtered by Gap 5 +
+                    # Gap 8). Do not create an empty rehash slot; log so
+                    # the dashboard pool-health endpoint can surface it.
+                    logger.warning(
+                        "[populate] facts_tidbit pool exhausted at %s %s — slot skipped (filters: recent=%d, scheduled=%d, used=%d, rejected=%d)",
+                        d_iso, t, len(fact_recent_tidbit), len(fact_scheduled_ids),
+                        len(used_fact_ids), len(fact_rejected_tidbit),
+                    )
+                    break
+                fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False)
                 rationale = f"מאגר עובדות פעיל ({tn} פריטים)" if tn > 0 else "סלוט עובדה פנוי"
                 _add_suggestion(d_iso, t, "facts_tidbit", topic=routed_topics["facts_tidbit"],
-                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else ""),
+                                text=str(preview_fact.get("text_he") or "").strip(),
                                 source="ai-fill-pool-row",
                                 rationale=rationale,
                                 poll_options_json=fact_payload,
-                                preview_url=(_preview_url("facts_tidbit", id=preview_fact.get("id")) if preview_fact else None))
+                                preview_url=_preview_url("facts_tidbit", id=preview_fact.get("id")))
                 break
 
         # Facts spooky (max 1)
@@ -5760,10 +5770,17 @@ async def _ai_suggest_calendar(
                 if not _slot_available_or_skip(d_iso, t, "facts_spooky"):
                     continue
                 preview_fact = _choose_fact_preview("spooky")
-                fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False) if preview_fact else None
+                if preview_fact is None:
+                    logger.warning(
+                        "[populate] facts_spooky pool exhausted at %s %s — slot skipped (filters: recent=%d, scheduled=%d, used=%d, rejected=%d)",
+                        d_iso, t, len(fact_recent_spooky), len(fact_scheduled_ids),
+                        len(used_fact_ids), len(fact_rejected_spooky),
+                    )
+                    break
+                fact_payload = json.dumps({"fact_id": preview_fact.get("id")}, ensure_ascii=False)
                 rationale = f"מאגר ספוקי פעיל ({sn} פריטים)" if sn > 0 else "סלוט סיפור מסתורי פנוי"
                 _add_suggestion(d_iso, t, "facts_spooky", topic=routed_topics["facts_spooky"],
-                                text=(str(preview_fact.get("text_he") or "").strip() if preview_fact else ""),
+                                text=str(preview_fact.get("text_he") or "").strip(),
                                 source="ai-fill-pool-row",
                                 rationale=rationale,
                                 poll_options_json=fact_payload,
@@ -7808,6 +7825,86 @@ async def operator_prefs_untrain(request: Request, db: Database = Depends(get_db
 # Aggregates "what did the system learn this session?" into one
 # response: rules added, feedback rows added (rejected/accepted), and
 # the current working-memory state.
+
+
+@app.get("/api/operator-prefs/pool-health")
+async def operator_prefs_pool_health(request: Request, db: Database = Depends(get_db)):
+    """T-186 (Gap 7): pool depth + exhaustion-risk per content type.
+
+    For each pool-based content type, returns:
+      - total: items in the YAML pool
+      - excluded_recent: items within the activity-log cooldown
+      - excluded_rejected: items the operator rejected via content_feedback
+      - excluded_scheduled: items already pinned to scheduled_messages
+      - usable: total minus all exclusions
+      - exhausted: bool (usable == 0)
+
+    The operator can poll this to see when a pool needs new entries
+    before populate starts producing empty slots.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    facts_yaml = load_yaml("facts.yaml") or {}
+    out: dict = {}
+    for pool_name, action_type, content_type in (
+        ("tidbit", "facts_tidbit", "facts_tidbit"),
+        ("spooky", "facts_spooky", "facts_spooky"),
+    ):
+        items = [
+            i for i in (facts_yaml.get(pool_name) or [])
+            if isinstance(i, dict) and i.get("id") and i.get("text_he")
+        ]
+        try:
+            recent_ids = set(
+                str(x) for x in (
+                    await db.get_recent_activity_subjects(
+                        action_type=action_type, days=60,
+                    ) or []
+                )
+            )
+        except Exception:
+            recent_ids = set()
+        try:
+            rejected_texts = await db.get_rejected_pool_texts(content_type=content_type)
+        except Exception:
+            rejected_texts = set()
+        norm_rejected = {" ".join((t or "").split()) for t in rejected_texts}
+        scheduled_ids: set[str] = set()
+        try:
+            async with db._db.execute(
+                "SELECT poll_options FROM scheduled_messages "
+                "WHERE message_type = ? AND status IN ('scheduled','sent') "
+                "AND poll_options IS NOT NULL",
+                (action_type,),
+            ) as cur:
+                async for row in cur:
+                    try:
+                        payload = json.loads(row[0] or "{}")
+                        fid = str(payload.get("fact_id") or "").strip()
+                        if fid:
+                            scheduled_ids.add(fid)
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        usable = []
+        for item in items:
+            fid = str(item.get("id") or "")
+            if fid in recent_ids or fid in scheduled_ids:
+                continue
+            norm = " ".join((item.get("text_he") or "").split())
+            if norm in norm_rejected:
+                continue
+            usable.append(fid)
+        out[action_type] = {
+            "total": len(items),
+            "excluded_recent": len(recent_ids & {str(i.get("id")) for i in items}),
+            "excluded_rejected": len([i for i in items if " ".join((i.get("text_he") or "").split()) in norm_rejected]),
+            "excluded_scheduled": len(scheduled_ids & {str(i.get("id")) for i in items}),
+            "usable": len(usable),
+            "exhausted": len(usable) == 0,
+        }
+    return {"pools": out, "checked_at": datetime.now().isoformat(timespec="seconds")}
 
 
 @app.get("/api/operator-prefs/session-report")
