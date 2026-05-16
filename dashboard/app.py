@@ -5393,13 +5393,96 @@ async def _ai_suggest_calendar(
         clean["kind"] = kind
         return "/planner/suggestion-preview?" + urlencode(clean, doseq=True)
 
+    # T-185 (Gap 8): published-state filter for fact preview picks.
+    # The populate flow used to pick facts with pure random.choice,
+    # ignoring (a) recent sends in the activity_log, (b) operator
+    # rejections from content_feedback, (c) already-scheduled
+    # scheduled_messages rows pinning a fact_id, and (d) other
+    # suggestions already produced in THIS populate run. Result: the
+    # same fact could appear twice in one week's schedule, or a
+    # recently-published / recently-rejected fact could be re-suggested.
+    async def _gather_fact_exclusions() -> tuple[set[str], set[str], set[str]]:
+        """Returns (recent_activity_ids_tidbit, recent_activity_ids_spooky,
+        scheduled_fact_ids)."""
+        recent_tidbit: set[str] = set()
+        recent_spooky: set[str] = set()
+        scheduled_ids: set[str] = set()
+        try:
+            recent_tidbit = set(
+                str(x) for x in (
+                    await db.get_recent_activity_subjects(
+                        action_type="facts_tidbit", days=60,
+                    ) or []
+                )
+            )
+            recent_spooky = set(
+                str(x) for x in (
+                    await db.get_recent_activity_subjects(
+                        action_type="facts_spooky", days=60,
+                    ) or []
+                )
+            )
+        except Exception as e:
+            logger.warning("[populate] recent-facts lookup failed: %s", e)
+        try:
+            async with db._db.execute(
+                "SELECT poll_options FROM scheduled_messages "
+                "WHERE message_type IN ('facts_tidbit','facts_spooky') "
+                "AND status IN ('scheduled','sent') "
+                "AND poll_options IS NOT NULL"
+            ) as cur:
+                async for row in cur:
+                    try:
+                        payload = json.loads(row[0] or "{}")
+                        fid = str(payload.get("fact_id") or "").strip()
+                        if fid:
+                            scheduled_ids.add(fid)
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.warning("[populate] scheduled-facts lookup failed: %s", e)
+        return recent_tidbit, recent_spooky, scheduled_ids
+
+    fact_recent_tidbit, fact_recent_spooky, fact_scheduled_ids = await _gather_fact_exclusions()
+    try:
+        fact_rejected_tidbit = await db.get_rejected_pool_texts(content_type="facts_tidbit")
+    except Exception:
+        fact_rejected_tidbit = set()
+    try:
+        fact_rejected_spooky = await db.get_rejected_pool_texts(content_type="facts_spooky")
+    except Exception:
+        fact_rejected_spooky = set()
+    used_fact_ids: set[str] = set()
+
     def _choose_fact_preview(pool: str) -> dict | None:
         try:
             items = [
                 item for item in (load_yaml("facts.yaml") or {}).get(pool) or []
                 if isinstance(item, dict) and item.get("id") and item.get("text_he")
             ]
-            return random.choice(items) if items else None
+            if not items:
+                return None
+            recent_ids = fact_recent_tidbit if pool == "tidbit" else fact_recent_spooky
+            rejected_texts = fact_rejected_tidbit if pool == "tidbit" else fact_rejected_spooky
+            norm_rejected = {" ".join((t or "").split()) for t in rejected_texts}
+            eligible = []
+            for item in items:
+                fid = str(item.get("id") or "")
+                if fid in recent_ids:
+                    continue          # recently published (60d cooldown)
+                if fid in fact_scheduled_ids:
+                    continue          # already pinned to a scheduled row
+                if fid in used_fact_ids:
+                    continue          # already suggested in this populate run
+                norm = " ".join((item.get("text_he") or "").split())
+                if norm in norm_rejected:
+                    continue          # operator-rejected
+                eligible.append(item)
+            if not eligible:
+                return None
+            chosen = random.choice(eligible)
+            used_fact_ids.add(str(chosen.get("id") or ""))
+            return chosen
         except Exception:
             return None
 
