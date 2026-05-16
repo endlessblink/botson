@@ -1804,6 +1804,44 @@ class Database:
         )
         await self._db.commit()
 
+    async def get_rejected_pool_texts(
+        self,
+        *,
+        content_type: str | None = None,
+        limit: int = 500,
+    ) -> set[str]:
+        """T-183 (Gap 5): return the set of `original_text` strings that the
+        operator has rejected, optionally filtered by content_type. Used by
+        pool selectors (facts, emoji puzzles, trivia, story tidbits) to
+        skip items the operator has already said no to — closes the gap
+        where pool-sourced rejections weren't blacklisting future picks.
+
+        Normalises whitespace so trivial formatting differences don't
+        defeat the filter.
+        """
+        clauses = ["verdict IN ('rejected','bad_wording')"]
+        params: list = []
+        if content_type:
+            clauses.append("content_type = ?")
+            params.append(content_type)
+        params.append(int(max(1, min(limit, 2000))))
+        where = " WHERE " + " AND ".join(clauses)
+        async with self._db.execute(
+            f"SELECT original_text FROM content_feedback{where} "
+            f"ORDER BY created_at DESC LIMIT ?",
+            params,
+        ) as cur:
+            rows = await cur.fetchall()
+        out: set[str] = set()
+        for r in rows:
+            t = (r[0] or "").strip()
+            if not t:
+                continue
+            # Normalise whitespace so "x  y\n" and "x y" match.
+            normalized = " ".join(t.split())
+            out.add(normalized)
+        return out
+
     async def list_content_feedback(
         self,
         *,

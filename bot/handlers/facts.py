@@ -64,10 +64,24 @@ def load_facts_pool(pool: str) -> list[dict]:
     return items
 
 
-def pick_fact(pool: str, recently_sent_ids: Iterable[str], *, fact_id: str | None = None) -> dict | None:
-    """Pick one fact from the pool that hasn't been sent recently.
-    Returns None if the pool is empty or every item is on cooldown — in
-    that case the caller should log + skip rather than send a repeat."""
+def pick_fact(
+    pool: str,
+    recently_sent_ids: Iterable[str],
+    *,
+    fact_id: str | None = None,
+    excluded_texts: set[str] | None = None,
+) -> dict | None:
+    """Pick one fact from the pool that hasn't been sent recently and
+    isn't on the operator's rejection blacklist (T-183 Gap 5).
+
+    Returns None if the pool is empty, every item is on cooldown, or
+    every remaining item has been operator-rejected. In that case the
+    caller should log + skip rather than send a repeat.
+
+    `excluded_texts` is a set of normalised (whitespace-collapsed)
+    Hebrew strings — typically from `db.get_rejected_pool_texts()`.
+    Items whose normalised `text_he` matches one are filtered out.
+    """
     items = load_facts_pool(pool)
     if not items:
         return None
@@ -75,9 +89,22 @@ def pick_fact(pool: str, recently_sent_ids: Iterable[str], *, fact_id: str | Non
         return next((i for i in items if i["id"] == fact_id), None)
     recent = {str(i) for i in recently_sent_ids}
     eligible = [i for i in items if i["id"] not in recent]
+    if excluded_texts:
+        before = len(eligible)
+        norm_excluded = {" ".join((t or "").split()) for t in excluded_texts}
+        eligible = [
+            i for i in eligible
+            if " ".join((i.get("text_he") or "").split()) not in norm_excluded
+        ]
+        if before != len(eligible):
+            logger.info(
+                "facts: filtered %d operator-rejected items from pool=%s (eligible: %d→%d)",
+                before - len(eligible), pool, before, len(eligible),
+            )
     if not eligible:
         logger.warning(
-            "facts: every item in pool=%s is within cooldown — skipping send", pool,
+            "facts: every item in pool=%s is within cooldown or operator-rejected — skipping send",
+            pool,
         )
         return None
     return random.choice(eligible)
@@ -201,7 +228,17 @@ async def send_scheduled_fact(bot, db: Database, *, pool: str, chat_id: int,
         logger.warning("facts: recent-subjects lookup failed: %s", e)
         recent_ids = []
 
-    fact = pick_fact(pool, recent_ids, fact_id=fact_id)
+    # T-183 (Gap 5): pull operator-rejected texts so the pool sampler
+    # skips items already said-no-to. Filter by content_type so a movies
+    # rejection doesn't accidentally drop a spooky fact (they live in
+    # different content_type buckets in content_feedback).
+    try:
+        excluded = await db.get_rejected_pool_texts(content_type=handler_name)
+    except Exception as e:
+        logger.warning("facts: rejection blacklist lookup failed: %s", e)
+        excluded = set()
+
+    fact = pick_fact(pool, recent_ids, fact_id=fact_id, excluded_texts=excluded)
     if fact is None:
         # Distinguish "pool exhausted by cooldown" (legit skip) from
         # "pool empty / fact_id unknown" (real failure). Without this,
