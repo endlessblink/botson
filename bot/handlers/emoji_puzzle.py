@@ -270,16 +270,20 @@ async def _pick_session_puzzles(
 ) -> list[dict]:
     pool = await db.list_emoji_puzzles(enabled_only=True)
     allowed: set[str] = set()
+    # Canonicalize both sides of the filter so legacy scheduled rows with
+    # poll_options.media_types=["music"] still match a normalized pool
+    # where rows now carry media_type="song". Without this, post-normalize
+    # the older scheduled rows would silently produce an empty pool and
+    # skip the round (BUG-1 audit, 2026-05-17).
     for media in media_types or []:
-        m = str(media).strip()
-        if not m:
-            continue
-        if m in {"tv", "series"}:
-            allowed.update({"tv", "series"})
-        else:
-            allowed.add(m)
+        canonical = canonical_emoji_media_type(media)
+        if canonical:
+            allowed.add(canonical)
     if allowed:
-        pool = [p for p in pool if str(p.get("media_type") or "").strip() in allowed]
+        pool = [
+            p for p in pool
+            if canonical_emoji_media_type(p.get("media_type")) in allowed
+        ]
     if not pool:
         return []
 
@@ -346,14 +350,13 @@ async def emoji_skip_reason(
     if media_types:
         allowed: set[str] = set()
         for media in media_types:
-            m = str(media).strip()
-            if not m:
-                continue
-            if m in {"tv", "series"}:
-                allowed.update({"tv", "series"})
-            else:
-                allowed.add(m)
-        pool = [p for p in pool if str(p.get("media_type") or "").strip() in allowed]
+            canonical = canonical_emoji_media_type(media)
+            if canonical:
+                allowed.add(canonical)
+        pool = [
+            p for p in pool
+            if canonical_emoji_media_type(p.get("media_type")) in allowed
+        ]
     try:
         recent_ids = await db.get_recent_emoji_puzzle_ids(days=30)
     except Exception:

@@ -75,6 +75,36 @@ def test_emoji_prompt_is_present():
     assert "👑🎸🥁" in text, text
 
 
+def test_pick_session_puzzles_legacy_media_types_match_canonical_pool():
+    """Post-normalize, the puzzle pool has media_type='song' but historical
+    scheduled rows may carry poll_options.media_types=['music']. The
+    filter must canonicalize both sides so the round still finds puzzles.
+    """
+    import asyncio as _asyncio
+
+    from bot.database.db import Database as _Database
+    from bot.handlers.emoji_puzzle import _pick_session_puzzles
+
+    async def run():
+        db = _Database(":memory:")
+        await db.init()
+        try:
+            for emoji_prompt in ("👑🎸🥁", "💋", "🌙", "🎤💜", "🌧️🦄"):
+                # Goes through the chokepoint → media_type stored canonical.
+                await db.create_emoji_puzzle(emoji_prompt, "x", "x", media_type="song")
+            # Simulate a legacy scheduled row: media_types still uses the
+            # pre-normalize alias.
+            picked = await _pick_session_puzzles(db, 3, media_types=["music"])
+            return picked
+        finally:
+            await db.close()
+
+    picked = asyncio.run(run())
+    assert len(picked) == 3, picked
+    for p in picked:
+        assert p["media_type"] == "song", p
+
+
 # ── Normalization endpoint coverage ──────────────────────────
 
 import asyncio  # noqa: E402

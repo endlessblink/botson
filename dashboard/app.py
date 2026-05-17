@@ -5356,7 +5356,19 @@ async def _ai_suggest_calendar(
             configured = await _emoji_media_types_from_pool()
         configured = ["series" if x == "tv" else x for x in configured]
         configured = list(dict.fromkeys(configured))
-        labels = {"movie": "סרטים", "series": "סדרות", "tv": "סדרות", "game": "משחקים", "music": "מוזיקה", "book": "ספרים"}
+        # Hebrew theme labels per canonical media_type. Both `song` (canonical)
+        # and `music` (alias) point at "מוזיקה" so the announcement label stays
+        # correct before AND after running /api/puzzles/normalize-media-types.
+        # `tv` is a legacy alias of `series`; keep both for the same reason.
+        labels = {
+            "movie": "סרטים",
+            "series": "סדרות",
+            "tv": "סדרות",
+            "game": "משחקים",
+            "song": "מוזיקה",
+            "music": "מוזיקה",
+            "book": "ספרים",
+        }
         choices: list[tuple[str, list[str], int, tuple[str, ...]]] = []
         for media in configured:
             pool_n = await _count_emoji_pool([media])
