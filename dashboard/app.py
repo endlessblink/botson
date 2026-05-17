@@ -5288,17 +5288,26 @@ async def _ai_suggest_calendar(
                 canonical.append(m)
         return tuple(canonical)
 
-    async def _recent_emoji_signatures(limit: int = 12) -> list[tuple[str, ...]]:
+    async def _recent_emoji_signatures(days: int = 21) -> list[tuple[str, ...]]:
+        # Gap 11: time-window the lookup (was LIMIT 12 which spanned
+        # months at low cadence and ignored old subjects that should
+        # have been rotated back in). Also union with activity_log
+        # markers so a row that was sent but later deleted from
+        # scheduled_messages still counts as ran.
         out: list[tuple[str, ...]] = []
+        try:
+            cutoff = (datetime.now(_IL_TZ) - timedelta(days=days)).date().isoformat()
+        except Exception:
+            cutoff = "1970-01-01"
         try:
             async with db._db.execute(
                 """SELECT poll_options FROM scheduled_messages
                    WHERE message_type = 'emoji_puzzle'
                      AND poll_options IS NOT NULL AND poll_options != ''
                      AND status IN ('sent', 'scheduled', 'draft')
-                   ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC
-                   LIMIT ?""",
-                (limit,),
+                     AND scheduled_date >= ?
+                   ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC""",
+                (cutoff,),
             ) as cur:
                 rows = await cur.fetchall()
         except Exception:
@@ -5311,15 +5320,32 @@ async def _ai_suggest_calendar(
             sig = _emoji_media_signature(payload.get("media_types") or [])
             if sig and sig not in out:
                 out.append(sig)
+        # Gap 11: union with activity_log markers ("media_type:song").
+        try:
+            from_log = await db.get_recent_activity_subjects(
+                action_type="emoji_puzzle", days=days, key="media_type",
+            )
+            for token in from_log:
+                sig = _emoji_media_signature([token])
+                if sig and sig not in out:
+                    out.append(sig)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[populate] emoji activity_log lookup failed: %s", e)
+        # Round-level signal: which puzzle media_types actually played in
+        # recent emoji rounds. Time-windowed via sent_at >= cutoff.
+        try:
+            ts_cutoff = (datetime.now(_IL_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            ts_cutoff = "1970-01-01 00:00:00"
         try:
             async with db._db.execute(
                 """SELECT p.media_type
                    FROM emoji_puzzle_rounds r
                    JOIN emoji_puzzles p ON p.id = r.puzzle_id
                    WHERE p.media_type IS NOT NULL AND p.media_type != ''
-                   ORDER BY r.sent_at DESC, r.id DESC
-                   LIMIT ?""",
-                (limit,),
+                     AND r.sent_at >= ?
+                   ORDER BY r.sent_at DESC, r.id DESC""",
+                (ts_cutoff,),
             ) as cur:
                 round_rows = await cur.fetchall()
         except Exception:
@@ -5430,17 +5456,23 @@ async def _ai_suggest_calendar(
     def _trivia_signature(categories: list[str]) -> tuple[str, ...]:
         return tuple(str(c).strip() for c in categories if str(c).strip())
 
-    async def _recent_trivia_signatures(limit: int = 12) -> list[tuple[str, ...]]:
+    async def _recent_trivia_signatures(days: int = 21) -> list[tuple[str, ...]]:
+        # Gap 11: time-window the lookup + union with activity_log
+        # markers so a sent-then-deleted row still counts as ran.
         out: list[tuple[str, ...]] = []
+        try:
+            cutoff = (datetime.now(_IL_TZ) - timedelta(days=days)).date().isoformat()
+        except Exception:
+            cutoff = "1970-01-01"
         try:
             async with db._db.execute(
                 """SELECT poll_options FROM scheduled_messages
                    WHERE message_type = 'trivia_round'
                      AND poll_options IS NOT NULL AND poll_options != ''
                      AND status IN ('sent', 'scheduled', 'draft')
-                   ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC
-                   LIMIT ?""",
-                (limit,),
+                     AND scheduled_date >= ?
+                   ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC""",
+                (cutoff,),
             ) as cur:
                 rows = await cur.fetchall()
         except Exception:
@@ -5453,6 +5485,17 @@ async def _ai_suggest_calendar(
             sig = _trivia_signature(payload.get("categories") or [])
             if sig and sig not in out:
                 out.append(sig)
+        # Gap 11: union with activity_log markers ("categories:movies").
+        try:
+            from_log = await db.get_recent_activity_subjects(
+                action_type="trivia_round", days=days, key="categories",
+            )
+            for token in from_log:
+                sig = _trivia_signature([token])
+                if sig and sig not in out:
+                    out.append(sig)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[populate] trivia activity_log lookup failed: %s", e)
         return out
 
     def _choose_trivia_subject(trivia_cfg: dict, question_count: int,

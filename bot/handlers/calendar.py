@@ -30,6 +30,56 @@ logger = logging.getLogger(__name__)
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
 
 
+def _subject_markers_for_log(message_type: str, poll_options) -> str:
+    """Gap 11: build a "<key>:<value>" marker string for activity_log.
+
+    Populate rotation reads activity_log via get_recent_activity_subjects(key=…)
+    to learn what actually-ran subjects to rotate away from. Different game
+    types tag different markers:
+
+      - trivia_round / trivia_warmup_rsvp: ``categories:movies+gaming``
+      - emoji_puzzle:                       ``media_type:song``
+      - facts_tidbit / facts_spooky:        ``fact_id:dybbuk_origin``
+
+    Empty string when there's no payload, no subject, or unknown type.
+    Multiple markers are space-separated. Marker values are sanitised to
+    alphanumerics + hyphen/underscore to match the regex in
+    Database.get_recent_activity_subjects.
+    """
+    if not poll_options:
+        return ""
+    try:
+        payload = json.loads(poll_options) if isinstance(poll_options, str) else dict(poll_options)
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+
+    def _clean(value: str) -> str:
+        s = str(value or "").strip()
+        return re.sub(r"[^A-Za-z0-9_\-]", "", s)
+
+    parts: list[str] = []
+    mtype = (message_type or "").strip()
+    if mtype in ("trivia_round", "trivia_warmup_rsvp", "warmup_reminder"):
+        cats = payload.get("categories") or []
+        if isinstance(cats, (list, tuple)):
+            tokens = [t for t in (_clean(c) for c in cats) if t]
+            if tokens:
+                parts.append(f"categories:{'+'.join(tokens)}")
+    if mtype in ("emoji_puzzle", "trivia_warmup_rsvp"):
+        media_types = payload.get("media_types") or []
+        if isinstance(media_types, (list, tuple)):
+            tokens = [t for t in (_clean(m) for m in media_types) if t]
+            if tokens:
+                parts.append(f"media_type:{'+'.join(tokens)}")
+    if mtype in ("facts_tidbit", "facts_spooky"):
+        fid = _clean(payload.get("fact_id") or "")
+        if fid:
+            parts.append(f"fact_id:{fid}")
+    return " ".join(parts)
+
+
 def _require_message_id(value, activity: str) -> int:
     if isinstance(value, dict) and value.get("skipped"):
         raise SkippedActivity(f"{activity} skipped: {value.get('skipped')}")
@@ -654,9 +704,19 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Failed to pin message %d: %s", sent.message_id, e)
 
             await db.mark_message_sent(msg["id"], sent.message_id)
+            # Gap 11: include subject markers in the activity_log description
+            # so populate rotation can read the actually-ran history (parallel
+            # to scheduled_messages.poll_options, which only catches rows that
+            # weren't pruned). Marker format mirrors get_recent_activity_subjects'
+            # `<key>:<value>` pattern (already used by facts via fact_id).
+            mtype = msg.get("message_type", "custom")
+            markers = _subject_markers_for_log(mtype, msg.get("poll_options"))
+            desc = f"שלח: {msg['text'][:50]}"
+            if markers:
+                desc = f"{desc} [{markers}]"
             await db.log_activity(
-                msg.get("message_type", "custom"),
-                f"שלח: {msg['text'][:50]}",
+                mtype,
+                desc,
                 target_channel=str(msg.get("channel_topic_id") or "general"),
             )
             logger.info("Sent scheduled message %d: %s", msg["id"], msg["text"][:40])

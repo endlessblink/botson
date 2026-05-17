@@ -654,13 +654,21 @@ class Database:
         ) as cur:
             rows = await cur.fetchall()
         import re as _re
-        pattern = _re.compile(rf"\b{_re.escape(key)}:([A-Za-z0-9_\-]+)")
+        # Gap 11 (2026-05-18): a marker value may be a single id
+        # (`fact_id:abc`) OR a +-joined list (`categories:movies+gaming`,
+        # `media_type:song+book`). Both forms come from
+        # _subject_markers_for_log. Each token in the joined list is
+        # returned as a separate string for the caller.
+        pattern = _re.compile(rf"\b{_re.escape(key)}:([A-Za-z0-9_\-+]+)")
         ids: list[str] = []
         for row in rows:
             desc = str(row["description"] or "")
             m = pattern.search(desc)
             if m:
-                ids.append(m.group(1))
+                for token in m.group(1).split("+"):
+                    token = token.strip()
+                    if token:
+                        ids.append(token)
         return ids
 
     # ── Blocked Users ────────────────────────────────────────
