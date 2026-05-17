@@ -2579,6 +2579,17 @@ async def run_puzzles_now(request: Request, db: Database = Depends(get_db)):
 
     data = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     target = str(data.get("target") or "test").strip()
+    # Optional themed run: passing media_types + theme_label here lets the
+    # operator trigger a specific category to the test/main group from the
+    # dashboard, mirroring how a scheduled emoji_puzzle row would dispatch.
+    raw_media = data.get("media_types") or []
+    if isinstance(raw_media, str):
+        media_types = [x.strip() for x in raw_media.split(",") if x.strip()]
+    else:
+        media_types = [str(x).strip() for x in raw_media if str(x).strip()]
+    media_types = media_types or None
+    theme_label = str(data.get("theme_label") or "").strip() or None
+
     from telegram import Bot
     from bot.handlers.emoji_puzzle import resolve_emoji_target, start_emoji_night
 
@@ -2589,10 +2600,14 @@ async def run_puzzles_now(request: Request, db: Database = Depends(get_db)):
     ctx = type("EmojiCtx", (), {})()
     ctx.bot = Bot(os.getenv("BOT_TOKEN", ""))
     ctx.bot_data = {"db": db}
-    session_id = await start_emoji_night(ctx, chat_id, thread_id, force=True)
+    session_id = await start_emoji_night(
+        ctx, chat_id, thread_id, force=True,
+        media_types=media_types, theme_label=theme_label,
+    )
     if not session_id:
         raise HTTPException(status_code=409, detail="Could not start session")
-    return {"status": "ok", "session_id": session_id, "target": target}
+    return {"status": "ok", "session_id": session_id, "target": target,
+            "media_types": media_types, "theme_label": theme_label}
 
 
 @app.post("/api/trivia/questions")
