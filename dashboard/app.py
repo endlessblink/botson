@@ -7596,6 +7596,7 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
     # See CLAUDE.md "Autonomous learning" principle.
     auto_promoted = False
     promoted_excerpt = None
+    followup_chips: list[str] = []
     if verdict in ("rejected", "bad_wording") and _is_substantive_reason(reason_clean, corrected_clean):
         # T-189: schedule LLM abstraction via the debounce buffer. Rapid
         # rejections cluster into one LLM call → one synthesised rule,
@@ -7605,8 +7606,78 @@ async def content_feedback_create(request: Request, db: Database = Depends(get_d
         await _schedule_rule_abstraction(row_id, db)
         auto_promoted = True
         promoted_excerpt = "[pending — LLM abstraction queued]"
+    elif (
+        verdict in ("rejected", "bad_wording")
+        and reason_clean
+        and not corrected_clean
+    ):
+        # Gap 13 (2026-05-17): a short pill reason like "גנרי / שטחי" is
+        # real signal but too sparse for rule abstraction. Ask the LLM
+        # for 3 follow-up chips the operator can click to enrich the
+        # reason without typing. Sync inline (operator is waiting in the
+        # modal); failure returns [] and the deny still persists.
+        try:
+            followup_chips = await _llm_pill_followup_chips(
+                original_text=original_text,
+                pill_reason=reason_clean,
+                content_type=content_type,
+                topic_key=topic_key_clean,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[pill-followup] generation failed for feedback %s: %s", row_id, e)
+            followup_chips = []
     return {
         "id": row_id,
+        "auto_promoted": auto_promoted,
+        "promoted_excerpt": promoted_excerpt,
+        "followup_chips": followup_chips,
+    }
+
+
+@app.post("/api/content-feedback/{feedback_id}/enrich")
+async def content_feedback_enrich(
+    feedback_id: int, request: Request, db: Database = Depends(get_db),
+):
+    """Gap 13: combine a pill rejection's original short reason with the
+    operator-chosen follow-up chip (or free-text drill-down). The row's
+    reason is updated to "<pill> · <enrichment>"; if the combined string
+    is now substantive, rule abstraction is scheduled.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    enriched = str(body.get("enriched") or "").strip()
+    if not enriched:
+        raise HTTPException(status_code=400, detail="enriched is required")
+    row = await db.get_content_feedback(feedback_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="feedback not found")
+    base = (row.get("reason") or "").strip()
+    combined = f"{base} · {enriched}" if base else enriched
+    await db.update_content_feedback_reason(feedback_id, combined)
+    _record_feedback_to_cache({
+        "id": int(row.get("id") or feedback_id),
+        "source": row.get("source") or "",
+        "content_type": row.get("content_type") or "",
+        "topic_key": row.get("topic_key"),
+        "original_text": row.get("original_text") or "",
+        "verdict": row.get("verdict") or "",
+        "reason": combined,
+        "corrected_text": row.get("corrected_text"),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    })
+    auto_promoted = False
+    promoted_excerpt = None
+    if (row.get("verdict") or "") in ("rejected", "bad_wording") \
+            and _is_substantive_reason(combined, row.get("corrected_text")):
+        await _schedule_rule_abstraction(feedback_id, db)
+        auto_promoted = True
+        promoted_excerpt = "[pending — LLM abstraction queued]"
+    return {
+        "id": feedback_id,
+        "reason": combined,
         "auto_promoted": auto_promoted,
         "promoted_excerpt": promoted_excerpt,
     }
@@ -7875,6 +7946,75 @@ async def _llm_abstract_rules(feedback_rows: list[dict]) -> str:
     if len(lines) > 5:
         lines = lines[:5]
     return "\n".join(lines)
+
+
+async def _llm_pill_followup_chips(
+    original_text: str,
+    pill_reason: str,
+    content_type: str,
+    topic_key: str | None,
+) -> list[str]:
+    """Gap 13: when the operator clicks a short pill like 'גנרי / שטחי'
+    on the deny modal, the reason is below the 15-char substantive
+    threshold and won't trigger rule learning. This helper asks the LLM
+    to drill down: given the original draft + pill, what are 3 specific
+    follow-up directions the operator might mean?
+
+    Returns up to 3 short Hebrew chips, each ≤40 chars. One operator
+    click on a chip → /api/content-feedback/{id}/enrich combines the
+    pill with the chip → reason becomes substantive → auto-learn fires.
+
+    Failure mode: returns [] on any LLM error. The deny still records,
+    only the enrichment opportunity is lost.
+    """
+    text = (original_text or "").replace("\n", " ").strip()[:200]
+    pill = (pill_reason or "").strip()
+    if not text or not pill:
+        return []
+    topic = (topic_key or "-").strip() or "-"
+    ctype = (content_type or "-").strip() or "-"
+    prompt = (
+        "אתה עוזר שמסייע לבוט טלגרם עברי בקהילת בוגרים-בלי-ילדים ללמוד מטעויות שלו.\n\n"
+        "האופרטור דחה הצעה ולחץ על תיוג קצר כסיבה. התיוג לבדו קצר מדי כדי "
+        "ללמוד ממנו כלל מופשט. תפקידך: לייצר 3 צ׳יפים קצרים בעברית שהאופרטור "
+        "יכול ללחוץ על אחד מהם כדי לפרט במה בדיוק הבעיה.\n\n"
+        f"הטקסט שנדחה: {text}\n"
+        f"סוג: {ctype} · ערוץ: {topic}\n"
+        f"התיוג שהאופרטור לחץ: {pill}\n\n"
+        "חוקים:\n"
+        "1. בדיוק 3 שורות בעברית, כל שורה מתחילה ב-\"- \".\n"
+        "2. כל צ׳יפ קצר (עד 40 תווים), בצורת אבחנה ספציפית: "
+        "\"הסיטואציה {pill}\" / \"הניסוח {pill}\" / \"אפשר בכל ערוץ\" / "
+        "\"חוזר על דפוס קודם\" וכד׳.\n"
+        "3. אל תצטט את הטקסט שנדחה. אבסטרקציה.\n"
+        "4. אל תכלול הקדמה או סיכום, רק 3 שורות.\n"
+        "5. הצ׳יפים שונים זה מזה — כל אחד תופס זווית אחרת של למה התיוג חל.\n"
+    )
+    raw = ""
+    try:
+        raw = await _generate_via_cli(prompt)
+    except Exception as cli_err:
+        logger.info("[pill-followup] CLI unavailable, trying API: %s", cli_err)
+        try:
+            raw = await _generate_via_api(prompt)
+        except Exception as api_err:
+            logger.warning(
+                "[pill-followup] both CLI and API failed (cli=%s api=%s) — "
+                "returning [] (operator gets pill stored but no enrichment chips)",
+                cli_err, api_err,
+            )
+            return []
+    chips: list[str] = []
+    for ln in (raw or "").splitlines():
+        s = ln.lstrip().lstrip("-•").strip()
+        if not s:
+            continue
+        if len(s) > 80:
+            s = s[:80].rstrip()
+        chips.append(s)
+        if len(chips) >= 3:
+            break
+    return chips
 
 
 def _summarize_feedback_to_guidance(feedback_rows: list[dict]) -> str:

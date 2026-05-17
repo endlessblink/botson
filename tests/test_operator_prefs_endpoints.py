@@ -535,6 +535,128 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             self.assertIn("prefs-banner", r.text)
             self.assertIn("checkProposalBanner", r.text)
 
+    # ── Gap 13: pill follow-up chips + enrich endpoint ──
+
+    def _mock_chips(self, chips: list[str]):
+        """Replace _llm_pill_followup_chips with a deterministic fixture."""
+        async def _fake_chips(**kwargs):
+            return list(chips)
+        return patch.object(dashboard_app, "_llm_pill_followup_chips", _fake_chips)
+
+    def test_pill_rejection_returns_followup_chips(self):
+        """A short pill reason (<15 chars) is below the substantive
+        threshold → no auto-promote, but the server returns 3 follow-up
+        chips so the operator can enrich without typing.
+        """
+        chips = [
+            "הסיטואציה גנרית — לא מבדיל קהל",
+            "הניסוח גנרי — אפשר חידוד",
+            "אפשר בכל ערוץ — חסר ייחוד",
+        ]
+        with self._client()[0], self._client()[1] as client, self._mock_chips(chips):
+            self._login(client)
+            r = client.post("/api/content-feedback", json={
+                "source": "planner_ai_suggest",
+                "content_type": "discussion",
+                "topic_key": "movies",
+                "original_text": "GAP13_PILL_DRAFT some Hebrew filler text",
+                "verdict": "rejected",
+                "reason": "גנרי / שטחי",
+            })
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertFalse(data["auto_promoted"], data)
+            self.assertEqual(data["followup_chips"], chips)
+
+    def test_substantive_rejection_skips_chip_generation(self):
+        """Long reasons or rejections with corrected_text already trigger
+        rule abstraction; they must NOT also generate chips (wasted LLM)."""
+        with self._client()[0], self._client()[1] as client, self._mock_chips([
+            "should not appear",
+        ]):
+            self._login(client)
+            r = client.post("/api/content-feedback", json={
+                "source": "planner_ai_suggest",
+                "content_type": "discussion",
+                "topic_key": "movies",
+                "original_text": "GAP13_SUBSTANTIVE_DRAFT some Hebrew filler",
+                "verdict": "rejected",
+                "reason": "Long reason explaining exactly what's wrong here",
+            })
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertTrue(data["auto_promoted"], data)
+            self.assertEqual(data["followup_chips"], [])
+
+    def test_accepted_verdict_does_not_generate_chips(self):
+        """Chips are for rejection enrichment only."""
+        with self._client()[0], self._client()[1] as client, self._mock_chips([
+            "should not appear",
+        ]):
+            self._login(client)
+            r = client.post("/api/content-feedback", json={
+                "source": "planner_ai_suggest",
+                "content_type": "discussion",
+                "topic_key": "movies",
+                "original_text": "GAP13_ACCEPTED_DRAFT",
+                "verdict": "accepted",
+                "reason": "",
+            })
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["followup_chips"], [])
+
+    def test_enrich_combines_reason_and_promotes(self):
+        """Click a chip → POST /enrich → reason becomes
+        '<pill> · <chip>' (substantive) → auto-promote fires."""
+        chips = ["הסיטואציה גנרית — לא מבדיל קהל"]
+        with self._client()[0], self._client()[1] as client, self._mock_chips(chips):
+            self._login(client)
+            r = client.post("/api/content-feedback", json={
+                "source": "planner_ai_suggest",
+                "content_type": "discussion",
+                "topic_key": "movies",
+                "original_text": "GAP13_ENRICH_DRAFT some text",
+                "verdict": "rejected",
+                "reason": "גנרי / שטחי",
+            })
+            fid = r.json()["id"]
+            r2 = client.post(
+                f"/api/content-feedback/{fid}/enrich",
+                json={"enriched": chips[0]},
+            )
+            self.assertEqual(r2.status_code, 200, r2.text)
+            data = r2.json()
+            self.assertIn("גנרי / שטחי", data["reason"])
+            self.assertIn("הסיטואציה גנרית", data["reason"])
+            self.assertTrue(data["auto_promoted"], data)
+
+    def test_enrich_requires_nonempty_body(self):
+        with self._client()[0], self._client()[1] as client, self._mock_chips([]):
+            self._login(client)
+            r = client.post("/api/content-feedback", json={
+                "source": "planner_ai_suggest",
+                "content_type": "discussion",
+                "topic_key": "movies",
+                "original_text": "GAP13_VALID_DRAFT",
+                "verdict": "rejected",
+                "reason": "גנרי",
+            })
+            fid = r.json()["id"]
+            r2 = client.post(
+                f"/api/content-feedback/{fid}/enrich",
+                json={"enriched": ""},
+            )
+            self.assertEqual(r2.status_code, 400, r2.text)
+
+    def test_enrich_404_for_missing_feedback(self):
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            r = client.post(
+                "/api/content-feedback/999999/enrich",
+                json={"enriched": "anything"},
+            )
+            self.assertEqual(r.status_code, 404, r.text)
+
 
 if __name__ == "__main__":
     unittest.main()

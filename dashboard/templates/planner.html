@@ -2900,6 +2900,89 @@ function showRtlPrompt(opts) {
     });
 }
 
+// Gap 13 (2026-05-17): after a pill rejection the server returns 3
+// LLM-generated follow-up chips. This modal lets the operator click
+// one (or type free text) to enrich the reason from sparse to
+// substantive — so the auto-learn pipeline produces a real rule
+// instead of swallowing the pill silently. Dismissing the modal
+// leaves the pill stored as-is (no regression).
+function showPillFollowupModal(opts) {
+    opts = opts || {};
+    var feedbackId = opts.feedbackId;
+    var pill = opts.pill || '';
+    var chips = Array.isArray(opts.chips) ? opts.chips.slice(0, 3) : [];
+    if (!feedbackId || !chips.length) return;
+    // Build a lightweight inline modal — we don't have a dedicated
+    // template element for this and the existing rtl-prompt-modal is
+    // already wired for the deny flow.
+    var backdrop = document.createElement('div');
+    backdrop.className = 'fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4';
+    backdrop.innerHTML = (
+        '<div class="bg-[#0a0a0a] border border-[#272727] rounded-xl max-w-md w-full p-5 shadow-2xl" dir="rtl">' +
+        '  <div class="text-[13px] text-[#e4e4e7] font-medium">למה בדיוק?</div>' +
+        '  <div class="text-[11px] text-[#71717a] mt-1">סימנת <span class="text-rose-300">' + pill.replace(/</g, '&lt;') + '</span> — בחר/י זווית כדי שהבוט ילמד את הכלל המדויק.</div>' +
+        '  <div class="mt-3 flex flex-col gap-1.5" id="pill-chips"></div>' +
+        '  <div class="mt-3">' +
+        '    <input id="pill-freetext" type="text" placeholder="או הקלד/י סיבה משלך" class="w-full text-[12px] bg-[#111111] border border-[#272727] rounded-md px-3 py-2 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"/>' +
+        '  </div>' +
+        '  <div class="mt-3 flex gap-2 justify-end">' +
+        '    <button id="pill-skip" class="text-[11px] text-[#71717a] hover:text-[#a1a1aa] px-3 py-1.5">דלג</button>' +
+        '    <button id="pill-submit" class="text-[12px] text-[#fafafa] bg-[#27272a] hover:bg-[#3f3f46] border border-[#3f3f46] rounded-md px-3 py-1.5">שלח</button>' +
+        '  </div>' +
+        '</div>'
+    );
+    document.body.appendChild(backdrop);
+    var chipsEl = backdrop.querySelector('#pill-chips');
+    var freetextEl = backdrop.querySelector('#pill-freetext');
+    var picked = null;
+    chips.forEach(function(text) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'text-right text-[12px] text-[#e4e4e7] hover:text-white border border-[#272727] hover:border-[#52525b] bg-[#111111] hover:bg-[#18181b] rounded-md px-3 py-2 transition-colors';
+        b.textContent = text;
+        b.onclick = function() {
+            picked = text;
+            // Visually select
+            chipsEl.querySelectorAll('button').forEach(function(x) {
+                x.classList.remove('bg-rose-500/10','border-rose-500/50','text-rose-100');
+            });
+            b.classList.add('bg-rose-500/10','border-rose-500/50','text-rose-100');
+            freetextEl.value = '';
+        };
+        chipsEl.appendChild(b);
+    });
+    function cleanup() {
+        if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+    }
+    backdrop.querySelector('#pill-skip').onclick = cleanup;
+    backdrop.onclick = function(e) { if (e.target === backdrop) cleanup(); };
+    backdrop.querySelector('#pill-submit').onclick = async function() {
+        var enriched = (freetextEl.value || '').trim() || picked || '';
+        if (!enriched) { showToast('בחר/י צ׳יפ או הקלד/י סיבה', 'error'); return; }
+        try {
+            var resp = await fetch('/api/content-feedback/' + encodeURIComponent(feedbackId) + '/enrich', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({enriched: enriched}),
+            });
+            var data = await resp.json();
+            if (resp.ok && data.auto_promoted) {
+                showToast('📚 כלל חדש נלמד אוטומטית — ביטול בלוח הסשן', 'success');
+            } else if (resp.ok) {
+                showToast('סיבה הורחבה', 'success');
+            } else {
+                showToast('שגיאה: ' + (data.detail || resp.status), 'error');
+            }
+        } catch (e) {
+            showToast('שגיאה בשליחת ההרחבה', 'error');
+        } finally {
+            cleanup();
+        }
+    };
+    setTimeout(function() { freetextEl.focus(); }, 50);
+}
+
+
 // Multi-deny: ctrl-click checkbox to mark for bulk denial, then "דחה מסומנים".
 async function _aiSuggestDenyOne(suggestKey, opts) {
     opts = opts || {};
@@ -2938,10 +3021,21 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
         // T-188: server may have auto-promoted this rejection to a permanent
         // rule. Show a visible toast (visibility, not approval) and remember
         // the feedback_id for one-click undo from the session-report panel.
+        // Gap 13: a short pill rejection returns followup_chips; offer one-
+        // click enrichment so the reason becomes substantive and the rule
+        // does learn instead of being wasted signal.
         try {
             var fbData = await fbResp.clone().json();
             if (fbData && fbData.auto_promoted && !opts.silent) {
                 showToast('📚 כלל חדש נלמד אוטומטית — ביטול בלוח הסשן', 'success');
+            } else if (fbData && Array.isArray(fbData.followup_chips) && fbData.followup_chips.length && !opts.silent) {
+                // Fire-and-forget — operator can ignore the modal and the
+                // pill is already stored. Picking a chip enriches it.
+                showPillFollowupModal({
+                    feedbackId: fbData.id,
+                    pill: reason,
+                    chips: fbData.followup_chips,
+                });
             }
         } catch (_) { /* best-effort */ }
         // Visually mark the row as denied + uncheck.

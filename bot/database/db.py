@@ -1800,6 +1800,32 @@ class Database:
         await self._db.commit()
         return int(cur.lastrowid or 0)
 
+    async def get_content_feedback(self, feedback_id: int) -> dict | None:
+        """Return a single content_feedback row by id (Gap 13 enrichment)."""
+        async with self._db.execute(
+            """SELECT id, created_at, source, content_type, topic_key,
+                       original_text, verdict, reason, corrected_text,
+                       suggestion_metadata
+                FROM content_feedback WHERE id = ?""",
+            (int(feedback_id),),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def update_content_feedback_reason(
+        self, feedback_id: int, reason: str,
+    ) -> bool:
+        """Overwrite the reason on a content_feedback row (Gap 13: pill
+        enrichment combines the original short reason with the operator's
+        chosen follow-up chip)."""
+        async with self._db.execute(
+            "UPDATE content_feedback SET reason = ? WHERE id = ?",
+            (str(reason), int(feedback_id)),
+        ) as cur:
+            changed = (cur.rowcount or 0) > 0
+        await self._db.commit()
+        return bool(changed)
+
     async def get_active_style_profile(self, profile_key: str = "planner_hebrew_default") -> dict | None:
         """Return the currently-active style profile, or None if none applied yet."""
         async with self._db.execute(
