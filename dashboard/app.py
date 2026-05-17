@@ -2489,6 +2489,32 @@ async def delete_puzzle(puzzle_id: int, request: Request, db: Database = Depends
     return {"status": "ok"}
 
 
+@app.get("/api/puzzles/media-type-stats")
+async def puzzle_media_type_stats(request: Request, db: Database = Depends(get_db)):
+    """Read-only DISTINCT media_type + count from emoji_puzzles. Use
+    before calling /api/puzzles/normalize-media-types to see what's
+    actually in the pool and confirm all values are covered by the
+    canonical alias map (bot.utils.game_categories)."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils.game_categories import EMOJI_PUZZLE_ALIASES, EMOJI_PUZZLE_TAXONOMY
+    async with db._db.execute(  # noqa: SLF001
+        "SELECT media_type, COUNT(*) FROM emoji_puzzles GROUP BY media_type"
+    ) as cur:
+        rows = await cur.fetchall()
+    stats = {str(r[0] or ""): int(r[1]) for r in rows}
+    unknown = sorted(
+        v for v in stats
+        if v not in EMOJI_PUZZLE_TAXONOMY and v not in EMOJI_PUZZLE_ALIASES
+    )
+    return {
+        "counts": stats,
+        "canonical": list(EMOJI_PUZZLE_TAXONOMY),
+        "known_aliases": EMOJI_PUZZLE_ALIASES,
+        "unknown_values": unknown,
+    }
+
+
 @app.post("/api/puzzles/normalize-media-types")
 async def normalize_puzzle_media_types(request: Request, db: Database = Depends(get_db)):
     """One-shot (idempotent) data hygiene: rewrite legacy media_type aliases
