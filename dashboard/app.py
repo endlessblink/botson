@@ -3064,6 +3064,48 @@ def _finalize_prompt(
     return out
 
 
+def _draft_opener_key(text: str, *, words: int = 2) -> str:
+    """Compact key for opener de-duplication within one Populate run."""
+    tokens = re.findall(r"[\w\u0590-\u05FF]+", (text or "").lower())
+    return " ".join(tokens[:max(1, int(words))])
+
+
+def _planner_generation_config(settings: dict) -> dict:
+    block = ((settings.get("ai_populate") or {}).get("generation") or {})
+    try:
+        retry_budget = max(1, int(block.get("retry_budget", 3)))
+    except (TypeError, ValueError):
+        retry_budget = 3
+    try:
+        dedup_window = max(1, int(block.get("dedup_window", 25)))
+    except (TypeError, ValueError):
+        dedup_window = 25
+    try:
+        opener_recent_window = max(0, int(block.get("opener_recent_window", 10)))
+    except (TypeError, ValueError):
+        opener_recent_window = 10
+    try:
+        temperature = float(block.get("temperature", 0.85))
+    except (TypeError, ValueError):
+        temperature = 0.85
+    patterns = [str(x).strip() for x in (block.get("pattern_rotation") or []) if str(x).strip()]
+    return {
+        "retry_budget": retry_budget,
+        "dedup_window": dedup_window,
+        "opener_recent_window": opener_recent_window,
+        "temperature": max(0.0, min(1.0, temperature)),
+        "pattern_rotation": patterns,
+    }
+
+
+def _planner_pattern_directive(patterns: list[str], field: str, cat: str, d_iso: str, t: str, attempt: int) -> str:
+    if not patterns:
+        return ""
+    seed = f"{field}|{cat}|{d_iso}|{t}"
+    idx = (sum(ord(ch) for ch in seed) + int(attempt)) % len(patterns)
+    return patterns[idx]
+
+
 # T-174: cached active style profile. The dashboard mutates this cache
 # directly when /api/style-profile/apply succeeds so subsequent prompts
 # pick up the new guidance without restarting the process.
@@ -3719,7 +3761,7 @@ async def _generate_via_cli(prompt: str) -> str:
     return out
 
 
-async def _generate_via_api(prompt: str) -> str:
+async def _generate_via_api(prompt: str, *, temperature: float | None = None) -> str:
     """Fallback: generate content via Anthropic API."""
     import httpx
 
@@ -3730,6 +3772,13 @@ async def _generate_via_api(prompt: str) -> str:
     from bot.utils.config import get_anthropic_config
     api_url, model = get_anthropic_config()
     async with httpx.AsyncClient(timeout=90) as client:
+        payload = {
+            "model": model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if temperature is not None:
+            payload["temperature"] = max(0.0, min(1.0, float(temperature)))
         resp = await client.post(
             api_url,
             headers={
@@ -3737,11 +3786,7 @@ async def _generate_via_api(prompt: str) -> str:
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
-            json={
-                "model": model,
-                "max_tokens": 4096,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+            json=payload,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -5270,9 +5315,8 @@ async def _ai_suggest_calendar(
     # then silent pool fallback). Each retry appends the prior draft + the
     # specific rejection reason + a "try a different angle" hint so the
     # model gets concrete guidance instead of repeating the same shape.
-    _planner_retry_budget = int(
-        ((settings.get("ai_populate") or {}).get("generation") or {}).get("retry_budget", 3)
-    )
+    _planner_gen_cfg = _planner_generation_config(settings)
+    _planner_retry_budget = _planner_gen_cfg["retry_budget"]
     from bot.utils.copy import load_copy as _load_copy_inner
     _planner_angle_hint = _load_copy_inner(
         "planner",
@@ -5282,6 +5326,8 @@ async def _ai_suggest_calendar(
             "המלצה ספציפית, או דעה לא פופולרית."  # noqa: hardcoded-content (Hebrew fallback only)
         ),
     )
+
+    used_generation_openers: dict[tuple[str, str], set[str]] = {}
 
     async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list) -> tuple[str, list]:
         """Run LLM with bounded retries + validate. Returns (text, validation_failures).
@@ -5309,21 +5355,40 @@ async def _ai_suggest_calendar(
             }
         avoid_set = {str(x).strip() for x in (recent or []) if x}
 
+        opener_key = (field, cat or "")
+        opener_recent = int(_planner_gen_cfg["opener_recent_window"])
+        blocked_openers = used_generation_openers.setdefault(opener_key, set())
+        if opener_recent:
+            blocked_openers.update(
+                key for key in (_draft_opener_key(x) for x in recent[:opener_recent]) if key
+            )
         prompt = base_prompt
         last_text = ""
         last_fails: list[str] = []
         for attempt in range(max(1, _planner_retry_budget)):
+            pattern_directive = _planner_pattern_directive(
+                _planner_gen_cfg["pattern_rotation"], field, cat, d_iso, t, attempt,
+            )
+            attempt_prompt = prompt + ("\n\n" + pattern_directive if pattern_directive else "")
+            if blocked_openers:
+                attempt_prompt += "\n\n" + "אל תפתח באותן מילים כמו הפתיחות שכבר הופיעו: " + ", ".join(sorted(blocked_openers))
             try:
-                raw = await _generate_via_cli(prompt)
+                raw = await _generate_via_cli(attempt_prompt)
             except Exception:
                 try:
-                    raw = await _generate_via_api(prompt)
+                    raw = await _generate_via_api(
+                        attempt_prompt,
+                        temperature=float(_planner_gen_cfg["temperature"]),
+                    )
                 except Exception as e:
                     return "", [f"generation failed: {e}"]
             text = (raw or "").strip().replace('"', '').replace("'", "")
             lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
             text = lines[0] if lines else text
             fails = _validate_draft_text(text)
+            opener = _draft_opener_key(text)
+            if opener and opener in blocked_openers:
+                fails.append("repeated opener")
             freshness_failure = freshness_rejection(
                 text,
                 avoid_texts=avoid_set,
@@ -5333,9 +5398,13 @@ async def _ai_suggest_calendar(
             if freshness_failure:
                 fails.append(freshness_failure)
             if not fails:
+                if opener:
+                    blocked_openers.add(opener)
                 return text, []
             last_text = text
             last_fails = fails
+            if opener:
+                blocked_openers.add(opener)
             if attempt + 1 < _planner_retry_budget:
                 prompt = (
                     base_prompt
@@ -5351,9 +5420,7 @@ async def _ai_suggest_calendar(
     # 60-item ceiling collided with ~25-item pool sizes and exhausted the
     # model's variance room. Near-dup detection (Jaccard via freshness) now
     # picks up paraphrases the substring check missed.
-    _dedup_limit = int(
-        ((settings.get("ai_populate") or {}).get("generation") or {}).get("dedup_window", 25)
-    )
+    _dedup_limit = int(_planner_gen_cfg["dedup_window"])
     recent_by_type: dict = {
         "morning": await _fetch_recent_sent_for_dedup(db, "morning", limit=_dedup_limit),
         "evening": await _fetch_recent_sent_for_dedup(db, "evening", limit=_dedup_limit),

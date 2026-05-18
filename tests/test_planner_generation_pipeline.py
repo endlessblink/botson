@@ -62,6 +62,48 @@ class PlannerRetryBudgetSettingHonored(unittest.TestCase):
         if "retry_budget" in block:
             self.assertGreaterEqual(int(block["retry_budget"]), 1)
 
+    def test_generation_config_exposes_gap1_knobs(self):
+        from dashboard import app as dashboard_app
+
+        cfg = dashboard_app._planner_generation_config({
+            "ai_populate": {
+                "generation": {
+                    "retry_budget": "2",
+                    "dedup_window": "7",
+                    "opener_recent_window": "4",
+                    "temperature": "0.9",
+                    "pattern_rotation": [" A ", "", "B"],
+                }
+            }
+        })
+        self.assertEqual(cfg["retry_budget"], 2)
+        self.assertEqual(cfg["dedup_window"], 7)
+        self.assertEqual(cfg["opener_recent_window"], 4)
+        self.assertEqual(cfg["temperature"], 0.9)
+        self.assertEqual(cfg["pattern_rotation"], ["A", "B"])
+
+    def test_pattern_rotation_changes_across_attempts(self):
+        from dashboard import app as dashboard_app
+
+        patterns = ["pattern-a", "pattern-b", "pattern-c"]
+        first = dashboard_app._planner_pattern_directive(
+            patterns, "discussion", "movies", "2026-05-18", "18:00", 0,
+        )
+        second = dashboard_app._planner_pattern_directive(
+            patterns, "discussion", "movies", "2026-05-18", "18:00", 1,
+        )
+        self.assertIn(first, patterns)
+        self.assertIn(second, patterns)
+        self.assertNotEqual(first, second)
+
+    def test_opener_key_ignores_leading_emoji(self):
+        from dashboard import app as dashboard_app
+
+        self.assertEqual(
+            dashboard_app._draft_opener_key("🎬 מה הסרט שהכי הפתיע אתכם?"),
+            "מה הסרט",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

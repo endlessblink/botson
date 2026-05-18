@@ -180,6 +180,14 @@
 
 ## Lanes (active queues)
 
+#### T-170: Planner Populate hardening — loud failures + retry budget + near-dup
+**Priority:** P0 | **Status:** TODO
+Planner Populate should fail loudly when generation quality fails, retry with useful guidance, avoid near-duplicates/source echoes, and reduce samey suggestions across a Populate run.
+
+**Progress (2026-05-18):** Gap 1 implemented locally: Populate now rotates configured generation patterns per retry, rejects repeated openers from recent history/current run, and passes configurable temperature to the Anthropic API fallback. Focused planner and guardian tests pass.
+
+**Remaining gaps:** Continue tracking unresolved Populate hardening gaps here as they are picked up, so restart context is visible from this task section.
+
 Active queues should reflect what to work on next, not historical shipped phases. Tasks in different lanes don't block each other; tasks within a lane run sequentially.
 
 ### 🌱 Question quality lane (curation + review)
@@ -1813,4 +1821,3 @@ Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, 
 
 **Priority**: P0
 **Status**: Backlog
-
