@@ -86,6 +86,18 @@ If a correction doesn't fit any of these, add a new context category.
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
+### Good examples — Hebrew content
+
+Canonized positive anchors for the Botson Hebrew prompt builder. Each bullet below is a real draft the operator approved via the qa-scoring ⭐ button. The bot injects these into every Hebrew generation prompt as "זה הכיוון, חקה את הטון" anchors — durable few-shot examples that outlive the working-memory recency window.
+
+Cap is ~15 entries; oldest gets pruned manually when the section is full. Added via `POST /api/operator-prefs/canonize` with `kind: "good"`; removed via direct markdown edit. The parser includes every line that starts with `- `, so the bullets below this paragraph are the anchors themselves — no meta-bullets in this section.
+
+### Bad examples — Hebrew content
+
+Canonized negative anchors. Drafts the operator marked via the qa-scoring 🚫 button as "never reproduce this exact register/structure." Injected into every Hebrew generation prompt as "אסור לשחזר" anchors.
+
+Cap is ~15 entries; same replacement policy as Good examples. Added via `POST /api/operator-prefs/canonize` with `kind: "bad"`; removed via direct markdown edit. The parser includes every line that starts with `- `, so the bullets below this paragraph are the anchors themselves — no meta-bullets in this section.
+
 ### Motion grammar
 
 #### Match visual weight of the treatment to the weight of the feature

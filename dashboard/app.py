@@ -3068,33 +3068,88 @@ _STYLE_PROFILE_CACHE: dict[str, str | None] = {"planner_hebrew_default": None}
 # _SEED_GUIDANCE_HE constant and _ensure_seed_style_profile DB seeder
 # were removed because the file is now the seed (and stays the source).
 _OPERATOR_PREFS_PATH = Path(__file__).resolve().parent.parent / "config" / "operator_prefs.md"
-_OPERATOR_PREFS_CACHE: dict = {"section": None, "mtime": 0.0, "loaded_at": 0.0, "rule_count": 0}
+# Per-section cache. Each heading gets its own slot so the anchor sections
+# don't invalidate when only the rules section changes (rare, but cheap).
+_OPERATOR_PREFS_CACHE: dict = {
+    "section": None, "mtime": 0.0, "loaded_at": 0.0, "rule_count": 0,
+    "sections": {},  # {heading: {"body": str, "items": list, "mtime": float, "loaded_at": float}}
+}
 _OPERATOR_PREFS_TTL_SECONDS = 60.0
 
+# Gap 3: anchor sections — universal good/bad examples injected into every
+# Hebrew prompt before working memory. Caps prevent the "few-shot fades into
+# noise past ~15 examples" problem.
+_ANCHOR_CAP = 15
+_PREFS_HEBREW_HEADING = "### Hebrew content rules"
+_PREFS_GOOD_ANCHORS_HEADING = "### Good examples — Hebrew content"
+_PREFS_BAD_ANCHORS_HEADING = "### Bad examples — Hebrew content"
 
-def _split_at_hebrew_heading(text: str) -> tuple[str, str, str] | None:
-    """Return (before_with_heading, section_body, rest) split around the
-    actual `### Hebrew content rules` heading. Matches start-of-line only so
-    inline references to the section name in prose don't trick the parser.
-    Returns None if no heading is found.
+
+def _split_at_section_heading(text: str, heading: str) -> tuple[str, str, str] | None:
+    """Return (before_with_heading, section_body, rest) split around `heading`.
+
+    `heading` must be a full markdown heading line (e.g. `### Hebrew content
+    rules`). Matches at start-of-line only so inline references inside prose
+    don't fool the parser. Returns None if heading is absent.
     """
-    needle = "\n### Hebrew content rules"
-    if text.startswith("### Hebrew content rules"):
-        # File starts with the heading (unusual but possible).
-        idx = 0
-        heading_end = len("### Hebrew content rules")
+    needle = "\n" + heading
+    if text.startswith(heading):
+        heading_end = len(heading)
     else:
         idx = text.find(needle)
         if idx < 0:
             return None
-        idx += 1  # skip leading newline so before_with_heading ends on the heading line
-        heading_end = idx + len("### Hebrew content rules")
+        heading_end = idx + 1 + len(heading)
     before_with_heading = text[:heading_end]
     after = text[heading_end:]
     next_idx = after.find("\n### ")
+    # Also stop at a higher-level `## ` heading.
+    h2_idx = after.find("\n## ")
+    if h2_idx >= 0 and (next_idx < 0 or h2_idx < next_idx):
+        next_idx = h2_idx
     section_body = after if next_idx < 0 else after[:next_idx]
     rest = "" if next_idx < 0 else after[next_idx:]
     return before_with_heading, section_body, rest
+
+
+def _split_at_hebrew_heading(text: str) -> tuple[str, str, str] | None:
+    """Back-compat thin wrapper for the Hebrew content rules section."""
+    return _split_at_section_heading(text, _PREFS_HEBREW_HEADING)
+
+
+def _read_prefs_section(heading: str) -> tuple[str, list[str]]:
+    """Return (joined_bullet_text, bullet_list) for an arbitrary `### …` section.
+
+    Bullets are lines beginning with `- ` (operator prefs convention). The
+    joined string preserves order. Empty result on missing file / heading.
+    Per-section 60-second mtime cache.
+    """
+    import time as _time
+    now = _time.monotonic()
+    try:
+        st = _OPERATOR_PREFS_PATH.stat()
+    except FileNotFoundError:
+        return "", []
+    sections = _OPERATOR_PREFS_CACHE.setdefault("sections", {})
+    slot = sections.get(heading)
+    if (slot is not None
+            and now - slot.get("loaded_at", 0.0) < _OPERATOR_PREFS_TTL_SECONDS
+            and slot.get("mtime") == st.st_mtime):
+        return slot["body"], list(slot["items"])
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("[operator-prefs] read failed for %r: %s", heading, e)
+        return "", []
+    parts = _split_at_section_heading(text, heading)
+    if parts is None:
+        sections[heading] = {"body": "", "items": [], "mtime": st.st_mtime, "loaded_at": now}
+        return "", []
+    _, section_body, _ = parts
+    items = [ln.strip() for ln in section_body.splitlines() if ln.strip().startswith("- ")]
+    body = "\n".join(items).strip()
+    sections[heading] = {"body": body, "items": items, "mtime": st.st_mtime, "loaded_at": now}
+    return body, list(items)
 
 
 def _read_operator_prefs_hebrew_section() -> str:
@@ -3325,27 +3380,52 @@ def _recent_feedback_block_sync(field: str, category: str | None) -> str:
 
 
 def _active_style_profile_block_sync() -> str:
-    """Return the Hebrew-content guidance block injected into every prompt.
+    """Return the operator-curated guidance block injected into every prompt.
 
-    T-181: source is now `config/operator_prefs.md` (parsed Hebrew section),
-    not the SQLite `content_style_profile.guidance` column. The legacy
-    `_STYLE_PROFILE_CACHE` is kept only as a last-resort fallback for the
-    case where the file is missing on a deploy that hasn't shipped it yet.
+    T-181 + Gap 3: three labelled sub-blocks in order:
+      1. Hebrew content rules (the existing learned-rules section)
+      2. Good examples — durable positive anchors (canonized via qa-scoring ⭐)
+      3. Bad examples — durable negative anchors (canonized via qa-scoring 🚫)
+
+    Anchors precede working memory because durable > ephemeral. Working memory
+    is appended downstream by `_recent_feedback_block_sync`.
     """
     guidance = _read_operator_prefs_hebrew_section()
     if not guidance:
         # Fallback to the legacy DB-cached value during the migration window.
         legacy = _STYLE_PROFILE_CACHE.get("planner_hebrew_default")
         if not legacy:
-            return ""
-        guidance = str(legacy).strip()
+            guidance = ""
+        else:
+            guidance = str(legacy).strip()
+    _, good_items = _read_prefs_section(_PREFS_GOOD_ANCHORS_HEADING)
+    _, bad_items = _read_prefs_section(_PREFS_BAD_ANCHORS_HEADING)
+    if not guidance and not good_items and not bad_items:
+        return ""
     from bot.utils.copy import load_copy as _load_copy
-    header = _load_copy(
-        "planner",
-        "style_profile_header",
-        default="הנחיות נוספות מבוססות-משוב אופרטור (אושרו ידנית):",  # noqa: hardcoded-content (Hebrew header, fallback only)
-    )
-    return "\n\n" + header + "\n" + guidance
+    blocks: list[str] = []
+    if guidance:
+        header = _load_copy(
+            "planner",
+            "style_profile_header",
+            default="הנחיות נוספות מבוססות-משוב אופרטור (אושרו ידנית):",  # noqa: hardcoded-content (Hebrew header, fallback only)
+        )
+        blocks.append(header + "\n" + guidance)
+    if good_items:
+        good_header = _load_copy(
+            "planner",
+            "good_anchors_header",
+            default="✓ דוגמאות אנקור — זה הכיוון, חקה את הטון:",  # noqa: hardcoded-content (Hebrew header, fallback only)
+        )
+        blocks.append(good_header + "\n" + "\n".join(good_items))
+    if bad_items:
+        bad_header = _load_copy(
+            "planner",
+            "bad_anchors_header",
+            default="✗ דוגמאות אנקור — אסור לשחזר:",  # noqa: hardcoded-content (Hebrew header, fallback only)
+        )
+        blocks.append(bad_header + "\n" + "\n".join(bad_items))
+    return "\n\n" + "\n\n".join(blocks)
 
 
 async def _render_group_stats_context(db: Database, since_days: int = 7) -> str:
@@ -8487,6 +8567,85 @@ async def operator_prefs_teach(request: Request, db: Database = Depends(get_db))
     except Exception as e:
         logger.warning("[operator-prefs] audit-row insert failed (teach): %s", e)
     return {"ok": True, "rule_count": _OPERATOR_PREFS_CACHE.get("rule_count", 0), "appended": rule_line}
+
+
+# Gap 3: canonize a draft as a permanent good/bad anchor example. Triggered
+# by the per-card ⭐ / 🚫 buttons in qa_scoring.html. Appends one bullet to
+# the matching section of operator_prefs.md with a citation back to the
+# draft id + score. Cap at _ANCHOR_CAP entries — surface a warning past
+# that (don't silently drop; the operator decides what to prune).
+
+
+@app.post("/api/operator-prefs/canonize")
+async def operator_prefs_canonize(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    kind = str(body.get("kind") or "").strip().lower()
+    if kind not in ("good", "bad"):
+        raise HTTPException(status_code=400, detail="kind must be 'good' or 'bad'")
+    draft_text = str(body.get("draft_text") or "").strip()
+    if not draft_text:
+        raise HTTPException(status_code=400, detail="draft_text is required")
+    reason = str(body.get("reason") or "").strip()
+    draft_id = body.get("draft_id")
+    score = body.get("score")
+    heading = _PREFS_GOOD_ANCHORS_HEADING if kind == "good" else _PREFS_BAD_ANCHORS_HEADING
+    # Read current section to enforce the cap.
+    _, existing_items = _read_prefs_section(heading)
+    at_cap = len(existing_items) >= _ANCHOR_CAP
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cannot read prefs file: {e}")
+    parts = _split_at_section_heading(text, heading)
+    if parts is None:
+        raise HTTPException(status_code=500, detail=f"{heading} section not found")
+    before, section_body, rest = parts
+    # Single-line bullet: keep the draft text intact (it's the anchor); newlines
+    # in the draft are flattened to spaces so the bullet stays one logical line.
+    flat = " ".join(draft_text.split())
+    bullet_line = "- " + flat
+    today = datetime.now().strftime("%Y-%m-%d")
+    cite_bits = [f"qa-scoring canonize ({kind})", today]
+    if draft_id is not None:
+        cite_bits.append(f"draft_id={draft_id}")
+    if score is not None:
+        cite_bits.append(f"score={score}")
+    if reason:
+        cite_bits.append(f"reason: {reason}")
+    citation = "  \n  _**Source:** " + ", ".join(cite_bits) + "_"
+    new_text = before + section_body.rstrip() + "\n\n" + bullet_line + "\n" + citation + "\n" + rest
+    try:
+        _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cannot write prefs file: {e}")
+    # Invalidate the section cache slot.
+    sections = _OPERATOR_PREFS_CACHE.setdefault("sections", {})
+    sections.pop(heading, None)
+    # Audit trail (reuses the Gap 4 audit table).
+    try:
+        await db.record_prefs_change(
+            source="canonize",
+            section=heading.lstrip("# ").strip(),
+            change_kind="add",
+            before_excerpt=None,
+            after_excerpt=bullet_line[:500],
+            source_feedback_ids=None,
+        )
+    except Exception as e:
+        logger.warning("[operator-prefs] audit-row insert failed (canonize): %s", e)
+    return {
+        "ok": True,
+        "kind": kind,
+        "heading": heading,
+        "appended": bullet_line,
+        "section_size": len(existing_items) + 1,
+        "cap": _ANCHOR_CAP,
+        "at_cap_warning": at_cap,
+    }
 
 
 @app.post("/api/operator-prefs/untrain")

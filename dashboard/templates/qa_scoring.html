@@ -131,6 +131,7 @@
         <p class="text-sm text-[#71717a]">אין טיוטות עדיין. לחץ "✨ ייצר טיוטות" כדי לקבל דגימה ולציין אותן.</p>
     </div>
     {% else %}
+    <div class="text-[10px] text-[#71717a] mb-2 px-1">ציון: 1 = הכי גרוע · 5 = הכי טוב · ⭐ קבע כדוגמה חיובית · 🚫 קבע כדוגמה שלילית</div>
     <div class="space-y-3">
     {% for d in drafts %}
         <div class="qa-card bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3" data-draft-id="{{ d.id }}">
@@ -140,10 +141,12 @@
                 {% if d.category %}<span class="px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400">{{ d.category }}</span>{% endif %}
                 <span>יום {{ d.target_day_name }} · {{ d.target_time }} · {{ d.target_date }}</span>
                 <span class="ml-auto">נוצר {{ d.generated_at }}</span>
+                <button onclick="qaCanonize({{ d.id }}, 'good')" class="text-[#52525b] hover:text-amber-300 transition-colors" title="קבע כדוגמה חיובית קבועה (anchor)">⭐</button>
+                <button onclick="qaCanonize({{ d.id }}, 'bad')" class="text-[#52525b] hover:text-red-400 transition-colors" title="קבע כדוגמה שלילית קבועה (אסור לשחזר)">🚫</button>
                 <button onclick="qaDelete({{ d.id }})" class="text-[#52525b] hover:text-red-400 transition-colors" title="מחק">✕</button>
             </div>
             <!-- Text -->
-            <p class="text-[15px] text-[#fafafa] bg-[#111318] border border-[#272727] rounded-md px-3 py-3 whitespace-pre-line leading-relaxed">{{ d.text }}</p>
+            <p class="text-[15px] text-[#fafafa] bg-[#111318] border border-[#272727] rounded-md px-3 py-3 whitespace-pre-line leading-relaxed" data-draft-text>{{ d.text }}</p>
             <!-- Scoring -->
             <div class="mt-3 flex items-center gap-3">
                 <span class="text-xs text-[#71717a]">ציון:</span>
@@ -240,6 +243,47 @@ async function qaDelete(id) {
         var card = document.querySelector('div[data-draft-id="' + id + '"]');
         if (card) card.remove();
         showToast('נמחק', 'success');
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+// Gap 3: canonize a draft as a permanent good/bad anchor example.
+async function qaCanonize(id, kind) {
+    var card = document.querySelector('div[data-draft-id="' + id + '"]');
+    if (!card) return;
+    var textEl = card.querySelector('[data-draft-text]');
+    var draftText = textEl ? (textEl.textContent || '').trim() : '';
+    if (!draftText) { showToast('טיוטה ריקה', 'error'); return; }
+    var kindLabel = kind === 'good' ? 'דוגמה חיובית קבועה (anchor — חקה את הטון)' : 'דוגמה שלילית קבועה (anchor — אסור לשחזר)';
+    var reason = prompt('מדוע ' + kindLabel + '?\n(שורה אחת, אפשר להשאיר ריק)');
+    if (reason === null) return;  // operator cancelled
+    var scoreBtn = card.querySelector('button.score-btn.active');
+    var score = scoreBtn ? parseInt(scoreBtn.getAttribute('data-score'), 10) : null;
+    try {
+        var r = await fetch('/api/operator-prefs/canonize', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                kind: kind,
+                draft_text: draftText,
+                draft_id: id,
+                score: score,
+                reason: reason || '',
+            }),
+        });
+        if (!r.ok) {
+            var err = await r.json().catch(function() { return {}; });
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        var data = await r.json();
+        var sizeMsg = ' (' + data.section_size + '/' + data.cap + ')';
+        var prefix = kind === 'good' ? '⭐ נשמר כדוגמה חיובית' : '🚫 נשמר כדוגמה שלילית';
+        if (data.at_cap_warning) {
+            showToast(prefix + sizeMsg + ' — מומלץ לגזום ידנית את הישנות', 'error');
+        } else {
+            showToast(prefix + sizeMsg, 'success');
+        }
     } catch (e) {
         showToast('שגיאה: ' + e.message, 'error');
     }
