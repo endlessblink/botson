@@ -1163,6 +1163,13 @@ async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
         )
     canonical_rules = _load_quality_rules_short()
     rules_block = rules + (f"\n\n{canonical_rules}" if canonical_rules else "")
+    # Gap 3b: also inject operator-curated anchor examples so warm-up /
+    # reminder copy follows the same canonized good/bad anchors as the
+    # planner and materializer paths.
+    from bot.utils.operator_anchors import render_anchor_block as _anchors
+    _anchor_text = _anchors()
+    if _anchor_text:
+        rules_block += "\n\n" + _anchor_text
     prompt = f"""כתוב טקסט חדש בעברית להודעת פעילות בטלגרם לקהילת מבוגרים ישראלית.
 
 סוג פעילות: {kind}

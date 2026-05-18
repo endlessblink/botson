@@ -252,6 +252,14 @@ async def _generate_fresh_text(
     sample = random.sample(examples, min(shots, len(examples))) if examples else []
     canonical_rules = load_quality_rules_short()
     canonical_block = f"\n\n{canonical_rules}" if canonical_rules else ""
+    # Gap 3b: inject operator-curated anchor examples into the same
+    # canonical block so the bulk-fill path (the one that actually feeds
+    # the next-day group sends) sees ⭐/🚫 canonized drafts alongside the
+    # hard rules. No-op when both sections are empty.
+    from bot.utils.operator_anchors import render_anchor_block
+    anchors = render_anchor_block()
+    if anchors:
+        canonical_block += "\n\n" + anchors
     # Anchor the prompt on the actual Hebrew day-of-week so the model
     # doesn't hallucinate "Saturday" content on a Sunday row (regression
     # observed 2026-05-10 morning slot).
