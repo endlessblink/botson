@@ -103,6 +103,16 @@ def _parse_payload(raw) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _format_rsvp_names(responses: list[dict], *, limit: int = 5) -> str:
+    names = [str(row.get("display_name") or "").strip() for row in responses]
+    names = [name for name in names if name]
+    if not names:
+        return "אין נרשמים"  # noqa: hardcoded-content (temporary fallback; copy extraction follow-up)
+    shown = names[:limit]
+    suffix = f" +{len(names) - limit}" if len(names) > limit else ""
+    return ", ".join(shown) + suffix
+
+
 async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int) -> None:
     """T-127: Cancel a trivia/emoji game launch if the paired warm-up RSVP
     count is below `min_ready_players`. No-op when the row has no
@@ -138,12 +148,8 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
         # in-game ready-gate is still the safety net.
         return
 
-    async with db._db.execute(
-        "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id = ?",
-        (int(ann["id"]),),
-    ) as cur:
-        crow = await cur.fetchone()
-    rsvp_count = int(crow["n"]) if crow else 0
+    responses = await db.get_trivia_interest_responses(int(ann["id"]))
+    rsvp_count = len(responses)
     if rsvp_count >= threshold:
         return
 
@@ -161,6 +167,7 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
     )
     cancel_text = (
         f"❌ {activity_label} לא יוצא לדרך הפעם — רק {rsvp_count}/{threshold} סימנו שהם בפנים.\n"
+        f"נרשמו: {_format_rsvp_names(responses)}\n"
         "ננסה שוב בתאריך הבא 🙂"
     )
     ann_topic = ann["channel_topic_id"]

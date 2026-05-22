@@ -41,6 +41,7 @@ except Exception:  # pragma: no cover
 
 from bot.database.db import Database  # noqa: E402
 from bot.handlers import calendar as calendar_handler  # noqa: E402
+from bot.handlers import trivia_interest as interest_handler  # noqa: E402
 from bot.handlers import trivia_round as trivia_handler  # noqa: E402
 
 
@@ -352,6 +353,168 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         game = await self._row(game_id)
         self.assertEqual(warmup["status"], "sent")
         self.assertEqual(game["status"], "sent")
+
+    async def test_warmup_rsvp_users_seed_scheduled_trivia_ready_gate(self):
+        """Regression: RSVP threshold met in Sherlock's Den must count at game launch.
+
+        The production failure on 2026-05-22 happened because the warm-up RSVP
+        reached the threshold, but scheduled trivia then demanded a second
+        in-game ready click and cancelled at pre-roll. This test covers the DB
+        chain: sent warmup row + stored RSVP responses + due game row sharing
+        the warmup_marker.
+        """
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        marker = f"warmup-rsvp:trivia:{date_iso}:19:00"
+        warmup_id = await self.db.create_scheduled_message(
+            text="warmup",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=341,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options=json.dumps({
+                "min_ready_players": 2,
+                "game_time": "23:59",
+                "theme_label": "ישראל",
+                "warmup_marker": marker,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+        await self.db.mark_message_sent(warmup_id, 700001)
+        await self.db.add_trivia_interest_response(warmup_id, 101, "Lotem")
+        await self.db.add_trivia_interest_response(warmup_id, 202, "Refeli")
+
+        game_id = await self.db.create_scheduled_message(
+            text="",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options=json.dumps({
+                "pre_roll_s": 5,
+                "theme_label": "ישראל",
+                "categories": ["ישראל"],
+                "question_count": 3,
+                "min_ready_players": 2,
+                "warmup_marker": marker,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        row = await self._row(game_id)
+        self.assertEqual(row["status"], "sent")
+        round_state = trivia_handler._continue_round_after_announcement.await_args.kwargs["round_state"]
+        self.assertEqual(round_state["ready_users"], {101: "Lotem", 202: "Refeli"})
+
+    async def test_ready_gate_does_not_cancel_when_seeded_from_warmup_rsvp(self):
+        """Regression: a seeded warmup-ready list satisfies the pre-roll gate."""
+        self._continue_patch.stop()
+        q = {"text": "q", "options": ["a", "b", "c", "d"], "correct": 0}
+        state = trivia_handler._create_round_state(
+            [q], 1, min_ready_players=2, ready_users={101: "Lotem", 202: "Refeli"},
+        )
+        bot = AsyncMock()
+        db = self.db
+        with patch.object(trivia_handler, "safe_send", new=AsyncMock(return_value=SimpleNamespace(message_id=99))) as safe_send, \
+             patch.object(trivia_handler, "_post_question", new=AsyncMock(return_value=100)) as post_question, \
+             patch.object(trivia_handler, "_update_question_timer", new=AsyncMock()), \
+             patch.object(trivia_handler, "_reveal_question", new=AsyncMock()), \
+             patch.object(trivia_handler.asyncio, "sleep", new=AsyncMock()):
+            await trivia_handler._continue_round_after_announcement(
+                bot, db, TEST_GROUP_ID, 4037, pre_roll_s=1, round_state=state,
+            )
+
+        post_question.assert_awaited_once()
+        self.assertFalse(any("לא מתחילה" in call.kwargs.get("text", "") for call in safe_send.await_args_list))
+
+    async def test_late_warmup_rsvp_after_game_time_is_rejected_and_not_stored(self):
+        """Regression: users cannot retroactively join after game_time."""
+        date_iso, _time_iso, now = _now_il_struct()
+        game_time = (now - timedelta(minutes=1)).strftime("%H:%M")
+        warmup_id = await self.db.create_scheduled_message(
+            text="warmup",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=341,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(hours=1)).strftime("%H:%M"),
+            poll_options=json.dumps({
+                "min_ready_players": 2,
+                "game_time": game_time,
+                "theme_label": "ישראל",
+                "warmup_marker": "late-rsvp-marker",
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+        await self.db.mark_message_sent(warmup_id, 700002)
+        query = SimpleNamespace(
+            data=f"trivint_{warmup_id}",
+            answer=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
+        )
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=303, username="late", first_name="Late", last_name="User", full_name="Late User"),
+        )
+        ctx = _make_context(self.db)
+
+        await interest_handler.handle_trivia_interest(update, ctx)
+
+        query.answer.assert_awaited_once()
+        self.assertTrue(query.answer.await_args.kwargs.get("show_alert"))
+        responses = await self.db.get_trivia_interest_responses(warmup_id)
+        self.assertEqual(responses, [])
+
+    async def test_warmup_rsvp_button_and_confirmation_include_names(self):
+        """Regression: operator-visible RSVP state includes actual participant names."""
+        date_iso, _time_iso, now = _now_il_struct()
+        warmup_id = await self.db.create_scheduled_message(
+            text="warmup",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=341,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=10)).strftime("%H:%M"),
+            poll_options=json.dumps({
+                "min_ready_players": 2,
+                "game_time": "23:59",
+                "theme_label": "ישראל",
+                "activity_label": "הטריוויה על ישראל",
+                "warmup_marker": "names-marker",
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+        await self.db.mark_message_sent(warmup_id, 700003)
+
+        async def click(user_id: int, name: str):
+            query = SimpleNamespace(
+                data=f"trivint_{warmup_id}",
+                answer=AsyncMock(),
+                edit_message_reply_markup=AsyncMock(),
+            )
+            update = SimpleNamespace(
+                callback_query=query,
+                effective_user=SimpleNamespace(id=user_id, username=name.lower(), first_name=name, last_name=None, full_name=name),
+            )
+            await interest_handler.handle_trivia_interest(update, _make_context(self.db))
+            return query
+
+        with patch.object(interest_handler, "safe_send", new=AsyncMock(return_value=SimpleNamespace(message_id=700004))) as send:
+            first_query = await click(101, "Lotem")
+            second_query = await click(202, "Refeli")
+
+        first_markup = first_query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+        second_markup = second_query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+        self.assertIn("Lotem", first_markup.inline_keyboard[0][0].text)
+        self.assertIn("Lotem", second_markup.inline_keyboard[0][0].text)
+        self.assertIn("Refeli", second_markup.inline_keyboard[0][0].text)
+        confirmation_text = send.await_args.kwargs["text"]
+        self.assertIn("Lotem", confirmation_text)
+        self.assertIn("Refeli", confirmation_text)
 
 
 if __name__ == "__main__":

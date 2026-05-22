@@ -329,7 +329,9 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
 
 
 def _create_round_state(questions: list[dict], question_count: int,
-                        min_ready_players: int = 0) -> dict:
+                        min_ready_players: int = 0,
+                        ready_users: dict[int, str] | None = None) -> dict:
+    ready_users = ready_users or {}
     return {
         "questions": questions,
         "question_count": question_count,
@@ -337,10 +339,40 @@ def _create_round_state(questions: list[dict], question_count: int,
         "msg_id": None,
         "scores": {},  # user_id → {name, correct, points}
         "answers_this_q": {},  # user_id → answer_idx (for current question only)
-        "ready_users": {},  # user_id → display name during pre-roll
+        "ready_users": dict(ready_users),  # user_id → display name during pre-roll
         "accepting_ready": bool(min_ready_players),
         "min_ready_players": max(0, int(min_ready_players or 0)),
         "aborted": False,
+    }
+
+
+async def _warmup_ready_users_for_marker(db: Database, warmup_marker: str | None) -> dict[int, str]:
+    marker = str(warmup_marker or "").strip()
+    if not marker:
+        return {}
+    async with db._db.execute(
+        """SELECT id, poll_options
+           FROM scheduled_messages
+           WHERE message_type = 'trivia_warmup_rsvp' AND status = 'sent'
+           ORDER BY id DESC""",
+    ) as cur:
+        candidates = await cur.fetchall()
+    announcement_id = None
+    for cand in candidates:
+        try:
+            payload = json.loads(cand["poll_options"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if str(payload.get("warmup_marker") or "") == marker:
+            announcement_id = int(cand["id"])
+            break
+    if announcement_id is None:
+        return {}
+    responses = await db.get_trivia_interest_responses(announcement_id)
+    return {
+        int(row["user_id"]): str(row.get("display_name") or "")
+        for row in responses
+        if row.get("user_id") is not None
     }
 
 
@@ -702,6 +734,7 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
     teaser_text = str(teaser_text_raw).strip() if teaser_text_raw else None
     pre_roll_s = int(payload.get("pre_roll_s", 30) or 30)
     min_ready_players = max(0, int(payload.get("min_ready_players") or 0))
+    warmup_marker = str(payload.get("warmup_marker") or "").strip()
     theme_label = str(payload.get("theme_label") or "").strip() or None
     question_count = int(payload.get("question_count") or QUESTION_COUNT)
     raw_categories = payload.get("categories") or []
@@ -741,7 +774,13 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
             f"(found={len(questions)}, requested={question_count})"
         )
 
-    round_state = _create_round_state(questions, question_count, min_ready_players=min_ready_players)
+    warmup_ready_users = await _warmup_ready_users_for_marker(db, warmup_marker)
+    round_state = _create_round_state(
+        questions,
+        question_count,
+        min_ready_players=min_ready_players,
+        ready_users=warmup_ready_users,
+    )
     _active_rounds[chat_id] = round_state
     try:
         announcement_id = await _send_round_teaser_and_announcement(
