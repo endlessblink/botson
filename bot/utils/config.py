@@ -131,6 +131,20 @@ ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Jerusalem")
 DB_PATH = os.getenv("DB_PATH", "./data/bot.db")
 PUBLIC_DASHBOARD_URL = os.getenv("PUBLIC_DASHBOARD_URL", "").rstrip("/")
+# Bot's public @username (no leading @). Used to build t.me deep links that
+# open a private chat with the bot. Empty when unset → callers omit the link.
+BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()
+
+
+def deep_link(param: str) -> str:
+    """Build a https://t.me/<bot>?start=<param> deep link.
+
+    Returns "" when BOT_USERNAME is unset so callers can decide to omit the
+    button rather than render a broken link.
+    """
+    if not BOT_USERNAME:
+        return ""
+    return f"https://t.me/{BOT_USERNAME}?start={param}"
 _goals_raw = os.getenv("GOALS_TOPIC_ID", "").strip()
 GOALS_TOPIC_ID = int(_goals_raw) if _goals_raw else None
 TEST_GROUP_ID = int(os.getenv("TEST_GROUP_ID", "0")) or None

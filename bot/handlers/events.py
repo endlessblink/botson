@@ -139,12 +139,15 @@ async def event_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [], [],
     )
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ מגיע/ה!", callback_data=f"rsvp_yes_{event_id}"),
-            InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id}"),
-        ]
-    ])
+    from .dm_menu import deep_link_button
+    _kb_rows = [[
+        InlineKeyboardButton("✅ מגיע/ה!", callback_data=f"rsvp_yes_{event_id}"),
+        InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id}"),
+    ]]
+    _dl = deep_link_button()
+    if _dl:
+        _kb_rows.append([_dl])
+    keyboard = InlineKeyboardMarkup(_kb_rows)
 
     routing = await db.get_handler_routing("events_publish")
     if not routing or routing["play_topic_id"] is None:

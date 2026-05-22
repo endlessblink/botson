@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% set active_page = "preferences" %}
+
+{% block title %}Botson — העדפות התראות{% endblock %}
+
+{% set type_labels = {"games": "🎮 משחקים (טריוויה / Emoji Night)", "events": "🎉 אירועים"} %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-4">
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">העדפות התראות אישיות</h1>
+    </div>
+    <a href="/members" class="text-xs text-[#71717a] hover:text-[#fafafa] transition-colors">← חזרה לחברים</a>
+</div>
+
+<p class="text-xs text-[#71717a] mb-6 max-w-2xl leading-relaxed">
+    חברים שבחרו בתפריט האישי של הבוט (בצ'אט פרטי) לקבל התראה כשפעילות מסוג מסוים מתוזמנת.
+    כשפעילות כזו מתפרסמת, הבוט שולח להם הודעה פרטית עם כפתור הרשמה. תצוגה לקריאה בלבד —
+    החברים מנהלים את ההעדפות בעצמם דרך התפריט.
+</p>
+
+<div class="grid gap-4 md:grid-cols-2">
+    {% for ptype, label in type_labels.items() %}
+    {% set people = grouped.get(ptype, []) %}
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-medium text-[#fafafa]">{{ label }}</h2>
+            <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md">{{ people|length }}</span>
+        </div>
+        {% if people %}
+        <ul class="space-y-1.5">
+            {% for p in people %}
+            <li class="flex items-center justify-between text-sm">
+                <span class="text-[#e4e6eb]">{{ p.display_name or p.user_id }}</span>
+                <span class="text-[10px] text-[#52525b]" dir="ltr">{{ p.updated_at }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-xs text-[#52525b]">אף אחד לא נרשם עדיין.</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

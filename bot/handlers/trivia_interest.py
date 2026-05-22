@@ -47,6 +47,90 @@ def _rsvp_closed(row, payload: dict, *, now: datetime | None = None) -> bool:
     return (now or datetime.now(_IL_TZ)) >= game_at
 
 
+async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user) -> dict | None:
+    """Record an interest RSVP for a warm-up and fire the threshold confirmation.
+
+    Single source of truth for the warm-up "I'm in" write, shared by the
+    in-group button (handle_trivia_interest) and the private DM menu
+    (bot/handlers/dm_menu.py). Touches no message — the caller renders its own
+    UI. The threshold confirmation send is independent of the click surface, so
+    it works whether the RSVP came from the group button or a DM.
+
+    Returns None when the warm-up no longer exists, ``{"closed": True}`` when
+    RSVP is closed, else ``{"count", "already", "names"}``.
+    """
+    async with db._db.execute(
+        "SELECT scheduled_date, status, poll_options FROM scheduled_messages WHERE id=?",
+        (scheduled_msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return None
+
+    try:
+        payload = json.loads(row["poll_options"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+
+    if row["status"] != "sent" or _rsvp_closed(row, payload):
+        return {"closed": True}
+
+    display_name = get_display_name(user)
+    await db.upsert_member(user.id, user.username, display_name)
+    count, already_responded = await db.add_trivia_interest_response(
+        scheduled_msg_id, user.id, display_name
+    )
+    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
+    names = _format_interest_names(responses, limit=3)
+    result = {"count": count, "already": already_responded, "names": names}
+
+    if already_responded:
+        return result
+
+    # Check threshold and fire confirmation exactly once when it's first crossed
+    threshold = int(payload.get("min_ready_players") or 0)
+    if threshold <= 0 or count != threshold:
+        return result
+
+    game_time = str(payload.get("game_time") or "")
+    from ..utils.copy import default_theme_label
+    theme = str(payload.get("theme_label") or "").strip() or default_theme_label()
+    activity_label = str(payload.get("activity_label") or f"הטריוויה על {theme}").strip()  # noqa: hardcoded-content (existing fallback; activity_label is config-sourced)
+
+    time_part = f" ב-{game_time}" if game_time else ""
+    confirmation = (
+        f"✅ הגענו למינימום! {count} אנשים בפנים —\n"
+        f"נרשמו: {names}\n"
+        f"{activity_label} תתקיים היום{time_part}.\n"
+        f"כולם מוזמנים! 🎮"
+    )  # noqa: hardcoded-content (pre-existing confirmation copy; extraction tracked separately)
+    try:
+        routing = await db.get_handler_routing("trivia_warmup")
+    except Exception:
+        routing = None
+    warmup_topic_id = (routing or {}).get("play_topic_id")
+    if not warmup_topic_id:
+        logger.warning("trivia_interest: no trivia_warmup routing — skipping confirmation")
+        return result
+
+    try:
+        await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=GROUP_ID,
+            text=confirmation,
+            message_thread_id=warmup_topic_id,
+        )
+        logger.info(
+            "trivia_interest: threshold %d reached for msg %d — confirmation sent to topic %d",
+            threshold, scheduled_msg_id, warmup_topic_id,
+        )
+    except Exception as e:
+        logger.error("trivia_interest: failed to send confirmation: %s", e)
+    return result
+
+
 async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle a click on the אני בפנים button of a trivia warm-up message."""
     query = update.callback_query
@@ -63,34 +147,19 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     db: Database = context.bot_data["db"]
-    display_name = get_display_name(user)
+    result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
 
-    async with db._db.execute(
-        "SELECT scheduled_date, status, poll_options FROM scheduled_messages WHERE id=?",
-        (scheduled_msg_id,),
-    ) as cur:
-        row = await cur.fetchone()
-    if not row:
+    if result is None:
         await query.answer("ההרשמה כבר לא זמינה", show_alert=True)  # noqa: hardcoded-content (temporary fallback; copy extraction follow-up)
         return
-
-    try:
-        payload = json.loads(row["poll_options"] or "{}")
-    except (json.JSONDecodeError, TypeError):
-        payload = {}
-
-    if row["status"] != "sent" or _rsvp_closed(row, payload):
+    if result.get("closed"):
         await query.answer("ההרשמה למשחק הזה כבר נסגרה", show_alert=True)  # noqa: hardcoded-content (temporary fallback; copy extraction follow-up)
         return
 
     await query.answer()
 
-    await db.upsert_member(user.id, user.username, display_name)
-    count, already_responded = await db.add_trivia_interest_response(
-        scheduled_msg_id, user.id, display_name
-    )
-    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
-    names = _format_interest_names(responses, limit=3)
+    count = result["count"]
+    names = result["names"]
     button_label = f"🙋 בפנים ({count})"
     if names:
         button_label = f"{button_label}: {names}"
@@ -104,51 +173,6 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         if "not modified" not in str(e).lower():
             logger.warning("trivia_interest: failed to update button: %s", e)
-
-    if already_responded:
-        return
-
-    # Check threshold and fire confirmation exactly once when it's first crossed
-    threshold = int(payload.get("min_ready_players") or 0)
-    if threshold <= 0 or count != threshold:
-        return
-
-    game_time = str(payload.get("game_time") or "")
-    from ..utils.copy import default_theme_label
-    theme = str(payload.get("theme_label") or "").strip() or default_theme_label()
-    activity_label = str(payload.get("activity_label") or f"הטריוויה על {theme}").strip()
-
-    time_part = f" ב-{game_time}" if game_time else ""
-    confirmation = (
-        f"✅ הגענו למינימום! {count} אנשים בפנים —\n"
-        f"נרשמו: {names}\n"
-        f"{activity_label} תתקיים היום{time_part}.\n"
-        f"כולם מוזמנים! 🎮"
-    )
-    try:
-        routing = await db.get_handler_routing("trivia_warmup")
-    except Exception:
-        routing = None
-    warmup_topic_id = (routing or {}).get("play_topic_id")
-    if not warmup_topic_id:
-        logger.warning("trivia_interest: no trivia_warmup routing — skipping confirmation")
-        return
-
-    try:
-        await safe_send(
-            context.bot,
-            db,
-            "send_message",
-            chat_id=GROUP_ID,
-            text=confirmation,
-            message_thread_id=warmup_topic_id,
-        )
-        logger.info(
-            "trivia_interest: threshold %d reached for msg %d — confirmation sent to topic %d",
-            threshold, scheduled_msg_id, warmup_topic_id,
-        )
-    except Exception as e:
-        logger.error("trivia_interest: failed to send confirmation: %s", e)
 
 
 def register(app):

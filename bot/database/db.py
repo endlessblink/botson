@@ -126,6 +126,26 @@ class Database:
             "error TEXT"
             ")",
             "CREATE INDEX IF NOT EXISTS idx_ai_suggest_jobs_created ON ai_suggest_jobs(created_at DESC)",
+            # DM menu (bot/handlers/dm_menu.py): per-user opt-in to activity
+            # types. Default is opt-in required — a user only gets DM heads-ups
+            # for types they explicitly toggled on. Keyed (user_id, type).
+            "CREATE TABLE IF NOT EXISTS user_activity_preferences ("
+            "user_id INTEGER NOT NULL, "
+            "activity_type TEXT NOT NULL, "
+            "opted_in INTEGER NOT NULL DEFAULT 1, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (user_id, activity_type)"
+            ")",
+            # Dedupe log for opt-in DM notifications: one row per (scheduled
+            # message, user) we've already DMed, so a re-dispatch never
+            # double-notifies. Event rows key on the scheduled_messages.id
+            # that produced them.
+            "CREATE TABLE IF NOT EXISTS activity_notification_log ("
+            "scheduled_msg_id INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, "
+            "notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (scheduled_msg_id, user_id)"
+            ")",
         ]
         for sql in migrations:
             try:
@@ -902,6 +922,95 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def get_upcoming_scheduled_games(
+        self, current_date: str, current_time: str, limit: int = 5
+    ) -> list[dict]:
+        """Get the next few sign-up-able game warm-ups for the DM menu.
+
+        The sign-up surface for trivia AND Emoji Night is the
+        `trivia_warmup_rsvp` row (both game types use that message_type per
+        CLAUDE.md — the executable trivia_round/emoji_puzzle rows are not RSVP
+        targets). Includes already-`sent` warm-ups so a user who opens the menu
+        after the warm-up fired can still RSVP (the trivint_ button keys on the
+        warm-up row id); `scheduled` warm-ups whose RSVP hasn't opened render
+        info-only. Caller passes the current IL date/time (mirrors
+        get_due_messages).
+        """
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE status IN ('scheduled', 'sent')
+                 AND message_type = 'trivia_warmup_rsvp'
+                 AND (scheduled_date > ?
+                      OR (scheduled_date = ? AND scheduled_time >= ?))
+               ORDER BY scheduled_date, scheduled_time
+               LIMIT ?""",
+            (current_date, current_date, current_time, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Activity Preferences (DM menu opt-in) ────────────────
+
+    async def get_activity_preference(self, user_id: int, activity_type: str) -> bool:
+        """Whether a user opted into DM heads-ups for an activity type.
+
+        Default policy is opt-in required: absence of a row means False.
+        """
+        async with self._db.execute(
+            "SELECT opted_in FROM user_activity_preferences WHERE user_id=? AND activity_type=?",
+            (user_id, activity_type),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return bool(row and row["opted_in"])
+
+    async def set_activity_preference(
+        self, user_id: int, activity_type: str, opted_in: bool
+    ):
+        """Set (upsert) a user's opt-in state for an activity type."""
+        await self._db.execute(
+            """INSERT INTO user_activity_preferences (user_id, activity_type, opted_in, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id, activity_type) DO UPDATE SET
+                   opted_in = excluded.opted_in,
+                   updated_at = excluded.updated_at""",
+            (user_id, activity_type, 1 if opted_in else 0, _now_il()),
+        )
+        await self._db.commit()
+
+    async def get_user_preferences(self, user_id: int) -> dict[str, bool]:
+        """All stored opt-in states for a user, keyed by activity_type."""
+        async with self._db.execute(
+            "SELECT activity_type, opted_in FROM user_activity_preferences WHERE user_id=?",
+            (user_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return {r["activity_type"]: bool(r["opted_in"]) for r in rows}
+
+    async def list_opted_in_users(self, activity_type: str) -> list[int]:
+        """User ids who opted into DM heads-ups for an activity type."""
+        async with self._db.execute(
+            "SELECT user_id FROM user_activity_preferences WHERE activity_type=? AND opted_in=1",
+            (activity_type,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [int(r["user_id"]) for r in rows]
+
+    async def was_notified(self, scheduled_msg_id: int, user_id: int) -> bool:
+        """Whether we already DMed this user about this scheduled item."""
+        async with self._db.execute(
+            "SELECT 1 FROM activity_notification_log WHERE scheduled_msg_id=? AND user_id=?",
+            (scheduled_msg_id, user_id),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def mark_notified(self, scheduled_msg_id: int, user_id: int):
+        """Record that we DMed this user about this scheduled item (idempotent)."""
+        await self._db.execute(
+            "INSERT OR IGNORE INTO activity_notification_log (scheduled_msg_id, user_id) VALUES (?, ?)",
+            (scheduled_msg_id, user_id),
+        )
+        await self._db.commit()
 
     async def create_scheduled_message(self, text: str, message_type: str,
                                         channel_topic_id: int | None,

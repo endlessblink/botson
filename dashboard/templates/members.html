@@ -10,6 +10,8 @@
         <span class="text-xs bg-[#1f1f1f] text-[#71717a] px-2 py-0.5 rounded-md">{{ members|length }}</span>
     </div>
     <div class="flex items-center gap-3">
+        <a href="/preferences" class="text-xs text-[#71717a] hover:text-[#fafafa] transition-colors">🔔 העדפות התראות</a>
+        <span class="text-[#272727]">·</span>
         <span class="text-xs text-[#71717a]">ברוכים הבאים</span>
         <label class="switch">
             <input type="checkbox" id="feat-welcome" onchange="toggleFeature('welcome', this.checked)" {% if settings.features and settings.features.welcome %}checked{% endif %}>

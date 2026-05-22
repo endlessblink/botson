@@ -31,6 +31,50 @@ copy:
   # Activity label used in the cancel notice when neither activity_label
   # nor theme_label is present. Set to "" to disable.
   default_activity_label: "המשחק"
+  # Private DM menu (bot/handlers/dm_menu.py). Users open it via the
+  # t.me/<bot>?start=menu deep link or /menu in a private chat with the bot.
+  dm_menu:
+    greeting: |-
+      שלום! אני Botson, הבוט של אלהוריים וזה 🌟
+      הוסיפו אותי לקבוצה כדי שאוכל לעזור.
+      שלחו /help לרשימת פקודות, או /menu לתפריט אישי.
+    menu_title: "מה תרצו לעשות? 👇"
+    btn_upcoming: "📅 משחקים ואירועים קרובים"
+    btn_prefs: "🔔 העדפות התראות"
+    btn_back: "⬅️ חזרה לתפריט"
+    # Label of the URL button appended to group posts that link into the DM.
+    open_in_dm: "⚙️ פתחו תפריט אישי"
+    dm_only_notice: "התפריט האישי זמין רק בצ'אט פרטי עם הבוט."
+    # --- Upcoming items list (Phase 2) ---
+    upcoming_title: "מה מתוכנן בקרוב 👇"
+    upcoming_empty: "אין כרגע משחקים או אירועים מתוכננים. בקרוב יהיה! 🌟"
+    # {icon} {label} — {when}
+    item_line: "{icon} {label} — {when}"
+    icon_game: "🎮"
+    icon_event: "🎉"
+    # Fallback label for a game warm-up with no theme/activity label.
+    label_game_default: "משחק"
+    btn_rsvp_yes: "✅ מגיע/ה!"
+    btn_rsvp_maybe: "🤔 אולי"
+    btn_signup_interest: "🙋 אני בפנים!"
+    signup_not_open_yet: "ההרשמה למשחק הזה תיפתח קרוב יותר למועד 🙂"
+    signup_done: "רשמנו אותך! נתראה שם 🎉"
+    signup_unavailable: "ההרשמה כבר לא זמינה."
+    signup_closed: "ההרשמה לפעילות הזו כבר נסגרה."
+    # Activity-log line written when a user RSVPs via the DM menu.
+    rsvp_log: "+{points} נקודות ל-{name} (אישור הגעה דרך תפריט אישי)"
+    # --- Activity preferences (Phase 3) ---
+    prefs_title: "בחרו על מה לקבל התראה אישית בפרטי 🔔"
+    prefs_help: "כשמופעל, אשלח לכם הודעה פרטית עם כפתור הרשמה כשפעילות כזו מתוכננת."
+    pref_on: "✅"
+    pref_off: "☐"
+    pref_saved: "נשמר!"
+    pref_games: "משחקים (טריוויה / Emoji Night)"
+    pref_events: "אירועים"
+    # --- Opt-in DM notifications (Phase 4) ---
+    notify_btn_signup: "🙋 אני בפנים!"
+    notify_games: "🎮 משחק חדש נפתח להרשמה: {label}. רוצים להצטרף?"
+    notify_events: "🎉 אירוע חדש פורסם: {label}. רוצים לאשר הגעה?"
   levels:
     fallback_tag: "רמה {level}"
   roundup: {}     # Phase A.2.4 populates from bot/handlers/roundup.py

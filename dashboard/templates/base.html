@@ -93,7 +93,7 @@
     {% macro sidebar_items(active_page) %}
         {% set planning_active = active_page in ['planner', 'review', 'weekplan', 'qa_scoring'] %}
         {% set activities_active = active_page in ['activities', 'prompts', 'events', 'puzzles', 'free_games'] %}
-        {% set community_active = active_page in ['members', 'levels'] %}
+        {% set community_active = active_page in ['members', 'levels', 'preferences'] %}
         {% set safety_active = active_page in ['spam', 'moderation', 'blocked'] %}
         {% set ops_active = active_page in ['health', 'activity'] %}
         <a href="/" class="flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-[#171717]/60 hover:text-[#fafafa] {% if active_page == 'home' %}bg-[#171717] text-[#fafafa]{% else %}text-[#a1a1aa]{% endif %}">

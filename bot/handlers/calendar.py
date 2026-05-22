@@ -601,13 +601,18 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 # rsvp_yes_/rsvp_maybe_ handler can update this message.
                 try:
                     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                    from .dm_menu import deep_link_button
+                    _ev_rows = [[
+                        InlineKeyboardButton("✅ מגיע/ה", callback_data=f"rsvp_yes_{event_id_for_rsvp}"),
+                        InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id_for_rsvp}"),
+                    ]]
+                    _dl = deep_link_button()
+                    if _dl:
+                        _ev_rows.append([_dl])
                     await bot.edit_message_reply_markup(
                         chat_id=group_id,
                         message_id=sent.message_id,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("✅ מגיע/ה", callback_data=f"rsvp_yes_{event_id_for_rsvp}"),
-                            InlineKeyboardButton("🤔 אולי", callback_data=f"rsvp_maybe_{event_id_for_rsvp}"),
-                        ]]),
+                        reply_markup=InlineKeyboardMarkup(_ev_rows),
                     )
                 except Exception as e:
                     logger.warning("[events] failed to attach RSVP buttons to %d: %s", msg["id"], e)
@@ -615,9 +620,14 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 await db.update_event(event_id_for_rsvp, message_id=sent.message_id)
             elif msg.get("message_type") == "trivia_warmup_rsvp":
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                markup = InlineKeyboardMarkup([[
+                from .dm_menu import deep_link_button
+                _wu_rows = [[
                     InlineKeyboardButton("🙋 אני בפנים!", callback_data=f"trivint_{msg['id']}"),
-                ]])
+                ]]
+                _dl = deep_link_button()
+                if _dl:
+                    _wu_rows.append([_dl])
+                markup = InlineKeyboardMarkup(_wu_rows)
                 sent = await safe_send(
                     bot,
                     db,
@@ -711,6 +721,18 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Failed to pin message %d: %s", sent.message_id, e)
 
             await db.mark_message_sent(msg["id"], sent.message_id)
+
+            # Opt-in DM heads-up: notify users who toggled this activity type
+            # on in their personal menu. Awaited directly (not offloaded) — the
+            # community is small and sends use AIORateLimiter; wrapped so a
+            # notify failure can never break the dispatch loop. If opt-in lists
+            # ever grow large, offload via context.job_queue.run_once.
+            try:
+                from .dm_menu import notify_opted_in_users
+                await notify_opted_in_users(context, db, msg, event_id=event_id_for_rsvp)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("dm_menu: notify hook failed for msg %s: %s", msg.get("id"), e)
+
             # Gap 11: include subject markers in the activity_log description
             # so populate rotation can read the actually-ran history (parallel
             # to scheduled_messages.poll_options, which only catches rows that

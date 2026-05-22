@@ -12,10 +12,11 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu
 from .handlers.calendar import check_and_send_due_messages
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_emoji_puzzles, get_prompts
+from .utils.copy import load_copy
 
 # Configure logging — file + stdout
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -43,12 +44,15 @@ logger = logging.getLogger(__name__)
 
 
 async def start_command(update, context):
-    """Handle /start command (DM only)."""
-    await update.message.reply_text(
-        "שלום! אני Botson, הבוט של אלהוריים וזה 🌟\n"
-        "הוסיפו אותי לקבוצה כדי שאוכל לעזור.\n"
-        "שלחו /help לרשימת פקודות."
-    )
+    """Handle /start command (DM only).
+
+    `/start menu` (the t.me/<bot>?start=menu deep link) opens the personal menu;
+    a bare /start shows the greeting.
+    """
+    if context.args and context.args[0] == "menu":
+        await dm_menu.show_menu(update, context)
+        return
+    await update.message.reply_text(load_copy("dm_menu", "greeting"))
 
 
 async def help_command(update, context):
@@ -292,6 +296,7 @@ def main():
     daily_activity_digest.register(app)  # Daily schedule digest buttons
     calendar_pop.register(app)   # Calendar popup demo (option-3 prototype)
     trivia_interest.register(app)  # Trivia warm-up RSVP interest check
+    dm_menu.register(app)          # Private DM menu — sign-up + notification prefs
     reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 

@@ -12417,6 +12417,32 @@ async def members_page(request: Request, db: Database = Depends(get_db)):
     })
 
 
+@app.get("/preferences", response_class=HTMLResponse)
+async def preferences_page(request: Request, db: Database = Depends(get_db)):
+    """Dashboard parity for the DM-menu notification preferences: shows which
+    members opted into DM heads-ups per activity type. Read-only view."""
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    async with db._db.execute(
+        """SELECT p.activity_type, p.opted_in, p.updated_at,
+                  m.display_name, m.user_id
+           FROM user_activity_preferences p
+           LEFT JOIN members m ON m.user_id = p.user_id
+           WHERE p.opted_in = 1
+           ORDER BY p.activity_type, m.display_name"""
+    ) as cursor:
+        rows = [dict(r) for r in await cursor.fetchall()]
+
+    grouped: dict[str, list[dict]] = {}
+    for r in rows:
+        grouped.setdefault(r["activity_type"], []).append(r)
+
+    return templates.TemplateResponse(request, name="preferences.html", context={
+        "grouped": grouped,
+    })
+
+
 # ── Free Games (RSS) ─────────────────────────────────────
 
 @app.get("/free-games", response_class=HTMLResponse)
