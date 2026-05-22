@@ -158,3 +158,35 @@ def test_get_recent_activity_subjects_emoji_media_type():
 
     ids = asyncio.run(run())
     assert ids == ["song"], ids
+
+
+def test_get_weekly_leaders_uses_recent_point_activity_not_lifetime_totals():
+    async def run():
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.upsert_member(1, "old", "Old Total")
+            await db.upsert_member(2, "weekly", "Weekly Winner")
+            await db._db.execute("UPDATE members SET karma_points = 500 WHERE user_id = 1")
+            await db._db.execute("UPDATE members SET karma_points = 20 WHERE user_id = 2")
+            await db._db.execute(
+                "INSERT INTO activity_log (action_type, description, target_user_id, timestamp) "
+                "VALUES (?, ?, ?, datetime('now', '-8 days'))",
+                ("points", "+100 נקודות", 1),
+            )
+            await db._db.execute(
+                "INSERT INTO activity_log (action_type, description, target_user_id) VALUES (?, ?, ?)",
+                ("points", "+12 נקודות", 2),
+            )
+            await db._db.execute(
+                "INSERT INTO activity_log (action_type, description, target_user_id) VALUES (?, ?, ?)",
+                ("emoji_puzzle", "+5 נקודות", 2),
+            )
+            await db._db.commit()
+            return await db.get_weekly_leaders(5)
+        finally:
+            await db.close()
+
+    leaders = asyncio.run(run())
+    assert [row["user_id"] for row in leaders] == [2], leaders
+    assert leaders[0]["weekly_stars"] == 17, leaders

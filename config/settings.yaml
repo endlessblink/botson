@@ -205,7 +205,7 @@ ai_populate:
       facts_tidbit: 1
       facts_spooky: 1
       weekly_roundup: 1
-      weekly_leaderboard: 1
+      weekly_leaderboard: 0
     day:
       morning: 1
       evening: 1

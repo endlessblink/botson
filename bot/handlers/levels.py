@@ -98,7 +98,7 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["🏆 טבלת רמות:", ""]
+    lines = ["🏆 טבלת הרמות הכללית:", ""]
     for i, m in enumerate(leaders):
         if m["karma_points"] == 0:
             continue
@@ -147,11 +147,11 @@ async def send_weekly_leaderboard(context: ContextTypes.DEFAULT_TYPE):
     play_id = routing["play_topic_id"]
 
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["🏆 טבלת רמות שבועית:", ""]
+    lines = ["🏆 מובילי השבוע ברמות:", ""]
     for i, m in enumerate(leaders):
         medal = medals[i] if i < 3 else f" {i + 1}."
         lvl = get_level(m.get("karma_points", 0))
-        lines.append(f"{medal} {lvl['emoji']} {m['display_name']} — {lvl['tag']}")
+        lines.append(f"{medal} {lvl['emoji']} {m['display_name']} — {lvl['tag']} (+{m.get('weekly_stars', 0)} נקודות השבוע)")
 
     try:
         msg = await safe_send(

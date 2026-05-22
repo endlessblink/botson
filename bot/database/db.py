@@ -3,6 +3,7 @@
 import json
 import os
 import logging
+import re
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
@@ -398,15 +399,37 @@ class Database:
     # ── Stats ────────────────────────────────────────────────
 
     async def get_weekly_leaders(self, limit: int = 3) -> list[dict]:
-        """Get top points earners this week (by total points, since weekly log no longer exists)."""
+        """Get top point earners from the last seven days."""
+        cutoff = (datetime.now(_IL_TZ) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
         async with self._db.execute(
-            """SELECT user_id, display_name, karma_points as weekly_stars
-               FROM members
-               ORDER BY karma_points DESC LIMIT ?""",
-            (limit,),
+            """SELECT a.target_user_id, a.description, m.display_name, m.karma_points
+               FROM activity_log a
+               JOIN members m ON m.user_id = a.target_user_id
+               WHERE a.timestamp >= ?
+                 AND a.target_user_id IS NOT NULL
+                 AND a.description LIKE '+%'""",
+            (cutoff,),
         ) as cursor:
             rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+
+        scores: dict[int, dict] = {}
+        for row in rows:
+            match = re.match(r"^\+(\d+)\b", row[1] or "")
+            if not match:
+                continue
+            user_id = int(row[0])
+            entry = scores.setdefault(user_id, {
+                "user_id": user_id,
+                "display_name": row[2],
+                "karma_points": int(row[3] or 0),
+                "weekly_stars": 0,
+            })
+            entry["weekly_stars"] += int(match.group(1))
+
+        return sorted(
+            scores.values(),
+            key=lambda m: (-m["weekly_stars"], -m["karma_points"], m["display_name"] or ""),
+        )[:limit]
 
     # ── Events ───────────────────────────────────────────────
 
