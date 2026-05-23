@@ -1263,6 +1263,53 @@ class Database:
         )
         await self._db.commit()
 
+    async def warmup_announcement_exists(self, warmup_marker: str) -> bool:
+        """True if any `trivia_warmup_rsvp` row (in ANY status) carries this
+        marker — i.e. a warm-up announcement was scheduled for this game.
+
+        Used by the orphan-game guard: a game row with a `warmup_marker` but no
+        matching announcement row was put on the calendar without its warm-up
+        pair and should not solo-launch. Matched in Python (not json_extract)
+        so it works on any SQLite build — mirrors `_enforce_warmup_rsvp_gate`.
+        """
+        marker = str(warmup_marker or "").strip()
+        if not marker:
+            return False
+        async with self._db.execute(
+            "SELECT poll_options FROM scheduled_messages WHERE message_type = 'trivia_warmup_rsvp'"
+        ) as cur:
+            rows = await cur.fetchall()
+        for r in rows:
+            try:
+                payload = json.loads(r["poll_options"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if str(payload.get("warmup_marker") or "") == marker:
+                return True
+        return False
+
+    async def last_topic_send_dt(self, channel_topic_id, target_group: str = "main"):
+        """Most recent `sent_at` (as a datetime) of a sent row in this topic, or
+        None. Used by the same-topic spacing guard to space out back-to-back
+        posts. Returns a tz-aware IL datetime so callers can diff against now.
+        """
+        if channel_topic_id is None:
+            return None
+        async with self._db.execute(
+            """SELECT sent_at FROM scheduled_messages
+               WHERE channel_topic_id = ? AND target_group = ? AND status = 'sent'
+                 AND sent_at IS NOT NULL
+               ORDER BY sent_at DESC LIMIT 1""",
+            (channel_topic_id, target_group),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row or not row["sent_at"]:
+            return None
+        try:
+            return datetime.strptime(row["sent_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_IL_TZ)
+        except (ValueError, TypeError):
+            return None
+
     async def cancel_future_auto_scheduled_messages(self, from_date: str) -> int:
         """Cancel all future auto-materialized rows from a given date onward.
 

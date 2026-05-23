@@ -160,6 +160,37 @@ def rsvp_gate_enabled() -> bool:
     return bool((get_settings().get("trivia") or {}).get("rsvp_gate_enabled", False))
 
 
+def require_warmup_announcement() -> bool:
+    """Whether a trivia/emoji game row that carries a `warmup_marker` must have
+    a matching warm-up announcement row before it may launch.
+
+    A game scheduled with a marker but no paired `trivia_warmup_rsvp`
+    announcement is an orphan — it was put on the calendar without its warm-up
+    (the 2026-05-23 incident: an emoji game solo-launched with no announcement
+    and landed on top of a story). When True (default), dispatch skips such a
+    row instead of silently solo-launching. Games WITHOUT a marker (legacy /
+    coerced natural-language launches) are unaffected. Set false to allow
+    marker-bearing games to fire even when their announcement is missing.
+    """
+    return bool((get_settings().get("trivia") or {}).get("require_warmup_announcement", True))
+
+
+def min_topic_spacing_minutes() -> int:
+    """Minimum minutes between two posts to the same forum topic.
+
+    When a non-time-critical content row (facts, discussion, morning/evening,
+    custom) would post to a topic that already received a send within this
+    window, dispatch defers it to a later tick instead of stacking it on top
+    (the 2026-05-23 clash: an emoji game at 22:00 and a story at 22:01 in the
+    same topic). Live games / warm-ups / reminders / polls / events are never
+    deferred — they claim the slot. 0 disables the spacing guard.
+    """
+    try:
+        return max(0, int(get_settings().get("min_topic_spacing_minutes", 5) or 0))
+    except (TypeError, ValueError):
+        return 5
+
+
 def deep_link(param: str) -> str:
     """Build a https://t.me/<bot>?start=<param> deep link.
 

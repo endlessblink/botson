@@ -216,6 +216,55 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
     )
 
 
+# Content types that claim their slot immediately and are never deferred by the
+# same-topic spacing guard: live games, warm-up/reminder/RSVP announcements,
+# polls, and event posts are time-anchored. Everything else (facts, discussion,
+# morning/evening, custom) is "static" content that can wait a few minutes so it
+# doesn't stack on top of another post in the same topic.
+_SLOT_CLAIMING_TYPES = frozenset({
+    "trivia_round",
+    "emoji_puzzle",
+    "trivia_warmup_rsvp",
+    "warmup_reminder",
+    "poll",
+    "events_publish",
+    "events_reminder",
+})
+
+
+async def _enforce_warmup_announcement_present(db: Database, msg: dict) -> None:
+    """Orphan-game guard (2026-05-23): a trivia/emoji row that carries a
+    `warmup_marker` must have a matching warm-up announcement row before it may
+    launch. A marker with no announcement means the game was scheduled without
+    its warm-up pair — it would solo-launch with no heads-up (and, that night,
+    landed on top of an unrelated story). Skip it instead.
+
+    No-op when the row has no marker (legacy / coerced natural-language launches)
+    or when `trivia.require_warmup_announcement` is false. Raises SkippedActivity
+    to mark the row 'skipped' — the operator sees it in the dashboard + log; we
+    deliberately do NOT post a cancel notice to the group (nothing was announced,
+    so there is nothing for members to be told about).
+    """
+    from ..utils.config import require_warmup_announcement
+    if not require_warmup_announcement():
+        return
+    payload = _parse_payload(msg.get("poll_options"))
+    marker = str(payload.get("warmup_marker") or "").strip()
+    if not marker:
+        return
+    if await db.warmup_announcement_exists(marker):
+        return
+    logger.warning(
+        "orphan_game_guard: %s msg=%s has warmup_marker=%s but no warm-up "
+        "announcement was ever scheduled — skipping solo-launch. Re-schedule "
+        "the game via the warm-up flow, or set trivia.require_warmup_announcement=false.",
+        msg.get("message_type"), msg.get("id"), marker,
+    )
+    raise SkippedActivity(
+        f"orphan_game_guard: warmup_marker={marker} has no scheduled warm-up announcement"
+    )
+
+
 _TRIVIA_CATEGORY_NEEDLES = (
     ("מוזיק", "מוזיקה"),
     ("סרט", "סרטים"),
@@ -533,6 +582,41 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
 
         msg = await _coerce_due_game_row(db, msg, target)
 
+        # Same-topic spacing guard (2026-05-23): keep non-time-critical content
+        # from stacking onto a topic that just received a post (that night an
+        # emoji game at 22:00 and a story at 22:01 piled into botson_corner).
+        # Live games / warm-ups / reminders / polls / event posts claim their
+        # slot and are never deferred; static content (facts, discussion,
+        # morning/evening, custom) waits until the topic has been quiet for
+        # min_topic_spacing minutes, then sends on a later tick. No row is
+        # dropped — it stays 'scheduled' and is re-evaluated every minute.
+        try:
+            from bot.utils.config import min_topic_spacing_minutes as _spacing_cfg
+            _spacing = _spacing_cfg()
+        except Exception:
+            _spacing = 0
+        _spacing_topic = msg.get("channel_topic_id")
+        _last_topic_send = getattr(db, "last_topic_send_dt", None)
+        if (
+            _spacing > 0
+            and _spacing_topic is not None
+            and _last_topic_send is not None
+            and msg.get("message_type") not in _SLOT_CLAIMING_TYPES
+        ):
+            _last_send = await _last_topic_send(
+                _spacing_topic, msg.get("target_group", "main")
+            )
+            if _last_send is not None:
+                _quiet_min = (now - _last_send).total_seconds() / 60.0
+                if 0 <= _quiet_min < _spacing:
+                    logger.info(
+                        "topic_spacing: deferring %s msg=%s in topic %s — last "
+                        "send %.1f min ago (< %d min); retrying next tick",
+                        msg.get("message_type"), msg.get("id"),
+                        _spacing_topic, _quiet_min, _spacing,
+                    )
+                    continue
+
         try:
             bot = Bot(bot_token)
             msg["_resolved_chat_id"] = group_id
@@ -547,6 +631,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     f"{msg.get('message_type')}: owned by cron job, not the calendar dispatcher"
                 )
             if msg.get("message_type") == "trivia_round":
+                await _enforce_warmup_announcement_present(db, msg)
                 await _enforce_warmup_rsvp_gate(db, msg, bot, group_id)
                 sent = SimpleNamespace(
                     message_id=_require_message_id(
@@ -555,6 +640,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     )
                 )
             elif msg.get("message_type") == "emoji_puzzle":
+                await _enforce_warmup_announcement_present(db, msg)
                 await _enforce_warmup_rsvp_gate(db, msg, bot, group_id)
                 payload = _parse_payload(msg.get("poll_options"))
                 # A.1.4 pre-flight: distinguish "pool exhausted by cooldown

@@ -300,6 +300,13 @@ reminder:
 # marks the row failed WITHOUT sending. Future-dated rows are unaffected. Set
 # to 0 to disable the guard entirely.
 stale_drop_minutes: 30
+# Anti-clutter: minimum minutes between two posts to the SAME forum topic. A
+# non-time-critical row (facts, discussion, morning/evening, custom) that would
+# land on a topic which already got a send within this window is deferred to a
+# later tick instead of stacking back-to-back. Live games / warm-ups / reminders
+# / polls / events are never deferred — they claim the slot. 0 disables.
+# (2026-05-23: an emoji game at 22:00 and a story at 22:01 piled into botson_corner.)
+min_topic_spacing_minutes: 5
 features:
   antispam:
     enabled: true
@@ -496,6 +503,12 @@ trivia:
   # suppressing the engagement it was meant to protect. With it off, games
   # always fire and the RSVP button still records interest. Set true to restore.
   rsvp_gate_enabled: false
+  # Orphan-game guard: a trivia/emoji row that carries a warmup_marker but has
+  # NO matching warm-up announcement row was scheduled without its warm-up pair
+  # (2026-05-23: an emoji game solo-launched with no announcement). When true,
+  # dispatch skips such a row instead of silently firing it. Games without a
+  # marker (legacy / coerced launches) are unaffected. Set false to allow them.
+  require_warmup_announcement: true
   populate_defaults:
     pre_roll_s: 120
     warmup_offset_min: 60
