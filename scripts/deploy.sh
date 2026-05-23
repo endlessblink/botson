@@ -89,6 +89,22 @@ if [ "${SKIP_HARDCODED_GUARDIAN:-0}" != "1" ]; then
       exit 1
     fi
   fi
+
+  # Dual-dispatch guardian: every recurring content type must have exactly ONE
+  # active dispatcher (cron OR calendar, never both). Wiring a type into both
+  # posted the weekly leaderboard twice (2026-05-23). See dispatch_owner.py.
+  if [ -x .venv/bin/pytest ] && [ -f tests/test_no_dual_dispatch.py ]; then
+    echo
+    echo "=== Dual-dispatch guardian ==="
+    if ! sudo -u "$SERVICE_USER" -H .venv/bin/pytest tests/test_no_dual_dispatch.py -q --tb=line; then
+      echo
+      echo "❌ Dual-dispatch guardian failed — blocking deploy."
+      echo "   A content type is reachable by both the cron jobs and the calendar"
+      echo "   dispatcher (duplicate-send risk). Fix ownership in"
+      echo "   bot/scheduler/dispatch_owner.py and the wiring it points to."
+      exit 1
+    fi
+  fi
 else
   echo
   echo "⚠️  SKIP_HARDCODED_GUARDIAN=1 — bypassing guardians (logged for audit)."

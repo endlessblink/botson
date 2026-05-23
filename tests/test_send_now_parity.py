@@ -170,13 +170,14 @@ class ParityHandlerSelectionTests(_ParityBase):
         self.assertEqual((await self._row(sn_id))["status"], "sent")
         self.assertEqual(h_sn.await_args.kwargs.get("pool"), "tidbit")
 
-    async def test_weekly_roundup_calls_same_handler_on_both_paths(self):
+    async def test_weekly_roundup_scheduled_skips_but_send_now_still_dispatches(self):
+        # The scheduled path no longer dispatches weekly_roundup — the cron job owns
+        # it (bot/scheduler/jobs.py), so a scheduled_messages row self-skips. But the
+        # explicit one-off "send now" operator action still calls the handler.
         sched_id = await self._seed(message_type="weekly_roundup", text="ru A")
-        with patch.object(cal, "send_weekly_roundup", new=AsyncMock(return_value=555)) as h_sched, \
-             patch("telegram.Bot", return_value=SimpleNamespace()):
+        with patch("telegram.Bot", return_value=SimpleNamespace()):
             await self._tick_scheduler()
-        self.assertEqual((await self._row(sched_id))["status"], "sent")
-        h_sched.assert_awaited_once()
+        self.assertEqual((await self._row(sched_id))["status"], "skipped")
 
         sn_id = await self._seed(
             message_type="weekly_roundup", text="ru B", target_group="main", status="draft",

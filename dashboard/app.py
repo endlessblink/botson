@@ -36,6 +36,7 @@ from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_pr
 from bot.utils.freshness import freshness_rejection
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
+from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
     VerifiedTopicError,
@@ -5293,12 +5294,11 @@ async def _ai_suggest_calendar(
     evening_t = (slot_map.get("evening") or {}).get("times") or []
     discussion_t = (slot_map.get("discussion") or {}).get("times") or []
     emoji_t = (slot_map.get("emoji_puzzle") or {}).get("times") or []
-    free_games_t = (slot_map.get("free_games") or {}).get("times") or []
     tidbit_t = (slot_map.get("facts_tidbit") or {}).get("times") or []
     spooky_t = (slot_map.get("facts_spooky") or {}).get("times") or []
     trivia_t = (slot_map.get("trivia_round") or {}).get("times") or []
-    roundup_t = (slot_map.get("weekly_roundup") or {}).get("times") or []
-    leaderboard_t = (slot_map.get("weekly_leaderboard") or {}).get("times") or []
+    # Cron-owned types (free_games, weekly_roundup, weekly_leaderboard — see
+    # bot/scheduler/dispatch_owner.py) are not Populate candidates — no *_t lists.
     flex_cfg = _ai_populate_flex_config(settings, scope)
     flex_t = _expand_ai_flex_times(settings, scope)
     flex_allowed = [
@@ -6091,45 +6091,17 @@ async def _ai_suggest_calendar(
                                 preview_url=(_preview_url("facts_spooky", id=preview_fact.get("id")) if preview_fact else None))
                 break
 
-        # Free games / live weekly bot-generated rows.
-        if (counts.get("free_games", 0) < cap_per_window.get("free_games", 0)
-                and _feature_on("free_games")
-                and routed_topics.get("free_games") is not None):
-            for t in free_games_t:
-                if not _slot_available_or_skip(d_iso, t, "free_games"):
-                    continue
-                _add_suggestion(d_iso, t, "free_games", topic=routed_topics["free_games"],
-                                text="",
-                                source="ai-fill-pool-row",
-                                preview_url=_preview_url("free_games"),
-                                rationale="סלוט משחקים חינם פנוי")
-                break
+        # free_games is cron-owned (bot/scheduler/dispatch_owner.py) — automated by its
+        # daily cron job (schedule.free_games), NOT suggested as a calendar row. Adding
+        # a row here would double-dispatch (cron + calendar), the 2026-05-23 bug class.
 
-        if (counts.get("weekly_roundup", 0) < cap_per_window.get("weekly_roundup", 0)
-                and _feature_on("roundup")
-                and routed_topics.get("weekly_roundup") is not None):
-            for t in roundup_t:
-                if not _slot_available_or_skip(d_iso, t, "weekly_roundup"):
-                    continue
-                _add_suggestion(d_iso, t, "weekly_roundup", topic=routed_topics["weekly_roundup"],
-                                text="",
-                                source="ai-fill-pool-row",
-                                preview_url=_preview_url("weekly_roundup"),
-                                rationale="סלוט סיכום שבועי פנוי")
-                break
-
-        if (counts.get("weekly_leaderboard", 0) < cap_per_window.get("weekly_leaderboard", 0)
-                and _feature_on("levels")
-                and routed_topics.get("weekly_leaderboard") is not None):
-            for t in leaderboard_t:
-                if not _slot_available_or_skip(d_iso, t, "weekly_leaderboard"):
-                    continue
-                _add_suggestion(d_iso, t, "weekly_leaderboard", topic=routed_topics["weekly_leaderboard"],
-                                text="",
-                                source="ai-fill-pool-row",
-                                preview_url=_preview_url("weekly_leaderboard"),
-                                rationale="סלוט טבלת רמות פנוי")
-                break
+        # NOTE: weekly_roundup / weekly_leaderboard are intentionally NOT suggested
+        # here. They are dynamic recurring content owned by the APScheduler cron jobs
+        # (bot/scheduler/jobs.py); creating a scheduled_messages row for them produces
+        # a duplicate send (cron + calendar dispatcher both fire). The calendar
+        # dispatcher self-skips any such row — see bot/handlers/calendar.py. Their
+        # weekly cadence is configured via settings.yaml schedule.weekly_* and shown
+        # on the calendar from the cron-derived recurring view, not as discrete rows.
 
         # Trivia round + warm-up. Defaults and warm-up offset come from settings.
         if (counts.get("trivia_round", 0) < cap_per_window.get("trivia_round", 0)
@@ -6440,12 +6412,15 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         logger.warning("[weekplan.ai-suggest-commit] approved is not list: %r", type(approved).__name__)
         raise HTTPException(status_code=400, detail="approved must be a list")
 
+    # Cron-owned types (weekly_roundup/weekly_leaderboard/free_games — see
+    # bot/scheduler/dispatch_owner.py) are sent by the APScheduler cron jobs, not as
+    # calendar rows. Subtracting CRON_OWNED_TYPES keeps them un-committable here so we
+    # never re-introduce the duplicate-send bug (2026-05-23).
     valid_types = {
         "morning", "evening", "discussion", "custom", "trivia_round", "trivia_warmup_rsvp",
         "warmup_reminder",
         "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky",
-        "weekly_roundup", "weekly_leaderboard",
-    }
+    } - CRON_OWNED_TYPES
     inserted_ids: list = []
     errors: list = []
     by_type: dict = {}
@@ -11297,6 +11272,20 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     raw_type = data.get("message_type", "custom")
     raw_topic = data.get("channel_topic_id")
     message_type, poll_options = _coerce_game_message_fields(raw_type, data["text"], poll_options, raw_topic)
+    # Cron-owned types (weekly_roundup/weekly_leaderboard/free_games — see
+    # bot/scheduler/dispatch_owner.py) are sent by the APScheduler cron jobs, driven by
+    # settings.yaml schedule.*. Creating a scheduled_messages row for them caused a
+    # duplicate send (cron + calendar dispatcher both fired) on 2026-05-23. Reject
+    # creation here; the dispatcher also self-skips any such row defensively.
+    if message_type in CRON_OWNED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{message_type}' is sent by its cron schedule (settings.yaml schedule.*), "
+                "not as a calendar row. Set its day/time in the schedule instead of "
+                "creating a calendar item."
+            ),
+        )
     channel_topic_id = raw_topic
     if message_type == "trivia_round" and (raw_type != "trivia_round" or not raw_topic):
         routing = await db.get_handler_routing("trivia_round")

@@ -150,20 +150,23 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.sent, [(123, 456)])
         self.assertEqual(db.failed, [])
 
-    async def test_free_games_row_runs_existing_handler_without_plain_send(self):
+    async def test_free_games_row_is_skipped_because_cron_owns_it(self):
+        # free_games is cron-owned (bot/scheduler/dispatch_owner.py): its daily cron
+        # job automates it. A scheduled_messages row must self-skip so it can't
+        # double-fire with the cron (the 2026-05-23 duplicate-dispatch class).
         db = FakeScheduledDb(_base_row("free_games"))
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_free_games", new=AsyncMock(return_value={"posted": 1})) as send_free_games, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
-        send_free_games.assert_awaited_once_with(context, force=True)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 1)])
+        self.assertEqual(db.sent, [])
         self.assertEqual(db.failed, [])
+        self.assertEqual(len(db.skipped), 1)
+        self.assertIn("cron", db.skipped[0][1])
 
     async def test_fact_rows_pick_pool_without_plain_send(self):
         for message_type, pool in (("facts_tidbit", "tidbit"), ("facts_spooky", "spooky")):
@@ -205,35 +208,41 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
             fact_id="roman_concrete_self_healing",
         )
 
-    async def test_weekly_roundup_row_runs_existing_handler_without_plain_send(self):
+    async def test_weekly_roundup_row_is_skipped_because_cron_owns_it(self):
+        # Regression for 2026-05-23 duplicate leaderboard: weekly_roundup /
+        # weekly_leaderboard are sent by the APScheduler cron jobs, NOT the calendar
+        # dispatcher. Any such scheduled_messages row must self-skip (send nothing)
+        # so it can't fire a second time alongside the cron.
         db = FakeScheduledDb(_base_row("weekly_roundup"))
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_weekly_roundup", new=AsyncMock(return_value=555)) as send_roundup, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
-        send_roundup.assert_awaited_once_with(context, force=True)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 555)])
+        self.assertEqual(db.sent, [])
         self.assertEqual(db.failed, [])
+        self.assertEqual(len(db.skipped), 1)
+        self.assertEqual(db.skipped[0][0], 123)
+        self.assertIn("cron", db.skipped[0][1])
 
-    async def test_weekly_leaderboard_row_runs_existing_handler_without_plain_send(self):
+    async def test_weekly_leaderboard_row_is_skipped_because_cron_owns_it(self):
         db = FakeScheduledDb(_base_row("weekly_leaderboard"))
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_weekly_leaderboard", new=AsyncMock(return_value=666)) as send_leaderboard, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
-        send_leaderboard.assert_awaited_once_with(context)
         send_text.assert_not_awaited()
-        self.assertEqual(db.sent, [(123, 666)])
+        self.assertEqual(db.sent, [])
         self.assertEqual(db.failed, [])
+        self.assertEqual(len(db.skipped), 1)
+        self.assertEqual(db.skipped[0][0], 123)
+        self.assertIn("cron", db.skipped[0][1])
 
     async def test_trivia_discussion_text_is_coerced_to_game_launch(self):
         row = _base_row("discussion")
@@ -361,59 +370,15 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("בוטל" in activity[1] for activity in db.activities))
         trivia_round._active_rounds.pop(-1002, None)
 
-    async def test_free_games_without_post_marks_failed_not_sent(self):
-        db = FakeScheduledDb(_base_row("free_games"))
-        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+    # Obsolete tests removed: free_games is no longer dispatched from
+    # scheduled_messages rows (cron owns it), so the old "no post → fail" and
+    # "no new candidates → skip" send paths no longer run via the calendar.
+    # test_free_games_row_is_skipped_because_cron_owns_it covers the new behavior.
 
-        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
-             patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_free_games", new=AsyncMock(return_value={"posted": 0, "error": "no candidates"})):
-            await calendar.check_and_send_due_messages(context)
-
-        self.assertEqual(db.sent, [])
-        self.assertEqual(len(db.failed), 1)
-        self.assertIn("free_games did not post", db.failed[0][1])
-
-    async def test_free_games_no_new_candidates_marks_skipped_not_failed(self):
-        db = FakeScheduledDb(_base_row("free_games"))
-        context = SimpleNamespace(bot_data={"db": db}, bot=object())
-
-        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
-             patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_free_games", new=AsyncMock(return_value={"posted": 0, "skipped": 7, "error": None})):
-            await calendar.check_and_send_due_messages(context)
-
-        self.assertEqual(db.sent, [])
-        self.assertEqual(db.failed, [])
-        self.assertEqual(len(db.skipped), 1)
-        self.assertIn("free_games", db.skipped[0][1])
-
-    async def test_weekly_leaderboard_no_leaders_marks_skipped_not_failed(self):
-        db = FakeScheduledDb(_base_row("weekly_leaderboard"))
-        context = SimpleNamespace(bot_data={"db": db}, bot=object())
-
-        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
-             patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_weekly_leaderboard", new=AsyncMock(return_value={"skipped": "no weekly leaders"})):
-            await calendar.check_and_send_due_messages(context)
-
-        self.assertEqual(db.sent, [])
-        self.assertEqual(db.failed, [])
-        self.assertEqual(len(db.skipped), 1)
-        self.assertIn("no weekly leaders", db.skipped[0][1])
-
-    async def test_weekly_roundup_without_message_id_marks_failed_not_sent(self):
-        db = FakeScheduledDb(_base_row("weekly_roundup"))
-        context = SimpleNamespace(bot_data={"db": db}, bot=object())
-
-        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
-             patch("telegram.Bot", return_value=object()), \
-             patch.object(calendar, "send_weekly_roundup", new=AsyncMock(return_value=None)):
-            await calendar.check_and_send_due_messages(context)
-
-        self.assertEqual(db.sent, [])
-        self.assertEqual(len(db.failed), 1)
-        self.assertIn("weekly_roundup did not return", db.failed[0][1])
+    # Obsolete tests removed: weekly_leaderboard/weekly_roundup are no longer
+    # dispatched from scheduled_messages rows (cron owns them), so the old
+    # "no leaders → skip" and "no message_id → fail" send paths no longer exist.
+    # The two *_is_skipped_because_cron_owns_it tests above cover the new behavior.
 
     async def test_warmup_reminder_skipped_when_toggle_disabled(self):
         db = FakeScheduledDb(_base_row("warmup_reminder"))

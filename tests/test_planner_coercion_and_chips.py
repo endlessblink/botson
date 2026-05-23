@@ -199,7 +199,11 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("emoji_puzzle", types)
         self.assertIn("facts_tidbit", types)
         self.assertIn("facts_spooky", types)
-        self.assertIn("weekly_leaderboard", types)
+        # weekly_leaderboard / weekly_roundup are cron-owned (bot/scheduler/jobs.py)
+        # and must NOT be suggested as calendar rows — suggesting them would
+        # re-introduce the 2026-05-23 duplicate-send bug.
+        self.assertNotIn("weekly_leaderboard", types)
+        self.assertNotIn("weekly_roundup", types)
         banned_placeholders = (
             "תיבחר מהמאגר בזמן השליחה",
             "ייבחר מהמאגר בזמן השליחה",
@@ -548,14 +552,15 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             return (await cur.fetchone())[0]
 
     async def test_executable_types_without_topic_resolve_to_handler_routing(self):
+        # weekly_roundup / weekly_leaderboard are intentionally NOT in this list —
+        # they are cron-owned and rejected by create_calendar_item (see the dedicated
+        # rejection test below).
         for message_type in (
             "trivia_round",
             "emoji_puzzle",
             "free_games",
             "facts_tidbit",
             "facts_spooky",
-            "weekly_roundup",
-            "weekly_leaderboard",
         ):
             with self.subTest(message_type=message_type):
                 db = FakeCalendarDb()
@@ -581,6 +586,29 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(res["status"], "ok")
                 self.assertEqual(db.created[0]["message_type"], message_type)
                 self.assertEqual(db.created[0]["channel_topic_id"], 4037)
+
+    async def test_create_calendar_item_rejects_cron_owned_types(self):
+        # Cron-owned types (weekly_roundup/weekly_leaderboard/free_games — see
+        # bot/scheduler/dispatch_owner.py) are sent by the APScheduler cron jobs, not
+        # as calendar rows. Creating them as rows caused a duplicate send (2026-05-23),
+        # so the endpoint must reject every cron-owned type with HTTP 400.
+        from fastapi import HTTPException
+        from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
+        for message_type in sorted(CRON_OWNED_TYPES):
+            with self.subTest(message_type=message_type):
+                db = FakeCalendarDb()
+                body = {
+                    "text": "scheduled activity",
+                    "message_type": message_type,
+                    "channel_topic_id": None,
+                    "target_group": "main",
+                    "scheduled_date": "2099-01-01",
+                    "scheduled_time": "18:00",
+                }
+                with self.assertRaises(HTTPException) as ctx:
+                    await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
+                self.assertEqual(ctx.exception.status_code, 400)
+                self.assertEqual(db.created, [])
 
     async def test_ai_suggest_commit_schedules_approved_rows(self):
         db = FakeCalendarDb()

@@ -17,10 +17,8 @@ from telegram.ext import ContextTypes
 from ..database.db import Database
 from .emoji_puzzle import emoji_skip_reason, send_scheduled_emoji_message, start_emoji_night
 from .trivia_round import start_scheduled_trivia_round
-from .free_games import send_free_games
 from .facts import send_scheduled_fact
-from .levels import send_weekly_leaderboard
-from .roundup import send_weekly_roundup
+from ..scheduler.dispatch_owner import CRON_OWNED_TYPES
 from ..utils.config import should_skip_scheduled_message
 from ..utils.scheduling_errors import SkippedActivity
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
@@ -531,6 +529,15 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             bot = Bot(bot_token)
             msg["_resolved_chat_id"] = group_id
             event_id_for_rsvp: int | None = None
+            if msg.get("message_type") in CRON_OWNED_TYPES:
+                # These types are owned by the APScheduler cron jobs (jobs.py), not
+                # the calendar dispatcher. Firing both posted the weekly leaderboard
+                # twice (2026-05-23). Any such row self-skips here, sending nothing.
+                # Ownership is declared centrally in bot/scheduler/dispatch_owner.py
+                # and enforced by tests/test_no_dual_dispatch.py.
+                raise SkippedActivity(
+                    f"{msg.get('message_type')}: owned by cron job, not the calendar dispatcher"
+                )
             if msg.get("message_type") == "trivia_round":
                 await _enforce_warmup_rsvp_gate(db, msg, bot, group_id)
                 sent = SimpleNamespace(
@@ -564,13 +571,6 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 if session_id is None:
                     raise RuntimeError("Emoji Night did not start")
                 sent = SimpleNamespace(message_id=session_id)
-            elif msg.get("message_type") == "free_games":
-                summary = await send_free_games(context, force=True)
-                if not summary or int(summary.get("posted") or 0) <= 0:
-                    if summary and (summary.get("error") in {None, "blackout date", "disabled"}):
-                        raise SkippedActivity(f"free_games: {summary}")
-                    raise RuntimeError(f"free_games did not post: {summary}")
-                sent = SimpleNamespace(message_id=1)
             elif msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
                 pool = msg.get("message_type", "").removeprefix("facts_")
                 fact_id = None
@@ -590,19 +590,16 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 if not sent_ok:
                     raise RuntimeError(f"facts {pool} did not send")
                 sent = SimpleNamespace(message_id=1)
-            elif msg.get("message_type") == "weekly_roundup":
-                sent = SimpleNamespace(
-                    message_id=_require_message_id(
-                        await send_weekly_roundup(context, force=True),
-                        "weekly_roundup",
-                    )
-                )
-            elif msg.get("message_type") == "weekly_leaderboard":
-                sent = SimpleNamespace(
-                    message_id=_require_message_id(
-                        await send_weekly_leaderboard(context),
-                        "weekly_leaderboard",
-                    )
+            elif msg.get("message_type") in {"weekly_roundup", "weekly_leaderboard"}:
+                # Single source of truth: weekly_roundup/weekly_leaderboard are
+                # dynamic recurring content owned by the APScheduler cron jobs in
+                # bot/scheduler/jobs.py (see the design note at the top of that
+                # file). They must NOT also fire from a scheduled_messages row —
+                # doing both is what posted the leaderboard twice (2026-05-23).
+                # Any such row (legacy, or created before the dashboard stopped
+                # offering these types) self-skips here, sending nothing.
+                raise SkippedActivity(
+                    f"{msg.get('message_type')}: owned by cron job, not the calendar dispatcher"
                 )
             elif msg.get("message_type", "").startswith("emoji_puzzle_"):
                 sent = await send_scheduled_emoji_message(bot, db, msg)

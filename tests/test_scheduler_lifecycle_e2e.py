@@ -273,42 +273,35 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["status"], "failed")
         self.assertIn("spooky", row["error_message"] or "")
 
-    async def test_weekly_roundup_marks_sent(self):
+    async def test_weekly_roundup_row_is_skipped_because_cron_owns_it(self):
+        # Regression for 2026-05-23: weekly_roundup/weekly_leaderboard are sent by
+        # the APScheduler cron jobs, not the calendar dispatcher. A scheduled_messages
+        # row of these types must self-skip so it can't double-fire with the cron.
         msg_id = await self._seed(message_type="weekly_roundup", text="roundup")
-        with patch.object(cal, "send_weekly_roundup", new=AsyncMock(return_value=121)) as send_ru, \
-             patch("telegram.Bot", return_value=SimpleNamespace()):
-            await self._tick()
-        row = await self._row(msg_id)
-        self.assertEqual(row["status"], "sent")
-        self.assertEqual(row["sent_message_id"], 121)
-        send_ru.assert_awaited_once()
-
-    async def test_weekly_roundup_missing_message_id_marks_failed(self):
-        msg_id = await self._seed(message_type="weekly_roundup", text="roundup")
-        with patch.object(cal, "send_weekly_roundup", new=AsyncMock(return_value=None)), \
-             patch("telegram.Bot", return_value=SimpleNamespace()):
-            await self._tick()
-        row = await self._row(msg_id)
-        self.assertEqual(row["status"], "failed")
-
-    async def test_weekly_leaderboard_marks_sent(self):
-        msg_id = await self._seed(message_type="weekly_leaderboard", text="leaderboard")
-        with patch.object(cal, "send_weekly_leaderboard", new=AsyncMock(return_value=131)) as send_lb, \
-             patch("telegram.Bot", return_value=SimpleNamespace()):
-            await self._tick()
-        row = await self._row(msg_id)
-        self.assertEqual(row["status"], "sent")
-        self.assertEqual(row["sent_message_id"], 131)
-        send_lb.assert_awaited_once()
-
-    async def test_free_games_no_post_marks_skipped(self):
-        msg_id = await self._seed(message_type="free_games", text="free games")
-        summary = {"posted": 0, "error": "blackout date"}
-        with patch.object(cal, "send_free_games", new=AsyncMock(return_value=summary)), \
-             patch("telegram.Bot", return_value=SimpleNamespace()):
+        with patch("telegram.Bot", return_value=SimpleNamespace()):
             await self._tick()
         row = await self._row(msg_id)
         self.assertEqual(row["status"], "skipped")
+        self.assertIn("cron", row["error_message"] or "")
+
+    async def test_weekly_leaderboard_row_is_skipped_because_cron_owns_it(self):
+        msg_id = await self._seed(message_type="weekly_leaderboard", text="leaderboard")
+        with patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "skipped")
+        self.assertIn("cron", row["error_message"] or "")
+
+    async def test_free_games_row_is_skipped_because_cron_owns_it(self):
+        # free_games is cron-owned (bot/scheduler/dispatch_owner.py): its daily cron
+        # automates it, so a scheduled_messages row must self-skip rather than
+        # double-fire with the cron.
+        msg_id = await self._seed(message_type="free_games", text="free games")
+        with patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "skipped")
+        self.assertIn("cron", row["error_message"] or "")
 
     async def test_trivia_warmup_rsvp_attaches_button(self):
         msg_id = await self._seed(message_type="trivia_warmup_rsvp", text="warmup")
@@ -509,7 +502,6 @@ class SchedulerLifecycleVisibilityTests(unittest.TestCase):
             {"BOT_TOKEN": "tok", "TEST_GROUP_ID": "-1000000002", "GROUP_ID": "-1000000001"},
         ), patch.object(cal, "datetime", _make_frozen_datetime(self.now)), \
              patch.object(cal, "send_message_with_optional_cover", side_effect=fake_send), \
-             patch.object(cal, "send_free_games", new=AsyncMock(return_value={"posted": 0, "error": "blackout date"})), \
              patch("telegram.Bot", return_value=SimpleNamespace()):
             context = SimpleNamespace(bot_data={"db": db}, bot=SimpleNamespace())
             await cal.check_and_send_due_messages(context)
