@@ -433,8 +433,22 @@ async def _continue_round_after_announcement(bot, db: Database, chat_id: int, th
         min_ready = int(round_state.get("min_ready_players") or 0)
         if min_ready > 0:
             round_state["accepting_ready"] = False
-            ready_count = len(round_state.get("ready_users") or {})
+            ready_users = round_state.get("ready_users") or {}
+            ready_count = len(ready_users)
+            # Decision is logged to bot.log (not just activity_log + Telegram) so
+            # a "never started" recurrence is greppable via `vps-admin.sh applog`.
+            # ready_users is seeded from warm-up RSVPs in start_scheduled_trivia_round;
+            # an empty list here when warm-up RSVPs existed means seeding failed.
+            logger.info(
+                "trivia_round: pre-roll ready gate chat=%s ready=%d/%d users=%s decision=%s",
+                chat_id, ready_count, min_ready, sorted(ready_users.keys()),
+                "start" if ready_count >= min_ready else "cancel",
+            )
             if ready_count < min_ready:
+                logger.warning(
+                    "trivia_round: round CANCELLED at pre-roll chat=%s — only %d/%d ready",
+                    chat_id, ready_count, min_ready,
+                )
                 try:
                     await safe_send(
                         bot,
@@ -758,6 +772,11 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
         )
 
     warmup_ready_users = await _warmup_ready_users_for_marker(db, warmup_marker)
+    logger.info(
+        "trivia_round: scheduled row %s seeded %d warm-up RSVP(s) into ready gate "
+        "(marker=%s, min_ready=%d)",
+        msg.get("id"), len(warmup_ready_users), warmup_marker or "(none)", min_ready_players,
+    )
     round_state = _create_round_state(
         questions,
         question_count,

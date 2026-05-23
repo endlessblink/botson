@@ -27,6 +27,11 @@
 #                         lines default 200. Optional pat = grep -E filter, e.g.
 #                         'warmup_rsvp_gate|trivia_round'. Use to read dispatch
 #                         decisions and skip/fail reasons.
+#   activity [n] [filter] Read-only dump of the activity_log table (most recent n,
+#                         default 50). Optional filter matches action_type OR
+#                         description (LIKE). This is where game outcomes that are
+#                         NOT in bot.log land — e.g. "סיבוב טריוויה בוטל — 0/2 מוכנים".
+#                         Try: activity 100 trivia_round
 #   verify-topic <id> <category_key> <verified_name>
 #                         Register a forum topic as operator-verified so safe_send
 #                         will post into it. Mirrors the dashboard "send dot" +
@@ -252,6 +257,29 @@ cmd_applog() {
   fi
 }
 
+cmd_activity() {
+  local lines="${1:-50}"
+  local pattern="${2:-}"
+  case "$lines" in
+    ''|*[!0-9]*) echo "usage: vps-admin.sh activity [lines] [action_type-or-description-filter]" >&2; exit 2 ;;
+  esac
+  echo "=== vps-admin.sh activity @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo
+  _require_sqlite3
+  local where=""
+  if [ -n "$pattern" ]; then
+    local safe="${pattern//\'/\'\'}"   # escape single quotes for SQL literal
+    where="WHERE action_type LIKE '%${safe}%' OR description LIKE '%${safe}%'"
+  fi
+  echo "--- activity_log (most recent ${lines}${pattern:+, filter='$pattern'}) ---"
+  sqlite3 -readonly "$DB_PATH" -header -column \
+    "SELECT id, timestamp, action_type, substr(description,1,90) AS description
+       FROM activity_log
+       ${where}
+       ORDER BY id DESC
+       LIMIT ${lines}"
+}
+
 cmd_verify_topic() {
   local topic_id="${1:-}" category="${2:-}" name="${3:-}"
   if [ -z "$topic_id" ] || [ -z "$category" ] || [ -z "$name" ]; then
@@ -316,6 +344,7 @@ main() {
     routing)       cmd_routing "$@" ;;
     schedule)      cmd_schedule "$@" ;;
     applog)        cmd_applog "$@" ;;
+    activity)      cmd_activity "$@" ;;
     verify-topic)  cmd_verify_topic "$@" ;;
     -h|--help|help|"") usage 0 ;;
     *)
