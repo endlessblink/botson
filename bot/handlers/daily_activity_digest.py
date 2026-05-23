@@ -37,7 +37,11 @@ _LRM = "\u200e"
 
 
 def _clean_title(row: dict) -> str:
-    text = str(row.get("text") or "").strip().splitlines()[0]
+    raw = str(row.get("text") or "").strip()
+    # splitlines()[0] crashes on empty/whitespace text (empty list). Guard it so
+    # a row with no text falls back to the message-type label instead of raising
+    # and taking down the whole daily digest job.
+    text = raw.splitlines()[0] if raw else ""
     mtype = str(row.get("message_type") or "")
     fallback = _DIGEST_TYPES.get(mtype, mtype)
     text = text or fallback

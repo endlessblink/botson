@@ -315,6 +315,31 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         await self.db.set_reminder_lead(1, dm_menu.REMINDER_OFF)
         self.assertEqual(await self.db.get_reminder_lead(1), -1)
 
+    async def test_set_lead_handler_persists_and_answers(self):
+        from bot.utils.copy import load_copy
+        answered = {}
+        async def answer(text=None, show_alert=False): answered["text"] = text
+        async def edit_markup(reply_markup=None): pass
+        q = SimpleNamespace(data="dmmenu_lead_60", answer=answer,
+                            edit_message_reply_markup=edit_markup)
+        upd = SimpleNamespace(callback_query=q, effective_user=SimpleNamespace(id=5))
+        ctx = SimpleNamespace(bot_data={"db": self.db})
+        await dm_menu.set_lead(upd, ctx)
+        self.assertEqual(await self.db.get_reminder_lead(5), 60)
+        self.assertEqual(answered["text"], load_copy("dm_menu", "reminder_saved"))
+
+    def test_prefs_markup_has_lead_selector(self):
+        from bot.utils.copy import load_copy
+        m = dm_menu._prefs_markup({"games": True, "events": False}, lead=30)
+        cbs = [b.callback_data for row in m.inline_keyboard for b in row]
+        self.assertIn("dmmenu_lead_-1", cbs)   # off
+        for opt in (10, 30, 60):
+            self.assertIn(f"dmmenu_lead_{opt}", cbs)
+        # the current lead (30) is marked
+        mark = load_copy("dm_menu", "pref_on")
+        labels = [b.text for row in m.inline_keyboard for b in row]
+        self.assertTrue(any(mark in t and "30" in t for t in labels))
+
 
 class PreferencesDashboardTests(unittest.IsolatedAsyncioTestCase):
     async def test_preferences_page_lists_opted_in_members(self):

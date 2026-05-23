@@ -42,6 +42,20 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("‏🧩 חידת אימוג'י · ‎22:00‎", button_texts)
         self.assertNotIn("שאלה רגילה", text)
 
+    def test_clean_title_handles_empty_text_without_crashing(self):
+        # Regression: splitlines()[0] on empty/whitespace text raised IndexError
+        # and took down the whole 09:30 digest job. Should fall back to the
+        # message-type label instead.
+        self.assertEqual(digest._clean_title({"text": "", "message_type": "trivia_round"}),
+                         digest._DIGEST_TYPES.get("trivia_round", "trivia_round"))
+        self.assertEqual(digest._clean_title({"text": "   ", "message_type": "emoji_puzzle"}),
+                         digest._DIGEST_TYPES.get("emoji_puzzle", "emoji_puzzle"))
+        # Also covers a row built straight through the keyboard builder.
+        kb = digest.build_daily_activity_keyboard([
+            {"scheduled_time": "21:00", "message_type": "trivia_round", "status": "scheduled", "text": ""},
+        ])
+        self.assertIsNotNone(kb)
+
     def test_build_digest_returns_none_without_activities(self):
         self.assertIsNone(digest.build_daily_activity_digest([
             {"scheduled_time": "18:00", "message_type": "discussion", "status": "scheduled", "text": "שאלה רגילה"},
