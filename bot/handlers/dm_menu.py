@@ -30,6 +30,7 @@ from telegram import (
 )
 from telegram.error import Forbidden
 from telegram.ext import (
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -433,14 +434,20 @@ async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_upcoming(update, context)
     elif text == prefs:
         await show_prefs(update, context)
+    # Stop here so no later-group handler (antispam's catch-all in group 0,
+    # levels' message tracker, etc.) also processes this menu-button text.
+    raise ApplicationHandlerStop
 
 
 def register(app):
     app.add_handler(CommandHandler("menu", show_menu))
     app.add_handler(CallbackQueryHandler(route_menu, pattern=r"^dmmenu_"))
-    # Persistent reply-keyboard taps arrive as text — match the two exact
-    # labels in private chat so we don't swallow any other DM message.
+    # Persistent reply-keyboard taps arrive as plain text. Register in a
+    # negative group so this runs BEFORE antispam's group-0 catch-all
+    # (MessageHandler(filters.ALL & ~COMMAND)) — otherwise antispam consumes the
+    # tap and the menu never opens. Match only the two exact labels in private
+    # chat so no other DM message is touched.
     up, prefs = kb_labels()
     app.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & filters.Text([up, prefs]), handle_menu_text,
-    ))
+    ), group=-1)

@@ -176,11 +176,15 @@ class PersistentKeyboardTests(unittest.IsolatedAsyncioTestCase):
         async def fake_upcoming(u, c): calls.append("upcoming")
         async def fake_prefs(u, c): calls.append("prefs")
 
+        from telegram.ext import ApplicationHandlerStop
         with patch.object(dm_menu, "show_upcoming", fake_upcoming), \
              patch.object(dm_menu, "show_prefs", fake_prefs):
             for label, expected in [(up, "upcoming"), (prefs, "prefs")]:
                 upd = SimpleNamespace(message=SimpleNamespace(text=label))
-                await dm_menu.handle_menu_text(upd, SimpleNamespace())
+                # Routes, then stops propagation so antispam/levels don't also
+                # process the menu-button text.
+                with self.assertRaises(ApplicationHandlerStop):
+                    await dm_menu.handle_menu_text(upd, SimpleNamespace())
         self.assertEqual(calls, ["upcoming", "prefs"])
 
 
