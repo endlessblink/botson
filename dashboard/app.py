@@ -3916,6 +3916,81 @@ async def activity_page(request: Request, db: Database = Depends(get_db)):
     return templates.TemplateResponse(request, name="activity.html", context={"log": log, "settings": settings})
 
 
+def _engagement_signal_total(r: dict) -> int:
+    """All captured engagement on a content type in one number."""
+    return (int(r.get("reactions", 0)) + int(r.get("replies", 0))
+            + int(r.get("rsvps", 0)) + int(r.get("poll_votes", 0)))
+
+
+def _merge_engagement_trend(this_week: list[dict], last_week: list[dict]) -> list[dict]:
+    """Join this-week and prior-week rollups into per-type rows with a delta.
+
+    Sorted by this-week engagement so the content types that actually land are
+    on top and the dead ones sink — the answer to "what's working?".
+    """
+    tw = {r["message_type"]: r for r in this_week}
+    lw = {r["message_type"]: r for r in last_week}
+    rows: list[dict] = []
+    for mtype in list(tw.keys()) + [m for m in lw if m not in tw]:
+        cur = tw.get(mtype, {})
+        prev = lw.get(mtype, {})
+        style = _CAL_TYPE_STYLE.get(mtype, {"emoji": "•", "label": mtype})
+        cur_eng = _engagement_signal_total(cur)
+        prev_eng = _engagement_signal_total(prev)
+        sent = int(cur.get("sent", 0))
+        rows.append({
+            "message_type": mtype,
+            "label": style.get("label", mtype),
+            "emoji": style.get("emoji", "•"),
+            "sent": sent,
+            "reactions": int(cur.get("reactions", 0)),
+            "replies": int(cur.get("replies", 0)),
+            "rsvps": int(cur.get("rsvps", 0)),
+            "poll_votes": int(cur.get("poll_votes", 0)),
+            "engaged": cur_eng,
+            "prev_engaged": prev_eng,
+            "delta": cur_eng - prev_eng,
+            "per_post": round(cur_eng / sent, 1) if sent else 0.0,
+        })
+    return sorted(rows, key=lambda r: (r["engaged"], r["sent"]), reverse=True)
+
+
+@app.get("/api/engagement/rollup")
+async def api_engagement_rollup(request: Request, days: int = 7, db: Database = Depends(get_db)):
+    """Per-content-type engagement for this window vs the prior one. Read-only."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    days = max(1, int(days))
+    this_week = await db.get_engagement_rollup(days=days, until_days=0)
+    last_week = await db.get_engagement_rollup(days=days * 2, until_days=days)
+    return {
+        "days": days,
+        "this_week": this_week,
+        "last_week": last_week,
+        "rows": _merge_engagement_trend(this_week, last_week),
+    }
+
+
+@app.get("/engagement", response_class=HTMLResponse)
+async def engagement_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+    this_week = await db.get_engagement_rollup(days=7, until_days=0)
+    last_week = await db.get_engagement_rollup(days=14, until_days=7)
+    rows = _merge_engagement_trend(this_week, last_week)
+    totals = {
+        "sent": sum(r["sent"] for r in rows),
+        "engaged": sum(r["engaged"] for r in rows),
+        "prev_engaged": sum(r["prev_engaged"] for r in rows),
+    }
+    totals["delta"] = totals["engaged"] - totals["prev_engaged"]
+    return templates.TemplateResponse(
+        request, name="engagement.html",
+        context={"rows": rows, "totals": totals, "active_page": "engagement",
+                 "settings": get_settings()},
+    )
+
+
 @app.get("/api/engagement/recent")
 async def engagement_recent(request: Request, limit: int = 30, db: Database = Depends(get_db)):
     """Phase B diagnostic: recent sent scheduled_messages with reaction counts.

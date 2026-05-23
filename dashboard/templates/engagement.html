@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% set active_page = "engagement" %}
+{% block title %}Botson — מעורבות{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Page Header -->
+    <div class="flex flex-col gap-1">
+        <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">מעורבות</h1>
+        <p class="text-sm text-[#71717a]">7 הימים האחרונים מול השבוע שלפניו — מה מייצר תגובות ומה שותק</p>
+    </div>
+
+    <!-- Totals strip -->
+    <div class="grid grid-cols-3 gap-3 animate-fade-in-up">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3">
+            <div class="text-xs text-[#71717a]">פוסטים שנשלחו</div>
+            <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ totals.sent }}</div>
+        </div>
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3">
+            <div class="text-xs text-[#71717a]">מעורבות השבוע</div>
+            <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ totals.engaged }}</div>
+        </div>
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3">
+            <div class="text-xs text-[#71717a]">מול השבוע הקודם</div>
+            {% if totals.delta > 0 %}
+            <div class="text-2xl font-semibold text-emerald-400 stat-number">▲ {{ totals.delta }}</div>
+            {% elif totals.delta < 0 %}
+            <div class="text-2xl font-semibold text-red-400 stat-number">▼ {{ totals.delta|abs }}</div>
+            {% else %}
+            <div class="text-2xl font-semibold text-[#71717a] stat-number">— 0</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Per-type table -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg animate-fade-in-up stagger-1">
+        <div class="overflow-x-auto">
+            {% if rows %}
+            <table class="w-full border-collapse">
+                <thead>
+                    <tr class="border-b border-[#1f1f1f]">
+                        <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right whitespace-nowrap">סוג תוכן</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">נשלחו</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">👍 ריאקציות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">💬 תגובות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">🙋 RSVP</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">🗳️ הצבעות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">מעורבות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">מגמה</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <span class="text-sm text-[#fafafa]">{{ r.emoji }} {{ r.label }}</span>
+                        </td>
+                        <td class="px-3 py-3 text-center text-sm text-[#a1a1aa] stat-number">{{ r.sent }}</td>
+                        <td class="px-3 py-3 text-center text-sm text-[#a1a1aa] stat-number">{{ r.reactions }}</td>
+                        <td class="px-3 py-3 text-center text-sm text-[#a1a1aa] stat-number">{{ r.replies }}</td>
+                        <td class="px-3 py-3 text-center text-sm text-[#a1a1aa] stat-number">{{ r.rsvps }}</td>
+                        <td class="px-3 py-3 text-center text-sm text-[#a1a1aa] stat-number">{{ r.poll_votes }}</td>
+                        <td class="px-3 py-3 text-center text-sm font-medium text-[#fafafa] stat-number">{{ r.engaged }}</td>
+                        <td class="px-3 py-3 text-center whitespace-nowrap stat-number">
+                            {% if r.delta > 0 %}
+                            <span class="text-xs text-emerald-400">▲ {{ r.delta }}</span>
+                            {% elif r.delta < 0 %}
+                            <span class="text-xs text-red-400">▼ {{ r.delta|abs }}</span>
+                            {% else %}
+                            <span class="text-xs text-[#52525b]">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <!-- Empty state -->
+            <div class="flex flex-col items-center justify-center py-20 gap-3">
+                <div class="w-10 h-10 rounded-full bg-[#1f1f1f] flex items-center justify-center">
+                    <svg class="w-5 h-5 text-[#3f3f46]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                </div>
+                <p class="text-sm text-[#71717a]">עדיין אין נתוני מעורבות לשבוע האחרון</p>
+                <p class="text-xs text-[#52525b]">ברגע שהבוט ישלח תוכן ויקבל ריאקציות / תגובות / RSVP — הנתונים יופיעו כאן</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <p class="text-xs text-[#52525b]">
+        "מעורבות" = סך הריאקציות, התגובות, ה‑RSVP וההצבעות שכל סוג תוכן צבר. מיון לפי המעורבות השבוע — מה שעובד למעלה, מה ששותק למטה.
+    </p>
+
+</div>
+{% endblock %}

@@ -2145,63 +2145,69 @@ class Database:
             rows = await cur.fetchall()
         return {int(r["scheduled_msg_id"]): int(r["n"]) for r in rows}
 
-    async def get_engagement_rollup(self, days: int = 7) -> list[dict]:
-        """Consolidated engagement per message_type over the last `days`.
+    async def get_engagement_rollup(self, days: int = 7, *, until_days: int = 0) -> list[dict]:
+        """Consolidated engagement per message_type over a time window.
 
-        One row per message_type that the bot actually SENT in the window, with
+        Window is [now-`days`, now-`until_days`] in whole days. The default
+        (until_days=0) means "the last `days` days up to now"; pass
+        days=14, until_days=7 to get the *prior* week — that pairing is how the
+        engagement view computes week-over-week trend.
+
+        One row per message_type the bot actually SENT in the window, with
         every engagement signal we capture joined in:
           sent          — posts of this type sent in the window
           reactions     — distinct reactors across those posts
           replies       — distinct users who replied to those posts
           rsvps         — warm-up RSVPs (trivia_interest_responses) on those posts
           poll_votes    — poll votes cast on those posts
-          engaged_posts — posts that got ANY reaction/reply/RSVP/vote (>0)
 
         This is the single read backing the engagement view; it answers
         "which content types produce engagement, and is it flat or moving?".
         """
+        lo = f"-{int(days)} days"
+        hi = f"-{int(until_days)} days"
+        # Shared window predicate: sent rows whose sent_at falls in (lo, hi].
+        _window = (
+            "s.status = 'sent' AND s.sent_at IS NOT NULL "
+            "AND date(s.sent_at) > date('now', ?) AND date(s.sent_at) <= date('now', ?)"
+        )
         async with self._db.execute(
-            """
+            f"""
             SELECT s.message_type AS message_type,
                    COUNT(DISTINCT s.id) AS sent,
                    COALESCE(SUM(e.distinct_reactors), 0) AS reactions
               FROM scheduled_messages s
               LEFT JOIN message_engagement e ON e.scheduled_msg_id = s.id
-             WHERE s.status = 'sent'
-               AND s.sent_at IS NOT NULL
-               AND date(s.sent_at) >= date('now', ?)
+             WHERE {_window}
              GROUP BY s.message_type
              ORDER BY sent DESC
             """,
-            (f"-{int(days)} days",),
+            (lo, hi),
         ) as cur:
             base_rows = await cur.fetchall()
 
         # Per-type reply / rsvp / poll-vote totals (separate aggregates keep the
         # main query from fanning out rows across the one-to-many join tables).
         async def _counts_by_type(sql: str) -> dict:
-            async with self._db.execute(sql, (f"-{int(days)} days",)) as c:
+            async with self._db.execute(sql, (lo, hi)) as c:
                 return {str(r["message_type"]): int(r["n"]) for r in await c.fetchall()}
 
         replies_by_type = await _counts_by_type(
-            """SELECT s.message_type AS message_type, COUNT(*) AS n
+            f"""SELECT s.message_type AS message_type, COUNT(*) AS n
                  FROM prompt_replies pr JOIN scheduled_messages s ON s.id = pr.scheduled_msg_id
-                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
-                  AND date(s.sent_at) >= date('now', ?)
+                WHERE {_window}
                 GROUP BY s.message_type"""
         )
         rsvps_by_type = await _counts_by_type(
-            """SELECT s.message_type AS message_type, COUNT(*) AS n
+            f"""SELECT s.message_type AS message_type, COUNT(*) AS n
                  FROM trivia_interest_responses tir JOIN scheduled_messages s ON s.id = tir.scheduled_msg_id
-                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
-                  AND date(s.sent_at) >= date('now', ?)
+                WHERE {_window}
                 GROUP BY s.message_type"""
         )
         votes_by_type = await _counts_by_type(
-            """SELECT s.message_type AS message_type, COUNT(*) AS n
+            f"""SELECT s.message_type AS message_type, COUNT(*) AS n
                  FROM poll_votes pv JOIN scheduled_messages s ON s.sent_message_id = pv.message_id
-                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
-                  AND date(s.sent_at) >= date('now', ?)
+                WHERE {_window}
                 GROUP BY s.message_type"""
         )
 

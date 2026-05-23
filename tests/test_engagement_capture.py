@@ -147,5 +147,49 @@ class RsvpGateToggleTests(unittest.IsolatedAsyncioTestCase):
             await calendar._enforce_warmup_rsvp_gate(db=None, msg=msg, bot=None, group_id=-100)
 
 
+class EngagementPageRenderTests(unittest.TestCase):
+    def test_engagement_page_and_api_render(self):
+        import asyncio
+        from fastapi.testclient import TestClient
+        import dashboard.app as dashboard_app
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            async def _seed():
+                db = Database(tmp.name)
+                await db.init()
+                try:
+                    mid = await _sent_row(db, "discussion", sent_message_id=8001)
+                    await db.record_prompt_reply(mid, user_id=1)
+                    await db.record_reaction_update(
+                        mid, telegram_message_id=8001, channel_topic_id=4037,
+                        user_id=2, new_reaction_type="👍",
+                    )
+                finally:
+                    await db.close()
+            asyncio.run(_seed())
+
+            with patch.object(dashboard_app, "DB_PATH", tmp.name):
+                with TestClient(dashboard_app.app) as client:
+                    login = client.post(
+                        "/login",
+                        data={"password": dashboard_app.DASHBOARD_PASSWORD},
+                        follow_redirects=False,
+                    )
+                    self.assertEqual(login.status_code, 303)
+
+                    page = client.get("/engagement")
+                    self.assertEqual(page.status_code, 200)
+                    self.assertIn("מעורבות", page.text)        # page header / nav
+                    self.assertIn("שיחה", page.text)            # discussion label rendered
+
+                    api = client.get("/api/engagement/rollup", params={"days": 7})
+                    self.assertEqual(api.status_code, 200)
+                    body = api.json()
+                    rows = {r["message_type"]: r for r in body["rows"]}
+                    self.assertEqual(rows["discussion"]["replies"], 1)
+                    self.assertEqual(rows["discussion"]["reactions"], 1)
+                    self.assertEqual(rows["discussion"]["engaged"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
