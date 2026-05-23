@@ -177,6 +177,7 @@
 | T-172 | 30 | Operator feedback capture — content_feedback schema + dashboard controls | TODO | P0 | T-163 |
 | T-173 | 30 | Regression corpus + per-channel rubrics injected into prompts | TODO | P1 | T-172 |
 | T-174 | 30 | Style-profile learning loop — operator-approved generation guidance updates | TODO | P1 | T-172, T-173 |
+| T-175 | 23 | Trivia 'never fired' diagnosis + pre-roll gate logging + vps-admin diagnostics | DONE | P1 | T-127 |
 
 ## Lanes (active queues)
 
@@ -1821,3 +1822,18 @@ Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, 
 
 **Priority**: P0
 **Status**: Backlog
+
+---
+
+#### T-175: Trivia "never fired" diagnosis + pre-roll gate logging + vps-admin diagnostics ✅ (2026-05-23)
+
+**Symptom (2026-05-22):** scheduled trivia in the main group "never fired" despite enough warm-up RSVPs; worked in Sherlock's Den.
+
+**Root cause (HIGH, log-confirmed):** the game was NOT skipped and there were NO duplicate marker rows. Announcement 493 had 3 RSVPs → dispatch gate `_enforce_warmup_rsvp_gate` passed → game 495 launched at 19:00:13 (`status=sent`). It then **aborted at the in-game pre-roll ready gate** (`bot/handlers/trivia_round.py:_continue_round_after_announcement`): warm-up RSVPs were not carried into the round, so the gate saw 1/2 and cancelled at 19:02:09. activity_log row: `סיבוב טריוויה בוטל — 1/2 מוכנים`. The actual fix — `7d5938b`, which seeds the pre-roll gate from warm-up RSVPs — deployed at 19:40, 40 min after the game died.
+
+**Shipped this session:**
+- `46762db` — `Database.get_warmup_rsvp_user_map()` aggregates RSVPs across all rows sharing a marker + dispatch-gate decision logging. (Hardening; the duplicate-marker scenario it guards never occurred — confirmed via `vps-admin.sh schedule`. Part-2 commit-boundary dedup was considered and dropped.)
+- `f941ae7` — pre-roll ready-gate now logs the seed count + decision (ready/min, user_ids, start|cancel) at INFO and a WARNING on cancel, so a recurrence is greppable in `bot.log`.
+- `vps-admin.sh` read-only diagnostics (`8cf24fa`, `0ff262d`, `f941ae7`): `schedule [days]`, `applog [n] [pat]` (searches rotated logs), `activity [n] [filter]`. These are the sanctioned prod-read path (SSH+SQL is classifier-blocked).
+
+**Verify:** `vps-admin.sh schedule 4`, `vps-admin.sh applog 100000 'pre-roll ready gate|CANCELLED at pre-roll'`, `vps-admin.sh activity 400 trivia_round`. Local: `pytest tests/test_scheduler_e2e_trivia_launch.py` (incl. the duplicate-marker regression).
