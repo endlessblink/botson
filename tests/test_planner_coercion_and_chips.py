@@ -12,10 +12,11 @@ Covers the issues that bit us on 2026-04-27:
 """
 import json
 import asyncio
+import copy
 import re
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -182,7 +183,15 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             call_counter["n"] += 1
             return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
 
-        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+        # warmup_reminder is off by default in settings.yaml; enable it here so
+        # the T-126 announcement↔reminder pairing assertions below are exercised.
+        # (The pairing logic is also covered by
+        # test_turning_trivia_live_creates_warmup_reminder_with_shared_marker.)
+        settings_reminder_on = copy.deepcopy(dashboard_app.get_settings())
+        settings_reminder_on.setdefault("trivia", {})["warmup_reminder_enabled"] = True
+
+        with patch.object(dashboard_app, "get_settings", return_value=settings_reminder_on), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
             # Use next week so this test is not dependent on the wall clock
@@ -317,12 +326,16 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
                 )
         await db._db.commit()
+        # Anchor the "recent" game inside the 21-day rotation window (relative to
+        # now, not a hardcoded date that ages out) so rotation is genuinely
+        # enforced rather than passing by random luck.
+        recent_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
         await db.create_scheduled_message(
             text="🧩 Emoji Night — סרטים (5 חידות)",
             message_type="emoji_puzzle",
             channel_topic_id=4037,
             target_group="main",
-            scheduled_date="2026-05-01",
+            scheduled_date=recent_date,
             scheduled_time="22:00",
             poll_options=json.dumps({"theme_label": "סרטים", "media_types": ["movie"]}, ensure_ascii=False),
             status="scheduled",
@@ -332,7 +345,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
-            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+            # week_offset=1 (next week) keeps the suggested slot in the future so
+            # the test is not wall-clock dependent (week_offset=0 yields no slots
+            # late on the last day of the week).
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=1)
 
         await db.close()
         emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
@@ -367,7 +383,9 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
-            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+            # week_offset=1: stable future slot (see sibling test). The recent
+            # round above uses datetime('now'), so it stays inside the window.
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=1)
 
         await db.close()
         emoji_rows = [s for s in result["suggestions"] if s["message_type"] == "emoji_puzzle"]
@@ -379,12 +397,14 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_rotates_trivia_subject_away_from_recent(self):
         db = Database(":memory:")
         await db.init()
+        # Recent game anchored inside the 21-day rotation window (relative to now).
+        recent_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
         await db.create_scheduled_message(
             text="🧠 סיבוב טריוויה — ישראל (5 שאלות)",
             message_type="trivia_round",
             channel_topic_id=4037,
             target_group="main",
-            scheduled_date="2026-05-01",
+            scheduled_date=recent_date,
             scheduled_time="21:00",
             poll_options=json.dumps({"theme_label": "ישראל", "categories": ["ישראל"], "question_count": 5}, ensure_ascii=False),
             status="scheduled",
@@ -403,7 +423,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
-            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=0)
+            # week_offset=1: stable future slot, not wall-clock dependent.
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=1)
 
         await db.close()
         trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
@@ -552,13 +573,13 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             return (await cur.fetchone())[0]
 
     async def test_executable_types_without_topic_resolve_to_handler_routing(self):
-        # weekly_roundup / weekly_leaderboard are intentionally NOT in this list —
-        # they are cron-owned and rejected by create_calendar_item (see the dedicated
-        # rejection test below).
+        # free_games / weekly_roundup / weekly_leaderboard are intentionally NOT in
+        # this list — they are cron-owned (bot/scheduler/dispatch_owner.py) and
+        # rejected by create_calendar_item (see test_create_calendar_item_rejects_
+        # cron_owned_types below).
         for message_type in (
             "trivia_round",
             "emoji_puzzle",
-            "free_games",
             "facts_tidbit",
             "facts_spooky",
         ):
