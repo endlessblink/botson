@@ -136,6 +136,15 @@ PUBLIC_DASHBOARD_URL = os.getenv("PUBLIC_DASHBOARD_URL", "").rstrip("/")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()
 
 
+def warmup_reminder_enabled() -> bool:
+    """Whether the 20-min in-group warm-up reminder should be created/sent.
+
+    Defaults to True when the key is absent (no silent behavior change for a
+    config that predates this flag); the shipped settings.yaml sets it false.
+    """
+    return bool((get_settings().get("trivia") or {}).get("warmup_reminder_enabled", True))
+
+
 def deep_link(param: str) -> str:
     """Build a https://t.me/<bot>?start=<param> deep link.
 

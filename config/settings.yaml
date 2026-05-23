@@ -478,6 +478,10 @@ topic_routing:
   mode: observe
   observation_days: 14
 trivia:
+  # The 20-min group warm-up reminder is redundant now that signed-up users get
+  # a personal DM reminder. Off by default to cut group spam; set true to restore
+  # the in-group reminder (it's still auto-skipped when RSVP quorum is met).
+  warmup_reminder_enabled: false
   populate_defaults:
     pre_roll_s: 120
     warmup_offset_min: 60

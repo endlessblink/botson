@@ -415,6 +415,32 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(db.failed), 1)
         self.assertIn("weekly_roundup did not return", db.failed[0][1])
 
+    async def test_warmup_reminder_skipped_when_toggle_disabled(self):
+        db = FakeScheduledDb(_base_row("warmup_reminder"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch("bot.utils.config.warmup_reminder_enabled", return_value=False):
+            await calendar.check_and_send_due_messages(context)
+
+        self.assertEqual(db.sent, [])
+        self.assertEqual(len(db.skipped), 1)
+        self.assertIn("disabled by config", db.skipped[0][1])
+
+
+class WarmupReminderToggleConfigTests(unittest.TestCase):
+    def test_warmup_reminder_enabled_reads_config(self):
+        from unittest.mock import patch as _patch
+        import bot.utils.config as cfg
+        # absent key → default True (no silent behavior change)
+        with _patch.object(cfg, "get_settings", return_value={}):
+            self.assertTrue(cfg.warmup_reminder_enabled())
+        with _patch.object(cfg, "get_settings", return_value={"trivia": {"warmup_reminder_enabled": False}}):
+            self.assertFalse(cfg.warmup_reminder_enabled())
+        with _patch.object(cfg, "get_settings", return_value={"trivia": {"warmup_reminder_enabled": True}}):
+            self.assertTrue(cfg.warmup_reminder_enabled())
+
 
 if __name__ == "__main__":
     unittest.main()

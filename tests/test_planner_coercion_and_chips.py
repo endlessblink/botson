@@ -1305,7 +1305,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ), patch.object(
                     dashboard_app, "_generate_activity_copy",
                     new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nלחצו על הכפתור."),
-                ):
+                ), patch("bot.utils.config.warmup_reminder_enabled", return_value=True):
                     res = await dashboard_app.schedule_calendar_item(
                         game_id, FakeCalendarRequest({}), db,
                     )
@@ -1463,6 +1463,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                                 {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
                                  "TEST_GROUP_ID": "-1002", "STALE_DROP_MINUTES": "0"}), \
                      patch("telegram.Bot", return_value=object()), \
+                     patch("bot.utils.config.warmup_reminder_enabled", return_value=True), \
                      patch.object(bot_calendar, "safe_send", new=AsyncMock()) as ss:
                     await bot_calendar.check_and_send_due_messages(context)
 
@@ -1551,6 +1552,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                                 {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
                                  "TEST_GROUP_ID": "-1002", "STALE_DROP_MINUTES": "0"}), \
                      patch("telegram.Bot", return_value=object()), \
+                     patch("bot.utils.config.warmup_reminder_enabled", return_value=True), \
                      patch.object(bot_calendar, "safe_send",
                                   new=AsyncMock(return_value=fake_sent)) as ss:
                     await bot_calendar.check_and_send_due_messages(context)

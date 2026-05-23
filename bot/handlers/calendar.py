@@ -657,6 +657,9 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=markup,
                 )
             elif msg.get("message_type") == "warmup_reminder":
+                from ..utils.config import warmup_reminder_enabled
+                if not warmup_reminder_enabled():
+                    raise SkippedActivity("warmup_reminder disabled by config (trivia.warmup_reminder_enabled)")
                 payload = _parse_payload(msg.get("poll_options"))
                 marker = str(payload.get("warmup_marker") or "").strip()
                 if not marker:

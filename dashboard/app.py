@@ -1456,6 +1456,11 @@ async def _ensure_warmup_reminder_scheduled(
     after the announcement). Dispatch checks `trivia_interest_responses` against
     `min_ready_players` and short-circuits to `skipped` if the threshold is met.
     """
+    # Operator toggle: the 20-min group reminder is redundant once signed-up
+    # users get a personal DM reminder. Off by default (settings.trivia.warmup_reminder_enabled).
+    from bot.utils.config import warmup_reminder_enabled
+    if not warmup_reminder_enabled():
+        return None
     if min_ready <= 0:
         return None
     trivia_defaults = (get_settings().get("trivia") or {}).get("populate_defaults") or {}
@@ -5013,6 +5018,10 @@ async def _maybe_add_warmup_reminder_suggestion(
     copy generation fails. Reminder time = game_time - reminder_offset_min and
     must be strictly between announcement and game time.
     """
+    # Operator toggle (settings.trivia.warmup_reminder_enabled): suppress the
+    # redundant 20-min group reminder. Off by default — DM reminders cover it.
+    if not (settings.get("trivia") or {}).get("warmup_reminder_enabled", True):
+        return
     if min_ready <= 0:
         return
     trivia_defaults = (settings.get("trivia") or {}).get("populate_defaults") or {}
