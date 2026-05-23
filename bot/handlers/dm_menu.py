@@ -22,9 +22,20 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.error import Forbidden
-from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from ..database.db import Database
 from ..utils.config import GROUP_ID, deep_link
@@ -90,15 +101,40 @@ def deep_link_button() -> InlineKeyboardButton | None:
 # ── Menu rendering ───────────────────────────────────────────
 
 
-def _main_menu_markup() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(load_copy("dm_menu", "btn_upcoming"), callback_data="dmmenu_upcoming")],
-        [InlineKeyboardButton(load_copy("dm_menu", "btn_prefs"), callback_data="dmmenu_prefs")],
-    ])
+def kb_labels() -> tuple[str, str]:
+    """The two persistent reply-keyboard labels (read from config)."""
+    return load_copy("dm_menu", "kb_upcoming"), load_copy("dm_menu", "kb_prefs")
+
+
+def persistent_kb() -> ReplyKeyboardMarkup:
+    """Always-visible reply keyboard pinned above the text box.
+
+    The two top-level options live here so users never need to remember /menu —
+    a tap sends the button's exact text, matched by handle_menu_text.
+    """
+    up, prefs = kb_labels()
+    return ReplyKeyboardMarkup(
+        [[up], [prefs]], resize_keyboard=True, is_persistent=True,
+    )
+
+
+async def _send_inline(update: Update, text: str, markup: InlineKeyboardMarkup | None):
+    """Render a sub-screen: edit in place when from a button callback, send a
+    fresh message when triggered from a reply-keyboard tap (a Message)."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+        try:
+            await query.edit_message_text(text=text, reply_markup=markup)
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.warning("dm_menu: failed to edit sub-screen: %s", e)
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup)
 
 
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Render the top-level menu. DM-only."""
+    """Render the top-level menu and pin the persistent keyboard. DM-only."""
     if not _is_dm(update):
         if update.message:
             await update.message.reply_text(load_copy("dm_menu", "dm_only_notice"))
@@ -110,22 +146,17 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.upsert_member(user.id, user.username, get_display_name(user))
 
     text = load_copy("dm_menu", "menu_title")
-    markup = _main_menu_markup()
-    query = update.callback_query
-    if query:
-        await query.answer()
-        try:
-            await query.edit_message_text(text=text, reply_markup=markup)
-        except Exception as e:
-            if "not modified" not in str(e).lower():
-                logger.warning("dm_menu: failed to edit to main menu: %s", e)
-    elif update.message:
-        await update.message.reply_text(text, reply_markup=markup)
+    # A reply keyboard can only ride on a fresh message, not an edit. The "back"
+    # callback also routes here, so send a new message in both cases.
+    if update.callback_query:
+        await update.callback_query.answer()
+    chat = update.effective_chat
+    if chat:
+        await context.bot.send_message(chat_id=chat.id, text=text, reply_markup=persistent_kb())
 
 
 async def show_upcoming(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List upcoming events + game warm-ups with sign-up buttons."""
-    query = update.callback_query
     db: Database = context.bot_data["db"]
     now = _il_now()
 
@@ -164,32 +195,24 @@ async def show_upcoming(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "dm_menu", "item_line",
             icon=load_copy("dm_menu", "icon_game"), label=label, when=when,
         ))
-        # RSVP is open only once the warm-up has actually been posted.
-        if wu.get("status") == "sent":
-            rows.append([InlineKeyboardButton(
-                load_copy("dm_menu", "btn_signup_interest"),
-                callback_data=f"dmmenu_tr_{wu['id']}",
-            )])
-        else:
-            rows.append([InlineKeyboardButton(
-                load_copy("dm_menu", "signup_not_open_yet"),
-                callback_data="dmmenu_noop",
-            )])
-
-    rows.append([InlineKeyboardButton(load_copy("dm_menu", "btn_back"), callback_data="dmmenu_home")])
+        # Sign up anytime: the warm-up row exists as soon as the game is
+        # scheduled, so a user can RSVP from the DM before the warm-up is even
+        # posted to the group. Early sign-ups are counted when the game runs
+        # (same trivia_interest_responses row). record_trivia_interest skips
+        # the group confirmation until the warm-up is actually live.
+        rows.append([InlineKeyboardButton(
+            load_copy("dm_menu", "btn_signup_interest"),
+            callback_data=f"dmmenu_tr_{wu['id']}",
+        )])
 
     if lines:
         text = load_copy("dm_menu", "upcoming_title") + "\n\n" + "\n".join(lines)
+        markup = InlineKeyboardMarkup(rows)
     else:
         text = load_copy("dm_menu", "upcoming_empty")
+        markup = None
 
-    if query:
-        await query.answer()
-        try:
-            await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(rows))
-        except Exception as e:
-            if "not modified" not in str(e).lower():
-                logger.warning("dm_menu: failed to render upcoming: %s", e)
+    await _send_inline(update, text, markup)
 
 
 def _prefs_markup(prefs: dict[str, bool]) -> InlineKeyboardMarkup:
@@ -198,26 +221,18 @@ def _prefs_markup(prefs: dict[str, bool]) -> InlineKeyboardMarkup:
         state = load_copy("dm_menu", "pref_on") if prefs.get(ptype) else load_copy("dm_menu", "pref_off")
         label = f"{state} {load_copy('dm_menu', f'pref_{ptype}')}"
         rows.append([InlineKeyboardButton(label, callback_data=f"dmmenu_pref_{ptype}")])
-    rows.append([InlineKeyboardButton(load_copy("dm_menu", "btn_back"), callback_data="dmmenu_home")])
     return InlineKeyboardMarkup(rows)
 
 
 async def show_prefs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Render the per-activity notification toggles."""
-    query = update.callback_query
     user = update.effective_user
     if not user:
         return
     db: Database = context.bot_data["db"]
     prefs = await db.get_user_preferences(user.id)
     text = load_copy("dm_menu", "prefs_title") + "\n\n" + load_copy("dm_menu", "prefs_help")
-    if query:
-        await query.answer()
-        try:
-            await query.edit_message_text(text=text, reply_markup=_prefs_markup(prefs))
-        except Exception as e:
-            if "not modified" not in str(e).lower():
-                logger.warning("dm_menu: failed to render prefs: %s", e)
+    await _send_inline(update, text, _prefs_markup(prefs))
 
 
 async def toggle_pref(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -407,6 +422,25 @@ async def notify_opted_in_users(context, db: Database, msg: dict, event_id: int 
         )
 
 
+async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Route taps on the persistent reply-keyboard buttons (which arrive as
+    plain text messages) to the matching sub-screen."""
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip()
+    up, prefs = kb_labels()
+    if text == up:
+        await show_upcoming(update, context)
+    elif text == prefs:
+        await show_prefs(update, context)
+
+
 def register(app):
     app.add_handler(CommandHandler("menu", show_menu))
     app.add_handler(CallbackQueryHandler(route_menu, pattern=r"^dmmenu_"))
+    # Persistent reply-keyboard taps arrive as text — match the two exact
+    # labels in private chat so we don't swallow any other DM message.
+    up, prefs = kb_labels()
+    app.add_handler(MessageHandler(
+        filters.ChatType.PRIVATE & filters.Text([up, prefs]), handle_menu_text,
+    ))

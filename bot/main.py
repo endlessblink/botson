@@ -52,7 +52,11 @@ async def start_command(update, context):
     if context.args and context.args[0] == "menu":
         await dm_menu.show_menu(update, context)
         return
-    await update.message.reply_text(load_copy("dm_menu", "greeting"))
+    # Pin the persistent menu keyboard so the buttons are visible from the very
+    # first interaction — no need to remember /menu.
+    await update.message.reply_text(
+        load_copy("dm_menu", "greeting"), reply_markup=dm_menu.persistent_kb()
+    )
 
 
 async def help_command(update, context):
@@ -101,6 +105,17 @@ async def post_init(app: Application):
     db = Database()
     await db.init()
     app.bot_data["db"] = db
+
+    # Register the bot's command list so Telegram shows a tappable "Menu"
+    # button in DMs (a second discovery path alongside the persistent keyboard).
+    try:
+        from telegram import BotCommand
+        await app.bot.set_my_commands([
+            BotCommand("menu", load_copy("dm_menu", "cmd_menu_desc")),
+            BotCommand("help", load_copy("dm_menu", "cmd_help_desc")),
+        ])
+    except Exception as e:
+        logger.warning("set_my_commands failed: %s", e)
 
     # Seed prompts from YAML
     prompts = get_prompts()

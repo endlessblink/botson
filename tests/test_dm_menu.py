@@ -160,6 +160,86 @@ class NotifyOptedInTests(unittest.IsolatedAsyncioTestCase):
         ctx.bot.send_message.assert_not_awaited()
 
 
+class PersistentKeyboardTests(unittest.IsolatedAsyncioTestCase):
+    def test_persistent_kb_has_two_pinned_buttons(self):
+        kb = dm_menu.persistent_kb()
+        labels = [b.text for row in kb.keyboard for b in row]
+        up, prefs = dm_menu.kb_labels()
+        self.assertEqual(labels, [up, prefs])
+        self.assertTrue(kb.is_persistent)
+        self.assertTrue(kb.resize_keyboard)
+
+    async def test_menu_text_routes_to_subscreens(self):
+        up, prefs = dm_menu.kb_labels()
+        calls = []
+
+        async def fake_upcoming(u, c): calls.append("upcoming")
+        async def fake_prefs(u, c): calls.append("prefs")
+
+        with patch.object(dm_menu, "show_upcoming", fake_upcoming), \
+             patch.object(dm_menu, "show_prefs", fake_prefs):
+            for label, expected in [(up, "upcoming"), (prefs, "prefs")]:
+                upd = SimpleNamespace(message=SimpleNamespace(text=label))
+                await dm_menu.handle_menu_text(upd, SimpleNamespace())
+        self.assertEqual(calls, ["upcoming", "prefs"])
+
+
+class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        self.db = Database(self.tmp.name)
+        await self.db.init()
+
+    async def asyncTearDown(self):
+        await self.db.close()
+        os.remove(self.tmp.name)
+
+    async def _make_scheduled_warmup(self):
+        return await self.db.create_scheduled_message(
+            text="warmup", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="20:00",
+            poll_options=json.dumps({"theme_label": "מדע", "min_ready_players": 1}),
+            status="scheduled",  # NOT yet posted to the group
+        )
+
+    async def test_scheduled_warmup_shows_live_signup_button(self):
+        wid = await self._make_scheduled_warmup()
+        captured = {}
+
+        async def reply(text, reply_markup=None):
+            captured["text"] = text
+            captured["markup"] = reply_markup
+
+        upd = SimpleNamespace(
+            callback_query=None,
+            message=SimpleNamespace(reply_text=reply),
+            effective_user=SimpleNamespace(id=1, username="u"),
+            effective_chat=SimpleNamespace(id=1, type="private"),
+        )
+        ctx = SimpleNamespace(bot_data={"db": self.db})
+        await dm_menu.show_upcoming(upd, ctx)
+        cbs = [b.callback_data for row in captured["markup"].inline_keyboard for b in row]
+        # A real sign-up button, not the old info-only noop.
+        self.assertIn(f"dmmenu_tr_{wid}", cbs)
+        self.assertNotIn("dmmenu_noop", cbs)
+
+    async def test_record_interest_for_scheduled_row_without_group_confirmation(self):
+        from bot.handlers.trivia_interest import record_trivia_interest
+        wid = await self._make_scheduled_warmup()
+        bot = AsyncMock()
+        user = SimpleNamespace(id=7, username="x", first_name="X", last_name="")
+        result = await record_trivia_interest(self.db, bot, wid, user)
+        self.assertIsNotNone(result)
+        self.assertFalse(result.get("closed"))
+        self.assertEqual(result["count"], 1)
+        # threshold met (min=1) but warm-up not 'sent' → no group confirmation.
+        bot.send_message.assert_not_called()
+        # interest is persisted, so it counts when the game runs.
+        responses = await self.db.get_trivia_interest_responses(wid)
+        self.assertEqual([r["user_id"] for r in responses], [7])
+
+
 class PreferencesDashboardTests(unittest.IsolatedAsyncioTestCase):
     async def test_preferences_page_lists_opted_in_members(self):
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)

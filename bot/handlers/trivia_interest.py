@@ -72,7 +72,11 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
     except (json.JSONDecodeError, TypeError):
         payload = {}
 
-    if row["status"] != "sent" or _rsvp_closed(row, payload):
+    # Sign up anytime: accept RSVPs for a game that is still 'scheduled' (warm-up
+    # not posted yet) as well as a live 'sent' warm-up. Only a past/closed game
+    # is rejected. The DM menu lets users join early; the in-group button only
+    # ever runs against a 'sent' row.
+    if row["status"] not in ("scheduled", "sent") or _rsvp_closed(row, payload):
         return {"closed": True}
 
     display_name = get_display_name(user)
@@ -85,6 +89,13 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
     result = {"count": count, "already": already_responded, "names": names}
 
     if already_responded:
+        return result
+
+    # The "we hit minimum" confirmation is posted as a reply in the warm-up
+    # topic — only meaningful once the warm-up is actually live. For early
+    # (status='scheduled') DM sign-ups we just record the interest; the count
+    # is honored later when the warm-up posts / the game's RSVP gate runs.
+    if row["status"] != "sent":
         return result
 
     # Check threshold and fire confirmation exactly once when it's first crossed

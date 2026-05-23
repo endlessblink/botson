@@ -42,6 +42,15 @@ copy:
     btn_upcoming: "📅 משחקים ואירועים קרובים"
     btn_prefs: "🔔 העדפות התראות"
     btn_back: "⬅️ חזרה לתפריט"
+    # Persistent reply-keyboard buttons — pinned above the text box, always
+    # visible, so users never need to remember /menu. Changing these labels
+    # requires a bot restart (read at handler registration). Tapping a button
+    # sends its exact text, matched by handle_menu_text in dm_menu.py.
+    kb_upcoming: "📅 משחקים ואירועים"
+    kb_prefs: "🔔 התראות"
+    # Description shown next to /menu in Telegram's command (Menu) button.
+    cmd_menu_desc: "התפריט האישי שלי"
+    cmd_help_desc: "עזרה ורשימת פקודות"
     # Label of the URL button appended to group posts that link into the DM.
     open_in_dm: "⚙️ פתחו תפריט אישי"
     dm_only_notice: "התפריט האישי זמין רק בצ'אט פרטי עם הבוט."
