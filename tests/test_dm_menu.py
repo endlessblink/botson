@@ -256,9 +256,10 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         os.remove(self.tmp.name)
 
     async def _warmup_in(self, minutes_to_kickoff, responders, *, marker="m1",
-                         warmup_game_time=None):
+                         warmup_game_time=None, leads=(30,)):
         """Create a paired warm-up + game row sharing one marker, with the game
-        row's scheduled time = kickoff. Sign up `responders` on the warm-up.
+        row's scheduled time = kickoff. Sign up `responders` on the warm-up and
+        give each the `leads` reminder times (default {30}; pass () for none).
 
         `warmup_game_time` lets a test set a *stale* game_time on the warm-up to
         prove the reminder anchors on the authoritative game row, not the warm-up.
@@ -283,6 +284,8 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         for uid in responders:
             await self.db.upsert_member(uid, f"u{uid}", f"U{uid}")
             await self.db.add_trivia_interest_response(wid, uid, f"U{uid}")
+            for lead in leads:
+                await self.db.toggle_reminder_lead(uid, lead)
         return wid
 
     def _ctx(self):
@@ -302,18 +305,30 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_not_yet_due_does_not_fire(self):
         # Game in 90 min, user lead 30 → remind_at is still 60 min away.
-        wid = await self._warmup_in(90, [1])
-        await self.db.set_reminder_lead(1, 30)
+        wid = await self._warmup_in(90, [1], leads=(30,))
         ctx = self._ctx()
         await dm_menu.send_due_game_reminders(ctx)
         ctx.bot.send_message.assert_not_awaited()
 
-    async def test_user_with_reminders_off_is_skipped(self):
-        wid = await self._warmup_in(15, [1])
-        await self.db.set_reminder_lead(1, dm_menu.REMINDER_OFF)
+    async def test_user_with_no_leads_is_skipped(self):
+        # No reminder times selected → no DM.
+        wid = await self._warmup_in(15, [1], leads=())
         ctx = self._ctx()
         await dm_menu.send_due_game_reminders(ctx)
         ctx.bot.send_message.assert_not_awaited()
+
+    async def test_multi_select_fires_due_lead_and_keeps_future_one(self):
+        # Game in 45 min; user picked 60 + 30. Only the 60-min lead is due now
+        # (kickoff-60 is past); 30 is still 15 min away. One DM; 60 marked, 30 not.
+        wid = await self._warmup_in(45, [1], leads=(60, 30))
+        ctx = self._ctx()
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_awaited_once()
+        self.assertTrue(await self.db.was_game_reminded(wid, 1, 60))
+        self.assertFalse(await self.db.was_game_reminded(wid, 1, 30))
+        # Re-tick: 30 still not due → no second DM.
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_awaited_once()
 
     async def test_anchors_on_game_row_not_stale_warmup_game_time(self):
         # Game row fires in 15 min, but the warm-up carries a stale game_time
@@ -330,14 +345,17 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         await dm_menu.send_due_game_reminders(ctx)
         ctx.bot.send_message.assert_not_awaited()
 
-    async def test_lead_setting_round_trip(self):
-        self.assertIsNone(await self.db.get_reminder_lead(1))
-        await self.db.set_reminder_lead(1, 60)
-        self.assertEqual(await self.db.get_reminder_lead(1), 60)
-        await self.db.set_reminder_lead(1, dm_menu.REMINDER_OFF)
-        self.assertEqual(await self.db.get_reminder_lead(1), -1)
+    async def test_lead_multiselect_round_trip(self):
+        self.assertEqual(await self.db.get_reminder_leads(1), set())
+        self.assertTrue(await self.db.toggle_reminder_lead(1, 60))   # add
+        self.assertTrue(await self.db.toggle_reminder_lead(1, 10))   # add another
+        self.assertEqual(await self.db.get_reminder_leads(1), {10, 60})
+        self.assertFalse(await self.db.toggle_reminder_lead(1, 60))  # remove
+        self.assertEqual(await self.db.get_reminder_leads(1), {10})
+        await self.db.clear_reminder_leads(1)
+        self.assertEqual(await self.db.get_reminder_leads(1), set())
 
-    async def test_set_lead_handler_persists_and_answers(self):
+    async def test_toggle_lead_handler_persists_and_answers(self):
         from bot.utils.copy import load_copy
         answered = {}
         async def answer(text=None, show_alert=False): answered["text"] = text
@@ -346,18 +364,31 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
                             edit_message_reply_markup=edit_markup)
         upd = SimpleNamespace(callback_query=q, effective_user=SimpleNamespace(id=5))
         ctx = SimpleNamespace(bot_data={"db": self.db})
-        await dm_menu.set_lead(upd, ctx)
-        self.assertEqual(await self.db.get_reminder_lead(5), 60)
+        await dm_menu.toggle_lead(upd, ctx)
+        self.assertEqual(await self.db.get_reminder_leads(5), {60})
         self.assertEqual(answered["text"], load_copy("dm_menu", "reminder_saved"))
+        # toggling again removes it
+        await dm_menu.toggle_lead(upd, ctx)
+        self.assertEqual(await self.db.get_reminder_leads(5), set())
 
-    def test_prefs_markup_has_lead_selector(self):
+    async def test_clear_leads_handler(self):
+        await self.db.toggle_reminder_lead(9, 30)
+        async def answer(text=None, show_alert=False): pass
+        async def edit_markup(reply_markup=None): pass
+        q = SimpleNamespace(data="dmmenu_leadclear", answer=answer,
+                            edit_message_reply_markup=edit_markup)
+        upd = SimpleNamespace(callback_query=q, effective_user=SimpleNamespace(id=9))
+        await dm_menu.clear_leads(upd, SimpleNamespace(bot_data={"db": self.db}))
+        self.assertEqual(await self.db.get_reminder_leads(9), set())
+
+    def test_prefs_markup_multiselect_lead_row(self):
         from bot.utils.copy import load_copy
-        m = dm_menu._prefs_markup({"games": True, "events": False}, lead=30)
+        m = dm_menu._prefs_markup({"games": True, "events": False}, leads={30})
         cbs = [b.callback_data for row in m.inline_keyboard for b in row]
-        self.assertIn("dmmenu_lead_-1", cbs)   # off
-        for opt in (10, 30, 60):
+        self.assertIn("dmmenu_leadclear", cbs)   # clear-all
+        for opt in (0, 5, 10, 30, 60):
             self.assertIn(f"dmmenu_lead_{opt}", cbs)
-        # the current lead (30) is marked
+        # the selected lead (30) is marked
         mark = load_copy("dm_menu", "pref_on")
         labels = [b.text for row in m.inline_keyboard for b in row]
         self.assertTrue(any(mark in t and "30" in t for t in labels))

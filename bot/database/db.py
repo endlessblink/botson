@@ -146,20 +146,23 @@ class Database:
             "notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             "PRIMARY KEY (scheduled_msg_id, user_id)"
             ")",
-            # Per-user pre-game reminder lead time (minutes). Absent row → use
-            # config default; lead_minutes = -1 → reminders off for this user.
-            "CREATE TABLE IF NOT EXISTS user_reminder_settings ("
-            "user_id INTEGER PRIMARY KEY, "
+            # Per-user pre-game reminder lead times (minutes), multi-select: a
+            # user can pick several. One row per selected lead; no rows = no
+            # reminders. 0 = remind at kickoff.
+            "CREATE TABLE IF NOT EXISTS user_reminder_leads ("
+            "user_id INTEGER NOT NULL, "
             "lead_minutes INTEGER NOT NULL, "
-            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (user_id, lead_minutes)"
             ")",
-            # Dedupe for personal pre-game reminders: one row per (warm-up, user)
-            # already reminded, so the per-minute checker never double-DMs.
-            "CREATE TABLE IF NOT EXISTS game_reminder_log ("
+            # Dedupe for personal pre-game reminders: one row per (warm-up, user,
+            # lead) already sent, so each selected lead fires at most once.
+            "CREATE TABLE IF NOT EXISTS game_reminder_sent ("
             "warmup_msg_id INTEGER NOT NULL, "
             "user_id INTEGER NOT NULL, "
+            "lead_minutes INTEGER NOT NULL, "
             "reminded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
-            "PRIMARY KEY (warmup_msg_id, user_id)"
+            "PRIMARY KEY (warmup_msg_id, user_id, lead_minutes)"
             ")",
         ]
         for sql in migrations:
@@ -1067,41 +1070,60 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
-    async def get_reminder_lead(self, user_id: int) -> int | None:
-        """The user's chosen reminder lead (minutes), -1 if they turned it off,
-        or None if they never set one (caller applies the config default)."""
+    async def get_reminder_leads(self, user_id: int) -> set[int]:
+        """The user's selected pre-game reminder lead times (minutes).
+
+        Multi-select: empty set = no reminders. 0 = remind at kickoff.
+        """
         async with self._db.execute(
-            "SELECT lead_minutes FROM user_reminder_settings WHERE user_id=?",
+            "SELECT lead_minutes FROM user_reminder_leads WHERE user_id=?",
             (user_id,),
         ) as cursor:
-            row = await cursor.fetchone()
-        return int(row["lead_minutes"]) if row else None
+            rows = await cursor.fetchall()
+        return {int(r["lead_minutes"]) for r in rows}
 
-    async def set_reminder_lead(self, user_id: int, lead_minutes: int):
-        """Set (upsert) a user's pre-game reminder lead. -1 = off."""
+    async def toggle_reminder_lead(self, user_id: int, lead_minutes: int) -> bool:
+        """Add or remove one lead time for a user. Returns the new state
+        (True = now selected, False = now removed)."""
+        async with self._db.execute(
+            "SELECT 1 FROM user_reminder_leads WHERE user_id=? AND lead_minutes=?",
+            (user_id, lead_minutes),
+        ) as cursor:
+            exists = await cursor.fetchone() is not None
+        if exists:
+            await self._db.execute(
+                "DELETE FROM user_reminder_leads WHERE user_id=? AND lead_minutes=?",
+                (user_id, lead_minutes),
+            )
+            await self._db.commit()
+            return False
         await self._db.execute(
-            """INSERT INTO user_reminder_settings (user_id, lead_minutes, updated_at)
-               VALUES (?, ?, ?)
-               ON CONFLICT(user_id) DO UPDATE SET
-                   lead_minutes = excluded.lead_minutes,
-                   updated_at = excluded.updated_at""",
+            "INSERT OR IGNORE INTO user_reminder_leads (user_id, lead_minutes, updated_at) VALUES (?, ?, ?)",
             (user_id, lead_minutes, _now_il()),
         )
         await self._db.commit()
+        return True
 
-    async def was_game_reminded(self, warmup_msg_id: int, user_id: int) -> bool:
-        """Whether we already sent this user the personal reminder for this game."""
+    async def clear_reminder_leads(self, user_id: int):
+        """Remove all reminder lead times for a user (turns reminders off)."""
+        await self._db.execute(
+            "DELETE FROM user_reminder_leads WHERE user_id=?", (user_id,)
+        )
+        await self._db.commit()
+
+    async def was_game_reminded(self, warmup_msg_id: int, user_id: int, lead_minutes: int) -> bool:
+        """Whether we already sent this user the reminder for this game at this lead."""
         async with self._db.execute(
-            "SELECT 1 FROM game_reminder_log WHERE warmup_msg_id=? AND user_id=?",
-            (warmup_msg_id, user_id),
+            "SELECT 1 FROM game_reminder_sent WHERE warmup_msg_id=? AND user_id=? AND lead_minutes=?",
+            (warmup_msg_id, user_id, lead_minutes),
         ) as cursor:
             return await cursor.fetchone() is not None
 
-    async def mark_game_reminded(self, warmup_msg_id: int, user_id: int):
-        """Record that we sent the personal reminder (idempotent)."""
+    async def mark_game_reminded(self, warmup_msg_id: int, user_id: int, lead_minutes: int):
+        """Record that we sent the reminder for this game at this lead (idempotent)."""
         await self._db.execute(
-            "INSERT OR IGNORE INTO game_reminder_log (warmup_msg_id, user_id) VALUES (?, ?)",
-            (warmup_msg_id, user_id),
+            "INSERT OR IGNORE INTO game_reminder_sent (warmup_msg_id, user_id, lead_minutes) VALUES (?, ?, ?)",
+            (warmup_msg_id, user_id, lead_minutes),
         )
         await self._db.commit()
 

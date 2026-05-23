@@ -85,10 +85,11 @@ copy:
     notify_games: "🎮 משחק חדש נפתח להרשמה: {label}. רוצים להצטרף?"
     notify_events: "🎉 אירוע חדש פורסם: {label}. רוצים לאשר הגעה?"
     # --- Personal pre-game reminder (per-user lead time) ---
-    reminder_section: "⏰ תזכורת אישית למשחק שנרשמתם אליו"
-    reminder_help: "כמה זמן לפני שהמשחק מתחיל לשלוח לכם תזכורת בפרטי."
+    reminder_section: "⏰ תזכורות אישיות למשחק שנרשמתם אליו"
+    reminder_help: "בחרו כמה זמן לפני שהמשחק מתחיל לקבל תזכורת בפרטי. אפשר לבחור כמה זמנים."
     reminder_off_btn: "✖️ כבוי"
     reminder_lead_btn: "{minutes} דק'"
+    reminder_lead_start_btn: "בהתחלה"
     reminder_saved: "התזכורת עודכנה ✅"
     reminder_dm: "🎮 {label} מתחילה בעוד ~{minutes} דקות! היכונו 🙌"
     reminder_dm_now: "🎮 {label} מתחילה עכשיו! 🙌"
@@ -282,11 +283,11 @@ ai_populate:
 # AI will schedule reminder = actual_event_time - this value, clamped to [now+5, event-5].
 event_reminder_lead_minutes: 10
 # Personal pre-game DM reminders: when a user signs up to a game (trivia/Emoji
-# Night warm-up), the bot DMs them this many minutes before kickoff. Each user
-# can override the default from the DM menu, or turn it off entirely.
+# Night warm-up), the bot DMs them before kickoff. Multi-select — a user can pick
+# any combination of lead times from the DM menu and gets one DM at each (0 = at
+# kickoff). No selection = no reminders.
 reminder:
-  game_default_lead_min: 30
-  game_lead_options: [10, 30, 60]   # minute choices offered in the menu (+ "off")
+  game_lead_options: [0, 5, 10, 30, 60]   # minute choices offered in the menu (0 = at start)
 # Defense-in-depth: if the bot's calendar_checker picks up a scheduled row more
 # than this many minutes late (clock drift, bot was offline, SQL anomaly) it
 # marks the row failed WITHOUT sending. Future-dated rows are unaffected. Set
