@@ -512,32 +512,48 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
     """
     db: Database = context.bot_data["db"]
     now = _il_now()
+    today = now.date().isoformat()
     default_lead, _ = _reminder_config()
 
-    warmups = await db.get_active_warmups(now.date().isoformat())
-    for wu in warmups:
+    # Sign-up lists live on the warm-up row, keyed by its shared warmup_marker.
+    warmups_by_marker: dict[str, dict] = {}
+    for wu in await db.get_active_warmups(today):
         try:
-            payload = json.loads(wu.get("poll_options") or "{}")
+            wp = json.loads(wu.get("poll_options") or "{}")
         except (json.JSONDecodeError, TypeError):
-            payload = {}
-        game_time = str(payload.get("game_time") or "").strip()
-        if not game_time:
-            continue
+            wp = {}
+        marker = str(wp.get("warmup_marker") or "").strip()
+        if marker:
+            warmups_by_marker[marker] = {"row": wu, "payload": wp}
+
+    # Iterate the actual game rows — their scheduled time is the real kickoff.
+    for game in await db.get_upcoming_games(today):
         try:
-            game_dt = datetime.fromisoformat(
-                f"{wu['scheduled_date']} {game_time[:5]}"
+            kickoff = datetime.fromisoformat(
+                f"{game['scheduled_date']} {str(game['scheduled_time'])[:5]}"
             ).replace(tzinfo=_IL_TZ)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, KeyError):
             continue
-        if game_dt <= now:
+        if kickoff <= now:
             continue  # already started / past
 
-        responders = await db.get_trivia_interest_responses(wu["id"])
+        try:
+            gp = json.loads(game.get("poll_options") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            gp = {}
+        marker = str(gp.get("warmup_marker") or "").strip()
+        warmup = warmups_by_marker.get(marker) if marker else None
+        if not warmup:
+            continue  # no warm-up → no sign-up list to remind
+
+        warmup_id = int(warmup["row"]["id"])
+        responders = await db.get_trivia_interest_responses(warmup_id)
         if not responders:
             continue
+        wp = warmup["payload"]
         label = (
-            str(payload.get("activity_label") or "").strip()
-            or str(payload.get("theme_label") or "").strip()
+            str(wp.get("activity_label") or gp.get("activity_label") or "").strip()
+            or str(wp.get("theme_label") or gp.get("theme_label") or "").strip()
             or load_copy("dm_menu", "label_game_default")
         )
 
@@ -546,11 +562,11 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
             lead = _resolve_lead(await db.get_reminder_lead(uid), default_lead)
             if lead < 0:
                 continue  # reminders off for this user
-            if now < game_dt - timedelta(minutes=lead):
+            if now < kickoff - timedelta(minutes=lead):
                 continue  # not time yet
-            if await db.was_game_reminded(wu["id"], uid):
+            if await db.was_game_reminded(warmup_id, uid):
                 continue
-            minutes_left = max(0, int((game_dt - now).total_seconds() // 60))
+            minutes_left = max(0, int((kickoff - now).total_seconds() // 60))
             if minutes_left < 2:
                 body = load_copy("dm_menu", "reminder_dm_now", label=label)
             else:
@@ -558,12 +574,12 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(chat_id=uid, text=body)
             except Forbidden:
-                await db.mark_game_reminded(wu["id"], uid)
+                await db.mark_game_reminded(warmup_id, uid)
                 continue
             except Exception as e:  # noqa: BLE001
                 logger.warning("dm_menu: reminder failed for user %s: %s", uid, e)
                 continue
-            await db.mark_game_reminded(wu["id"], uid)
+            await db.mark_game_reminded(warmup_id, uid)
 
 
 def register(app):

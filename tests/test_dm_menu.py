@@ -255,17 +255,30 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         await self.db.close()
         os.remove(self.tmp.name)
 
-    async def _warmup_in(self, minutes_to_kickoff, responders):
+    async def _warmup_in(self, minutes_to_kickoff, responders, *, marker="m1",
+                         warmup_game_time=None):
+        """Create a paired warm-up + game row sharing one marker, with the game
+        row's scheduled time = kickoff. Sign up `responders` on the warm-up.
+
+        `warmup_game_time` lets a test set a *stale* game_time on the warm-up to
+        prove the reminder anchors on the authoritative game row, not the warm-up.
+        """
         import json as _json
         from datetime import timedelta
         kickoff = dm_menu._il_now() + timedelta(minutes=minutes_to_kickoff)
+        wpayload = {"activity_label": "טריוויה על מדע", "warmup_marker": marker}
+        if warmup_game_time is not None:
+            wpayload["game_time"] = warmup_game_time
         wid = await self.db.create_scheduled_message(
             text="warmup", message_type="trivia_warmup_rsvp", channel_topic_id=None,
             target_group="main", scheduled_date=kickoff.date().isoformat(),
-            scheduled_time="00:00",
-            poll_options=_json.dumps({"activity_label": "טריוויה על מדע",
-                                      "game_time": kickoff.strftime("%H:%M")}),
-            status="sent",
+            scheduled_time="00:00", poll_options=_json.dumps(wpayload), status="sent",
+        )
+        await self.db.create_scheduled_message(
+            text="game", message_type="trivia_round", channel_topic_id=None,
+            target_group="main", scheduled_date=kickoff.date().isoformat(),
+            scheduled_time=kickoff.strftime("%H:%M"),
+            poll_options=_json.dumps({"warmup_marker": marker}), status="scheduled",
         )
         for uid in responders:
             await self.db.upsert_member(uid, f"u{uid}", f"U{uid}")
@@ -301,6 +314,15 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         ctx = self._ctx()
         await dm_menu.send_due_game_reminders(ctx)
         ctx.bot.send_message.assert_not_awaited()
+
+    async def test_anchors_on_game_row_not_stale_warmup_game_time(self):
+        # Game row fires in 15 min, but the warm-up carries a stale game_time
+        # 5 hours out. With default lead 30, anchoring on the game row → fires
+        # now; anchoring on the stale warm-up time → would wrongly stay silent.
+        await self._warmup_in(15, [1], warmup_game_time="23:59")
+        ctx = self._ctx()
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_awaited_once()
 
     async def test_past_kickoff_is_skipped(self):
         wid = await self._warmup_in(-5, [1])  # already started

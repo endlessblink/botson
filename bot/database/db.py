@@ -1029,6 +1029,25 @@ class Database:
 
     # ── Personal pre-game reminders ──────────────────────────
 
+    async def get_upcoming_games(self, current_date: str) -> list[dict]:
+        """Not-yet-fired game rows (the authoritative kickoff source).
+
+        The game's own scheduled_date+scheduled_time is what calendar_checker
+        actually fires on, so the reminder anchors here — not on the warm-up's
+        poll_options.game_time, which is a copy that can drift (observed:
+        a marker encoding 21:00 while the game row fires at 20:00).
+        """
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE message_type IN ('trivia_round', 'emoji_puzzle')
+                 AND status = 'scheduled'
+                 AND scheduled_date >= ?
+               ORDER BY scheduled_date, scheduled_time""",
+            (current_date,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
     async def get_active_warmups(self, current_date: str) -> list[dict]:
         """Warm-up rows for today+future games, for the reminder checker.
 
