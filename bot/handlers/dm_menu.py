@@ -174,9 +174,11 @@ async def _build_upcoming(db: Database, user_id: int):
     `user_id` is already signed up to each game (so the button can toggle)."""
     now = _il_now()
     events = await db.get_upcoming_events(limit=5)
-    warmups = await db.get_upcoming_scheduled_games(
-        now.date().isoformat(), now.strftime("%H:%M"), limit=5
-    )
+    # By DATE only (not the warm-up's post time): a warm-up posts ~an hour
+    # before kickoff, so filtering on its scheduled_time wrongly drops the game
+    # from the menu the moment the warm-up posts. We keep it until the real
+    # kickoff (game row time) passes — filtered in Python below.
+    warmups = await db.get_active_warmups(now.date().isoformat())
     # marker → game row, so we can show the real kickoff (the game's own time),
     # not the warm-up's post time. Same authoritative source as the reminder job.
     games_by_marker: dict[str, dict] = {}
@@ -204,27 +206,37 @@ async def _build_upcoming(db: Database, user_id: int):
             InlineKeyboardButton(load_copy("dm_menu", "btn_rsvp_maybe"), callback_data=f"dmmenu_evm_{ev['id']}"),
         ])
 
+    shown_games = 0
     for wu in warmups:
+        if shown_games >= 5:
+            break
         try:
             payload = json.loads(wu.get("poll_options") or "{}")
         except (json.JSONDecodeError, TypeError):
             payload = {}
+        # Resolve the real kickoff: linked game row (authoritative) → warm-up's
+        # stored game_time → warm-up's own time. Drop items already started.
+        marker = str(payload.get("warmup_marker") or "").strip()
+        game = games_by_marker.get(marker) if marker else None
+        if game:
+            kdate, ktime = game.get("scheduled_date"), str(game.get("scheduled_time") or "")
+        elif payload.get("game_time"):
+            kdate, ktime = wu.get("scheduled_date"), str(payload.get("game_time"))
+        else:
+            kdate, ktime = wu.get("scheduled_date"), str(wu.get("scheduled_time") or "")
+        try:
+            kickoff = datetime.fromisoformat(f"{kdate} {ktime[:5]}").replace(tzinfo=_IL_TZ)
+        except (ValueError, TypeError):
+            kickoff = None
+        if kickoff is not None and kickoff <= now:
+            continue  # game already started / passed → don't list it
+
         label = (
             str(payload.get("activity_label") or "").strip()
             or str(payload.get("theme_label") or "").strip()
             or load_copy("dm_menu", "label_game_default")
         )
-        # Show the real game kickoff, not the warm-up's post time. Prefer the
-        # linked game row (authoritative), then the warm-up's stored game_time,
-        # then fall back to the warm-up's own time.
-        marker = str(payload.get("warmup_marker") or "").strip()
-        game = games_by_marker.get(marker) if marker else None
-        if game:
-            when = _fmt_when(game.get("scheduled_date"), game.get("scheduled_time"))
-        elif payload.get("game_time"):
-            when = _fmt_when(wu.get("scheduled_date"), str(payload.get("game_time")))
-        else:
-            when = _fmt_when(wu.get("scheduled_date"), wu.get("scheduled_time"))
+        when = _fmt_when(kdate, ktime)
         lines.append(load_copy(
             "dm_menu", "item_line",
             icon=load_copy("dm_menu", "icon_game"), label=label, when=when,
@@ -239,6 +251,7 @@ async def _build_upcoming(db: Database, user_id: int):
             rows.append([InlineKeyboardButton(
                 load_copy("dm_menu", "btn_signup_interest"), callback_data=f"dmmenu_tr_{wid}",
             )])
+        shown_games += 1
 
     if lines:
         return load_copy("dm_menu", "upcoming_title") + "\n\n" + "\n".join(lines), InlineKeyboardMarkup(rows)

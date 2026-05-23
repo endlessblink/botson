@@ -259,6 +259,65 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         cbs2 = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
         self.assertIn(f"dmmenu_tr_{wid}", cbs2)
 
+    async def test_warmup_posted_but_game_upcoming_stays_listed(self):
+        # Regression: warm-up posted an hour ago (post time passed) but the game
+        # kicks off in 30 min — it must STAY in the menu, not show "nothing
+        # scheduled". (Old query filtered on warm-up post time and dropped it.)
+        import json as _json
+        from datetime import timedelta
+        now = dm_menu._il_now()
+        post = now - timedelta(minutes=60)
+        kickoff = now + timedelta(minutes=30)
+        marker = "mk-future"
+        wid = await self.db.create_scheduled_message(
+            text="wu", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date=post.date().isoformat(),
+            scheduled_time=post.strftime("%H:%M"),
+            poll_options=_json.dumps({"activity_label": "טריוויה", "warmup_marker": marker}),
+            status="sent",
+        )
+        await self.db.create_scheduled_message(
+            text="game", message_type="trivia_round", channel_topic_id=None,
+            target_group="main", scheduled_date=kickoff.date().isoformat(),
+            scheduled_time=kickoff.strftime("%H:%M"),
+            poll_options=_json.dumps({"warmup_marker": marker}), status="scheduled",
+        )
+        cap = {}
+        async def reply(text, reply_markup=None): cap["text"], cap["markup"] = text, reply_markup
+        upd = SimpleNamespace(
+            callback_query=None, message=SimpleNamespace(reply_text=reply),
+            effective_user=SimpleNamespace(id=1, username="u"),
+            effective_chat=SimpleNamespace(id=1, type="private"),
+        )
+        await dm_menu.show_upcoming(upd, SimpleNamespace(bot_data={"db": self.db}, bot=AsyncMock()))
+        self.assertIn("טריוויה", cap["text"])
+        self.assertIsNotNone(cap["markup"])
+        cbs = [b.callback_data for row in cap["markup"].inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_tr_{wid}", cbs)
+
+    async def test_started_game_is_dropped_from_list(self):
+        import json as _json
+        from datetime import timedelta
+        now = dm_menu._il_now()
+        marker = "mk-past"
+        await self.db.create_scheduled_message(
+            text="wu", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date=(now - timedelta(minutes=90)).date().isoformat(),
+            scheduled_time=(now - timedelta(minutes=90)).strftime("%H:%M"),
+            poll_options=_json.dumps({"activity_label": "טריוויה", "game_time": (now - timedelta(minutes=10)).strftime("%H:%M"), "warmup_marker": marker}),
+            status="sent",
+        )
+        cap = {}
+        async def reply(text, reply_markup=None): cap["text"], cap["markup"] = text, reply_markup
+        upd = SimpleNamespace(
+            callback_query=None, message=SimpleNamespace(reply_text=reply),
+            effective_user=SimpleNamespace(id=2, username="u"),
+            effective_chat=SimpleNamespace(id=2, type="private"),
+        )
+        await dm_menu.show_upcoming(upd, SimpleNamespace(bot_data={"db": self.db}, bot=AsyncMock()))
+        # Game already started → not listed (empty-state, no markup).
+        self.assertIsNone(cap["markup"])
+
     async def test_record_interest_for_scheduled_row_without_group_confirmation(self):
         from bot.handlers.trivia_interest import record_trivia_interest
         wid = await self._make_scheduled_warmup()
