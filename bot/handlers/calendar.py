@@ -119,6 +119,14 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
     Raises SkippedActivity to short-circuit the dispatch loop. The existing
     exception handler in check_and_send_due_messages marks the row 'skipped'.
     """
+    from ..utils.config import rsvp_gate_enabled
+    if not rsvp_gate_enabled():
+        # Gate disabled (default): games always fire. The RSVP button still
+        # posted on the warm-up and still recorded interest — we just stop
+        # auto-cancelling, because the gate was killing ~80% of games for too
+        # few RSVPs (2026-05-23). Re-enable via trivia.rsvp_gate_enabled.
+        return
+
     payload = _parse_payload(msg.get("poll_options"))
     marker = str(payload.get("warmup_marker") or "").strip()
     threshold = int(payload.get("min_ready_players") or 0)

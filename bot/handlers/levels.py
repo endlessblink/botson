@@ -56,11 +56,37 @@ async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_bot_user(user):
         return
 
+    db: Database = context.bot_data["db"]
+
+    # Engagement capture: a reply to one of the bot's scheduled posts is the
+    # highest-signal outcome for prompts (discussion/morning/evening). Recorded
+    # independently of the levels feature toggle so the signal is never lost.
+    await _maybe_record_prompt_reply(update, db)
+
     if not is_feature_enabled("levels", update.effective_chat.id):
         return
 
-    db: Database = context.bot_data["db"]
     await db.upsert_member(user.id, user.username, get_display_name(user))
+
+
+async def _maybe_record_prompt_reply(update: Update, db: Database) -> None:
+    """If this message replies to one of the bot's tracked posts, record it.
+
+    Matching on the bot's stored sent_message_id (not just "is a reply") means
+    we only count genuine replies to content the bot scheduled — forum topic
+    roots and replies to other users never match.
+    """
+    if not update.message or not update.effective_user:
+        return
+    reply_to = update.message.reply_to_message
+    if not reply_to:
+        return
+    try:
+        sched = await db.get_scheduled_by_sent_message_id(reply_to.message_id)
+        if sched:
+            await db.record_prompt_reply(int(sched["id"]), update.effective_user.id)
+    except Exception as e:  # noqa: BLE001 — engagement capture must never break message handling
+        logger.warning("prompt-reply capture failed: %s", e)
 
 
 async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

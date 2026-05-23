@@ -164,6 +164,18 @@ class Database:
             "reminded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             "PRIMARY KEY (warmup_msg_id, user_id, lead_minutes)"
             ")",
+            # Engagement capture: a reply to one of the bot's scheduled posts.
+            # The single highest-signal outcome for prompts (discussion/morning/
+            # evening) — previously not recorded at all. One row per (post, user).
+            "CREATE TABLE IF NOT EXISTS prompt_replies ("
+            "scheduled_msg_id INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, "
+            "replied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (scheduled_msg_id, user_id)"
+            ")",
+            # Index the bot's outbound Telegram message id so an incoming reply
+            # (reply_to_message.message_id) can be mapped back to its scheduled row.
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_sent_message_id ON scheduled_messages(sent_message_id)",
         ]
         for sql in migrations:
             try:
@@ -2083,6 +2095,128 @@ class Database:
         ) as cur:
             rows = await cur.fetchall()
         return {int(r["scheduled_msg_id"]): dict(r) for r in rows}
+
+    # ── Prompt replies (engagement capture) ──────────────────
+
+    async def get_scheduled_by_sent_message_id(self, telegram_message_id: int) -> dict | None:
+        """Map an outbound Telegram message id back to its scheduled_messages row.
+
+        Used to tell whether an incoming reply targets one of the bot's posts.
+        """
+        async with self._db.execute(
+            """SELECT id, message_type, channel_topic_id, scheduled_date, scheduled_time
+               FROM scheduled_messages WHERE sent_message_id = ?
+               ORDER BY id DESC LIMIT 1""",
+            (int(telegram_message_id),),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def record_prompt_reply(self, scheduled_msg_id: int, user_id: int) -> None:
+        """Record that a user replied to one of the bot's posts (idempotent per user)."""
+        await self._db.execute(
+            """INSERT INTO prompt_replies (scheduled_msg_id, user_id, replied_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(scheduled_msg_id, user_id) DO NOTHING""",
+            (int(scheduled_msg_id), int(user_id), _now_il()),
+        )
+        await self._db.commit()
+
+    async def get_prompt_reply_count(self, scheduled_msg_id: int) -> int:
+        """Distinct users who replied to one post."""
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM prompt_replies WHERE scheduled_msg_id = ?",
+            (int(scheduled_msg_id),),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["n"]) if row else 0
+
+    async def list_prompt_reply_counts(self, scheduled_msg_ids: list[int]) -> dict[int, int]:
+        """Bulk reply counts for dashboard rendering. Returns {scheduled_msg_id: count}."""
+        if not scheduled_msg_ids:
+            return {}
+        placeholders = ",".join("?" for _ in scheduled_msg_ids)
+        async with self._db.execute(
+            f"""SELECT scheduled_msg_id, COUNT(*) AS n FROM prompt_replies
+                WHERE scheduled_msg_id IN ({placeholders})
+                GROUP BY scheduled_msg_id""",
+            [int(x) for x in scheduled_msg_ids],
+        ) as cur:
+            rows = await cur.fetchall()
+        return {int(r["scheduled_msg_id"]): int(r["n"]) for r in rows}
+
+    async def get_engagement_rollup(self, days: int = 7) -> list[dict]:
+        """Consolidated engagement per message_type over the last `days`.
+
+        One row per message_type that the bot actually SENT in the window, with
+        every engagement signal we capture joined in:
+          sent          — posts of this type sent in the window
+          reactions     — distinct reactors across those posts
+          replies       — distinct users who replied to those posts
+          rsvps         — warm-up RSVPs (trivia_interest_responses) on those posts
+          poll_votes    — poll votes cast on those posts
+          engaged_posts — posts that got ANY reaction/reply/RSVP/vote (>0)
+
+        This is the single read backing the engagement view; it answers
+        "which content types produce engagement, and is it flat or moving?".
+        """
+        async with self._db.execute(
+            """
+            SELECT s.message_type AS message_type,
+                   COUNT(DISTINCT s.id) AS sent,
+                   COALESCE(SUM(e.distinct_reactors), 0) AS reactions
+              FROM scheduled_messages s
+              LEFT JOIN message_engagement e ON e.scheduled_msg_id = s.id
+             WHERE s.status = 'sent'
+               AND s.sent_at IS NOT NULL
+               AND date(s.sent_at) >= date('now', ?)
+             GROUP BY s.message_type
+             ORDER BY sent DESC
+            """,
+            (f"-{int(days)} days",),
+        ) as cur:
+            base_rows = await cur.fetchall()
+
+        # Per-type reply / rsvp / poll-vote totals (separate aggregates keep the
+        # main query from fanning out rows across the one-to-many join tables).
+        async def _counts_by_type(sql: str) -> dict:
+            async with self._db.execute(sql, (f"-{int(days)} days",)) as c:
+                return {str(r["message_type"]): int(r["n"]) for r in await c.fetchall()}
+
+        replies_by_type = await _counts_by_type(
+            """SELECT s.message_type AS message_type, COUNT(*) AS n
+                 FROM prompt_replies pr JOIN scheduled_messages s ON s.id = pr.scheduled_msg_id
+                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
+                  AND date(s.sent_at) >= date('now', ?)
+                GROUP BY s.message_type"""
+        )
+        rsvps_by_type = await _counts_by_type(
+            """SELECT s.message_type AS message_type, COUNT(*) AS n
+                 FROM trivia_interest_responses tir JOIN scheduled_messages s ON s.id = tir.scheduled_msg_id
+                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
+                  AND date(s.sent_at) >= date('now', ?)
+                GROUP BY s.message_type"""
+        )
+        votes_by_type = await _counts_by_type(
+            """SELECT s.message_type AS message_type, COUNT(*) AS n
+                 FROM poll_votes pv JOIN scheduled_messages s ON s.sent_message_id = pv.message_id
+                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
+                  AND date(s.sent_at) >= date('now', ?)
+                GROUP BY s.message_type"""
+        )
+
+        out: list[dict] = []
+        for r in base_rows:
+            mtype = str(r["message_type"])
+            out.append({
+                "message_type": mtype,
+                "sent": int(r["sent"]),
+                "reactions": int(r["reactions"] or 0),
+                "replies": replies_by_type.get(mtype, 0),
+                "rsvps": rsvps_by_type.get(mtype, 0),
+                "poll_votes": votes_by_type.get(mtype, 0),
+            })
+        return out
 
     # ── Content Feedback (T-172) ─────────────────────────────
 

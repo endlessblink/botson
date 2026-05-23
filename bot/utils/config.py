@@ -145,6 +145,21 @@ def warmup_reminder_enabled() -> bool:
     return bool((get_settings().get("trivia") or {}).get("warmup_reminder_enabled", True))
 
 
+def rsvp_gate_enabled() -> bool:
+    """Whether the warm-up RSVP gate may CANCEL a trivia/emoji game launch.
+
+    When False (the shipped default), games always fire regardless of how many
+    people clicked the RSVP button — the button still posts and still records
+    interest, we just stop auto-cancelling. This exists because the gate was
+    cancelling ~80% of scheduled games for fewer than 2 RSVPs, suppressing the
+    very engagement it was meant to protect (2026-05-23 analysis).
+
+    Defaults to False when the key is absent. Set true to restore the
+    min_ready_players cancel behavior.
+    """
+    return bool((get_settings().get("trivia") or {}).get("rsvp_gate_enabled", False))
+
+
 def deep_link(param: str) -> str:
     """Build a https://t.me/<bot>?start=<param> deep link.
 

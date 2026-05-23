@@ -1676,6 +1676,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                             {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
                              "TEST_GROUP_ID": "-1002"}), \
                  patch("telegram.Bot", return_value=object()), \
+                 patch("bot.utils.config.rsvp_gate_enabled", return_value=True), \
                  patch.object(bot_calendar, "start_scheduled_trivia_round",
                               new=AsyncMock(return_value=555)) as start_trivia, \
                  patch.object(bot_calendar, "safe_send",
@@ -1852,6 +1853,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                             {"BOT_TOKEN": "token", "GROUP_ID": "-1001",
                              "TEST_GROUP_ID": "-1002"}), \
                  patch("telegram.Bot", return_value=object()), \
+                 patch("bot.utils.config.rsvp_gate_enabled", return_value=True), \
                  patch.object(bot_calendar, "start_emoji_night",
                               new=AsyncMock(return_value=99)) as start_emoji, \
                  patch.object(bot_calendar, "safe_send",
