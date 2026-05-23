@@ -142,8 +142,56 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
     return result
 
 
+def _interest_button(scheduled_msg_id: int, count: int, names: str) -> InlineKeyboardButton:
+    """The live-count '🙋 בפנים (N): names' button for a warm-up."""
+    label = f"🙋 בפנים ({count})"  # noqa: hardcoded-content (button label; extraction follow-up)
+    if names:
+        label = f"{label}: {names}"
+    return InlineKeyboardButton(label[:60], callback_data=f"trivint_{scheduled_msg_id}")
+
+
+def _warmup_markup(scheduled_msg_id: int, count: int, names: str) -> InlineKeyboardMarkup:
+    """Count button + the 'open in DM' deep-link button (when configured)."""
+    rows = [[_interest_button(scheduled_msg_id, count, names)]]
+    # Local import avoids a circular import (dm_menu imports this module).
+    from .dm_menu import deep_link_button
+    dl = deep_link_button()
+    if dl:
+        rows.append([dl])
+    return InlineKeyboardMarkup(rows)
+
+
+async def refresh_warmup_group_button(bot, db: Database, scheduled_msg_id: int):
+    """Update the group warm-up message's count button to match the table.
+
+    Called after a DM sign-up/off so the group display and the DM stay in sync.
+    No-op if the warm-up hasn't been posted to the group yet.
+    """
+    async with db._db.execute(
+        "SELECT sent_message_id FROM scheduled_messages WHERE id=?",
+        (scheduled_msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or not row["sent_message_id"]:
+        return
+    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
+    names = _format_interest_names(responses, limit=3)
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=GROUP_ID, message_id=row["sent_message_id"],
+            reply_markup=_warmup_markup(scheduled_msg_id, len(responses), names),
+        )
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.warning("trivia_interest: failed to refresh group button: %s", e)
+
+
 async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle a click on the אני בפנים button of a trivia warm-up message."""
+    """Toggle the user's sign-up from the group warm-up's 🙋 button.
+
+    Already signed up → leave; otherwise → join. Mirrors the DM menu toggle so
+    both surfaces stay in sync (both read/write trivia_interest_responses).
+    """
     query = update.callback_query
     if not query or not query.data:
         return
@@ -158,8 +206,23 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     db: Database = context.bot_data["db"]
-    result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
 
+    # Toggle off if already in.
+    if await db.has_trivia_interest_response(scheduled_msg_id, user.id):
+        await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
+        await query.answer("ביטלת את ההרשמה")  # noqa: hardcoded-content (temporary fallback; copy extraction follow-up)
+        responses = await db.get_trivia_interest_responses(scheduled_msg_id)
+        names = _format_interest_names(responses, limit=3)
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=_warmup_markup(scheduled_msg_id, len(responses), names)
+            )
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.warning("trivia_interest: failed to update button: %s", e)
+        return
+
+    result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
     if result is None:
         await query.answer("ההרשמה כבר לא זמינה", show_alert=True)  # noqa: hardcoded-content (temporary fallback; copy extraction follow-up)
         return
@@ -168,19 +231,12 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     await query.answer()
-
-    count = result["count"]
-    names = result["names"]
-    button_label = f"🙋 בפנים ({count})"
-    if names:
-        button_label = f"{button_label}: {names}"
-
-    # Update button to show live count
-    markup = InlineKeyboardMarkup([[
-        InlineKeyboardButton(button_label[:60], callback_data=query.data),
-    ]])
+    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
+    names = _format_interest_names(responses, limit=3)
     try:
-        await query.edit_message_reply_markup(reply_markup=markup)
+        await query.edit_message_reply_markup(
+            reply_markup=_warmup_markup(scheduled_msg_id, len(responses), names)
+        )
     except Exception as e:
         if "not modified" not in str(e).lower():
             logger.warning("trivia_interest: failed to update button: %s", e)

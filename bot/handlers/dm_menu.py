@@ -43,7 +43,7 @@ from ..utils.config import GROUP_ID, deep_link, get_settings
 from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
 from ..utils.levels import check_level_up
-from .trivia_interest import record_trivia_interest
+from .trivia_interest import record_trivia_interest, refresh_warmup_group_button
 
 logger = logging.getLogger(__name__)
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
@@ -439,6 +439,8 @@ async def _handle_trivia_signup(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await query.answer(load_copy("dm_menu", "signup_done"))
     await _rerender_upcoming(query, db, user.id)
+    # Keep the group warm-up's live count in sync with this DM action.
+    await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
 
 
 async def _handle_trivia_signoff(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -456,6 +458,8 @@ async def _handle_trivia_signoff(update: Update, context: ContextTypes.DEFAULT_T
     await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
     await query.answer(load_copy("dm_menu", "signoff_done"))
     await _rerender_upcoming(query, db, user.id)
+    # Keep the group warm-up's live count in sync with this DM action.
+    await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
 
 
 # ── Callback router ──────────────────────────────────────────

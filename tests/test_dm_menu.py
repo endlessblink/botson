@@ -237,7 +237,7 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         async def reply(text, reply_markup=None):
             cap["markup"] = reply_markup
 
-        ctx = SimpleNamespace(bot_data={"db": self.db})
+        ctx = SimpleNamespace(bot_data={"db": self.db}, bot=AsyncMock())
         upd = SimpleNamespace(
             callback_query=None, message=SimpleNamespace(reply_text=reply),
             effective_user=SimpleNamespace(id=1, username="u"),
