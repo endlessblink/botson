@@ -183,6 +183,10 @@ def _setup_reload_watcher(app):
     # Content calendar checker — runs every minute
     app.job_queue.run_repeating(check_and_send_due_messages, interval=60, first=10, name="calendar_checker")
 
+    # Personal pre-game reminders — DM signed-up users before kickoff
+    from .handlers.dm_menu import send_due_game_reminders
+    app.job_queue.run_repeating(send_due_game_reminders, interval=60, first=20, name="game_reminder_checker")
+
 
 async def _reload_config(app):
     """Atomic reload: re-register cron jobs and re-materialize text-content rows.
@@ -203,7 +207,7 @@ async def _reload_config(app):
         return
 
     # Save old jobs (excluding system jobs) so we can restore on failure
-    system_jobs = {"reload_watcher", "calendar_checker"}
+    system_jobs = {"reload_watcher", "calendar_checker", "game_reminder_checker"}
     old_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
 
     # Remove only schedule jobs (not the reload_watcher)

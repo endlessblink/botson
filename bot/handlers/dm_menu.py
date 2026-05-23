@@ -19,7 +19,7 @@ The menu does two things:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from telegram import (
@@ -39,7 +39,7 @@ from telegram.ext import (
 )
 
 from ..database.db import Database
-from ..utils.config import GROUP_ID, deep_link
+from ..utils.config import GROUP_ID, deep_link, get_settings
 from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
 from ..utils.levels import check_level_up
@@ -55,6 +55,9 @@ PREFERENCE_TYPES = ("games", "events")
 EVENT_POINTS = 3  # parity with handle_rsvp in events.py
 
 
+REMINDER_OFF = -1  # sentinel: user turned personal pre-game reminders off
+
+
 def _msg_type_to_activity(message_type: str) -> str | None:
     """Map a dispatched scheduled_messages.message_type → preference type."""
     if message_type == "event":
@@ -62,6 +65,19 @@ def _msg_type_to_activity(message_type: str) -> str | None:
     if message_type == "trivia_warmup_rsvp":
         return "games"
     return None
+
+
+def _reminder_config() -> tuple[int, list[int]]:
+    """(default_lead_minutes, lead_options) for personal pre-game reminders."""
+    r = (get_settings() or {}).get("reminder") or {}
+    default = int(r.get("game_default_lead_min", 30))
+    options = [int(x) for x in (r.get("game_lead_options") or [10, 30, 60])]
+    return default, options
+
+
+def _resolve_lead(stored: int | None, default: int) -> int:
+    """Effective lead for a user: their stored value, or the config default."""
+    return default if stored is None else stored
 
 
 def _il_now() -> datetime:
@@ -216,24 +232,56 @@ async def show_upcoming(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_inline(update, text, markup)
 
 
-def _prefs_markup(prefs: dict[str, bool]) -> InlineKeyboardMarkup:
+def _prefs_markup(prefs: dict[str, bool], lead: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for ptype in PREFERENCE_TYPES:
         state = load_copy("dm_menu", "pref_on") if prefs.get(ptype) else load_copy("dm_menu", "pref_off")
         label = f"{state} {load_copy('dm_menu', f'pref_{ptype}')}"
         rows.append([InlineKeyboardButton(label, callback_data=f"dmmenu_pref_{ptype}")])
+
+    # Pre-game reminder lead-time selector: off + each configured option, the
+    # current choice marked. Callback dmmenu_lead_<minutes> (or _-1 for off).
+    _, options = _reminder_config()
+    mark = load_copy("dm_menu", "pref_on")
+    lead_row = [InlineKeyboardButton(
+        (f"{mark} " if lead == REMINDER_OFF else "") + load_copy("dm_menu", "reminder_off_btn"),
+        callback_data=f"dmmenu_lead_{REMINDER_OFF}",
+    )]
+    for m in options:
+        lead_row.append(InlineKeyboardButton(
+            (f"{mark} " if lead == m else "") + load_copy("dm_menu", "reminder_lead_btn", minutes=m),
+            callback_data=f"dmmenu_lead_{m}",
+        ))
+    rows.append(lead_row)
     return InlineKeyboardMarkup(rows)
 
 
 async def show_prefs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Render the per-activity notification toggles."""
+    """Render the per-activity notification toggles + pre-game reminder lead."""
     user = update.effective_user
     if not user:
         return
     db: Database = context.bot_data["db"]
     prefs = await db.get_user_preferences(user.id)
-    text = load_copy("dm_menu", "prefs_title") + "\n\n" + load_copy("dm_menu", "prefs_help")
-    await _send_inline(update, text, _prefs_markup(prefs))
+    default, _ = _reminder_config()
+    lead = _resolve_lead(await db.get_reminder_lead(user.id), default)
+    text = (
+        load_copy("dm_menu", "prefs_title") + "\n\n" + load_copy("dm_menu", "prefs_help")
+        + "\n\n" + load_copy("dm_menu", "reminder_section")
+        + "\n" + load_copy("dm_menu", "reminder_help")
+    )
+    await _send_inline(update, text, _prefs_markup(prefs, lead))
+
+
+async def _rerender_prefs_markup(query, db: Database, user_id: int):
+    prefs = await db.get_user_preferences(user_id)
+    default, _ = _reminder_config()
+    lead = _resolve_lead(await db.get_reminder_lead(user_id), default)
+    try:
+        await query.edit_message_reply_markup(reply_markup=_prefs_markup(prefs, lead))
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.warning("dm_menu: failed to update prefs markup: %s", e)
 
 
 async def toggle_pref(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -250,12 +298,24 @@ async def toggle_pref(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_state = not await db.get_activity_preference(user.id, ptype)
     await db.set_activity_preference(user.id, ptype, new_state)
     await query.answer(load_copy("dm_menu", "pref_saved"))
-    prefs = await db.get_user_preferences(user.id)
+    await _rerender_prefs_markup(query, db, user.id)
+
+
+async def set_lead(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set the user's pre-game reminder lead time and re-render the prefs list."""
+    query = update.callback_query
+    user = update.effective_user
+    if not query or not user:
+        return
     try:
-        await query.edit_message_reply_markup(reply_markup=_prefs_markup(prefs))
-    except Exception as e:
-        if "not modified" not in str(e).lower():
-            logger.warning("dm_menu: failed to update prefs markup: %s", e)
+        minutes = int(query.data.rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        await query.answer()
+        return
+    db: Database = context.bot_data["db"]
+    await db.set_reminder_lead(user.id, minutes)
+    await query.answer(load_copy("dm_menu", "reminder_saved"))
+    await _rerender_prefs_markup(query, db, user.id)
 
 
 # ── DM sign-up actions (reuse the persistence layer) ─────────
@@ -350,6 +410,8 @@ async def route_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_prefs(update, context)
     elif data.startswith("dmmenu_pref_"):
         await toggle_pref(update, context)
+    elif data.startswith("dmmenu_lead_"):
+        await set_lead(update, context)
     elif data.startswith("dmmenu_evy_"):
         await _handle_event_rsvp(update, context, "yes")
     elif data.startswith("dmmenu_evm_"):
@@ -437,6 +499,71 @@ async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Stop here so no later-group handler (antispam's catch-all in group 0,
     # levels' message tracker, etc.) also processes this menu-button text.
     raise ApplicationHandlerStop
+
+
+async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
+    """Per-minute job: DM each signed-up user a personal reminder before their
+    game's kickoff, at the user's chosen lead time (config default otherwise).
+
+    Robust to a late/missed tick: a reminder fires as soon as we're past the
+    user's lead time and before kickoff, exactly once (game_reminder_log dedupe).
+    Users who set their lead to 'off' (-1) are skipped; Forbidden (blocked bot)
+    is swallowed.
+    """
+    db: Database = context.bot_data["db"]
+    now = _il_now()
+    default_lead, _ = _reminder_config()
+
+    warmups = await db.get_active_warmups(now.date().isoformat())
+    for wu in warmups:
+        try:
+            payload = json.loads(wu.get("poll_options") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        game_time = str(payload.get("game_time") or "").strip()
+        if not game_time:
+            continue
+        try:
+            game_dt = datetime.fromisoformat(
+                f"{wu['scheduled_date']} {game_time[:5]}"
+            ).replace(tzinfo=_IL_TZ)
+        except (ValueError, TypeError):
+            continue
+        if game_dt <= now:
+            continue  # already started / past
+
+        responders = await db.get_trivia_interest_responses(wu["id"])
+        if not responders:
+            continue
+        label = (
+            str(payload.get("activity_label") or "").strip()
+            or str(payload.get("theme_label") or "").strip()
+            or load_copy("dm_menu", "label_game_default")
+        )
+
+        for r in responders:
+            uid = int(r["user_id"])
+            lead = _resolve_lead(await db.get_reminder_lead(uid), default_lead)
+            if lead < 0:
+                continue  # reminders off for this user
+            if now < game_dt - timedelta(minutes=lead):
+                continue  # not time yet
+            if await db.was_game_reminded(wu["id"], uid):
+                continue
+            minutes_left = max(0, int((game_dt - now).total_seconds() // 60))
+            if minutes_left < 2:
+                body = load_copy("dm_menu", "reminder_dm_now", label=label)
+            else:
+                body = load_copy("dm_menu", "reminder_dm", label=label, minutes=minutes_left)
+            try:
+                await context.bot.send_message(chat_id=uid, text=body)
+            except Forbidden:
+                await db.mark_game_reminded(wu["id"], uid)
+                continue
+            except Exception as e:  # noqa: BLE001
+                logger.warning("dm_menu: reminder failed for user %s: %s", uid, e)
+                continue
+            await db.mark_game_reminded(wu["id"], uid)
 
 
 def register(app):

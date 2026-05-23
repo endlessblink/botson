@@ -146,6 +146,21 @@ class Database:
             "notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             "PRIMARY KEY (scheduled_msg_id, user_id)"
             ")",
+            # Per-user pre-game reminder lead time (minutes). Absent row → use
+            # config default; lead_minutes = -1 → reminders off for this user.
+            "CREATE TABLE IF NOT EXISTS user_reminder_settings ("
+            "user_id INTEGER PRIMARY KEY, "
+            "lead_minutes INTEGER NOT NULL, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            ")",
+            # Dedupe for personal pre-game reminders: one row per (warm-up, user)
+            # already reminded, so the per-minute checker never double-DMs.
+            "CREATE TABLE IF NOT EXISTS game_reminder_log ("
+            "warmup_msg_id INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, "
+            "reminded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (warmup_msg_id, user_id)"
+            ")",
         ]
         for sql in migrations:
             try:
@@ -1009,6 +1024,65 @@ class Database:
         await self._db.execute(
             "INSERT OR IGNORE INTO activity_notification_log (scheduled_msg_id, user_id) VALUES (?, ?)",
             (scheduled_msg_id, user_id),
+        )
+        await self._db.commit()
+
+    # ── Personal pre-game reminders ──────────────────────────
+
+    async def get_active_warmups(self, current_date: str) -> list[dict]:
+        """Warm-up rows for today+future games, for the reminder checker.
+
+        Unlike get_upcoming_scheduled_games (which filters on the warm-up's post
+        time), this returns rows by date only — the actual kickoff lives in
+        poll_options.game_time and is compared in Python. So a warm-up posted
+        earlier today for an evening game is still found.
+        """
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE message_type = 'trivia_warmup_rsvp'
+                 AND status IN ('scheduled', 'sent')
+                 AND scheduled_date >= ?
+               ORDER BY scheduled_date""",
+            (current_date,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_reminder_lead(self, user_id: int) -> int | None:
+        """The user's chosen reminder lead (minutes), -1 if they turned it off,
+        or None if they never set one (caller applies the config default)."""
+        async with self._db.execute(
+            "SELECT lead_minutes FROM user_reminder_settings WHERE user_id=?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["lead_minutes"]) if row else None
+
+    async def set_reminder_lead(self, user_id: int, lead_minutes: int):
+        """Set (upsert) a user's pre-game reminder lead. -1 = off."""
+        await self._db.execute(
+            """INSERT INTO user_reminder_settings (user_id, lead_minutes, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   lead_minutes = excluded.lead_minutes,
+                   updated_at = excluded.updated_at""",
+            (user_id, lead_minutes, _now_il()),
+        )
+        await self._db.commit()
+
+    async def was_game_reminded(self, warmup_msg_id: int, user_id: int) -> bool:
+        """Whether we already sent this user the personal reminder for this game."""
+        async with self._db.execute(
+            "SELECT 1 FROM game_reminder_log WHERE warmup_msg_id=? AND user_id=?",
+            (warmup_msg_id, user_id),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def mark_game_reminded(self, warmup_msg_id: int, user_id: int):
+        """Record that we sent the personal reminder (idempotent)."""
+        await self._db.execute(
+            "INSERT OR IGNORE INTO game_reminder_log (warmup_msg_id, user_id) VALUES (?, ?)",
+            (warmup_msg_id, user_id),
         )
         await self._db.commit()
 

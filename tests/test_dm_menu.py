@@ -244,6 +244,78 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r["user_id"] for r in responses], [7])
 
 
+class GameReminderTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        self.db = Database(self.tmp.name)
+        await self.db.init()
+
+    async def asyncTearDown(self):
+        await self.db.close()
+        os.remove(self.tmp.name)
+
+    async def _warmup_in(self, minutes_to_kickoff, responders):
+        import json as _json
+        from datetime import timedelta
+        kickoff = dm_menu._il_now() + timedelta(minutes=minutes_to_kickoff)
+        wid = await self.db.create_scheduled_message(
+            text="warmup", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date=kickoff.date().isoformat(),
+            scheduled_time="00:00",
+            poll_options=_json.dumps({"activity_label": "טריוויה על מדע",
+                                      "game_time": kickoff.strftime("%H:%M")}),
+            status="sent",
+        )
+        for uid in responders:
+            await self.db.upsert_member(uid, f"u{uid}", f"U{uid}")
+            await self.db.add_trivia_interest_response(wid, uid, f"U{uid}")
+        return wid
+
+    def _ctx(self):
+        return SimpleNamespace(bot_data={"db": self.db},
+                               bot=SimpleNamespace(send_message=AsyncMock()))
+
+    async def test_reminds_signed_up_user_once_then_dedupes(self):
+        # Game in 15 min; default lead 30 → past lead time → should fire now.
+        wid = await self._warmup_in(15, [1])
+        ctx = self._ctx()
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_awaited_once()
+        self.assertEqual(ctx.bot.send_message.await_args.kwargs["chat_id"], 1)
+        # Second tick: deduped.
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_awaited_once()
+
+    async def test_not_yet_due_does_not_fire(self):
+        # Game in 90 min, user lead 30 → remind_at is still 60 min away.
+        wid = await self._warmup_in(90, [1])
+        await self.db.set_reminder_lead(1, 30)
+        ctx = self._ctx()
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_not_awaited()
+
+    async def test_user_with_reminders_off_is_skipped(self):
+        wid = await self._warmup_in(15, [1])
+        await self.db.set_reminder_lead(1, dm_menu.REMINDER_OFF)
+        ctx = self._ctx()
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_not_awaited()
+
+    async def test_past_kickoff_is_skipped(self):
+        wid = await self._warmup_in(-5, [1])  # already started
+        ctx = self._ctx()
+        await dm_menu.send_due_game_reminders(ctx)
+        ctx.bot.send_message.assert_not_awaited()
+
+    async def test_lead_setting_round_trip(self):
+        self.assertIsNone(await self.db.get_reminder_lead(1))
+        await self.db.set_reminder_lead(1, 60)
+        self.assertEqual(await self.db.get_reminder_lead(1), 60)
+        await self.db.set_reminder_lead(1, dm_menu.REMINDER_OFF)
+        self.assertEqual(await self.db.get_reminder_lead(1), -1)
+
+
 class PreferencesDashboardTests(unittest.IsolatedAsyncioTestCase):
     async def test_preferences_page_lists_opted_in_members(self):
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
