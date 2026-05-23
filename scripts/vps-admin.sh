@@ -233,11 +233,21 @@ cmd_applog() {
     exit 1
   fi
   echo "=== vps-admin.sh applog @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
-  echo "file=$log lines=$lines pattern=${pattern:-(none)}"
-  echo
+  # Logs rotate ~daily (10MB RotatingFileHandler). With a pattern, search the
+  # rotated set too (oldest .3 -> current) so yesterday's events are reachable;
+  # without one, just tail the live file.
   if [ -n "$pattern" ]; then
-    grep -aE "$pattern" "$log" | tail -n "$lines"
+    local files=()
+    local f
+    for f in "$log.3" "$log.2" "$log.1" "$log"; do
+      [ -f "$f" ] && files+=("$f")
+    done
+    echo "files=${files[*]} lines=$lines pattern=$pattern"
+    echo
+    grep -ahE "$pattern" "${files[@]}" | tail -n "$lines"
   else
+    echo "file=$log lines=$lines pattern=(none)"
+    echo
     tail -n "$lines" "$log"
   fi
 }
