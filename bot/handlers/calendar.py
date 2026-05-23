@@ -146,10 +146,29 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
     if not ann:
         # Announcement never sent — leave the game alone, the existing
         # in-game ready-gate is still the safety net.
+        logger.info(
+            "warmup_rsvp_gate: no sent announcement for marker=%s — launching "
+            "(in-game ready gate remains the safety net)",
+            marker,
+        )
         return
 
-    responses = await db.get_trivia_interest_responses(int(ann["id"]))
-    rsvp_count = len(responses)
+    # Aggregate RSVPs across EVERY sent announcement row sharing this marker.
+    # Resolving a single ORDER-BY-id row undercounts when Populate committed the
+    # same warm-up slot twice (duplicate rows, one marker) — that is the
+    # 2026-05-22 "never fired" failure: real RSVPs landed on one row, the gate
+    # counted the empty sibling and skipped.
+    rsvp_users = await db.get_warmup_rsvp_user_map(marker)
+    rsvp_count = len(rsvp_users)
+    responses = [{"display_name": name} for name in rsvp_users.values()]
+    logger.info(
+        "warmup_rsvp_gate: marker=%s anchor_ann=%s rsvp_count=%s threshold=%s decision=%s",
+        marker,
+        int(ann["id"]),
+        rsvp_count,
+        threshold,
+        "launch" if rsvp_count >= threshold else "skip",
+    )
     if rsvp_count >= threshold:
         return
 
@@ -660,14 +679,11 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                         break
                 if not ann:
                     raise SkippedActivity(f"warmup_reminder: parent announcement not sent for marker={marker}")
-                announcement_id = int(ann["id"])
                 threshold = int(payload.get("min_ready_players") or 0)
-                async with db._db.execute(
-                    "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id = ?",
-                    (announcement_id,),
-                ) as cur:
-                    crow = await cur.fetchone()
-                rsvp_count = int(crow["n"]) if crow else 0
+                # Aggregate across all rows sharing the marker (see
+                # _enforce_warmup_rsvp_gate) so a duplicate announcement does
+                # not make us re-send a reminder whose threshold is already met.
+                rsvp_count = len(await db.get_warmup_rsvp_user_map(marker))
                 if threshold > 0 and rsvp_count >= threshold:
                     raise SkippedActivity(
                         f"warmup_reminder: threshold {threshold} already met (count={rsvp_count})"

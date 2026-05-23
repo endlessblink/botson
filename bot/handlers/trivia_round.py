@@ -347,33 +347,16 @@ def _create_round_state(questions: list[dict], question_count: int,
 
 
 async def _warmup_ready_users_for_marker(db: Database, warmup_marker: str | None) -> dict[int, str]:
-    marker = str(warmup_marker or "").strip()
-    if not marker:
+    """Seed the in-game pre-roll ready list from the warm-up RSVP responses.
+
+    Aggregates across every sent ``trivia_warmup_rsvp`` row sharing the marker
+    (see ``Database.get_warmup_rsvp_user_map``) so a duplicate announcement does
+    not strand RSVPs on a sibling row and leave the pre-roll gate empty.
+    """
+    if not str(warmup_marker or "").strip():
+        # No RSVP marker → nothing to seed; skip the DB roundtrip entirely.
         return {}
-    async with db._db.execute(
-        """SELECT id, poll_options
-           FROM scheduled_messages
-           WHERE message_type = 'trivia_warmup_rsvp' AND status = 'sent'
-           ORDER BY id DESC""",
-    ) as cur:
-        candidates = await cur.fetchall()
-    announcement_id = None
-    for cand in candidates:
-        try:
-            payload = json.loads(cand["poll_options"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if str(payload.get("warmup_marker") or "") == marker:
-            announcement_id = int(cand["id"])
-            break
-    if announcement_id is None:
-        return {}
-    responses = await db.get_trivia_interest_responses(announcement_id)
-    return {
-        int(row["user_id"]): str(row.get("display_name") or "")
-        for row in responses
-        if row.get("user_id") is not None
-    }
+    return await db.get_warmup_rsvp_user_map(warmup_marker)
 
 
 async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, thread_id: int | None,

@@ -410,6 +410,71 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         round_state = trivia_handler._continue_round_after_announcement.await_args.kwargs["round_state"]
         self.assertEqual(round_state["ready_users"], {101: "Lotem", 202: "Refeli"})
 
+    async def test_duplicate_warmup_announcements_do_not_undercount_rsvp(self):
+        """Regression: the 2026-05-22 'never fired' class.
+
+        Populate keys the warm-up marker by date+time, so committing the same
+        slot twice creates two sent ``trivia_warmup_rsvp`` rows sharing one
+        marker. Real RSVPs land on whichever row was posted (here the older,
+        lower-id row); the newer sibling is empty. The dispatch RSVP gate used
+        to resolve a single ``ORDER BY id DESC`` row, count the empty sibling
+        (0 < threshold), mark the game ``skipped`` and never fire it. The gate
+        must aggregate across BOTH rows and launch.
+        """
+        date_iso, time_iso = _hhmm_seconds_ago(60)
+        marker = f"warmup-rsvp:trivia:{date_iso}:19:00"
+
+        async def _make_warmup(sent_message_id: int) -> int:
+            wid = await self.db.create_scheduled_message(
+                text="warmup",
+                message_type="trivia_warmup_rsvp",
+                channel_topic_id=341,
+                target_group="test",
+                scheduled_date=date_iso,
+                scheduled_time=time_iso,
+                poll_options=json.dumps({
+                    "min_ready_players": 2,
+                    "game_time": "23:59",
+                    "theme_label": "ישראל",
+                    "warmup_marker": marker,
+                }, ensure_ascii=False),
+                status="scheduled",
+            )
+            await self.db.mark_message_sent(wid, sent_message_id)
+            return wid
+
+        # Older row carries the real RSVPs; the duplicate sent later is empty.
+        warmup_real = await _make_warmup(700101)
+        await self.db.add_trivia_interest_response(warmup_real, 101, "Lotem")
+        await self.db.add_trivia_interest_response(warmup_real, 202, "Refeli")
+        await _make_warmup(700102)  # duplicate, no RSVPs, higher id
+
+        game_id = await self.db.create_scheduled_message(
+            text="",
+            message_type="trivia_round",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=time_iso,
+            poll_options=json.dumps({
+                "pre_roll_s": 5,
+                "theme_label": "ישראל",
+                "categories": ["ישראל"],
+                "question_count": 3,
+                "min_ready_players": 2,
+                "warmup_marker": marker,
+            }, ensure_ascii=False),
+            status="scheduled",
+        )
+
+        ctx = _make_context(self.db)
+        await calendar_handler.check_and_send_due_messages(ctx)
+
+        row = await self._row(game_id)
+        self.assertEqual(row["status"], "sent")  # must NOT be 'skipped'
+        round_state = trivia_handler._continue_round_after_announcement.await_args.kwargs["round_state"]
+        self.assertEqual(round_state["ready_users"], {101: "Lotem", 202: "Refeli"})
+
     async def test_ready_gate_does_not_cancel_when_seeded_from_warmup_rsvp(self):
         """Regression: a seeded warmup-ready list satisfies the pre-roll gate."""
         self._continue_patch.stop()

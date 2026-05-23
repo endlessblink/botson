@@ -1789,6 +1789,48 @@ class Database:
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
+    async def get_warmup_rsvp_user_map(self, warmup_marker: str) -> dict[int, str]:
+        """Aggregate RSVP responses across EVERY sent ``trivia_warmup_rsvp`` row
+        that carries this ``warmup_marker``, deduped to ``user_id -> display_name``.
+
+        Why aggregate instead of resolving one row: the Populate marker is keyed
+        by date+time (``warmup-rsvp:trivia:<date>:<time>``), not by row id, so
+        committing the same warm-up slot twice produces multiple announcement
+        rows sharing one marker. RSVP clicks land on whichever row was actually
+        posted; counting a single ``ORDER BY id DESC`` row therefore undercounts
+        and silently skips the game (the 2026-05-22 "never fired" class). Marker
+        matching is done in Python (no ``json_extract``) for SQLite portability.
+        """
+        marker = str(warmup_marker or "").strip()
+        if not marker:
+            return {}
+        async with self._db.execute(
+            """SELECT id, poll_options FROM scheduled_messages
+               WHERE message_type='trivia_warmup_rsvp' AND status='sent'
+               ORDER BY id ASC""",
+        ) as cur:
+            rows = await cur.fetchall()
+        ann_ids: list[int] = []
+        for r in rows:
+            try:
+                payload = json.loads(r["poll_options"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if str(payload.get("warmup_marker") or "") == marker:
+                ann_ids.append(int(r["id"]))
+        users: dict[int, str] = {}
+        for aid in ann_ids:
+            async with self._db.execute(
+                """SELECT user_id, display_name FROM trivia_interest_responses
+                   WHERE scheduled_msg_id=? ORDER BY responded_at""",
+                (aid,),
+            ) as cur:
+                for row in await cur.fetchall():
+                    if row["user_id"] is None:
+                        continue
+                    users[int(row["user_id"])] = str(row["display_name"] or "")
+        return users
+
     # ── Message engagement (Phase B reaction tracking) ────────
 
     async def find_scheduled_id_by_telegram_message(
