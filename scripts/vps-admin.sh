@@ -17,6 +17,16 @@
 #   routing               Read-only dump of bot_message_routing — which handler posts
 #                         to which topic. Editable from the dashboard, not via this
 #                         script.
+#   schedule [days]       Read-only dump of recent game / warm-up scheduled_messages
+#                         rows (trivia_round, trivia_warmup_rsvp, warmup_reminder,
+#                         emoji_puzzle) with their warmup_marker, min_ready_players,
+#                         status, and RSVP counts. days = lookback window (default 3).
+#                         Use this to diagnose "game never fired" — e.g. duplicate
+#                         warm-up rows sharing one marker, or a row left 'skipped'.
+#   applog [lines] [pat]  Read-only tail of data/bot.log (the app log; NOT journald).
+#                         lines default 200. Optional pat = grep -E filter, e.g.
+#                         'warmup_rsvp_gate|trivia_round'. Use to read dispatch
+#                         decisions and skip/fail reasons.
 #   verify-topic <id> <category_key> <verified_name>
 #                         Register a forum topic as operator-verified so safe_send
 #                         will post into it. Mirrors the dashboard "send dot" +
@@ -186,6 +196,52 @@ cmd_routing() {
        ORDER BY handler"
 }
 
+cmd_schedule() {
+  local days="${1:-3}"
+  case "$days" in
+    ''|*[!0-9]*) echo "usage: vps-admin.sh schedule [days]  (days = integer, default 3)" >&2; exit 2 ;;
+  esac
+  echo "=== vps-admin.sh schedule @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo
+  _require_sqlite3
+  echo "--- scheduled_messages: games + warm-ups, last ${days}d (marker + RSVP counts) ---"
+  echo "    rsvps counts trivia_interest_responses for THIS row; duplicate warm-up"
+  echo "    rows sharing one marker split the count -> the dispatch gate undercounts."
+  sqlite3 -readonly "$DB_PATH" -header -column \
+    "SELECT s.id, s.status, s.message_type AS type,
+            s.scheduled_date AS d, s.scheduled_time AS t,
+            json_extract(s.poll_options,'\$.warmup_marker') AS marker,
+            json_extract(s.poll_options,'\$.min_ready_players') AS min_ready,
+            (SELECT COUNT(*) FROM trivia_interest_responses r
+               WHERE r.scheduled_msg_id = s.id) AS rsvps
+       FROM scheduled_messages s
+      WHERE s.message_type IN
+            ('trivia_round','trivia_warmup_rsvp','warmup_reminder','emoji_puzzle')
+        AND s.scheduled_date >= date('now','-${days} days')
+      ORDER BY s.id"
+}
+
+cmd_applog() {
+  local lines="${1:-200}"
+  local pattern="${2:-}"
+  case "$lines" in
+    ''|*[!0-9]*) echo "usage: vps-admin.sh applog [lines] [grep-pattern]" >&2; exit 2 ;;
+  esac
+  local log="/opt/robotnik/data/bot.log"
+  if [ ! -f "$log" ]; then
+    echo "app log not found: $log" >&2
+    exit 1
+  fi
+  echo "=== vps-admin.sh applog @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo "file=$log lines=$lines pattern=${pattern:-(none)}"
+  echo
+  if [ -n "$pattern" ]; then
+    grep -aE "$pattern" "$log" | tail -n "$lines"
+  else
+    tail -n "$lines" "$log"
+  fi
+}
+
 cmd_verify_topic() {
   local topic_id="${1:-}" category="${2:-}" name="${3:-}"
   if [ -z "$topic_id" ] || [ -z "$category" ] || [ -z "$name" ]; then
@@ -248,6 +304,8 @@ main() {
     logs)     cmd_logs "$@" ;;
     topics)        cmd_topics "$@" ;;
     routing)       cmd_routing "$@" ;;
+    schedule)      cmd_schedule "$@" ;;
+    applog)        cmd_applog "$@" ;;
     verify-topic)  cmd_verify_topic "$@" ;;
     -h|--help|help|"") usage 0 ;;
     *)
