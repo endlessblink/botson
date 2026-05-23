@@ -169,11 +169,10 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat.id, text=text, reply_markup=persistent_kb())
 
 
-async def show_upcoming(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List upcoming events + game warm-ups with sign-up buttons."""
-    db: Database = context.bot_data["db"]
+async def _build_upcoming(db: Database, user_id: int):
+    """Build the (text, markup) for the upcoming list, reflecting whether
+    `user_id` is already signed up to each game (so the button can toggle)."""
     now = _il_now()
-
     events = await db.get_upcoming_events(limit=5)
     warmups = await db.get_upcoming_scheduled_games(
         now.date().isoformat(), now.strftime("%H:%M"), limit=5
@@ -230,23 +229,29 @@ async def show_upcoming(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "dm_menu", "item_line",
             icon=load_copy("dm_menu", "icon_game"), label=label, when=when,
         ))
-        # Sign up anytime: the warm-up row exists as soon as the game is
-        # scheduled, so a user can RSVP from the DM before the warm-up is even
-        # posted to the group. Early sign-ups are counted when the game runs
-        # (same trivia_interest_responses row). record_trivia_interest skips
-        # the group confirmation until the warm-up is actually live.
-        rows.append([InlineKeyboardButton(
-            load_copy("dm_menu", "btn_signup_interest"),
-            callback_data=f"dmmenu_tr_{wu['id']}",
-        )])
+        # Toggle button: shows the signed-up state and lets the user sign off.
+        wid = int(wu["id"])
+        if await db.has_trivia_interest_response(wid, user_id):
+            rows.append([InlineKeyboardButton(
+                load_copy("dm_menu", "btn_signed_up"), callback_data=f"dmmenu_troff_{wid}",
+            )])
+        else:
+            rows.append([InlineKeyboardButton(
+                load_copy("dm_menu", "btn_signup_interest"), callback_data=f"dmmenu_tr_{wid}",
+            )])
 
     if lines:
-        text = load_copy("dm_menu", "upcoming_title") + "\n\n" + "\n".join(lines)
-        markup = InlineKeyboardMarkup(rows)
-    else:
-        text = load_copy("dm_menu", "upcoming_empty")
-        markup = None
+        return load_copy("dm_menu", "upcoming_title") + "\n\n" + "\n".join(lines), InlineKeyboardMarkup(rows)
+    return load_copy("dm_menu", "upcoming_empty"), None
 
+
+async def show_upcoming(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List upcoming events + game warm-ups with sign-up/sign-off buttons."""
+    user = update.effective_user
+    if not user:
+        return
+    db: Database = context.bot_data["db"]
+    text, markup = await _build_upcoming(db, user.id)
     await _send_inline(update, text, markup)
 
 
@@ -404,6 +409,16 @@ async def _handle_event_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await query.answer(load_copy("dm_menu", "signup_done"))
 
 
+async def _rerender_upcoming(query, db: Database, user_id: int):
+    """Re-draw the upcoming list in place so a sign-up/off button flips state."""
+    text, markup = await _build_upcoming(db, user_id)
+    try:
+        await query.edit_message_text(text=text, reply_markup=markup)
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.warning("dm_menu: failed to re-render upcoming: %s", e)
+
+
 async def _handle_trivia_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = update.effective_user
@@ -423,6 +438,24 @@ async def _handle_trivia_signup(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer(load_copy("dm_menu", "signup_closed"), show_alert=True)
         return
     await query.answer(load_copy("dm_menu", "signup_done"))
+    await _rerender_upcoming(query, db, user.id)
+
+
+async def _handle_trivia_signoff(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove the user's sign-up (toggle off) and re-render the list."""
+    query = update.callback_query
+    user = update.effective_user
+    if not query or not user:
+        return
+    try:
+        scheduled_msg_id = int(query.data.rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        await query.answer()
+        return
+    db: Database = context.bot_data["db"]
+    await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
+    await query.answer(load_copy("dm_menu", "signoff_done"))
+    await _rerender_upcoming(query, db, user.id)
 
 
 # ── Callback router ──────────────────────────────────────────
@@ -449,6 +482,8 @@ async def route_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_event_rsvp(update, context, "yes")
     elif data.startswith("dmmenu_evm_"):
         await _handle_event_rsvp(update, context, "maybe")
+    elif data.startswith("dmmenu_troff_"):
+        await _handle_trivia_signoff(update, context)
     elif data.startswith("dmmenu_tr_"):
         await _handle_trivia_signup(update, context)
     elif data == "dmmenu_noop":

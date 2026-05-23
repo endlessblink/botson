@@ -66,8 +66,10 @@ copy:
     btn_rsvp_yes: "✅ מגיע/ה!"
     btn_rsvp_maybe: "🤔 אולי"
     btn_signup_interest: "🙋 אני בפנים!"
+    btn_signed_up: "✅ נרשמת — בטל הרשמה"
     signup_not_open_yet: "ההרשמה למשחק הזה תיפתח קרוב יותר למועד 🙂"
     signup_done: "רשמנו אותך! נתראה שם 🎉"
+    signoff_done: "ביטלת את ההרשמה."
     signup_unavailable: "ההרשמה כבר לא זמינה."
     signup_closed: "ההרשמה לפעילות הזו כבר נסגרה."
     # Activity-log line written when a user RSVPs via the DM menu.

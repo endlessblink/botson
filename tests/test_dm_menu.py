@@ -228,6 +228,37 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"dmmenu_tr_{wid}", cbs)
         self.assertNotIn("dmmenu_noop", cbs)
 
+    async def test_signed_up_shows_signoff_button_and_toggles_off(self):
+        wid = await self._make_scheduled_warmup()
+        await self.db.upsert_member(1, "u", "U1")
+        await self.db.add_trivia_interest_response(wid, 1, "U1")
+        cap = {}
+
+        async def reply(text, reply_markup=None):
+            cap["markup"] = reply_markup
+
+        ctx = SimpleNamespace(bot_data={"db": self.db})
+        upd = SimpleNamespace(
+            callback_query=None, message=SimpleNamespace(reply_text=reply),
+            effective_user=SimpleNamespace(id=1, username="u"),
+            effective_chat=SimpleNamespace(id=1, type="private"),
+        )
+        await dm_menu.show_upcoming(upd, ctx)
+        cbs = [b.callback_data for row in cap["markup"].inline_keyboard for b in row]
+        # Signed-up user sees the sign-off button, not the sign-up one.
+        self.assertIn(f"dmmenu_troff_{wid}", cbs)
+        self.assertNotIn(f"dmmenu_tr_{wid}", cbs)
+
+        # Sign off → response removed and the re-rendered button flips back.
+        async def answer(text=None, show_alert=False): pass
+        async def edit(text=None, reply_markup=None): cap["after"] = reply_markup
+        q = SimpleNamespace(data=f"dmmenu_troff_{wid}", answer=answer, edit_message_text=edit)
+        upd2 = SimpleNamespace(callback_query=q, effective_user=SimpleNamespace(id=1, username="u"))
+        await dm_menu._handle_trivia_signoff(upd2, ctx)
+        self.assertFalse(await self.db.has_trivia_interest_response(wid, 1))
+        cbs2 = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_tr_{wid}", cbs2)
+
     async def test_record_interest_for_scheduled_row_without_group_confirmation(self):
         from bot.handlers.trivia_interest import record_trivia_interest
         wid = await self._make_scheduled_warmup()

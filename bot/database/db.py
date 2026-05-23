@@ -1904,6 +1904,28 @@ class Database:
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
+    async def has_trivia_interest_response(self, scheduled_msg_id: int, user_id: int) -> bool:
+        """Whether this user is currently signed up to the warm-up."""
+        async with self._db.execute(
+            "SELECT 1 FROM trivia_interest_responses WHERE scheduled_msg_id=? AND user_id=?",
+            (scheduled_msg_id, user_id),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    async def remove_trivia_interest_response(self, scheduled_msg_id: int, user_id: int) -> int:
+        """Remove a user's interest sign-up. Returns the remaining count."""
+        await self._db.execute(
+            "DELETE FROM trivia_interest_responses WHERE scheduled_msg_id=? AND user_id=?",
+            (scheduled_msg_id, user_id),
+        )
+        await self._db.commit()
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id=?",
+            (scheduled_msg_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["n"]) if row else 0
+
     async def get_warmup_rsvp_user_map(self, warmup_marker: str) -> dict[int, str]:
         """Aggregate RSVP responses across EVERY sent ``trivia_warmup_rsvp`` row
         that carries this ``warmup_marker``, deduped to ``user_id -> display_name``.
