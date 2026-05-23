@@ -1070,12 +1070,18 @@ class Database:
         time), this returns rows by date only — the actual kickoff lives in
         poll_options.game_time and is compared in Python. So a warm-up posted
         earlier today for an evening game is still found.
+
+        Looks back one day: a warm-up posted just before midnight for a game that
+        kicks off just after midnight is dated "yesterday", but its kickoff is
+        still in the future. Filtering on `>= today` dropped it from the DM menu
+        between ~00:00 and kickoff (2026-05-24). The Python kickoff filter in the
+        caller then removes any warm-up whose game has genuinely passed.
         """
         async with self._db.execute(
             """SELECT * FROM scheduled_messages
                WHERE message_type = 'trivia_warmup_rsvp'
                  AND status IN ('scheduled', 'sent')
-                 AND scheduled_date >= ?
+                 AND scheduled_date >= date(?, '-1 day')
                ORDER BY scheduled_date""",
             (current_date,),
         ) as cursor:

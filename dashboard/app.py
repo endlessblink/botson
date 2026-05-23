@@ -8923,10 +8923,18 @@ async def operator_prefs_session_report(
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
+    # created_at on both operator_prefs_changes and content_feedback is the
+    # SQLite CURRENT_TIMESTAMP default — stored in UTC, space-separated
+    # ("YYYY-MM-DD HH:MM:SS"). The default window must therefore be UTC and
+    # space-separated too, or the lexical comparison breaks: a local-time
+    # isoformat() uses a 'T' separator (' ' < 'T'), so when the UTC date equals
+    # the local-24h-ago date (i.e. overnight) every row sorts below `since` and
+    # the report comes back empty. Match the stored format exactly.
+    from datetime import timezone as _tz
     if since:
         since_iso = since
     else:
-        since_iso = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+        since_iso = (datetime.now(_tz.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
 
     # Rules / examples added (from audit table).
     try:
@@ -8968,7 +8976,7 @@ async def operator_prefs_session_report(
 
     return {
         "since": since_iso,
-        "now": datetime.now().isoformat(timespec="seconds"),
+        "now": datetime.now(_tz.utc).strftime("%Y-%m-%d %H:%M:%S"),  # UTC, matches created_at frame
         "rules_added": [c for c in prefs_changes if c.get("change_kind") == "add"],
         "rules_removed": [c for c in prefs_changes if c.get("change_kind") == "remove"],
         "feedback_summary": {
