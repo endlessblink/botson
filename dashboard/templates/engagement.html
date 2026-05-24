@@ -41,13 +41,13 @@
                 <thead>
                     <tr class="border-b border-[#1f1f1f]">
                         <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right whitespace-nowrap">סוג תוכן</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">נשלחו</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">👍 ריאקציות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">💬 תגובות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">🙋 RSVP</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">🗳️ הצבעות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">מעורבות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">מגמה</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה פוסטים מהסוג הזה הבוט שלח בשבוע האחרון">נשלחו</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה אנשים (שונים) הגיבו עם אימוג'י לפוסט של הבוט">👍 ריאקציות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה אנשים (שונים) הגיבו בהודעה לפוסט של הבוט">💬 תגובות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה אנשים לחצו 'אני בפנים' בהכרזת החימום. נזקף למשחק שאליו ההכרזה שייכת.">🙋 RSVP</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה הצבעות נרשמו בסקר">🗳️ הצבעות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="סך כל הריאקציות + התגובות + ה-RSVP + ההצבעות">מעורבות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="השינוי במעורבות לעומת השבוע הקודם">מגמה</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -88,9 +88,16 @@
         </div>
     </div>
 
-    <p class="text-xs text-[#52525b]">
-        "מעורבות" = סך הריאקציות, התגובות, ה‑RSVP וההצבעות שכל סוג תוכן צבר. מיון לפי המעורבות השבוע — מה שעובד למעלה, מה ששותק למטה.
-    </p>
+    <!-- Legend: every number is a count of real people who did something -->
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3 text-xs text-[#71717a] leading-relaxed space-y-1">
+        <div class="text-[#a1a1aa] font-medium mb-1">מה כל עמודה אומרת (כל מספר = אנשים אמיתיים, לא הערכה):</div>
+        <div><span class="text-[#a1a1aa]">👍 ריאקציות</span> — כמה אנשים שונים הגיבו עם אימוג'י לפוסט.</div>
+        <div><span class="text-[#a1a1aa]">💬 תגובות</span> — כמה אנשים שונים השיבו בהודעה לפוסט.</div>
+        <div><span class="text-[#a1a1aa]">🙋 RSVP</span> — כמה אנשים לחצו "אני בפנים" בהכרזת החימום. נזקף ל<span class="text-[#a1a1aa]">משחק</span> שאליו ההכרזה שייכת (טריוויה / Emoji Night), כך שרואים כמה רצו לשחק — גם אם המשחק עצמו לא יצא לפועל (נשלחו=0).</div>
+        <div><span class="text-[#a1a1aa]">🗳️ הצבעות</span> — כמה הצבעות נרשמו בסקר.</div>
+        <div><span class="text-[#a1a1aa]">מעורבות</span> — הסכום של כל אלה. מיון לפי המעורבות השבוע: מה שעובד למעלה, מה ששותק למטה.</div>
+        <div class="text-[#52525b] pt-1">התגובות נמדדות רק מ‑23/05 22:36 (מאז הופעל המעקב) — לכן עמודת התגובות תתמלא מכאן והלאה.</div>
+    </div>
 
 </div>
 {% endblock %}

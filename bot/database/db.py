@@ -2217,12 +2217,17 @@ class Database:
         This is the single read backing the engagement view; it answers
         "which content types produce engagement, and is it flat or moving?".
         """
-        lo = f"-{int(days)} days"
-        hi = f"-{int(until_days)} days"
-        # Shared window predicate: sent rows whose sent_at falls in (lo, hi].
+        # Window bounds as ISRAEL-local date strings. sent_at / scheduled_date are
+        # stored Israel-local, so comparing against SQLite date('now') (which is UTC)
+        # would wrongly drop "today" rows every evening, once the Israel date runs
+        # ahead of the UTC date. Compute the bounds in Python from Israel time.
+        _today_il = datetime.now(_IL_TZ).date()
+        lo = (_today_il - timedelta(days=int(days))).isoformat()
+        hi = (_today_il - timedelta(days=int(until_days))).isoformat()
+        # Shared window predicate: sent rows whose sent_at date falls in (lo, hi].
         _window = (
             "s.status = 'sent' AND s.sent_at IS NOT NULL "
-            "AND date(s.sent_at) > date('now', ?) AND date(s.sent_at) <= date('now', ?)"
+            "AND date(s.sent_at) > ? AND date(s.sent_at) <= ?"
         )
         async with self._db.execute(
             f"""
@@ -2251,12 +2256,6 @@ class Database:
                 WHERE {_window}
                 GROUP BY s.message_type"""
         )
-        rsvps_by_type = await _counts_by_type(
-            f"""SELECT s.message_type AS message_type, COUNT(*) AS n
-                 FROM trivia_interest_responses tir JOIN scheduled_messages s ON s.id = tir.scheduled_msg_id
-                WHERE {_window}
-                GROUP BY s.message_type"""
-        )
         votes_by_type = await _counts_by_type(
             f"""SELECT s.message_type AS message_type, COUNT(*) AS n
                  FROM poll_votes pv JOIN scheduled_messages s ON s.sent_message_id = pv.message_id
@@ -2264,9 +2263,60 @@ class Database:
                 GROUP BY s.message_type"""
         )
 
+        # RSVPs are clicks on the warm-up's "אני בפנים" button, recorded against the
+        # trivia_warmup_rsvp announcement. Operators read them as belonging to the
+        # GAME, so attribute each warm-up's RSVPs to the trivia/emoji row it warms up
+        # — matched by the shared warmup_marker (works for both the
+        # "warmup-rsvp:{game_id}" and "warmup-rsvp:{activity}:{date}:{time}" formats),
+        # with the activity token as a fallback.
+        game_marker_to_type: dict[str, str] = {}
+        async with self._db.execute(
+            """SELECT message_type, poll_options FROM scheduled_messages
+                WHERE message_type IN ('trivia_round', 'emoji_puzzle')
+                  AND date(scheduled_date) > ?""",
+            (lo,),
+        ) as c:
+            for row in await c.fetchall():
+                try:
+                    mk = (json.loads(row["poll_options"] or "{}") or {}).get("warmup_marker")
+                except (ValueError, TypeError):
+                    mk = None
+                if mk:
+                    game_marker_to_type[str(mk)] = str(row["message_type"])
+
+        rsvps_by_type: dict[str, int] = {}
+        async with self._db.execute(
+            f"""SELECT s.poll_options AS poll_options,
+                       (SELECT COUNT(*) FROM trivia_interest_responses tir
+                         WHERE tir.scheduled_msg_id = s.id) AS n
+                  FROM scheduled_messages s
+                 WHERE s.message_type = 'trivia_warmup_rsvp' AND {_window}""",
+            (lo, hi),
+        ) as c:
+            for row in await c.fetchall():
+                cnt = int(row["n"] or 0)
+                if not cnt:
+                    continue
+                try:
+                    mk = str((json.loads(row["poll_options"] or "{}") or {}).get("warmup_marker") or "")
+                except (ValueError, TypeError):
+                    mk = ""
+                gtype = game_marker_to_type.get(mk)
+                if not gtype:
+                    gtype = ("emoji_puzzle" if ":emoji:" in mk
+                             else "trivia_round" if ":trivia:" in mk
+                             else "trivia_warmup_rsvp")
+                rsvps_by_type[gtype] = rsvps_by_type.get(gtype, 0) + cnt
+
+        # warmup_reminder is pure scheduling plumbing (no engagement of its own).
+        hidden = {"warmup_reminder"}
         out: list[dict] = []
+        seen: set[str] = set()
         for r in base_rows:
             mtype = str(r["message_type"])
+            if mtype in hidden:
+                continue
+            seen.add(mtype)
             out.append({
                 "message_type": mtype,
                 "sent": int(r["sent"]),
@@ -2274,6 +2324,17 @@ class Database:
                 "replies": replies_by_type.get(mtype, 0),
                 "rsvps": rsvps_by_type.get(mtype, 0),
                 "poll_votes": votes_by_type.get(mtype, 0),
+            })
+        # Game types that drew RSVPs but weren't SENT in the window (e.g. the game
+        # was skipped) still deserve a row — that's the "people wanted it but it
+        # didn't run" signal, which is exactly what we want to surface.
+        for gtype, n in rsvps_by_type.items():
+            if gtype in hidden or gtype in seen:
+                continue
+            out.append({
+                "message_type": gtype, "sent": 0,
+                "reactions": 0, "replies": replies_by_type.get(gtype, 0),
+                "rsvps": n, "poll_votes": votes_by_type.get(gtype, 0),
             })
         return out
 

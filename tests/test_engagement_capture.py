@@ -128,6 +128,35 @@ class EngagementRollupTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_rsvps_are_credited_to_the_game_row_via_marker(self):
+        # A warm-up's RSVP clicks should show on the trivia/emoji GAME row it warms
+        # up (matched by shared warmup_marker), not on the warm-up announcement —
+        # so "did people want to play?" reads off the game, not a scaffolding row.
+        import json
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                marker = "warmup-rsvp:emoji:2099-01-01:22:00"
+                game = await db.create_scheduled_message(
+                    text="g", message_type="emoji_puzzle", channel_topic_id=4037,
+                    target_group="main", scheduled_date="2099-01-01", scheduled_time="22:00",
+                    status="scheduled", poll_options=json.dumps({"warmup_marker": marker}))
+                await db.mark_message_sent(game, 8801)
+                warm = await db.create_scheduled_message(
+                    text="w", message_type="trivia_warmup_rsvp", channel_topic_id=341,
+                    target_group="main", scheduled_date="2099-01-01", scheduled_time="21:00",
+                    status="scheduled", poll_options=json.dumps({"warmup_marker": marker}))
+                await db.mark_message_sent(warm, 8802)
+                await db.add_trivia_interest_response(warm, 1, "A")
+                await db.add_trivia_interest_response(warm, 2, "B")
+
+                rollup = {r["message_type"]: r for r in await db.get_engagement_rollup(days=7)}
+                self.assertEqual(rollup["emoji_puzzle"]["rsvps"], 2)   # credited to the game
+                self.assertEqual(rollup["trivia_warmup_rsvp"]["rsvps"], 0)  # not double-counted
+            finally:
+                await db.close()
+
 
 class RsvpGateToggleTests(unittest.IsolatedAsyncioTestCase):
     def test_rsvp_gate_disabled_by_default_enabled_when_set(self):
