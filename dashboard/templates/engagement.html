@@ -2,13 +2,22 @@
 {% set active_page = "engagement" %}
 {% block title %}Botson — מעורבות{% endblock %}
 
+{# One person's actions as compact chips: "נועם [אדמין] 🙋×5 👍×1" #}
+{% macro actor_line(a) %}
+    <span class="text-sm text-[#fafafa]">{{ a.name }}</span>{% if a.is_admin %}<span class="mr-1 text-[10px] text-amber-400/80 border border-amber-500/30 rounded px-1 py-0.5">אדמין</span>{% endif %}
+    {% if a.rsvps %}<span class="text-xs text-[#a1a1aa] mr-1">🙋×{{ a.rsvps }}</span>{% endif %}
+    {% if a.reactions %}<span class="text-xs text-[#a1a1aa] mr-1">👍×{{ a.reactions }}</span>{% endif %}
+    {% if a.replies %}<span class="text-xs text-[#a1a1aa] mr-1">💬×{{ a.replies }}</span>{% endif %}
+    {% if a.poll_votes %}<span class="text-xs text-[#a1a1aa] mr-1">🗳️×{{ a.poll_votes }}</span>{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="space-y-6">
 
     <!-- Page Header -->
     <div class="flex flex-col gap-1">
         <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">מעורבות</h1>
-        <p class="text-sm text-[#71717a]">7 הימים האחרונים מול השבוע שלפניו — מה מייצר תגובות ומה שותק</p>
+        <p class="text-sm text-[#71717a]">7 הימים האחרונים מול השבוע שלפניו — של הקהילה בלבד (פעילות אדמין לא נספרת). לחצו על שורה כדי לראות מי היה מעורב.</p>
     </div>
 
     <!-- Totals strip -->
@@ -18,7 +27,7 @@
             <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ totals.sent }}</div>
         </div>
         <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3">
-            <div class="text-xs text-[#71717a]">מעורבות השבוע</div>
+            <div class="text-xs text-[#71717a]">מעורבות קהילה השבוע</div>
             <div class="text-2xl font-semibold text-[#fafafa] stat-number">{{ totals.engaged }}</div>
         </div>
         <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3">
@@ -42,18 +51,20 @@
                     <tr class="border-b border-[#1f1f1f]">
                         <th class="text-xs text-[#71717a] font-medium px-4 py-3 text-right whitespace-nowrap">סוג תוכן</th>
                         <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה פוסטים מהסוג הזה הבוט שלח בשבוע האחרון">נשלחו</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה אנשים (שונים) הגיבו עם אימוג'י לפוסט של הבוט">👍 ריאקציות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה אנשים (שונים) הגיבו בהודעה לפוסט של הבוט">💬 תגובות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה אנשים לחצו 'אני בפנים' בהכרזת החימום. נזקף למשחק שאליו ההכרזה שייכת.">🙋 RSVP</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה הצבעות נרשמו בסקר">🗳️ הצבעות</th>
-                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="סך כל הריאקציות + התגובות + ה-RSVP + ההצבעות">מעורבות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה פעמים אנשים (לא אדמין) הגיבו עם אימוג'י לפוסט">👍 ריאקציות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה פעמים אנשים (לא אדמין) השיבו בהודעה לפוסט">💬 תגובות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה פעמים אנשים (לא אדמין) לחצו 'אני בפנים'. נזקף למשחק שאליו ההכרזה שייכת.">🙋 RSVP</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה הצבעות נרשמו בסקר (לא אדמין)">🗳️ הצבעות</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="סך כל הריאקציות + התגובות + ה-RSVP + ההצבעות של הקהילה">מעורבות</th>
                         <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="השינוי במעורבות לעומת השבוע הקודם">מגמה</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in rows %}
-                    <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors">
+                    <tr class="border-b border-[#1f1f1f] hover:bg-[#111111] transition-colors {% if r.actors %}cursor-pointer{% endif %}"
+                        {% if r.actors %}onclick="toggleEng({{ loop.index }})"{% endif %}>
                         <td class="px-4 py-3 whitespace-nowrap">
+                            {% if r.actors %}<span id="eng-chev-{{ loop.index }}" class="inline-block text-[#52525b] text-xs transition-transform">▾</span>{% else %}<span class="inline-block w-2"></span>{% endif %}
                             <span class="text-sm text-[#fafafa]">{{ r.emoji }} {{ r.label }}</span>
                         </td>
                         <td class="px-3 py-3 text-center text-sm text-[#a1a1aa] stat-number">{{ r.sent }}</td>
@@ -72,6 +83,16 @@
                             {% endif %}
                         </td>
                     </tr>
+                    {% if r.actors %}
+                    <tr id="eng-detail-{{ loop.index }}" class="hidden border-b border-[#1f1f1f] bg-[#0c0c0c]">
+                        <td colspan="8" class="px-6 py-3">
+                            <div class="text-xs text-[#71717a] mb-2">מי היה מעורב ב{{ r.label }}:</div>
+                            <div class="flex flex-col gap-1.5">
+                                {% for a in r.actors %}<div>{{ actor_line(a) }}</div>{% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
@@ -81,23 +102,55 @@
                 <div class="w-10 h-10 rounded-full bg-[#1f1f1f] flex items-center justify-center">
                     <svg class="w-5 h-5 text-[#3f3f46]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
                 </div>
-                <p class="text-sm text-[#71717a]">עדיין אין נתוני מעורבות לשבוע האחרון</p>
-                <p class="text-xs text-[#52525b]">ברגע שהבוט ישלח תוכן ויקבל ריאקציות / תגובות / RSVP — הנתונים יופיעו כאן</p>
+                <p class="text-sm text-[#71717a]">עדיין אין מעורבות קהילה לשבוע האחרון</p>
+                <p class="text-xs text-[#52525b]">פעילות שלך (אדמין) לא נספרת. ברגע שחברי קהילה יגיבו / ישיבו / יסמנו RSVP — זה יופיע כאן.</p>
             </div>
             {% endif %}
         </div>
     </div>
 
-    <!-- Legend: every number is a count of real people who did something -->
+    <!-- Who engaged this week (community) -->
+    {% if community_people %}
+    <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4 animate-fade-in-up stagger-2">
+        <div class="text-sm text-[#fafafa] font-medium mb-3">מי היה מעורב השבוע ({{ community_people|length }})</div>
+        <div class="flex flex-col gap-2">
+            {% for a in community_people %}
+            <div class="flex items-center gap-2 border-b border-[#161616] pb-2 last:border-0 last:pb-0">{{ actor_line(a) }}</div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Admin / operator activity — excluded from the scoreboard -->
+    {% if admin_people %}
+    <details class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-4">
+        <summary class="text-sm text-[#71717a] cursor-pointer select-none">פעילות אדמין (לא נספרת בקהילה) — {{ admin_people|length }}</summary>
+        <div class="flex flex-col gap-2 mt-3">
+            {% for a in admin_people %}
+            <div class="flex items-center gap-2 border-b border-[#161616] pb-2 last:border-0 last:pb-0">{{ actor_line(a) }}</div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Legend -->
     <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg px-4 py-3 text-xs text-[#71717a] leading-relaxed space-y-1">
-        <div class="text-[#a1a1aa] font-medium mb-1">מה כל עמודה אומרת (כל מספר = אנשים אמיתיים, לא הערכה):</div>
-        <div><span class="text-[#a1a1aa]">👍 ריאקציות</span> — כמה אנשים שונים הגיבו עם אימוג'י לפוסט.</div>
-        <div><span class="text-[#a1a1aa]">💬 תגובות</span> — כמה אנשים שונים השיבו בהודעה לפוסט.</div>
-        <div><span class="text-[#a1a1aa]">🙋 RSVP</span> — כמה אנשים לחצו "אני בפנים" בהכרזת החימום. נזקף ל<span class="text-[#a1a1aa]">משחק</span> שאליו ההכרזה שייכת (טריוויה / Emoji Night), כך שרואים כמה רצו לשחק — גם אם המשחק עצמו לא יצא לפועל (נשלחו=0).</div>
-        <div><span class="text-[#a1a1aa]">🗳️ הצבעות</span> — כמה הצבעות נרשמו בסקר.</div>
-        <div><span class="text-[#a1a1aa]">מעורבות</span> — הסכום של כל אלה. מיון לפי המעורבות השבוע: מה שעובד למעלה, מה ששותק למטה.</div>
-        <div class="text-[#52525b] pt-1">התגובות נמדדות רק מ‑23/05 22:36 (מאז הופעל המעקב) — לכן עמודת התגובות תתמלא מכאן והלאה.</div>
+        <div class="text-[#a1a1aa] font-medium mb-1">איך לקרוא את זה (כל מספר = פעולות של אנשים אמיתיים):</div>
+        <div><span class="text-[#a1a1aa]">👍 ריאקציות</span> / <span class="text-[#a1a1aa]">💬 תגובות</span> / <span class="text-[#a1a1aa]">🙋 RSVP</span> / <span class="text-[#a1a1aa]">🗳️ הצבעות</span> — כמה פעמים כל פעולה קרתה. לחצו על שורה כדי לראות מי בדיוק (שם + מה עשה).</div>
+        <div><span class="text-[#a1a1aa]">RSVP</span> נזקף ל<span class="text-[#a1a1aa]">משחק</span> שאליו ההכרזה שייכת — כך רואים כמה רצו לשחק גם אם המשחק לא יצא לפועל (נשלחו=0).</div>
+        <div><span class="text-[#a1a1aa]">מעורבות</span> = הסכום של כל אלה. <span class="text-[#a1a1aa]">פעילות שלך/אדמין לא נספרת</span> — כדי שהמספרים ישקפו את הקהילה ולא בדיקות שלך (מוצגת בנפרד למעלה).</div>
+        <div class="text-[#52525b] pt-1">תגובות נמדדות רק מ‑23/05 22:36 ואילך (מאז הופעל המעקב).</div>
     </div>
 
 </div>
+
+<script>
+    function toggleEng(idx) {
+        var row = document.getElementById('eng-detail-' + idx);
+        var chev = document.getElementById('eng-chev-' + idx);
+        if (!row) return;
+        row.classList.toggle('hidden');
+        if (chev) chev.style.transform = row.classList.contains('hidden') ? '' : 'rotate(180deg)';
+    }
+</script>
 {% endblock %}

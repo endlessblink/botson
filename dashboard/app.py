@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
-from bot.utils.config import DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
+from bot.utils.config import ADMIN_IDS, DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.freshness import freshness_rejection
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
@@ -3955,39 +3955,63 @@ def _merge_engagement_trend(this_week: list[dict], last_week: list[dict]) -> lis
     return sorted(rows, key=lambda r: (r["engaged"], r["sent"]), reverse=True)
 
 
-@app.get("/api/engagement/rollup")
-async def api_engagement_rollup(request: Request, days: int = 7, db: Database = Depends(get_db)):
-    """Per-content-type engagement for this window vs the prior one. Read-only."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+async def _engagement_view_data(db: Database, days: int = 7) -> dict:
+    """Shared payload for the engagement page + API.
+
+    Admin/operator activity (ADMIN_IDS) is EXCLUDED from the scoreboard counts so
+    the numbers reflect the real community, and surfaced separately so it's not
+    lost. Each row carries the community people who engaged with that type, and a
+    per-person 'who engaged' list is included.
+    """
     days = max(1, int(days))
-    this_week = await db.get_engagement_rollup(days=days, until_days=0)
-    last_week = await db.get_engagement_rollup(days=days * 2, until_days=days)
-    return {
-        "days": days,
-        "this_week": this_week,
-        "last_week": last_week,
-        "rows": _merge_engagement_trend(this_week, last_week),
-    }
-
-
-@app.get("/engagement", response_class=HTMLResponse)
-async def engagement_page(request: Request, db: Database = Depends(get_db)):
-    if not request.session.get("authenticated"):
-        return RedirectResponse(url="/login", status_code=303)
-    this_week = await db.get_engagement_rollup(days=7, until_days=0)
-    last_week = await db.get_engagement_rollup(days=14, until_days=7)
+    this_week = await db.get_engagement_rollup(days=days, until_days=0, exclude_user_ids=ADMIN_IDS)
+    last_week = await db.get_engagement_rollup(days=days * 2, until_days=days, exclude_user_ids=ADMIN_IDS)
     rows = _merge_engagement_trend(this_week, last_week)
+
+    actors = await db.get_engagement_actors(days=days, until_days=0, admin_ids=ADMIN_IDS)
+    by_type = actors.get("by_type", {})
+    for r in rows:
+        r["actors"] = [a for a in by_type.get(r["message_type"], []) if not a["is_admin"]]
+    overall = actors.get("overall", [])
+    community_people = [a for a in overall if not a["is_admin"]]
+    admin_people = [a for a in overall if a["is_admin"]]
+
     totals = {
         "sent": sum(r["sent"] for r in rows),
         "engaged": sum(r["engaged"] for r in rows),
         "prev_engaged": sum(r["prev_engaged"] for r in rows),
     }
     totals["delta"] = totals["engaged"] - totals["prev_engaged"]
+    return {
+        "days": days, "rows": rows, "totals": totals,
+        "community_people": community_people, "admin_people": admin_people,
+    }
+
+
+@app.get("/api/engagement/rollup")
+async def api_engagement_rollup(request: Request, days: int = 7, db: Database = Depends(get_db)):
+    """Per-content-type engagement (community only) for this window. Read-only."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    return await _engagement_view_data(db, days)
+
+
+@app.get("/api/engagement/people")
+async def api_engagement_people(request: Request, days: int = 7, db: Database = Depends(get_db)):
+    """Who engaged + what they did (admins flagged). Read-only."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    return await db.get_engagement_actors(days=max(1, int(days)), until_days=0, admin_ids=ADMIN_IDS)
+
+
+@app.get("/engagement", response_class=HTMLResponse)
+async def engagement_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+    data = await _engagement_view_data(db, days=7)
     return templates.TemplateResponse(
         request, name="engagement.html",
-        context={"rows": rows, "totals": totals, "active_page": "engagement",
-                 "settings": get_settings()},
+        context={**data, "active_page": "engagement", "settings": get_settings()},
     )
 
 

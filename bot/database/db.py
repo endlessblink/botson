@@ -2198,77 +2198,74 @@ class Database:
             rows = await cur.fetchall()
         return {int(r["scheduled_msg_id"]): int(r["n"]) for r in rows}
 
-    async def get_engagement_rollup(self, days: int = 7, *, until_days: int = 0) -> list[dict]:
-        """Consolidated engagement per message_type over a time window.
+    _ENGAGEMENT_HIDDEN = {"warmup_reminder"}
+    _ENGAGEMENT_ACTION_FIELD = {
+        "reaction": "reactions", "reply": "replies", "rsvp": "rsvps", "vote": "poll_votes",
+    }
 
-        Window is [now-`days`, now-`until_days`] in whole days. The default
-        (until_days=0) means "the last `days` days up to now"; pass
-        days=14, until_days=7 to get the *prior* week — that pairing is how the
-        engagement view computes week-over-week trend.
+    def _engagement_window(self, days: int, until_days: int) -> tuple[str, str]:
+        """(lo, hi] ISRAEL-local date strings. sent_at / scheduled_date are stored
+        Israel-local, so SQLite date('now') (UTC) would drop "today" rows every
+        evening once the Israel date runs ahead of UTC — compute bounds in Python."""
+        today = datetime.now(_IL_TZ).date()
+        return (
+            (today - timedelta(days=int(days))).isoformat(),
+            (today - timedelta(days=int(until_days))).isoformat(),
+        )
 
-        One row per message_type the bot actually SENT in the window, with
-        every engagement signal we capture joined in:
-          sent          — posts of this type sent in the window
-          reactions     — distinct reactors across those posts
-          replies       — distinct users who replied to those posts
-          rsvps         — warm-up RSVPs (trivia_interest_responses) on those posts
-          poll_votes    — poll votes cast on those posts
-
-        This is the single read backing the engagement view; it answers
-        "which content types produce engagement, and is it flat or moving?".
-        """
-        # Window bounds as ISRAEL-local date strings. sent_at / scheduled_date are
-        # stored Israel-local, so comparing against SQLite date('now') (which is UTC)
-        # would wrongly drop "today" rows every evening, once the Israel date runs
-        # ahead of the UTC date. Compute the bounds in Python from Israel time.
-        _today_il = datetime.now(_IL_TZ).date()
-        lo = (_today_il - timedelta(days=int(days))).isoformat()
-        hi = (_today_il - timedelta(days=int(until_days))).isoformat()
-        # Shared window predicate: sent rows whose sent_at date falls in (lo, hi].
+    async def _engagement_events(self, lo: str, hi: str) -> list[dict]:
+        """Per-USER engagement events in the window (lo, hi]. Each event is
+        {message_type, user_id, name, action} with action in
+        reaction|reply|rsvp|vote. RSVPs are attributed to the GAME type they warm
+        up (shared warmup_marker; activity-token fallback). Shared source for both
+        the rollup counts and the per-person ("who") breakdown — so a single person
+        RSVPing 5 warm-ups shows up as 5 rsvp events under one name, which is how we
+        tell real engagement from one operator testing."""
         _window = (
             "s.status = 'sent' AND s.sent_at IS NOT NULL "
             "AND date(s.sent_at) > ? AND date(s.sent_at) <= ?"
         )
-        async with self._db.execute(
-            f"""
-            SELECT s.message_type AS message_type,
-                   COUNT(DISTINCT s.id) AS sent,
-                   COALESCE(SUM(e.distinct_reactors), 0) AS reactions
-              FROM scheduled_messages s
-              LEFT JOIN message_engagement e ON e.scheduled_msg_id = s.id
-             WHERE {_window}
-             GROUP BY s.message_type
-             ORDER BY sent DESC
-            """,
-            (lo, hi),
-        ) as cur:
-            base_rows = await cur.fetchall()
+        events: list[dict] = []
 
-        # Per-type reply / rsvp / poll-vote totals (separate aggregates keep the
-        # main query from fanning out rows across the one-to-many join tables).
-        async def _counts_by_type(sql: str) -> dict:
+        async def _collect(sql: str, action: str) -> None:
             async with self._db.execute(sql, (lo, hi)) as c:
-                return {str(r["message_type"]): int(r["n"]) for r in await c.fetchall()}
+                for r in await c.fetchall():
+                    events.append({
+                        "message_type": str(r["message_type"]),
+                        "user_id": int(r["user_id"]),
+                        "name": str(r["name"] or r["user_id"]),
+                        "action": action,
+                    })
 
-        replies_by_type = await _counts_by_type(
-            f"""SELECT s.message_type AS message_type, COUNT(*) AS n
-                 FROM prompt_replies pr JOIN scheduled_messages s ON s.id = pr.scheduled_msg_id
-                WHERE {_window}
-                GROUP BY s.message_type"""
+        await _collect(
+            f"""SELECT s.message_type AS message_type, mr.user_id AS user_id,
+                       COALESCE(m.display_name, CAST(mr.user_id AS TEXT)) AS name
+                  FROM message_reactors mr
+                  JOIN scheduled_messages s ON s.id = mr.scheduled_msg_id
+                  LEFT JOIN members m ON m.user_id = mr.user_id
+                 WHERE {_window}""",
+            "reaction",
         )
-        votes_by_type = await _counts_by_type(
-            f"""SELECT s.message_type AS message_type, COUNT(*) AS n
-                 FROM poll_votes pv JOIN scheduled_messages s ON s.sent_message_id = pv.message_id
-                WHERE {_window}
-                GROUP BY s.message_type"""
+        await _collect(
+            f"""SELECT s.message_type AS message_type, pr.user_id AS user_id,
+                       COALESCE(m.display_name, CAST(pr.user_id AS TEXT)) AS name
+                  FROM prompt_replies pr
+                  JOIN scheduled_messages s ON s.id = pr.scheduled_msg_id
+                  LEFT JOIN members m ON m.user_id = pr.user_id
+                 WHERE {_window}""",
+            "reply",
+        )
+        await _collect(
+            f"""SELECT s.message_type AS message_type, pv.user_id AS user_id,
+                       COALESCE(pv.display_name, m.display_name, CAST(pv.user_id AS TEXT)) AS name
+                  FROM poll_votes pv
+                  JOIN scheduled_messages s ON s.sent_message_id = pv.message_id
+                  LEFT JOIN members m ON m.user_id = pv.user_id
+                 WHERE {_window}""",
+            "vote",
         )
 
-        # RSVPs are clicks on the warm-up's "אני בפנים" button, recorded against the
-        # trivia_warmup_rsvp announcement. Operators read them as belonging to the
-        # GAME, so attribute each warm-up's RSVPs to the trivia/emoji row it warms up
-        # — matched by the shared warmup_marker (works for both the
-        # "warmup-rsvp:{game_id}" and "warmup-rsvp:{activity}:{date}:{time}" formats),
-        # with the activity token as a fallback.
+        # RSVPs → attribute each warm-up responder to the GAME type via warmup_marker.
         game_marker_to_type: dict[str, str] = {}
         async with self._db.execute(
             """SELECT message_type, poll_options FROM scheduled_messages
@@ -2284,59 +2281,115 @@ class Database:
                 if mk:
                     game_marker_to_type[str(mk)] = str(row["message_type"])
 
-        rsvps_by_type: dict[str, int] = {}
         async with self._db.execute(
-            f"""SELECT s.poll_options AS poll_options,
-                       (SELECT COUNT(*) FROM trivia_interest_responses tir
-                         WHERE tir.scheduled_msg_id = s.id) AS n
-                  FROM scheduled_messages s
+            f"""SELECT s.poll_options AS poll_options, tir.user_id AS user_id,
+                       COALESCE(tir.display_name, m.display_name, CAST(tir.user_id AS TEXT)) AS name
+                  FROM trivia_interest_responses tir
+                  JOIN scheduled_messages s ON s.id = tir.scheduled_msg_id
+                  LEFT JOIN members m ON m.user_id = tir.user_id
                  WHERE s.message_type = 'trivia_warmup_rsvp' AND {_window}""",
             (lo, hi),
         ) as c:
-            for row in await c.fetchall():
-                cnt = int(row["n"] or 0)
-                if not cnt:
-                    continue
+            for r in await c.fetchall():
                 try:
-                    mk = str((json.loads(row["poll_options"] or "{}") or {}).get("warmup_marker") or "")
+                    mk = str((json.loads(r["poll_options"] or "{}") or {}).get("warmup_marker") or "")
                 except (ValueError, TypeError):
                     mk = ""
-                gtype = game_marker_to_type.get(mk)
-                if not gtype:
-                    gtype = ("emoji_puzzle" if ":emoji:" in mk
-                             else "trivia_round" if ":trivia:" in mk
-                             else "trivia_warmup_rsvp")
-                rsvps_by_type[gtype] = rsvps_by_type.get(gtype, 0) + cnt
+                gtype = game_marker_to_type.get(mk) or (
+                    "emoji_puzzle" if ":emoji:" in mk
+                    else "trivia_round" if ":trivia:" in mk
+                    else "trivia_warmup_rsvp")
+                events.append({
+                    "message_type": gtype, "user_id": int(r["user_id"]),
+                    "name": str(r["name"] or r["user_id"]), "action": "rsvp",
+                })
+        return events
 
-        # warmup_reminder is pure scheduling plumbing (no engagement of its own).
-        hidden = {"warmup_reminder"}
-        out: list[dict] = []
-        seen: set[str] = set()
-        for r in base_rows:
-            mtype = str(r["message_type"])
-            if mtype in hidden:
+    async def get_engagement_rollup(self, days: int = 7, *, until_days: int = 0,
+                                    exclude_user_ids=()) -> list[dict]:
+        """Engagement per message_type over the window (lo, hi].
+
+        Each count is the number of engagement ACTIONS by users NOT in
+        `exclude_user_ids` (pass admin ids so the scoreboard reflects the real
+        community, not operator testing). `sent` is unaffected by the exclusion.
+        Game types that drew RSVPs but were never sent (skipped) still get a row.
+        """
+        lo, hi = self._engagement_window(days, until_days)
+        exclude = {int(x) for x in exclude_user_ids}
+
+        async with self._db.execute(
+            """SELECT s.message_type AS message_type, COUNT(DISTINCT s.id) AS sent
+                 FROM scheduled_messages s
+                WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
+                  AND date(s.sent_at) > ? AND date(s.sent_at) <= ?
+                GROUP BY s.message_type""",
+            (lo, hi),
+        ) as cur:
+            sent_by_type = {str(r["message_type"]): int(r["sent"]) for r in await cur.fetchall()}
+
+        counts: dict[str, dict] = {}
+        for e in await self._engagement_events(lo, hi):
+            if e["user_id"] in exclude:
                 continue
-            seen.add(mtype)
+            d = counts.setdefault(e["message_type"],
+                                  {"reactions": 0, "replies": 0, "rsvps": 0, "poll_votes": 0})
+            d[self._ENGAGEMENT_ACTION_FIELD[e["action"]]] += 1
+
+        out: list[dict] = []
+        for mtype in set(sent_by_type) | set(counts):
+            if mtype in self._ENGAGEMENT_HIDDEN:
+                continue
+            c = counts.get(mtype, {})
             out.append({
                 "message_type": mtype,
-                "sent": int(r["sent"]),
-                "reactions": int(r["reactions"] or 0),
-                "replies": replies_by_type.get(mtype, 0),
-                "rsvps": rsvps_by_type.get(mtype, 0),
-                "poll_votes": votes_by_type.get(mtype, 0),
+                "sent": sent_by_type.get(mtype, 0),
+                "reactions": c.get("reactions", 0),
+                "replies": c.get("replies", 0),
+                "rsvps": c.get("rsvps", 0),
+                "poll_votes": c.get("poll_votes", 0),
             })
-        # Game types that drew RSVPs but weren't SENT in the window (e.g. the game
-        # was skipped) still deserve a row — that's the "people wanted it but it
-        # didn't run" signal, which is exactly what we want to surface.
-        for gtype, n in rsvps_by_type.items():
-            if gtype in hidden or gtype in seen:
-                continue
-            out.append({
-                "message_type": gtype, "sent": 0,
-                "reactions": 0, "replies": replies_by_type.get(gtype, 0),
-                "rsvps": n, "poll_votes": votes_by_type.get(gtype, 0),
-            })
+        out.sort(key=lambda r: (r["reactions"] + r["replies"] + r["rsvps"] + r["poll_votes"],
+                                r["sent"]), reverse=True)
         return out
+
+    async def get_engagement_actors(self, days: int = 7, *, until_days: int = 0,
+                                    admin_ids=()) -> dict:
+        """Who engaged + what they did, over the window.
+
+        Returns {"by_type": {message_type: [actor, ...]}, "overall": [actor, ...]}
+        where actor = {user_id, name, is_admin, reactions, replies, rsvps, poll_votes}.
+        Admins are flagged (not dropped) so the caller can show real community and
+        operator/testing activity separately. Sorted community-first, then by volume.
+        """
+        lo, hi = self._engagement_window(days, until_days)
+        admins = {int(x) for x in admin_ids}
+
+        def _blank(uid: int, name: str) -> dict:
+            return {"user_id": uid, "name": name, "is_admin": uid in admins,
+                    "reactions": 0, "replies": 0, "rsvps": 0, "poll_votes": 0}
+
+        by_type: dict[str, dict[int, dict]] = {}
+        overall: dict[int, dict] = {}
+        for e in await self._engagement_events(lo, hi):
+            if e["message_type"] in self._ENGAGEMENT_HIDDEN:
+                continue
+            field = self._ENGAGEMENT_ACTION_FIELD[e["action"]]
+            uid, name = e["user_id"], e["name"]
+            tu = by_type.setdefault(e["message_type"], {})
+            tu.setdefault(uid, _blank(uid, name))[field] += 1
+            overall.setdefault(uid, _blank(uid, name))[field] += 1
+
+        def _total(a: dict) -> int:
+            return a["reactions"] + a["replies"] + a["rsvps"] + a["poll_votes"]
+
+        def _ordered(d: dict) -> list[dict]:
+            # community first (is_admin False < True), then by volume desc, then name
+            return sorted(d.values(), key=lambda a: (a["is_admin"], -_total(a), a["name"]))
+
+        return {
+            "by_type": {t: _ordered(users) for t, users in by_type.items()},
+            "overall": _ordered(overall),
+        }
 
     # ── Content Feedback (T-172) ─────────────────────────────
 

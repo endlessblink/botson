@@ -157,6 +157,60 @@ class EngagementRollupTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_admin_actions_excluded_from_scoreboard(self):
+        # Admin/operator actions must not inflate the community scoreboard.
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                disc = await _sent_row(db, "discussion", sent_message_id=7201)
+                await db.record_prompt_reply(disc, user_id=10)   # community
+                await db.record_prompt_reply(disc, user_id=99)   # admin
+
+                excl = {r["message_type"]: r for r in
+                        await db.get_engagement_rollup(days=7, exclude_user_ids=[99])}
+                self.assertEqual(excl["discussion"]["replies"], 1)   # admin dropped
+                incl = {r["message_type"]: r for r in await db.get_engagement_rollup(days=7)}
+                self.assertEqual(incl["discussion"]["replies"], 2)   # nobody excluded
+            finally:
+                await db.close()
+
+    async def test_actors_reveal_one_person_repeated_not_many(self):
+        # The whole point of "who": one person RSVPing to 5 separate warm-ups must
+        # read as ONE actor with rsvps=5 — not "5 people".
+        import json
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                for i in range(5):
+                    marker = f"warmup-rsvp:emoji:2099-01-0{i + 1}:22:00"
+                    game = await db.create_scheduled_message(
+                        text="g", message_type="emoji_puzzle", channel_topic_id=4037,
+                        target_group="main", scheduled_date=f"2099-01-0{i + 1}",
+                        scheduled_time="22:00", status="scheduled",
+                        poll_options=json.dumps({"warmup_marker": marker}))
+                    await db.mark_message_sent(game, 9000 + i)
+                    warm = await db.create_scheduled_message(
+                        text="w", message_type="trivia_warmup_rsvp", channel_topic_id=341,
+                        target_group="main", scheduled_date=f"2099-01-0{i + 1}",
+                        scheduled_time="21:00", status="scheduled",
+                        poll_options=json.dumps({"warmup_marker": marker}))
+                    await db.mark_message_sent(warm, 9500 + i)
+                    await db.add_trivia_interest_response(warm, 7, "נועם")
+
+                actors = await db.get_engagement_actors(days=14, admin_ids=[])
+                emoji_people = actors["by_type"].get("emoji_puzzle", [])
+                self.assertEqual(len(emoji_people), 1)            # one person, not five
+                self.assertEqual(emoji_people[0]["name"], "נועם")
+                self.assertEqual(emoji_people[0]["rsvps"], 5)     # ...who RSVP'd 5×
+                self.assertFalse(emoji_people[0]["is_admin"])
+
+                flagged = await db.get_engagement_actors(days=14, admin_ids=[7])
+                self.assertTrue(flagged["by_type"]["emoji_puzzle"][0]["is_admin"])
+            finally:
+                await db.close()
+
 
 class RsvpGateToggleTests(unittest.IsolatedAsyncioTestCase):
     def test_rsvp_gate_disabled_by_default_enabled_when_set(self):
@@ -187,6 +241,7 @@ class EngagementPageRenderTests(unittest.TestCase):
                 db = Database(tmp.name)
                 await db.init()
                 try:
+                    await db.upsert_member(1, "noam", "נועם")
                     mid = await _sent_row(db, "discussion", sent_message_id=8001)
                     await db.record_prompt_reply(mid, user_id=1)
                     await db.record_reaction_update(
@@ -210,6 +265,8 @@ class EngagementPageRenderTests(unittest.TestCase):
                     self.assertEqual(page.status_code, 200)
                     self.assertIn("מעורבות", page.text)        # page header / nav
                     self.assertIn("שיחה", page.text)            # discussion label rendered
+                    self.assertIn("מי היה מעורב השבוע", page.text)  # who-engaged section
+                    self.assertIn("נועם", page.text)            # an actual person's name
 
                     api = client.get("/api/engagement/rollup", params={"days": 7})
                     self.assertEqual(api.status_code, 200)
@@ -218,6 +275,12 @@ class EngagementPageRenderTests(unittest.TestCase):
                     self.assertEqual(rows["discussion"]["replies"], 1)
                     self.assertEqual(rows["discussion"]["reactions"], 1)
                     self.assertEqual(rows["discussion"]["engaged"], 2)
+                    names = {p["name"] for p in body["community_people"]}
+                    self.assertIn("נועם", names)
+
+                    people = client.get("/api/engagement/people", params={"days": 7})
+                    self.assertEqual(people.status_code, 200)
+                    self.assertIn("overall", people.json())
 
 
 if __name__ == "__main__":
