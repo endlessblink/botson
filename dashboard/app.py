@@ -7931,6 +7931,7 @@ async def content_feedback_enrich(
     enriched = str(body.get("enriched") or "").strip()
     if not enriched:
         raise HTTPException(status_code=400, detail="enriched is required")
+    enrichment_source = str(body.get("enrichment_source") or "free_text").strip()
     row = await db.get_content_feedback(feedback_id)
     if not row:
         raise HTTPException(status_code=404, detail="feedback not found")
@@ -7950,7 +7951,8 @@ async def content_feedback_enrich(
     })
     auto_promoted = False
     promoted_excerpt = None
-    if (row.get("verdict") or "") in ("rejected", "bad_wording") \
+    if enrichment_source != "chip" \
+            and (row.get("verdict") or "") in ("rejected", "bad_wording") \
             and _is_substantive_reason(combined, row.get("corrected_text")):
         await _schedule_rule_abstraction(feedback_id, db)
         auto_promoted = True

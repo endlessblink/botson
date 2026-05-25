@@ -605,9 +605,9 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(r.json()["followup_chips"], [])
 
-    def test_enrich_combines_reason_and_promotes(self):
-        """Click a chip → POST /enrich → reason becomes
-        '<pill> · <chip>' (substantive) → auto-promote fires."""
+    def test_enrich_combines_chip_reason_without_promoting(self):
+        """Click a generated chip → POST /enrich → reason becomes
+        '<pill> · <chip>' but does not write a durable rule automatically."""
         chips = ["הסיטואציה גנרית — לא מבדיל קהל"]
         with self._client()[0], self._client()[1] as client, self._mock_chips(chips):
             self._login(client)
@@ -622,13 +622,37 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             fid = r.json()["id"]
             r2 = client.post(
                 f"/api/content-feedback/{fid}/enrich",
-                json={"enriched": chips[0]},
+                json={"enriched": chips[0], "enrichment_source": "chip"},
             )
             self.assertEqual(r2.status_code, 200, r2.text)
             data = r2.json()
             self.assertIn("גנרי / שטחי", data["reason"])
             self.assertIn("הסיטואציה גנרית", data["reason"])
-            self.assertTrue(data["auto_promoted"], data)
+            self.assertFalse(data["auto_promoted"], data)
+
+    def test_enrich_free_text_can_promote(self):
+        """Typed enrichment is operator-authored signal, so it may still
+        trigger durable rule abstraction when it becomes substantive."""
+        with self._client()[0], self._client()[1] as client, self._mock_chips([]):
+            self._login(client)
+            r = client.post("/api/content-feedback", json={
+                "source": "planner_ai_suggest",
+                "content_type": "discussion",
+                "topic_key": "movies",
+                "original_text": "GAP13_FREE_TEXT_ENRICH_DRAFT some text",
+                "verdict": "rejected",
+                "reason": "גנרי",
+            })
+            fid = r.json()["id"]
+            r2 = client.post(
+                f"/api/content-feedback/{fid}/enrich",
+                json={
+                    "enriched": "operator typed a specific durable reason here",
+                    "enrichment_source": "free_text",
+                },
+            )
+            self.assertEqual(r2.status_code, 200, r2.text)
+            self.assertTrue(r2.json()["auto_promoted"], r2.json())
 
     def test_enrich_requires_nonempty_body(self):
         with self._client()[0], self._client()[1] as client, self._mock_chips([]):
