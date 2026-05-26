@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% set active_page = "updates" %}
+
+{% block title %}Botson — {{ update_config.ui.title }}{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-[#fafafa] font-semibold tracking-tight text-xl">{{ update_config.ui.title }}</h1>
+    <p class="text-sm text-[#a1a1aa] mt-1 max-w-3xl">{{ update_config.ui.subtitle }}</p>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-6">
+    <section class="space-y-6">
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+            <div class="px-6 py-4 border-b border-[#1f1f1f]">
+                <h2 class="text-sm font-medium text-[#fafafa]">{{ update_config.ui.draft_builder }}</h2>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="block">
+                        <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.update_type }}</span>
+                        <select id="update-type" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                            {% for key, item in update_config.types.items() %}
+                            <option value="{{ key }}" class="bg-[#0a0a0a]">{{ item.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="block">
+                        <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.title_label }}</span>
+                        <input id="update-title" type="text" placeholder="{{ update_config.ui.title_placeholder }}" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                    </label>
+                </div>
+
+                <label class="block">
+                    <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.impact_label }}</span>
+                    <textarea id="update-impact" rows="3" placeholder="{{ update_config.ui.impact_placeholder }}" class="w-full bg-[#111111] border border-[#272727] rounded-md p-3 text-sm text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
+                </label>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="block">
+                        <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.timing_label }}</span>
+                        <input id="update-timing" type="text" placeholder="{{ update_config.ui.timing_placeholder }}" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                    </label>
+                    <label class="block">
+                        <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.notes_label }}</span>
+                        <input id="update-notes" type="text" placeholder="{{ update_config.ui.notes_placeholder }}" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                    </label>
+                </div>
+
+                <div class="flex flex-wrap gap-3">
+                    <button onclick="buildSingleDraft()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">{{ update_config.ui.build_draft }}</button>
+                    <button onclick="addDigestItem()" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.add_to_digest }}</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg">
+            <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-sm font-medium text-[#fafafa]">{{ update_config.ui.final_draft }}</h2>
+                    <p class="text-xs text-[#71717a] mt-1">{{ update_config.ui.publish_guidance }}</p>
+                </div>
+            </div>
+            <div class="p-6 space-y-4">
+                <textarea id="final-draft" rows="13" class="w-full bg-[#111111] border border-[#272727] rounded-md p-4 text-sm leading-7 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <label class="block md:col-span-1">
+                        <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.target_topic }}</span>
+                        <select id="send-topic" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                            <option value="" class="bg-[#0a0a0a]">{{ update_config.ui.select_topic }}</option>
+                            {% for topic in verified_topics %}
+                            <option value="{{ topic.topic_id }}" class="bg-[#0a0a0a]">{{ topic.verified_name }} ({{ topic.category_key }})</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="block md:col-span-1">
+                        <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.target_group }}</span>
+                        <select id="send-target" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
+                            <option value="main" class="bg-[#0a0a0a]">{{ update_config.ui.main_group }}</option>
+                            <option value="test" class="bg-[#0a0a0a]">{{ update_config.ui.test_group }}</option>
+                        </select>
+                    </label>
+                    <button onclick="sendUpdateDraft()" class="bg-emerald-500 text-[#04130b] hover:bg-emerald-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send }}</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <aside class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg h-fit">
+        <div class="px-6 py-4 border-b border-[#1f1f1f]">
+            <h2 class="text-sm font-medium text-[#fafafa]">{{ update_config.ui.digest_queue }}</h2>
+            <p class="text-xs text-[#71717a] mt-1">{{ update_config.ui.digest_guidance }}</p>
+        </div>
+        <div class="p-4 space-y-3" id="digest-list"></div>
+        <div class="px-4 py-4 border-t border-[#1f1f1f] flex gap-2 flex-wrap">
+            <button onclick="buildDigestDraft()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-3 rounded-md text-xs font-medium cursor-pointer transition-colors">{{ update_config.ui.build_digest }}</button>
+            <button onclick="clearDigest()" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-3 rounded-md text-xs font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.clear_digest }}</button>
+        </div>
+    </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const updateConfig = {{ update_config|tojson }};
+    let digestItems = {{ digest_items|tojson }};
+
+    function fieldValue(id) {
+        return (document.getElementById(id).value || '').trim();
+    }
+
+    function compactLines(lines) {
+        return lines.filter(function (line) { return line !== null && line !== undefined && String(line).trim() !== ''; }).join('\n');
+    }
+
+    function getTypeConfig(typeKey) {
+        return (updateConfig.types || {})[typeKey] || (updateConfig.types || {}).feature || {};
+    }
+
+    function buildDraftFromItem(item) {
+        const labels = updateConfig.draft.labels;
+        const typeCfg = getTypeConfig(item.type);
+        const title = item.title || typeCfg.headline_prefix || '';
+        const timing = item.timing || updateConfig.draft.labels.digest_timing;
+        const notes = item.notes || updateConfig.draft.fallback_note;
+        return compactLines([
+            title,
+            '',
+            labels.what,
+            typeCfg.headline_prefix || title,
+            '',
+            labels.impact,
+            item.impact || '',
+            '',
+            labels.timing,
+            timing,
+            '',
+            labels.notes,
+            notes,
+        ]);
+    }
+
+    function currentItem() {
+        return {
+            type: fieldValue('update-type') || 'feature',
+            title: fieldValue('update-title'),
+            impact: fieldValue('update-impact'),
+            timing: fieldValue('update-timing'),
+            notes: fieldValue('update-notes'),
+        };
+    }
+
+    function buildSingleDraft() {
+        document.getElementById('final-draft').value = buildDraftFromItem(currentItem());
+    }
+
+    function renderDigestItems() {
+        const list = document.getElementById('digest-list');
+        if (!digestItems.length) {
+            list.innerHTML = '<div class="text-sm text-[#71717a] text-center py-8">' + updateConfig.ui.empty_digest + '</div>';
+            return;
+        }
+        list.innerHTML = digestItems.map(function (item) {
+            const typeLabel = (getTypeConfig(item.type).label || item.type || '').replace(/</g, '&lt;');
+            const title = (item.title || '').replace(/</g, '&lt;');
+            const impact = (item.impact || '').replace(/</g, '&lt;');
+            return '<div class="border border-[#1f1f1f] bg-[#111111] rounded-lg p-3">' +
+                '<div class="flex items-start justify-between gap-3">' +
+                    '<div class="min-w-0">' +
+                        '<div class="text-[11px] text-[#71717a] mb-1">' + typeLabel + '</div>' +
+                        '<div class="text-sm text-[#fafafa] font-medium">' + title + '</div>' +
+                        '<div class="text-xs text-[#a1a1aa] mt-1 leading-5">' + impact + '</div>' +
+                    '</div>' +
+                    '<button onclick="deleteDigestItem(\'' + item.id + '\')" class="text-xs text-rose-300 border border-rose-500/20 rounded px-2 py-1 hover:bg-rose-500/10">' + updateConfig.ui.delete + '</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    async function addDigestItem() {
+        const item = currentItem();
+        const res = await apiCall('/api/updates/digest', item);
+        digestItems = res.items || [];
+        renderDigestItems();
+        showToast(updateConfig.ui.saved);
+    }
+
+    async function deleteDigestItem(id) {
+        const res = await apiCall('/api/updates/digest/' + encodeURIComponent(id), null, 'DELETE');
+        digestItems = res.items || [];
+        renderDigestItems();
+    }
+
+    async function clearDigest() {
+        const res = await apiCall('/api/updates/digest/clear', {});
+        digestItems = res.items || [];
+        renderDigestItems();
+        showToast(updateConfig.ui.digest_cleared);
+    }
+
+    function buildDigestDraft() {
+        const labels = updateConfig.draft.labels;
+        const lines = [
+            labels.digest_intro,
+            '',
+        ];
+        digestItems.slice().reverse().forEach(function (item, idx) {
+            lines.push((idx + 1) + '. ' + item.title);
+            lines.push(item.impact || '');
+            if (item.timing) lines.push(item.timing);
+            if (item.notes) lines.push(item.notes);
+            lines.push('');
+        });
+        document.getElementById('final-draft').value = compactLines(lines);
+    }
+
+    async function sendUpdateDraft() {
+        const text = fieldValue('final-draft');
+        const topicId = fieldValue('send-topic');
+        if (!text) {
+            showToast(updateConfig.ui.draft_required, 'error');
+            return;
+        }
+        if (!topicId) {
+            showToast(updateConfig.ui.topic_required, 'error');
+            return;
+        }
+        await apiCall('/api/bot/send-message', {
+            text: text,
+            topic_id: topicId,
+            target: fieldValue('send-target') || 'main',
+        });
+        showToast(updateConfig.ui.sent);
+    }
+
+    renderDigestItems();
+</script>
+{% endblock %}

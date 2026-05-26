@@ -143,6 +143,8 @@ COVERS_DIR = MEDIA_DIR / "covers"
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
 FACTS_IMAGES_DIR = MEDIA_DIR / "facts"
 FACTS_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+UPDATE_TEMPLATES_PATH = CONFIG_DIR / "update_templates.yaml"
+UPDATE_DIGEST_PATH = CONFIG_DIR / "member_update_digest.yaml"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -159,6 +161,28 @@ _db: Database | None = None
 # orphan rows from a previous process are reclassified at startup.
 _AI_SUGGEST_TASKS: dict[str, asyncio.Task] = {}
 _AI_SUGGEST_JOB_TTL_SECONDS = 15 * 60
+
+
+def _load_update_templates() -> dict:
+    if not UPDATE_TEMPLATES_PATH.exists():
+        return {}
+    with open(UPDATE_TEMPLATES_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _load_update_digest_items() -> list[dict]:
+    if not UPDATE_DIGEST_PATH.exists():
+        return []
+    with open(UPDATE_DIGEST_PATH, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    items = data.get("items") if isinstance(data, dict) else []
+    return items if isinstance(items, list) else []
+
+
+def _save_update_digest_items(items: list[dict]) -> None:
+    UPDATE_DIGEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(UPDATE_DIGEST_PATH, "w", encoding="utf-8") as f:
+        yaml.dump({"items": items}, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
 async def _cleanup_ai_suggest_jobs(db: Database) -> None:
@@ -291,6 +315,65 @@ async def settings_page(request: Request, db: Database = Depends(get_db)):
         "merged_topics": merged_topics,
         "handler_routings": handler_routings,
     })
+
+
+@app.get("/updates", response_class=HTMLResponse)
+async def updates_page(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    templates_config = _load_update_templates()
+    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
+    return templates.TemplateResponse(request, name="updates.html", context={
+        "update_config": templates_config,
+        "digest_items": _load_update_digest_items(),
+        "verified_topics": verified_topics,
+    })
+
+
+@app.post("/api/updates/digest")
+async def add_update_digest_item(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    title = str(data.get("title") or "").strip()
+    impact = str(data.get("impact") or "").strip()
+    if not title or not impact:
+        raise HTTPException(status_code=400, detail="title and impact are required")
+
+    item = {
+        "id": f"{int(time.time() * 1000)}-{secrets.token_hex(3)}",
+        "type": str(data.get("type") or "feature").strip(),
+        "title": title,
+        "impact": impact,
+        "timing": str(data.get("timing") or "").strip(),
+        "notes": str(data.get("notes") or "").strip(),
+    }
+    items = _load_update_digest_items()
+    items.insert(0, item)
+    _save_update_digest_items(items[:50])
+    return {"status": "ok", "item": item, "items": items[:50]}
+
+
+@app.delete("/api/updates/digest/{item_id}")
+async def delete_update_digest_item(item_id: str, request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    items = _load_update_digest_items()
+    kept = [item for item in items if str(item.get("id")) != item_id]
+    _save_update_digest_items(kept)
+    return {"status": "ok", "items": kept}
+
+
+@app.post("/api/updates/digest/clear")
+async def clear_update_digest_items(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    _save_update_digest_items([])
+    return {"status": "ok", "items": []}
 
 
 @app.post("/api/settings/topics")
