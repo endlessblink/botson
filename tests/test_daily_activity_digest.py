@@ -121,6 +121,7 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
             data="daily_digest:0",
             message=SimpleNamespace(chat_id=-1001, message_thread_id=341),
             answer=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
         )
         update = SimpleNamespace(
             callback_query=query,
@@ -132,6 +133,11 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
 
         query.answer.assert_awaited_once()
         self.assertIn("אזכיר לך לפני", query.answer.await_args.args[0])
+        self.assertTrue(query.answer.await_args.kwargs["show_alert"])
+        query.edit_message_reply_markup.assert_awaited_once()
+        updated_markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+        self.assertIn("✅", updated_markup.inline_keyboard[0][0].text)
+        self.assertIn("@noam", updated_markup.inline_keyboard[0][0].text)
         self.assertEqual(len(job_queue.calls), 1)
         self.assertIn(123, digest._REMINDER_INTEREST["daily_digest:0"]["users"])
 

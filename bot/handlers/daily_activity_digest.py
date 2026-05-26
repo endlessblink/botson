@@ -70,6 +70,31 @@ def _mention_user(user) -> str:
     return f"<a href=\"tg://user?id={user.id}\">{name}</a>"
 
 
+def _button_user_label(user) -> str:
+    if getattr(user, "username", None):
+        return f"@{user.username}"
+    return getattr(user, "first_name", None) or getattr(user, "full_name", None) or "מישהו"
+
+
+def _button_label_with_interest(key: str, row: dict) -> str:
+    base = _button_label(row)
+    entry = _REMINDER_INTEREST.get(key) or {}
+    users = list((entry.get("button_users") or {}).values())
+    if not users:
+        return base
+    names = ", ".join(users[:2])
+    extra = f" +{len(users) - 2}" if len(users) > 2 else ""
+    return f"✅ {base} · {names}{extra}"
+
+
+def _daily_activity_keyboard_from_cache() -> InlineKeyboardMarkup | None:
+    buttons = []
+    for key, detail in _DETAIL_CACHE.items():
+        row = detail.get("row") or {}
+        buttons.append([InlineKeyboardButton(_button_label_with_interest(key, row), callback_data=key)])
+    return InlineKeyboardMarkup(buttons) if buttons else None
+
+
 def _reminder_delay_seconds(row: dict, *, lead_minutes: int = 15) -> float | None:
     date_s = str(row.get("scheduled_date") or datetime.now(_IL_TZ).date().isoformat())
     time_s = str(row.get("scheduled_time") or "").strip()[:5]
@@ -127,6 +152,7 @@ async def handle_daily_digest_button(update: Update, context: ContextTypes.DEFAU
         return
     entry = _REMINDER_INTEREST.setdefault(key, {"detail": detail, "users": {}, "job_scheduled": False})
     entry["users"][user.id] = _mention_user(user)
+    entry.setdefault("button_users", {})[user.id] = _button_user_label(user)
     if not entry["job_scheduled"] and context.job_queue:
         delay = _reminder_delay_seconds(detail["row"])
         if delay is not None:
@@ -139,7 +165,11 @@ async def handle_daily_digest_button(update: Update, context: ContextTypes.DEFAU
                 name=f"daily_digest_reminder_{key.replace(':', '_')}",
             )
             entry["job_scheduled"] = True
-    await query.answer(f"סבבה, אזכיר לך לפני {_activity_label(detail['row'])}", show_alert=False)
+    try:
+        await query.edit_message_reply_markup(reply_markup=_daily_activity_keyboard_from_cache())
+    except Exception as e:
+        logger.warning("daily_activity_digest: failed to refresh digest button: %s", e)
+    await query.answer(f"סבבה, אזכיר לך לפני {_activity_label(detail['row'])}", show_alert=True)
 
 
 async def _send_activity_reminder(context: ContextTypes.DEFAULT_TYPE):
