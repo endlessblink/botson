@@ -91,7 +91,7 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
     try:
         channel = await client.get_input_entity(int(chat_id))
         response = await client(GetForumTopicsRequest(
-            channel=channel,
+            peer=channel,
             q="",
             offset_date=0,
             offset_id=0,
