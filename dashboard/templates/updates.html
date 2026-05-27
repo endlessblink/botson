@@ -63,7 +63,7 @@
             </div>
             <div class="p-6 space-y-4">
                 <textarea id="final-draft" rows="13" class="w-full bg-[#111111] border border-[#272727] rounded-md p-4 text-sm leading-7 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                     <label class="block md:col-span-1">
                         <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.target_topic }}</span>
                         <select id="send-topic" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
@@ -81,6 +81,7 @@
                         </select>
                     </label>
                     <button onclick="sendUpdateDraft()" class="bg-emerald-500 text-[#04130b] hover:bg-emerald-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send }}</button>
+                    <button onclick="sendPreviewDraft()" class="bg-sky-500 text-[#04101a] hover:bg-sky-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send_preview }}</button>
                 </div>
             </div>
         </div>
@@ -231,6 +232,19 @@
             target: fieldValue('send-target') || 'main',
         });
         showToast(updateConfig.ui.sent);
+    }
+
+    async function sendPreviewDraft() {
+        const text = fieldValue('final-draft');
+        if (!text) {
+            showToast(updateConfig.ui.draft_required, 'error');
+            return;
+        }
+        await apiCall('/api/bot/send-message', {
+            text: text,
+            target: 'test',
+        });
+        showToast(updateConfig.ui.preview_sent || updateConfig.ui.sent);
     }
 
     renderDigestItems();
