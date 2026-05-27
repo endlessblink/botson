@@ -202,8 +202,12 @@ def _setup_reload_watcher(app):
 
     # Optional MTProto reconciliation catches topic changes that happened while
     # the bot was offline. Disabled unless TELEGRAM_API_ID/HASH are configured.
-    from .scheduler.topic_sync import register_topic_sync_job
-    register_topic_sync_job(app)
+    try:
+        from .scheduler.topic_sync import register_topic_sync_job
+    except ModuleNotFoundError:
+        logger.info("topic_sync job unavailable; skipping optional reconciliation")
+    else:
+        register_topic_sync_job(app)
 
 
 async def _reload_config(app):
