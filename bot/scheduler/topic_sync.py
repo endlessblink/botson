@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from ..utils.config import BOT_TOKEN, GROUP_ID
+from ..utils.config import GROUP_ID
 
 logger = logging.getLogger(__name__)
 
@@ -78,17 +78,18 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
 
     try:
         from telethon import TelegramClient
+        from telethon.sessions import StringSession
         from telethon.tl.functions.messages import GetForumTopicsRequest
     except ImportError as e:
         raise RuntimeError("telethon is required for topic sync") from e
 
-    session = os.getenv("BOTSON_TOPIC_SYNC_SESSION", "botson_topic_sync")
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or BOT_TOKEN
-    if not bot_token:
-        raise RuntimeError("BOT_TOKEN is required for topic sync")
+    session_string = os.getenv("TELEGRAM_SESSION_STRING", "").strip()
+    session = StringSession(session_string) if session_string else os.getenv("BOTSON_TOPIC_SYNC_SESSION", "botson_topic_sync")
     client = TelegramClient(session, int(api_id), api_hash)
-    await client.start(bot_token=bot_token)
+    await client.connect()
     try:
+        if not await client.is_user_authorized():
+            raise RuntimeError("TELEGRAM_SESSION_STRING must contain an authorized user session for forum topic sync")
         channel = await client.get_input_entity(int(chat_id))
         response = await client(GetForumTopicsRequest(
             peer=channel,
