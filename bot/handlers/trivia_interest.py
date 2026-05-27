@@ -18,11 +18,24 @@ from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from ..database.db import Database
 from ..utils.config import GROUP_ID
+from ..utils.config import get_settings
 from ..utils.helpers import get_display_name
 from ..utils.topic_guard import safe_send
 
 logger = logging.getLogger(__name__)
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
+
+
+def _default_reminder_lead_minutes() -> int | None:
+    reminder = (get_settings() or {}).get("reminder") or {}
+    raw = reminder.get("default_game_lead_minutes")
+    if raw is None:
+        options = reminder.get("game_lead_options") or []
+        raw = options[0] if options else None
+    try:
+        return max(0, int(raw)) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _format_interest_names(responses: list[dict], *, limit: int = 5) -> str:
@@ -84,6 +97,10 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
     count, already_responded = await db.add_trivia_interest_response(
         scheduled_msg_id, user.id, display_name
     )
+    if not await db.get_reminder_leads(user.id):
+        default_lead = _default_reminder_lead_minutes()
+        if default_lead is not None:
+            await db.toggle_reminder_lead(user.id, default_lead)
     responses = await db.get_trivia_interest_responses(scheduled_msg_id)
     names = _format_interest_names(responses, limit=3)
     result = {"count": count, "already": already_responded, "names": names}
@@ -154,8 +171,8 @@ def _warmup_markup(scheduled_msg_id: int, count: int, names: str) -> InlineKeybo
     """Count button + the 'open in DM' deep-link button (when configured)."""
     rows = [[_interest_button(scheduled_msg_id, count, names)]]
     # Local import avoids a circular import (dm_menu imports this module).
-    from .dm_menu import deep_link_button
-    dl = deep_link_button()
+    from .dm_menu import game_deep_link_button
+    dl = game_deep_link_button(scheduled_msg_id)
     if dl:
         rows.append([dl])
     return InlineKeyboardMarkup(rows)

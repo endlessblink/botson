@@ -53,6 +53,7 @@ copy:
     cmd_help_desc: "עזרה ורשימת פקודות"
     # Label of the URL button appended to group posts that link into the DM.
     open_in_dm: "⚙️ פתחו תפריט אישי"
+    open_game_in_dm: "🔔 תזכורת בפרטי"
     dm_only_notice: "התפריט האישי זמין רק בצ'אט פרטי עם הבוט."
     # --- Upcoming items list (Phase 2) ---
     upcoming_title: "מה מתוכנן בקרוב 👇"
@@ -69,14 +70,16 @@ copy:
     btn_signed_up: "✅ נרשמת — בטל הרשמה"
     signup_not_open_yet: "ההרשמה למשחק הזה תיפתח קרוב יותר למועד 🙂"
     signup_done: "רשמנו אותך! נתראה שם 🎉"
+    signup_done_dm: "רשמנו אותך לתזכורת על {label}. אפשר לבטל מכאן בכל רגע."
     signoff_done: "ביטלת את ההרשמה."
+    signoff_done_dm: "ביטלתי את התזכורת למשחק הזה."
     signup_unavailable: "ההרשמה כבר לא זמינה."
     signup_closed: "ההרשמה לפעילות הזו כבר נסגרה."
     # Activity-log line written when a user RSVPs via the DM menu.
     rsvp_log: "+{points} נקודות ל-{name} (אישור הגעה דרך תפריט אישי)"
     # --- Activity preferences (Phase 3) ---
-    prefs_title: "בחרו על מה לקבל התראה אישית בפרטי 🔔"
-    prefs_help: "כשמופעל, אשלח לכם הודעה פרטית עם כפתור הרשמה כשפעילות כזו מתוכננת."
+    prefs_title: "בחרו אם לקבל התראות אישיות על אירועים 🔔"
+    prefs_help: "התראות על משחקים נשלחות רק כתזכורת למי שנרשם למשחק ובחר זמן תזכורת."
     pref_on: "✅"
     pref_off: "☐"
     pref_saved: "נשמר!"
@@ -95,6 +98,8 @@ copy:
     reminder_saved: "התזכורת עודכנה ✅"
     reminder_dm: "🎮 {label} מתחילה בעוד ~{minutes} דקות! היכונו 🙌"
     reminder_dm_now: "🎮 {label} מתחילה עכשיו! 🙌"
+    reminder_unsubscribe_btn: "🔕 בטלו תזכורת למשחק הזה"
+    game_dm_prompt: "רוצים תזכורת אישית על {label}?"
   levels:
     fallback_tag: "רמה {level}"
   roundup: {}     # Phase A.2.4 populates from bot/handlers/roundup.py
@@ -141,6 +146,7 @@ copy:
   emoji_puzzle:
     header: "חידת אימוג'י {index}/{total}"
     reply_hint: "השיבו ב-reply להודעה הזו. גם אם פספסתם חידה קודמת, היא עדיין פתוחה עד סוף המשחק."
+    wrap_countdown: "⏳ המשחק נשאר פתוח עוד {minutes} דקות. אפשר עדיין לענות ב-reply לחידות לפני חשיפת התשובות."
     badge_general: "🧩"
     badge_movie: "🎬"
     badge_tv: "📺"
@@ -295,6 +301,7 @@ event_reminder_lead_minutes: 10
 # kickoff). No selection = no reminders.
 reminder:
   game_lead_options: [0, 5, 10, 30, 60]   # minute choices offered in the menu (0 = at start)
+  default_game_lead_minutes: 30
 # Defense-in-depth: if the bot's calendar_checker picks up a scheduled row more
 # than this many minutes late (clock drift, bot was offline, SQL anomaly) it
 # marks the row failed WITHOUT sending. Future-dated rows are unaffected. Set
@@ -442,10 +449,15 @@ schedule:
     theme_label: ''
     media_types: []
     puzzle_count: 5
-    interval_seconds: 20
+    interval_seconds: 60
     interval_minutes: 1
     intro_offset_seconds: 10
-    wrap_offset_seconds: 20
+    wrap_offset_seconds: 900
+    wrap_countdown_minutes:
+    - 15
+    - 10
+    - 5
+    - 1
   evening_prompt:
     # Slow-chat shift (2026-05-10): trimmed Sun/Tue/Thu → Thu-only.
     # Pre-weekend reflection slot. Pairs with Sun morning + Mon discussion
@@ -509,6 +521,9 @@ trivia:
   # dispatch skips such a row instead of silently firing it. Games without a
   # marker (legacy / coerced launches) are unaffected. Set false to allow them.
   require_warmup_announcement: true
+  # Delete public game sign-up announcements after this many minutes. DB history
+  # and per-game RSVP rows stay intact. 0 disables cleanup.
+  warmup_public_cleanup_minutes: 20
   populate_defaults:
     pre_roll_s: 120
     warmup_offset_min: 60

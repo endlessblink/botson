@@ -1,6 +1,6 @@
-"""Tests for the private DM menu: preference storage, opt-in notification
-fan-out (dedupe / Forbidden / opt-out), helper mapping, and the dashboard
-parity view."""
+"""Tests for the private DM menu: preference storage, opt-in event
+notification fan-out (dedupe / Forbidden / opt-out), helper mapping, and the
+dashboard parity view."""
 import json
 import os
 import tempfile
@@ -74,7 +74,7 @@ class PreferenceStorageTests(unittest.IsolatedAsyncioTestCase):
 class HelperTests(unittest.TestCase):
     def test_msg_type_to_activity(self):
         self.assertEqual(dm_menu._msg_type_to_activity("event"), "events")
-        self.assertEqual(dm_menu._msg_type_to_activity("trivia_warmup_rsvp"), "games")
+        self.assertIsNone(dm_menu._msg_type_to_activity("trivia_warmup_rsvp"))
         self.assertIsNone(dm_menu._msg_type_to_activity("discussion"))
 
     def test_fmt_when(self):
@@ -84,6 +84,13 @@ class HelperTests(unittest.TestCase):
     def test_deep_link_button_none_without_username(self):
         with patch.object(dm_menu, "deep_link", return_value=""):
             self.assertIsNone(dm_menu.deep_link_button())
+
+    def test_game_deep_link_button_targets_specific_warmup(self):
+        with patch.object(dm_menu, "deep_link", return_value="https://t.me/bot?start=game_123") as dl:
+            btn = dm_menu.game_deep_link_button(123)
+        dl.assert_called_once_with("game_123")
+        self.assertIsNotNone(btn)
+        self.assertEqual(btn.url, "https://t.me/bot?start=game_123")
 
 
 class NotifyOptedInTests(unittest.IsolatedAsyncioTestCase):
@@ -107,48 +114,45 @@ class NotifyOptedInTests(unittest.IsolatedAsyncioTestCase):
             "text": "warmup",
         }
 
-    async def test_game_notifies_opted_in_once(self):
-        await self.db.set_activity_preference(1, "games", True)
-        ctx = self._ctx()
-        await dm_menu.notify_opted_in_users(ctx, self.db, self._game_msg())
-        ctx.bot.send_message.assert_awaited_once()
-        kwargs = ctx.bot.send_message.await_args.kwargs
-        self.assertEqual(kwargs["chat_id"], 1)
-        # Sign-up button keys on the warm-up id.
-        cb = kwargs["reply_markup"].inline_keyboard[0][0].callback_data
-        self.assertEqual(cb, "dmmenu_tr_500")
+    def _event_msg(self):
+        return {"id": 600, "message_type": "event", "text": "כותרת\nפרטים"}
 
-    async def test_redispatch_is_deduped(self):
+    async def test_game_warmup_does_not_send_automatic_dm(self):
         await self.db.set_activity_preference(1, "games", True)
-        ctx = self._ctx()
-        await dm_menu.notify_opted_in_users(ctx, self.db, self._game_msg())
-        await dm_menu.notify_opted_in_users(ctx, self.db, self._game_msg())
-        ctx.bot.send_message.assert_awaited_once()
-
-    async def test_opted_out_user_not_notified(self):
-        await self.db.set_activity_preference(1, "games", False)
         ctx = self._ctx()
         await dm_menu.notify_opted_in_users(ctx, self.db, self._game_msg())
         ctx.bot.send_message.assert_not_awaited()
 
+    async def test_redispatch_is_deduped(self):
+        await self.db.set_activity_preference(1, "events", True)
+        ctx = self._ctx()
+        await dm_menu.notify_opted_in_users(ctx, self.db, self._event_msg(), event_id=42)
+        await dm_menu.notify_opted_in_users(ctx, self.db, self._event_msg(), event_id=42)
+        ctx.bot.send_message.assert_awaited_once()
+
+    async def test_opted_out_user_not_notified(self):
+        await self.db.set_activity_preference(1, "events", False)
+        ctx = self._ctx()
+        await dm_menu.notify_opted_in_users(ctx, self.db, self._event_msg(), event_id=42)
+        ctx.bot.send_message.assert_not_awaited()
+
     async def test_forbidden_is_swallowed_and_marked(self):
-        await self.db.set_activity_preference(1, "games", True)
+        await self.db.set_activity_preference(1, "events", True)
         ctx = self._ctx()
         ctx.bot.send_message.side_effect = Forbidden("bot was blocked by the user")
         # Must not raise.
-        await dm_menu.notify_opted_in_users(ctx, self.db, self._game_msg())
+        await dm_menu.notify_opted_in_users(ctx, self.db, self._event_msg(), event_id=42)
         # Marked notified so we never retry a user who blocked us.
-        self.assertTrue(await self.db.was_notified(500, 1))
+        self.assertTrue(await self.db.was_notified(600, 1))
 
     async def test_event_requires_event_id(self):
         await self.db.set_activity_preference(1, "events", True)
         ctx = self._ctx()
-        event_msg = {"id": 600, "message_type": "event", "text": "כותרת\nפרטים"}
         # No event_id → no DM (can't build the RSVP button).
-        await dm_menu.notify_opted_in_users(ctx, self.db, event_msg, event_id=None)
+        await dm_menu.notify_opted_in_users(ctx, self.db, self._event_msg(), event_id=None)
         ctx.bot.send_message.assert_not_awaited()
         # With event_id → DM with rsvp button.
-        await dm_menu.notify_opted_in_users(ctx, self.db, event_msg, event_id=42)
+        await dm_menu.notify_opted_in_users(ctx, self.db, self._event_msg(), event_id=42)
         ctx.bot.send_message.assert_awaited_once()
         cb = ctx.bot.send_message.await_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
         self.assertEqual(cb, "dmmenu_evy_42")
@@ -259,6 +263,39 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         cbs2 = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
         self.assertIn(f"dmmenu_tr_{wid}", cbs2)
 
+    async def test_game_deep_link_subscribes_and_private_button_unsubscribes(self):
+        wid = await self._make_scheduled_warmup()
+        sent = {}
+
+        async def reply_text(text, reply_markup=None):
+            sent["text"] = text
+            sent["markup"] = reply_markup
+
+        user = SimpleNamespace(id=10, username="u", first_name="U", last_name="")
+        upd = SimpleNamespace(
+            message=SimpleNamespace(reply_text=reply_text),
+            effective_user=user,
+            effective_chat=SimpleNamespace(id=10, type="private"),
+        )
+        ctx = SimpleNamespace(bot_data={"db": self.db}, bot=AsyncMock())
+
+        await dm_menu.show_game_subscription(upd, ctx, wid)
+
+        self.assertTrue(await self.db.has_trivia_interest_response(wid, 10))
+        cbs = [b.callback_data for row in sent["markup"].inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_gunsub_{wid}", cbs)
+
+        async def answer(text=None, show_alert=False): pass
+        async def edit(text=None, reply_markup=None): sent["after"] = reply_markup
+        q = SimpleNamespace(data=f"dmmenu_gunsub_{wid}", answer=answer, edit_message_text=edit)
+        await dm_menu._handle_game_unsubscribe(
+            SimpleNamespace(callback_query=q, effective_user=user), ctx,
+        )
+
+        self.assertFalse(await self.db.has_trivia_interest_response(wid, 10))
+        cbs2 = [b.callback_data for row in sent["after"].inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_gsub_{wid}", cbs2)
+
     async def test_warmup_posted_but_game_upcoming_stays_listed(self):
         # Regression: warm-up posted an hour ago (post time passed) but the game
         # kicks off in 30 min — it must STAY in the menu, not show "nothing
@@ -332,6 +369,7 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         # interest is persisted, so it counts when the game runs.
         responses = await self.db.get_trivia_interest_responses(wid)
         self.assertEqual([r["user_id"] for r in responses], [7])
+        self.assertEqual(await self.db.get_reminder_leads(7), {30})
 
 
 class GameReminderTests(unittest.IsolatedAsyncioTestCase):
@@ -389,9 +427,23 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         await dm_menu.send_due_game_reminders(ctx)
         ctx.bot.send_message.assert_awaited_once()
         self.assertEqual(ctx.bot.send_message.await_args.kwargs["chat_id"], 1)
+        markup = ctx.bot.send_message.await_args.kwargs["reply_markup"]
+        cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_gunsub_{wid}", cbs)
         # Second tick: deduped.
         await dm_menu.send_due_game_reminders(ctx)
         ctx.bot.send_message.assert_awaited_once()
+
+    async def test_signup_for_one_game_does_not_subscribe_to_other_games(self):
+        first = await self._warmup_in(15, [1], marker="game-a")
+        second = await self._warmup_in(15, [], marker="game-b")
+        ctx = self._ctx()
+
+        await dm_menu.send_due_game_reminders(ctx)
+
+        ctx.bot.send_message.assert_awaited_once()
+        self.assertTrue(await self.db.was_game_reminded(first, 1, 30))
+        self.assertFalse(await self.db.was_game_reminded(second, 1, 30))
 
     async def test_not_yet_due_does_not_fire(self):
         # Game in 90 min, user lead 30 → remind_at is still 60 min away.

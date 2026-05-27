@@ -124,6 +124,10 @@ def _format_wrap_text(leaderboard: list[dict], total: int, unsolved_rounds: list
     return "\n".join(lines)
 
 
+def _format_wrap_countdown(minutes: int) -> str:
+    return load_copy("emoji_puzzle", "wrap_countdown", minutes=minutes)
+
+
 def _payload(message_type: str, **kwargs) -> str:
     data = {"kind": message_type, **kwargs}
     return json.dumps(data, ensure_ascii=False)
@@ -399,6 +403,10 @@ async def start_emoji_night(
     interval_seconds = int(schedule.get("interval_seconds") or (int(schedule.get("interval_minutes", 1) or 1) * 60))
     intro_offset_seconds = int(schedule.get("intro_offset_seconds", 10) or 10)
     wrap_offset_seconds = int(schedule.get("wrap_offset_seconds", 20) or 20)
+    wrap_countdown_minutes = [
+        int(m) for m in (schedule.get("wrap_countdown_minutes") or [])
+        if str(m).strip().isdigit() and int(m) > 0
+    ]
 
     puzzles = await _pick_session_puzzles(db, puzzle_count, media_types=media_types)
     if len(puzzles) < puzzle_count:
@@ -422,6 +430,7 @@ async def start_emoji_night(
             intro_offset_seconds=intro_offset_seconds,
             interval_seconds=interval_seconds,
             wrap_offset_seconds=wrap_offset_seconds,
+            wrap_countdown_minutes=wrap_countdown_minutes,
         )
     )
     _session_tasks[session_id] = task
@@ -441,6 +450,7 @@ async def _run_emoji_session(
     intro_offset_seconds: int,
     interval_seconds: int,
     wrap_offset_seconds: int,
+    wrap_countdown_minutes: list[int],
 ):
     if intro_offset_seconds > 0:
         await asyncio.sleep(intro_offset_seconds)
@@ -466,8 +476,26 @@ async def _run_emoji_session(
         if idx < len(puzzles) and interval_seconds > 0:
             await asyncio.sleep(interval_seconds)
 
-    if wrap_offset_seconds > 0:
-        await asyncio.sleep(wrap_offset_seconds)
+    remaining = max(0, int(wrap_offset_seconds))
+    countdowns = sorted(
+        {m for m in wrap_countdown_minutes if m * 60 <= remaining},
+        reverse=True,
+    )
+    for minutes in countdowns:
+        target_remaining = minutes * 60
+        if remaining > target_remaining:
+            await asyncio.sleep(remaining - target_remaining)
+            remaining = target_remaining
+        await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=chat_id,
+            text=_format_wrap_countdown(minutes),
+            message_thread_id=thread_id,
+        )
+    if remaining > 0:
+        await asyncio.sleep(remaining)
 
     leaderboard = await db.get_session_leaderboard(session_id)
     unsolved_rounds = await db.get_session_unsolved_rounds(session_id)

@@ -232,6 +232,16 @@ _SLOT_CLAIMING_TYPES = frozenset({
 })
 
 
+def _dispatch_priority(msg: dict) -> tuple[str, int, int]:
+    """Stable due-row ordering: time-anchored games claim their minute first."""
+    mtype = str(msg.get("message_type") or "")
+    return (
+        str(msg.get("scheduled_time") or ""),
+        0 if mtype in _SLOT_CLAIMING_TYPES else 1,
+        int(msg.get("id") or 0),
+    )
+
+
 async def _enforce_warmup_announcement_present(db: Database, msg: dict) -> None:
     """Orphan-game guard (2026-05-23): a trivia/emoji row that carries a
     `warmup_marker` must have a matching warm-up announcement row before it may
@@ -361,6 +371,36 @@ async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
             coerced["channel_topic_id"] = routing["play_topic_id"]
         coerced["message_type"] = "emoji_puzzle"
     return coerced
+
+
+async def _game_warmup_thread_id(db: Database, msg: dict) -> int | None:
+    """Route game RSVP/reminder rows with their game, not the updates topic.
+
+    Older rows may still carry the old trivia_warmup/update-channel topic. At
+    dispatch time the marker tells us whether the row belongs to trivia or emoji,
+    so use the executable game's routing as the source of truth.
+    """
+    payload = _parse_payload(msg.get("poll_options"))
+    marker = str(payload.get("warmup_marker") or "")
+    handler = None
+    text = str(msg.get("text") or "")
+    activity_label = str(payload.get("activity_label") or payload.get("theme_label") or "")
+    lookup_text = f"{marker} {activity_label} {text}".lower()
+    if ":emoji:" in marker or "emoji" in lookup_text or "אימוג" in lookup_text:
+        handler = "emoji_puzzle"
+    elif ":trivia:" in marker or marker.startswith("warmup-rsvp:"):
+        handler = "trivia_round"
+    elif msg.get("message_type") == "trivia_warmup_rsvp":
+        handler = "trivia_warmup"
+    if handler:
+        try:
+            routing = await db.get_handler_routing(handler)
+            if routing and routing.get("play_topic_id") is not None:
+                return int(routing["play_topic_id"])
+        except Exception:
+            pass
+    topic = msg.get("channel_topic_id")
+    return int(topic) if topic is not None else None
 
 
 def _media_dir() -> Path:
@@ -522,6 +562,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
 
     if not due:
         return
+    due.sort(key=_dispatch_priority)
 
     import os
     from telegram import Bot
@@ -538,6 +579,8 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
         stale_drop_minutes = int((_get_settings() or {}).get("stale_drop_minutes", 30) or 30)
     except Exception:
         stale_drop_minutes = 30
+
+    slot_claims_this_tick: set[tuple[str, str, str, int | None]] = set()
 
     for msg in due:
         if should_skip_scheduled_message(msg.get("scheduled_date", ""), msg.get("created_by")):
@@ -581,6 +624,20 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             continue
 
         msg = await _coerce_due_game_row(db, msg, target)
+        mtype = msg.get("message_type")
+        slot_key = (
+            str(msg.get("scheduled_date") or ""),
+            str(msg.get("scheduled_time") or "")[:5],
+            str(msg.get("target_group") or "main"),
+            msg.get("channel_topic_id"),
+        )
+        if mtype not in _SLOT_CLAIMING_TYPES and slot_key in slot_claims_this_tick:
+            logger.warning(
+                "same_slot_collision: skipping static msg=%s type=%s because a game/event already claimed %s %s topic=%s",
+                msg.get("id"), mtype, slot_key[0], slot_key[1], slot_key[3],
+            )
+            await db.mark_message_skipped(msg["id"], "same_slot_collision: game/event already claimed this minute")
+            continue
 
         # Same-topic spacing guard (2026-05-23): keep non-time-critical content
         # from stacking onto a topic that just received a post (that night an
@@ -730,11 +787,12 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                 await db.update_event(event_id_for_rsvp, message_id=sent.message_id)
             elif msg.get("message_type") == "trivia_warmup_rsvp":
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                from .dm_menu import deep_link_button
+                from .dm_menu import game_deep_link_button
+                warmup_thread_id = await _game_warmup_thread_id(db, msg)
                 _wu_rows = [[
                     InlineKeyboardButton("🙋 אני בפנים!", callback_data=f"trivint_{msg['id']}"),
                 ]]
-                _dl = deep_link_button()
+                _dl = game_deep_link_button(int(msg["id"]))
                 if _dl:
                     _wu_rows.append([_dl])
                 markup = InlineKeyboardMarkup(_wu_rows)
@@ -744,53 +802,13 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     "send_message",
                     chat_id=group_id,
                     text=msg["text"],
-                    message_thread_id=msg.get("channel_topic_id"),
+                    message_thread_id=warmup_thread_id,
                     reply_markup=markup,
                 )
+                if msg.get("channel_topic_id") != warmup_thread_id:
+                    await db.update_scheduled_message(msg["id"], channel_topic_id=warmup_thread_id)
             elif msg.get("message_type") == "warmup_reminder":
-                from ..utils.config import warmup_reminder_enabled
-                if not warmup_reminder_enabled():
-                    raise SkippedActivity("warmup_reminder disabled by config (trivia.warmup_reminder_enabled)")
-                payload = _parse_payload(msg.get("poll_options"))
-                marker = str(payload.get("warmup_marker") or "").strip()
-                if not marker:
-                    raise SkippedActivity("warmup_reminder: missing warmup_marker")
-                async with db._db.execute(
-                    """SELECT id, sent_message_id, poll_options
-                       FROM scheduled_messages
-                       WHERE message_type = 'trivia_warmup_rsvp' AND status = 'sent'
-                       ORDER BY id DESC""",
-                ) as cur:
-                    candidates = await cur.fetchall()
-                ann = None
-                for cand in candidates:
-                    try:
-                        cand_payload = json.loads(cand["poll_options"] or "{}")
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-                    if str(cand_payload.get("warmup_marker") or "") == marker:
-                        ann = cand
-                        break
-                if not ann:
-                    raise SkippedActivity(f"warmup_reminder: parent announcement not sent for marker={marker}")
-                threshold = int(payload.get("min_ready_players") or 0)
-                # Aggregate across all rows sharing the marker (see
-                # _enforce_warmup_rsvp_gate) so a duplicate announcement does
-                # not make us re-send a reminder whose threshold is already met.
-                rsvp_count = len(await db.get_warmup_rsvp_user_map(marker))
-                if threshold > 0 and rsvp_count >= threshold:
-                    raise SkippedActivity(
-                        f"warmup_reminder: threshold {threshold} already met (count={rsvp_count})"
-                    )
-                ann_message_id = ann["sent_message_id"]
-                kwargs = {
-                    "chat_id": group_id,
-                    "text": msg["text"],
-                    "message_thread_id": msg.get("channel_topic_id"),
-                }
-                if ann_message_id:
-                    kwargs["reply_to_message_id"] = int(ann_message_id)
-                sent = await safe_send(bot, db, "send_message", **kwargs)
+                raise SkippedActivity("warmup_reminder: public group reminders disabled; personal DM reminders handle sign-ups")
             else:
                 poll_options = _parse_poll_options(msg.get("poll_options"))
                 if msg.get("message_type") == "poll" and len(poll_options) >= 2:
@@ -831,6 +849,8 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Failed to pin message %d: %s", sent.message_id, e)
 
             await db.mark_message_sent(msg["id"], sent.message_id)
+            if mtype in _SLOT_CLAIMING_TYPES:
+                slot_claims_this_tick.add(slot_key)
 
             # Opt-in DM heads-up: notify users who toggled this activity type
             # on in their personal menu. Awaited directly (not offloaded) — the
@@ -905,3 +925,45 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await db.mark_message_failed(msg["id"], str(e))
             logger.error("Failed to send scheduled message %d: %s", msg["id"], e)
+
+
+async def cleanup_public_warmup_announcements(context: ContextTypes.DEFAULT_TYPE):
+    """Delete old public sign-up announcements after the configured window.
+
+    The database row remains sent/history. Cleanup outcome is recorded in
+    error_message so failures are visible and are not retried forever.
+    """
+    db: Database = context.bot_data["db"]
+    try:
+        from bot.utils.config import get_settings as _get_settings
+        minutes = int(((_get_settings().get("trivia") or {}).get("warmup_public_cleanup_minutes")) or 20)
+    except Exception:
+        minutes = 20
+    if minutes <= 0:
+        return
+    rows = await db.get_warmup_announcements_due_for_cleanup(older_than_minutes=minutes)
+    if not rows:
+        return
+
+    import os
+    main_group = int(os.getenv("GROUP_ID", "0"))
+    test_group = int(os.getenv("TEST_GROUP_ID", "0"))
+    for row in rows:
+        desired_thread_id = await _game_warmup_thread_id(db, row)
+        stored_thread_id = row.get("channel_topic_id")
+        if stored_thread_id == desired_thread_id:
+            await db.mark_warmup_cleanup_result(int(row["id"]), "kept-game-topic")
+            continue
+        target = row.get("target_group", "main")
+        chat_id = test_group if target == "test" else main_group
+        message_id = int(row.get("sent_message_id") or 0)
+        if not chat_id or message_id <= 0:
+            await db.mark_warmup_cleanup_result(int(row["id"]), "missing-target")
+            continue
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("warmup_cleanup: failed for row=%s message=%s: %s", row.get("id"), message_id, e)
+            await db.mark_warmup_cleanup_result(int(row["id"]), "failed")
+            continue
+        await db.mark_warmup_cleanup_result(int(row["id"]), "deleted")

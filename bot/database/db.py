@@ -185,6 +185,62 @@ class Database:
                     logger.warning("Migration skipped/failed: %s (%s)", sql, e)
 
         await self._seed_default_handler_routing()
+        await self._normalize_pending_game_warmup_topics()
+
+    async def _normalize_pending_game_warmup_topics(self):
+        """Move not-yet-sent game warm-ups out of the announcements topic.
+
+        Older scheduled rows may have been created with the updates/welcome topic.
+        The dispatcher also resolves the topic at send time, but normalizing here
+        keeps the dashboard honest before those rows fire.
+        """
+        try:
+            trivia_routing = await self.get_handler_routing("trivia_warmup")
+            trivia_topic = trivia_routing.get("play_topic_id") if trivia_routing else None
+            emoji_routing = await self.get_handler_routing("emoji_puzzle")
+            emoji_topic = emoji_routing.get("play_topic_id") if emoji_routing else None
+        except Exception as e:  # noqa: BLE001
+            logger.warning("game warmup topic normalization skipped: %s", e)
+            return
+        if trivia_topic is None and emoji_topic is None:
+            return
+
+        async with self._db.execute(
+            """SELECT id, text, channel_topic_id, poll_options
+               FROM scheduled_messages
+               WHERE message_type='trivia_warmup_rsvp'
+                 AND status IN ('draft', 'scheduled')""",
+        ) as cur:
+            rows = await cur.fetchall()
+
+        changed = 0
+        for row in rows:
+            try:
+                payload = json.loads(row["poll_options"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            marker = str(payload.get("warmup_marker") or "")
+            lookup = " ".join([
+                marker,
+                str(payload.get("activity_label") or ""),
+                str(payload.get("theme_label") or ""),
+                str(row["text"] or ""),
+            ]).lower()
+            target = None
+            if ":emoji:" in marker or "emoji" in lookup or "אימוג" in lookup:
+                target = emoji_topic or trivia_topic
+            else:
+                target = trivia_topic
+            if target is None or row["channel_topic_id"] == target:
+                continue
+            await self._db.execute(
+                "UPDATE scheduled_messages SET channel_topic_id=? WHERE id=?",
+                (int(target), int(row["id"])),
+            )
+            changed += 1
+        if changed:
+            await self._db.commit()
+            logger.info("Normalized %d pending game warm-up rows to game topic", changed)
 
     async def _seed_default_handler_routing(self):
         """Seed bot_message_routing with default per-handler targets on first run.
@@ -197,7 +253,7 @@ class Database:
         defaults = [
             ("trivia_round", 4037),
             ("trivia_scheduled", 4037),
-            ("trivia_warmup", 341),
+            ("trivia_warmup", 4037),
             ("emoji_puzzle", 4037),
             ("free_games", 4037),
             ("facts_tidbit", 4037),
@@ -825,6 +881,16 @@ class Database:
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
 
+    async def get_verified_forum_topic_by_id(self, topic_id: int) -> dict | None:
+        """Return the trusted mapping for a topic_id, if one exists."""
+        async with self._db.execute(
+            """SELECT topic_id, verified_name, category_key, verification_source, verified_at
+               FROM verified_forum_topics WHERE topic_id = ?""",
+            (int(topic_id),),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
     async def get_verified_topic_id(self, category_key: str) -> int | None:
         """Return the trusted topic_id for a category, or None if unverified."""
         async with self._db.execute(
@@ -1193,6 +1259,35 @@ class Database:
         await self._db.execute(
             "UPDATE scheduled_messages SET status = 'sent', sent_at = ?, sent_message_id = ? WHERE id = ?",
             (_now_il(), sent_message_id, msg_id),
+        )
+        await self._db.commit()
+
+    async def get_warmup_announcements_due_for_cleanup(self, *, older_than_minutes: int) -> list[dict]:
+        """Sent public game sign-up announcements old enough to delete.
+
+        The scheduled row stays as history; cleanup state is stored in
+        error_message so a failed/finished cleanup is not retried forever.
+        """
+        cutoff = (datetime.now(_IL_TZ) - timedelta(minutes=max(0, int(older_than_minutes)))).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE message_type = 'trivia_warmup_rsvp'
+                 AND status = 'sent'
+                 AND sent_message_id IS NOT NULL
+                 AND sent_at IS NOT NULL
+                 AND sent_at <= ?
+                 AND (error_message IS NULL OR error_message NOT LIKE 'warmup_cleanup:%')
+               ORDER BY sent_at ASC""",
+            (cutoff,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def mark_warmup_cleanup_result(self, msg_id: int, result: str):
+        """Record public warm-up cleanup result without changing sent history."""
+        await self._db.execute(
+            "UPDATE scheduled_messages SET error_message = ? WHERE id = ?",
+            (f"warmup_cleanup:{result}", msg_id),
         )
         await self._db.commit()
 

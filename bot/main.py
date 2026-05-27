@@ -13,7 +13,7 @@ PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot
 
 from .database.db import Database
 from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu
-from .handlers.calendar import check_and_send_due_messages
+from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, get_emoji_puzzles, get_prompts
 from .utils.copy import load_copy
@@ -49,9 +49,19 @@ async def start_command(update, context):
     `/start menu` (the t.me/<bot>?start=menu deep link) opens the personal menu;
     a bare /start shows the greeting.
     """
-    if context.args and context.args[0] == "menu":
-        await dm_menu.show_menu(update, context)
-        return
+    if context.args:
+        start_arg = context.args[0]
+        if start_arg == "menu":
+            await dm_menu.show_menu(update, context)
+            return
+        if start_arg.startswith("game_"):
+            try:
+                scheduled_msg_id = int(start_arg.split("_", 1)[1])
+            except (IndexError, ValueError):
+                scheduled_msg_id = 0
+            if scheduled_msg_id > 0:
+                await dm_menu.show_game_subscription(update, context, scheduled_msg_id)
+                return
     # Pin the persistent menu keyboard so the buttons are visible from the very
     # first interaction — no need to remember /menu.
     await update.message.reply_text(
@@ -187,6 +197,14 @@ def _setup_reload_watcher(app):
     from .handlers.dm_menu import send_due_game_reminders
     app.job_queue.run_repeating(send_due_game_reminders, interval=60, first=20, name="game_reminder_checker")
 
+    # Anti-clutter: remove public game sign-up prompts after their short window.
+    app.job_queue.run_repeating(cleanup_public_warmup_announcements, interval=60, first=90, name="warmup_cleanup_checker")
+
+    # Optional MTProto reconciliation catches topic changes that happened while
+    # the bot was offline. Disabled unless TELEGRAM_API_ID/HASH are configured.
+    from .scheduler.topic_sync import register_topic_sync_job
+    register_topic_sync_job(app)
+
 
 async def _reload_config(app):
     """Atomic reload: re-register cron jobs and re-materialize text-content rows.
@@ -207,7 +225,7 @@ async def _reload_config(app):
         return
 
     # Save old jobs (excluding system jobs) so we can restore on failure
-    system_jobs = {"reload_watcher", "calendar_checker", "game_reminder_checker"}
+    system_jobs = {"reload_watcher", "calendar_checker", "game_reminder_checker", "warmup_cleanup_checker"}
     old_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
 
     # Remove only schedule jobs (not the reload_watcher)

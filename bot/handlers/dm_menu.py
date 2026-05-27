@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
 
 # Preference activity types shown as toggles, and how dispatched message_types
-# map to them for opt-in notifications. Kept deliberately small (games +
-# events) to match what the bot can honestly act on.
-PREFERENCE_TYPES = ("games", "events")
+# map to them for opt-in notifications. Game warm-ups are intentionally not
+# mapped here: users get personal reminders only after signing up for a game.
+PREFERENCE_TYPES = ("events",)
 EVENT_POINTS = 3  # parity with handle_rsvp in events.py
 
 
@@ -59,8 +59,6 @@ def _msg_type_to_activity(message_type: str) -> str | None:
     """Map a dispatched scheduled_messages.message_type → preference type."""
     if message_type == "event":
         return "events"
-    if message_type == "trivia_warmup_rsvp":
-        return "games"
     return None
 
 
@@ -110,6 +108,46 @@ def deep_link_button() -> InlineKeyboardButton | None:
     if not url:
         return None
     return InlineKeyboardButton(load_copy("dm_menu", "open_in_dm"), url=url)
+
+
+def game_deep_link_button(scheduled_msg_id: int) -> InlineKeyboardButton | None:
+    """Open the private chat on a specific game subscription screen."""
+    url = deep_link(f"game_{int(scheduled_msg_id)}")
+    if not url:
+        return None
+    return InlineKeyboardButton(load_copy("dm_menu", "open_game_in_dm"), url=url)
+
+
+def _game_label_from_payload(payload: dict) -> str:
+    return (
+        str(payload.get("activity_label") or "").strip()
+        or str(payload.get("theme_label") or "").strip()
+        or load_copy("dm_menu", "label_game_default")
+    )
+
+
+async def _get_warmup_payload(db: Database, scheduled_msg_id: int) -> tuple[dict | None, dict]:
+    async with db._db.execute(
+        "SELECT * FROM scheduled_messages WHERE id=? AND message_type='trivia_warmup_rsvp'",
+        (scheduled_msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return None, {}
+    try:
+        payload = json.loads(row["poll_options"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+    return dict(row), payload
+
+
+def _game_toggle_markup(scheduled_msg_id: int, subscribed: bool) -> InlineKeyboardMarkup:
+    label = (
+        load_copy("dm_menu", "reminder_unsubscribe_btn")
+        if subscribed else load_copy("dm_menu", "notify_btn_signup")
+    )
+    prefix = "dmmenu_gunsub" if subscribed else "dmmenu_gsub"
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"{prefix}_{scheduled_msg_id}")]])
 
 
 # ── Menu rendering ───────────────────────────────────────────
@@ -231,11 +269,7 @@ async def _build_upcoming(db: Database, user_id: int):
         if kickoff is not None and kickoff <= now:
             continue  # game already started / passed → don't list it
 
-        label = (
-            str(payload.get("activity_label") or "").strip()
-            or str(payload.get("theme_label") or "").strip()
-            or load_copy("dm_menu", "label_game_default")
-        )
+        label = _game_label_from_payload(payload)
         when = _fmt_when(kdate, ktime)
         lines.append(load_copy(
             "dm_menu", "item_line",
@@ -475,6 +509,106 @@ async def _handle_trivia_signoff(update: Update, context: ContextTypes.DEFAULT_T
     await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
 
 
+async def show_game_subscription(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    scheduled_msg_id: int,
+    *,
+    subscribe: bool = True,
+):
+    """Private deep-link landing page for one game reminder subscription."""
+    if not _is_dm(update):
+        if update.message:
+            await update.message.reply_text(load_copy("dm_menu", "dm_only_notice"))
+        return
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    db: Database = context.bot_data["db"]
+    row, payload = await _get_warmup_payload(db, scheduled_msg_id)
+    if not row:
+        await update.message.reply_text(load_copy("dm_menu", "signup_unavailable"))
+        return
+    label = _game_label_from_payload(payload)
+    if subscribe and not await db.has_trivia_interest_response(scheduled_msg_id, user.id):
+        result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
+        if result is None:
+            await update.message.reply_text(load_copy("dm_menu", "signup_unavailable"))
+            return
+        if result.get("closed"):
+            await update.message.reply_text(load_copy("dm_menu", "signup_closed"))
+            return
+        await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
+    subscribed = await db.has_trivia_interest_response(scheduled_msg_id, user.id)
+    text = (
+        load_copy("dm_menu", "signup_done_dm", label=label)
+        if subscribed else load_copy("dm_menu", "game_dm_prompt", label=label)
+    )
+    await update.message.reply_text(
+        text,
+        reply_markup=_game_toggle_markup(scheduled_msg_id, subscribed),
+    )
+
+
+async def _handle_game_subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = update.effective_user
+    if not query or not user:
+        return
+    try:
+        scheduled_msg_id = int(query.data.rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        await query.answer()
+        return
+    db: Database = context.bot_data["db"]
+    row, payload = await _get_warmup_payload(db, scheduled_msg_id)
+    if not row:
+        await query.answer(load_copy("dm_menu", "signup_unavailable"), show_alert=True)
+        return
+    result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
+    if result is None:
+        await query.answer(load_copy("dm_menu", "signup_unavailable"), show_alert=True)
+        return
+    if result.get("closed"):
+        await query.answer(load_copy("dm_menu", "signup_closed"), show_alert=True)
+        return
+    label = _game_label_from_payload(payload)
+    await query.answer(load_copy("dm_menu", "signup_done"))
+    try:
+        await query.edit_message_text(
+            text=load_copy("dm_menu", "signup_done_dm", label=label),
+            reply_markup=_game_toggle_markup(scheduled_msg_id, True),
+        )
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.warning("dm_menu: failed to update game subscribe screen: %s", e)
+    await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
+
+
+async def _handle_game_unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = update.effective_user
+    if not query or not user:
+        return
+    try:
+        scheduled_msg_id = int(query.data.rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        await query.answer()
+        return
+    db: Database = context.bot_data["db"]
+    await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
+    await query.answer(load_copy("dm_menu", "signoff_done"))
+    try:
+        await query.edit_message_text(
+            text=load_copy("dm_menu", "signoff_done_dm"),
+            reply_markup=_game_toggle_markup(scheduled_msg_id, False),
+        )
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.warning("dm_menu: failed to update game unsubscribe screen: %s", e)
+    await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
+
+
 # ── Callback router ──────────────────────────────────────────
 
 
@@ -501,6 +635,10 @@ async def route_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_event_rsvp(update, context, "maybe")
     elif data.startswith("dmmenu_troff_"):
         await _handle_trivia_signoff(update, context)
+    elif data.startswith("dmmenu_gunsub_"):
+        await _handle_game_unsubscribe(update, context)
+    elif data.startswith("dmmenu_gsub_"):
+        await _handle_game_subscribe(update, context)
     elif data.startswith("dmmenu_tr_"):
         await _handle_trivia_signup(update, context)
     elif data == "dmmenu_noop":
@@ -663,7 +801,11 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
             else:
                 body = load_copy("dm_menu", "reminder_dm", label=label, minutes=minutes_left)
             try:
-                await context.bot.send_message(chat_id=uid, text=body)
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=body,
+                    reply_markup=_game_toggle_markup(warmup_id, True),
+                )
             except Forbidden:
                 for L in due:
                     await db.mark_game_reminded(warmup_id, uid, L)
