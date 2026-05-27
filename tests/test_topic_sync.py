@@ -92,7 +92,7 @@ class TestTopicSync(unittest.TestCase):
 
     def test_telethon_request_import_path_when_available(self):
         try:
-            from telethon.tl.functions.channels import GetForumTopicsRequest
+            from telethon.tl.functions.messages import GetForumTopicsRequest
         except ImportError:
             self.skipTest("telethon not installed in this test environment")
 
