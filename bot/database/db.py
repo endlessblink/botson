@@ -195,7 +195,7 @@ class Database:
         keeps the dashboard honest before those rows fire.
         """
         try:
-            trivia_routing = await self.get_handler_routing("trivia_warmup")
+            trivia_routing = await self.get_handler_routing("trivia_round")
             trivia_topic = trivia_routing.get("play_topic_id") if trivia_routing else None
             emoji_routing = await self.get_handler_routing("emoji_puzzle")
             emoji_topic = emoji_routing.get("play_topic_id") if emoji_routing else None
@@ -227,7 +227,7 @@ class Database:
                 str(row["text"] or ""),
             ]).lower()
             target = None
-            if ":emoji:" in marker or "emoji" in lookup or "אימוג" in lookup:
+            if ":emoji:" in marker or "emoji" in lookup or "\u05d0\u05d9\u05de\u05d5\u05d2" in lookup:
                 target = emoji_topic or trivia_topic
             else:
                 target = trivia_topic

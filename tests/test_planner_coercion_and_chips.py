@@ -242,8 +242,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(emoji_announcements)
         self.assertEqual(
             emoji_announcements[0]["topic_id"],
-            341,
-            "Emoji Night warm-up announcements must go to welcome/updates",
+            4037,
+            "Emoji Night warm-up announcements must go to Botson's Corner",
         )
         # T-126: every RSVP announcement should be paired with a warmup_reminder
         # carrying the same warmup_marker.
@@ -1052,13 +1052,16 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                      patch.object(bot_calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji:
                     await bot_calendar.check_and_send_due_messages(context)
 
-                send_text.assert_awaited_once()
+                send_text.assert_not_awaited()
                 start_emoji.assert_awaited_once_with(
                     context, -1001, 4037, force=True,
                     media_types=["movie", "tv"], theme_label="סרטים וסדרות",
                 )
                 rows = await db.get_scheduled_messages(today, today)
-                self.assertEqual({row["status"] for row in rows}, {"sent"})
+                self.assertEqual(
+                    {row["message_type"]: row["status"] for row in rows},
+                    {"discussion": "skipped", "emoji_puzzle": "sent"},
+                )
             finally:
                 await db.close()
 
@@ -1131,7 +1134,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
                 self.assertEqual(warmup["scheduled_time"], "21:00")
-                self.assertEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["channel_topic_id"], 4037)
                 self.assertIn("22:00", warmup["text"])
                 self.assertIn("60 דקות", warmup["text"])
             finally:
@@ -1319,7 +1322,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
                 self.assertEqual(warmup["scheduled_time"], "21:00")
-                self.assertEqual(warmup["channel_topic_id"], 341)
+                self.assertEqual(warmup["channel_topic_id"], 4037)
                 self.assertEqual(warmup["created_by"], f"trivia-announcement-draft:{game_id}")
             finally:
                 await db.close()
@@ -1380,7 +1383,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(reminder, "warmup_reminder row was not created")
                 self.assertEqual(reminder["message_type"], "warmup_reminder")
                 self.assertEqual(reminder["status"], "scheduled")
-                self.assertEqual(reminder["channel_topic_id"], 341)
+                self.assertEqual(reminder["channel_topic_id"], 4037)
                 rem_payload = json.loads(reminder["poll_options"] or "{}")
                 self.assertEqual(rem_payload["warmup_marker"], ann_payload["warmup_marker"])
                 self.assertEqual(rem_payload["min_ready_players"], 2)
@@ -1519,7 +1522,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ss.assert_not_awaited()
                 self.assertEqual(len(skipped), 1)
                 self.assertEqual(skipped[0][0], 9001)
-                self.assertIn("threshold", skipped[0][1])
+                self.assertIn("public group reminders disabled", skipped[0][1])
                 self.assertEqual(sent, [])
             finally:
                 db.get_due_messages = original_get_due  # type: ignore[assignment]
@@ -1606,13 +1609,11 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                                   new=AsyncMock(return_value=fake_sent)) as ss:
                     await bot_calendar.check_and_send_due_messages(context)
 
-                self.assertEqual(skipped, [])
-                self.assertEqual(sent, [(9002, 7777)])
-                ss.assert_awaited_once()
-                kwargs = ss.await_args.kwargs
-                self.assertEqual(kwargs["chat_id"], -1001)
-                self.assertEqual(kwargs["reply_to_message_id"], 4242)
-                self.assertEqual(kwargs["message_thread_id"], 341)
+                self.assertEqual(len(skipped), 1)
+                self.assertEqual(skipped[0][0], 9002)
+                self.assertIn("public group reminders disabled", skipped[0][1])
+                self.assertEqual(sent, [])
+                ss.assert_not_awaited()
             finally:
                 await db.close()
 

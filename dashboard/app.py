@@ -6131,7 +6131,7 @@ async def _ai_suggest_calendar(
                     # emit a naked emoji_puzzle without RSVP plumbing.
                     if emoji_min_ready > 0 and not _slot_available_or_skip(d_iso, announce_t, "trivia_warmup_rsvp"):
                         continue
-                    emoji_announcement_topic = int(welcome_topic or routed_topics["emoji_puzzle"])
+                    emoji_announcement_topic = int(routed_topics["emoji_puzzle"])
                     emoji_text = await _generate_activity_copy(
                         "emoji_warmup",
                         avoid_texts=existing_activity_texts | generated_activity_texts,

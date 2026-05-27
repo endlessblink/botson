@@ -386,12 +386,12 @@ async def _game_warmup_thread_id(db: Database, msg: dict) -> int | None:
     text = str(msg.get("text") or "")
     activity_label = str(payload.get("activity_label") or payload.get("theme_label") or "")
     lookup_text = f"{marker} {activity_label} {text}".lower()
-    if ":emoji:" in marker or "emoji" in lookup_text or "אימוג" in lookup_text:
+    if ":emoji:" in marker or "emoji" in lookup_text or "\u05d0\u05d9\u05de\u05d5\u05d2" in lookup_text:
         handler = "emoji_puzzle"
     elif ":trivia:" in marker or marker.startswith("warmup-rsvp:"):
         handler = "trivia_round"
     elif msg.get("message_type") == "trivia_warmup_rsvp":
-        handler = "trivia_warmup"
+        handler = "trivia_round"
     if handler:
         try:
             routing = await db.get_handler_routing(handler)
