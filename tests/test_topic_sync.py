@@ -89,3 +89,11 @@ class TestTopicSync(unittest.TestCase):
         self.assertTrue(registered)
         self.assertEqual(len(job_queue.calls), 1)
         self.assertEqual(job_queue.calls[0][1]["name"], "forum_topic_sync")
+
+    def test_telethon_request_import_path_when_available(self):
+        try:
+            from telethon.tl.functions.channels import GetForumTopicsRequest
+        except ImportError:
+            self.skipTest("telethon not installed in this test environment")
+
+        self.assertIsNotNone(GetForumTopicsRequest)

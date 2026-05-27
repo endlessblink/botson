@@ -78,7 +78,7 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
 
     try:
         from telethon import TelegramClient
-        from telethon.functions.channels import GetForumTopicsRequest
+        from telethon.tl.functions.channels import GetForumTopicsRequest
     except ImportError as e:
         raise RuntimeError("telethon is required for topic sync") from e
 
