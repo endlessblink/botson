@@ -84,9 +84,11 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
 
     session = os.getenv("BOTSON_TOPIC_SYNC_SESSION", "botson_topic_sync")
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or BOT_TOKEN
-    async with TelegramClient(session, int(api_id), api_hash) as client:
-        if bot_token and not await client.is_user_authorized():
-            await client.start(bot_token=bot_token)
+    if not bot_token:
+        raise RuntimeError("BOT_TOKEN is required for topic sync")
+    client = TelegramClient(session, int(api_id), api_hash)
+    await client.start(bot_token=bot_token)
+    try:
         channel = await client.get_input_entity(int(chat_id))
         response = await client(GetForumTopicsRequest(
             channel=channel,
@@ -96,6 +98,8 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
             offset_topic=0,
             limit=100,
         ))
+    finally:
+        await client.disconnect()
     topics: list[SyncedForumTopic] = []
     for raw in _iter_response_topics(response):
         topic_id = _topic_id(raw)
