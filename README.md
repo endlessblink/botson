@@ -170,6 +170,10 @@ Copy `.env.example` to `.env` and fill in the following:
 | `TIMEZONE` | Timezone for scheduled posts | `Asia/Jerusalem` | Yes |
 | `DB_PATH` | Path to SQLite database | `./data/bot.db` | Optional (default: `./data/bot.db`) |
 | `GOALS_TOPIC_ID` | Forum topic ID for goals channel | `123` | Yes |
+| `TELEGRAM_API_ID` | Telegram API ID for automatic MTProto forum-topic sync | `123456` | Required for full topic sync |
+| `TELEGRAM_API_HASH` | Telegram API hash for automatic MTProto forum-topic sync | `abcdef...` | Required for full topic sync |
+| `BOTSON_TOPIC_SYNC_INTERVAL_SECONDS` | Forum-topic reconciliation interval | `21600` | Optional |
+| `BOTSON_TOPIC_SYNC_FIRST_SECONDS` | First reconciliation delay after startup | `10` | Optional |
 
 ### Finding Your Group ID
 

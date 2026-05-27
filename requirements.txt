@@ -14,3 +14,4 @@ feedparser>=6.0
 # guardian (tests/test_no_hardcoded_content.py) before restarting
 # services. Tiny dependency; not loaded at runtime.
 pytest>=7
+telethon>=1.36.0

@@ -3100,6 +3100,94 @@ def _load_channel_rubric(category: str) -> str:
     return "\n\n" + header + "\n" + "\n".join(f"- {ln}" for ln in lines)
 
 
+def _active_discussion_categories_from_config(
+    settings: dict,
+    discussions_pool: dict | None,
+    verified_rows: list[dict] | None,
+) -> list[dict]:
+    """Return enabled discussion categories without gating on pool entries.
+
+    `settings.yaml:topics.discussions` and auto-verified forum topics decide
+    which discussion channels exist. `discussions.yaml` is only an optional
+    few-shot/fallback pool.
+    """
+    topics = settings.get("topics") or {}
+    topic_ids = (topics.get("discussions") or {})
+    pool = discussions_pool or {}
+    verified = verified_rows or []
+
+    by_key = {
+        str(row.get("category_key") or "").strip(): row
+        for row in verified
+        if str(row.get("category_key") or "").strip()
+    }
+    by_id: dict[int, dict] = {}
+    for row in verified:
+        try:
+            by_id[int(row.get("topic_id"))] = row
+        except (TypeError, ValueError):
+            continue
+
+    excluded_keys = {"goals", "welcome", "botson_corner", "ai_en"}
+    excluded_topic_ids: set[int] = set()
+    for value in (topics.get("goals"), topics.get("welcome")):
+        try:
+            excluded_topic_ids.add(int(value))
+        except (TypeError, ValueError):
+            continue
+
+    categories: list[dict] = []
+    seen_topic_ids: set[int] = set()
+
+    def add_category(key: str, tid: int, row: dict | None = None) -> None:
+        row = row or {}
+        display_name = (
+            str(row.get("verified_name") or "").strip()
+            or str(row.get("observed_name") or "").strip()
+            or key
+        )
+        categories.append({
+            "category_key": key,
+            "topic_id": tid,
+            "name": display_name,
+            "has_pool": bool(pool.get(key)),
+        })
+        seen_topic_ids.add(tid)
+
+    for category_key, topic_id in topic_ids.items():
+        if not topic_id:
+            continue
+        key = str(category_key or "").strip()
+        if not key:
+            continue
+        try:
+            tid = int(topic_id)
+        except (TypeError, ValueError):
+            continue
+        add_category(key, tid, by_key.get(key) or by_id.get(tid))
+
+    for row in verified:
+        key = str(row.get("category_key") or "").strip()
+        if not key or key in excluded_keys:
+            continue
+        try:
+            tid = int(row.get("topic_id"))
+        except (TypeError, ValueError):
+            continue
+        if tid in seen_topic_ids or tid in excluded_topic_ids:
+            continue
+        add_category(key, tid, row)
+    return categories
+
+
+async def _load_active_discussion_categories(db: Database, settings: dict, discussions_pool: dict | None) -> list[dict]:
+    try:
+        verified_rows = await db.get_verified_forum_topics()
+    except Exception:
+        verified_rows = []
+    return _active_discussion_categories_from_config(settings, discussions_pool, verified_rows)
+
+
 def _finalize_prompt(
     base: str,
     field: str,
@@ -3615,6 +3703,7 @@ def build_generation_prompt(
     scheduled_date: str | None = None,
     scheduled_time: str | None = None,
     group_stats: str | None = None,
+    category_name: str | None = None,
 ) -> str:
     # Single-item rewrite mode — used by the weekplan modal
     if mode == "rewrite":
@@ -3664,12 +3753,13 @@ def build_generation_prompt(
 פורמט: שורה או שתיים, אמוג'י אחד בהתחלה, עברית תקנית בלבד.
 פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
         elif field == "discussion":
-            base = f"""צור שאלה אחת לדיון בקטגוריה "{category}" בעברית עבור {COMMUNITY_CONTEXT}
+            channel_label = f'{category} / {category_name}' if category_name and category_name != category else category
+            base = f"""צור שאלה אחת לדיון בקטגוריה "{channel_label}" בעברית עבור {COMMUNITY_CONTEXT}
 
 מטרה: שאלה שגם ספציפית (לא "מה הסרט האהוב") וגם רחבת תחולה — רוב חברי הערוץ הזה אמורים להחזיק תשובה אמיתית מהחיים שלהם, לא רק מעטים שחוו תרחיש נדיר.
 
 מבחן הקבלה (חייב לעבור את שניהם):
-1. ספציפיות: אי-אפשר להעתיק אותה לקטגוריה אחרת בלי לשנות מילה. עוגן לקטגוריה "{category}" צריך להופיע בשאלה (פעולה, סצנה, או פרט שמאפיין את התחום).
+1. ספציפיות: אי-אפשר להעתיק אותה לקטגוריה אחרת בלי לשנות מילה. עוגן לקטגוריה "{channel_label}" צריך להופיע בשאלה (פעולה, סצנה, או פרט שמאפיין את התחום).
 2. רוחב תחולה: אם תשאל 10 קוראים מהערוץ — לפחות 5 חייבים להיות מסוגלים לענות תשובה אמיתית מתוך הזיכרון/החיים, בלי להמציא ובלי "אולי פעם".
 
 דוגמאות לפסילה — להימנע בדיוק מהשלב הזה:
@@ -3742,12 +3832,13 @@ def build_generation_prompt(
 פלט: רק ההודעות, שורה אחת לכל אחת, בלי מספור ובלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
 
     elif field == "discussion":
-        base = f"""צור {count} שאלות לדיון בקטגוריה "{category}" בעברית עבור {COMMUNITY_CONTEXT}
+        channel_label = f'{category} / {category_name}' if category_name and category_name != category else category
+        base = f"""צור {count} שאלות לדיון בקטגוריה "{channel_label}" בעברית עבור {COMMUNITY_CONTEXT}
 
 מטרה: כל שאלה גם ספציפית (לא "מה הסרט האהוב") וגם רחבת תחולה — רוב חברי הערוץ הזה אמורים להחזיק תשובה אמיתית מהחיים שלהם.
 
 מבחן הקבלה לכל שאלה (חייב לעבור את שניהם):
-1. ספציפיות: אי-אפשר להעתיק את השאלה לקטגוריה אחרת בלי לשנות מילה. עוגן לקטגוריה "{category}" (פעולה, סצנה, פרט מאפיין) חייב להופיע.
+1. ספציפיות: אי-אפשר להעתיק את השאלה לקטגוריה אחרת בלי לשנות מילה. עוגן לקטגוריה "{channel_label}" (פעולה, סצנה, פרט מאפיין) חייב להופיע.
 2. רוחב תחולה: אם 10 קוראים מהערוץ יראו — לפחות 5 יוכלו לענות תשובה אמיתית מהזיכרון, בלי להמציא.
 
 פסול:
@@ -4471,7 +4562,7 @@ async def _ai_fill_weekplan_inner(
         discussions_pool = load_yaml("discussions.yaml") or {}
     except Exception:
         discussions_pool = {}
-    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+    active_categories = await _load_active_discussion_categories(db, settings, discussions_pool)
 
     # Fetch dedup history once per type so the model never paraphrases a
     # recent send. For discussion we additionally scope per-channel below.
@@ -4495,7 +4586,7 @@ async def _ai_fill_weekplan_inner(
     # gets a fresh random sample, so categories rotate naturally over
     # repeated clicks across weeks.
     disc_cap = max(1, int(os.environ.get("BOTSON_AI_FILL_MAX_DISCUSSION_CATS", "2")))
-    jobs: list[tuple] = []  # (day_index, time_str, category_or_empty)
+    jobs: list[tuple] = []  # (day_index, time_str, category_info_or_empty)
     for i in range(7):
         if target_day_index is not None and i != target_day_index:
             continue
@@ -4511,8 +4602,8 @@ async def _ai_fill_weekplan_inner(
                     errors.append(f"no active discussion categories for day {i}")
                     continue
                 chosen = random.sample(active_categories, min(disc_cap, len(active_categories)))
-                for cat in chosen:
-                    jobs.append((i, t, cat))
+                for cat_info in chosen:
+                    jobs.append((i, t, cat_info))
             else:
                 jobs.append((i, t, ""))
 
@@ -4525,8 +4616,10 @@ async def _ai_fill_weekplan_inner(
     concurrency = max(1, int(os.environ.get("BOTSON_AI_FILL_CONCURRENCY", "4")))
     sem = asyncio.Semaphore(concurrency)
 
-    async def _run_job(day_index: int, t: str, cat: str) -> dict:
+    async def _run_job(day_index: int, t: str, cat_info: dict | str) -> dict:
         day_date = sunday + timedelta(days=day_index)
+        cat = cat_info.get("category_key", "") if isinstance(cat_info, dict) else str(cat_info or "")
+        cat_name = cat_info.get("name", cat) if isinstance(cat_info, dict) else cat
 
         if mtype == "morning":
             prompt = build_generation_prompt(
@@ -4547,7 +4640,7 @@ async def _ai_fill_weekplan_inner(
             )
             topic = goals_topic
         else:  # discussion
-            topic = topic_ids.get(cat)
+            topic = cat_info.get("topic_id") if isinstance(cat_info, dict) else topic_ids.get(cat)
             channel_topic_id = int(topic) if topic else None
             recent_for_channel = await _fetch_recent_sent_for_dedup(
                 db, "discussion", category_topic_id=channel_topic_id, limit=60
@@ -4558,6 +4651,7 @@ async def _ai_fill_weekplan_inner(
                 scheduled_date=day_date.isoformat(),
                 scheduled_time=t,
                 group_stats=group_stats_block,
+                category_name=cat_name,
             )
 
         async def _gen_once(p: str) -> str:
@@ -4612,7 +4706,7 @@ async def _ai_fill_weekplan_inner(
         # channel_topic_id MUST match topic_ids[cat]. Without this guard
         # we have seen drafts land in unrelated channels (funny → ai_en).
         if mtype == "discussion":
-            expected = topic_ids.get(cat)
+            expected = cat_info.get("topic_id") if isinstance(cat_info, dict) else topic_ids.get(cat)
             if not expected or int(expected) != int(topic or 0):
                 return {"ok": False, "error": f"day {day_index} cat={cat}: topic mismatch expected={expected} got={topic}"}
 
@@ -5385,7 +5479,7 @@ async def _ai_suggest_calendar(
         discussions_pool = load_yaml("discussions.yaml") or {}
     except Exception:
         discussions_pool = {}
-    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+    active_categories = await _load_active_discussion_categories(db, settings, discussions_pool)
 
     suggestions: list = []
     errors: list = []
@@ -5520,7 +5614,7 @@ async def _ai_suggest_calendar(
 
     used_generation_openers: dict[tuple[str, str], set[str]] = {}
 
-    async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list) -> tuple[str, list]:
+    async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list, category_name: str | None = None) -> tuple[str, list]:
         """Run LLM with bounded retries + validate. Returns (text, validation_failures).
 
         On total failure returns ("", [last_reason, ...]) so the operator sees
@@ -5533,6 +5627,7 @@ async def _ai_suggest_calendar(
             scheduled_date=d_iso,
             scheduled_time=t,
             group_stats=stats_block,
+            category_name=category_name,
         )
         # Source examples for the planner near-dup check: the curated
         # discussion pool for this category. Catches the LLM echoing
@@ -6077,18 +6172,20 @@ async def _ai_suggest_calendar(
             for t in discussion_t:
                 if counts["discussion"] >= cap_per_window["discussion"]:
                     break
-                for cat in cats_for_slot:
+                for cat_info in cats_for_slot:
                     if counts["discussion"] >= cap_per_window["discussion"]:
                         break
                     if not _slot_available_or_skip(d_iso, t, "discussion"):
                         continue
-                    expected_topic = topic_ids.get(cat)
+                    cat = str(cat_info.get("category_key") or "").strip()
+                    cat_name = str(cat_info.get("name") or cat).strip()
+                    expected_topic = cat_info.get("topic_id") or topic_ids.get(cat)
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(
                         db, "discussion", category_topic_id=int(expected_topic), limit=_dedup_limit,
                     )
-                    text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan)
+                    text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan, category_name=cat_name)
                     if not text:
                         errors.extend(fails)
                         continue
@@ -6407,14 +6504,16 @@ async def _ai_suggest_calendar(
                         break
                     if not _flex_available_or_skip(d_iso, t, mtype):
                         continue
-                    cat = cats_for_flex[flex_count % len(cats_for_flex)]
-                    expected_topic = topic_ids.get(cat)
+                    cat_info = cats_for_flex[flex_count % len(cats_for_flex)]
+                    cat = str(cat_info.get("category_key") or "").strip()
+                    cat_name = str(cat_info.get("name") or cat).strip()
+                    expected_topic = cat_info.get("topic_id") or topic_ids.get(cat)
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(
                         db, "discussion", category_topic_id=int(expected_topic), limit=_dedup_limit,
                     )
-                    text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan)
+                    text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan, category_name=cat_name)
                     if not text:
                         errors.extend(fails)
                         continue
@@ -10181,13 +10280,16 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     morning_queue = list(prompts_pool.get("morning", []))
     evening_queue = list(prompts_pool.get("evening", []))
 
-    # Discussion categories: only those present in both YAML and settings
+    # Discussion categories: settings/verified topics decide enabled channels;
+    # pools are optional previews.
     topic_ids = settings.get("topics", {}).get("discussions", {})
-    active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+    active_categories = await _load_active_discussion_categories(db, settings, discussions_pool)
+    active_by_key = {c["category_key"]: c for c in active_categories}
     logger.info("[weekplan.render] week_offset=%d active_categories=%s", week_offset, active_categories)
     logger.info("[weekplan.render] discussions_pool keys (in yaml order)=%s", list(discussions_pool.keys()))
     # Show the actual first question for each active category (for sanity-checking saves)
-    for _cat in active_categories:
+    for _cat_info in active_categories:
+        _cat = _cat_info["category_key"]
         _qs = discussions_pool.get(_cat, [])
         logger.info("[weekplan.render]   %s[0]=%r (pool has %d entries)", _cat, (_qs[0][:70] if _qs else None), len(_qs))
 
@@ -10314,7 +10416,9 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                         if _tid == committed_topic:
                             cat_key = _ck
                             break
-                    channel_hint = CATEGORY_NAMES.get(cat_key, cat_key) if cat_key else ""
+                    channel_hint = ""
+                    if cat_key:
+                        channel_hint = (active_by_key.get(cat_key) or {}).get("name") or CATEGORY_NAMES.get(cat_key, cat_key)
                     activities.append({
                         "time": t, "type": "discussion", "label": "דיון",
                         "desc": preview or "שאלה לדיון",
@@ -10335,8 +10439,9 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     disc_idx = -1
                     disc_topic_id = ""
                     disc_category = ""
-                    if active_categories and discussions_pool:
-                        cat = active_categories[discussion_idx % len(active_categories)]
+                    if active_categories:
+                        cat_info = active_categories[discussion_idx % len(active_categories)]
+                        cat = cat_info["category_key"]
                         cat_questions = discussions_pool.get(cat, [])
                         if cat_questions:
                             q_idx = (discussion_idx // len(active_categories)) % len(cat_questions)
@@ -10346,8 +10451,8 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                             disc_idx = q_idx
                             logger.info("[weekplan.render]   day %d (%s) → %s[%d] = %r", i, hebrew_day_names[i], cat, q_idx, full_text[:60])
                             day_to_category_map[i] = f"{cat}[{q_idx}]"
-                        channel_hint = CATEGORY_NAMES.get(cat, cat)
-                        disc_topic_id = topic_ids.get(cat) or ""
+                        channel_hint = cat_info.get("name") or CATEGORY_NAMES.get(cat, cat)
+                        disc_topic_id = cat_info.get("topic_id") or topic_ids.get(cat) or ""
                         disc_category = cat
                         discussion_idx += 1
                     activities.append({
@@ -10488,9 +10593,18 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
         if tid:
             discussion_channels.append({
                 "key": cat,
-                "name": CATEGORY_NAMES.get(cat, cat),
+                "name": (active_by_key.get(cat) or {}).get("name") or CATEGORY_NAMES.get(cat, cat),
                 "topic_id": tid,
             })
+    for cat_info in active_categories:
+        cat = cat_info["category_key"]
+        if cat in topic_ids:
+            continue
+        discussion_channels.append({
+            "key": cat,
+            "name": cat_info.get("name") or cat,
+            "topic_id": cat_info.get("topic_id"),
+        })
 
     logger.info("[weekplan.render] day→discussion map for week starting %s: %s", sunday, day_to_category_map)
 
@@ -12360,12 +12474,15 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     settings_obj = get_settings()
     topics_cfg = settings_obj.get("topics", {})
     topic_ids_dict = topics_cfg.get("discussions", {})
+    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
+    verified_by_id = {v["topic_id"]: v for v in verified_topics}
     discussion_channels = []
     for cat, tid in topic_ids_dict.items():
         if tid:
+            verified_name = (verified_by_id.get(tid) or {}).get("verified_name")
             discussion_channels.append({
                 "key": cat,
-                "name": CATEGORY_NAMES.get(cat, cat),
+                "name": verified_name or CATEGORY_NAMES.get(cat, cat),
                 "topic_id": tid,
             })
 
@@ -12373,8 +12490,6 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
     # verified_forum_topics is the canonical source of truth for both *which*
     # topics are real AND for their display names — forum_topics.name can be
     # stale or polluted by user message text, so we never read from it here.
-    verified_topics = await db.get_verified_forum_topics() if hasattr(db, 'get_verified_forum_topics') else []
-    verified_by_id = {v["topic_id"]: v for v in verified_topics}
     goals_id = topics_cfg.get("goals")
     welcome_id = topics_cfg.get("welcome")
     mapped_ids = set(topic_ids_dict.values()) | {goals_id, welcome_id}

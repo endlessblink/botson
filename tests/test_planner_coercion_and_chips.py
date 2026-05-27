@@ -30,7 +30,13 @@ from bot.handlers import calendar as bot_calendar
 from bot.scheduler import materializer
 from bot.handlers.trivia_round import _pick_questions
 from dashboard import app as dashboard_app
-from dashboard.app import _CAL_TYPE_STYLE, _coerce_game_message_fields, _looks_like_trivia_launch
+from dashboard.app import (
+    _CAL_TYPE_STYLE,
+    _active_discussion_categories_from_config,
+    _coerce_game_message_fields,
+    _looks_like_trivia_launch,
+    build_generation_prompt,
+)
 
 
 class TestTriviaCoercion(unittest.TestCase):
@@ -2635,6 +2641,66 @@ class TestQuestionPickerStrictMode(unittest.TestCase):
             len(seen_categories), 1,
             f"general round looks biased — only saw categories: {seen_categories}",
         )
+
+
+class TestDiscussionCategoryDiscovery(unittest.TestCase):
+    def test_settings_topic_without_pool_is_active(self):
+        settings = {"topics": {"discussions": {"music": 4502, "new_topic": 7777}}}
+        discussions_pool = {"music": ["שאלה קיימת"]}
+        verified_rows = [
+            {"topic_id": 4502, "verified_name": "מוזיקה", "category_key": "music"},
+            {"topic_id": 7777, "verified_name": "ערוץ חדש", "category_key": "new_topic"},
+        ]
+
+        categories = _active_discussion_categories_from_config(settings, discussions_pool, verified_rows)
+        by_key = {c["category_key"]: c for c in categories}
+
+        self.assertIn("new_topic", by_key)
+        self.assertEqual(by_key["new_topic"]["topic_id"], 7777)
+        self.assertEqual(by_key["new_topic"]["name"], "ערוץ חדש")
+        self.assertFalse(by_key["new_topic"]["has_pool"])
+
+    def test_pool_only_category_is_not_active(self):
+        settings = {"topics": {"discussions": {"music": 4502}}}
+        discussions_pool = {"music": ["שאלה קיימת"], "stale_pool_only": ["לא אמור להופיע"]}
+
+        categories = _active_discussion_categories_from_config(settings, discussions_pool, [])
+
+        self.assertEqual([c["category_key"] for c in categories], ["music"])
+
+    def test_discussion_prompt_includes_verified_channel_name(self):
+        prompt = build_generation_prompt(
+            "discussion",
+            "single",
+            "",
+            "new_topic",
+            category_name="ערוץ חדש",
+        )
+
+        self.assertIn("new_topic / ערוץ חדש", prompt)
+
+    def test_materializer_discussion_categories_do_not_require_pool(self):
+        class FakeDb:
+            async def get_verified_forum_topics(self):
+                return [{"topic_id": 7777, "verified_name": "ערוץ חדש", "category_key": "new_topic"}]
+
+        settings = {"topics": {"discussions": {"new_topic": 7777}}}
+        categories = asyncio.run(materializer._active_discussion_categories(FakeDb(), settings, {}))
+
+        self.assertEqual(categories[0]["category_key"], "new_topic")
+        self.assertEqual(categories[0]["topic_id"], 7777)
+        self.assertFalse(categories[0]["has_pool"])
+
+    def test_auto_verified_topic_is_active_without_settings_entry(self):
+        settings = {"topics": {"goals": 2184, "welcome": 341, "discussions": {}}}
+        verified_rows = [
+            {"topic_id": 2184, "verified_name": "יעדים", "category_key": "goals"},
+            {"topic_id": 7777, "verified_name": "ערוץ חדש", "category_key": "topic_7777"},
+        ]
+
+        categories = _active_discussion_categories_from_config(settings, {}, verified_rows)
+
+        self.assertEqual([c["category_key"] for c in categories], ["topic_7777"])
 
 
 class TestChannelChipPaletteRoute(unittest.IsolatedAsyncioTestCase):

@@ -71,6 +71,79 @@ def _feature_for_type(message_type: str) -> str:
     }.get(message_type, message_type)
 
 
+async def _active_discussion_categories(db: Database, settings: dict, discussions_pool: dict | None) -> list[dict]:
+    topics = settings.get("topics") or {}
+    topic_ids = topics.get("discussions") or {}
+    pool = discussions_pool or {}
+    try:
+        verified_rows = await db.get_verified_forum_topics()
+    except Exception:
+        verified_rows = []
+
+    by_key = {
+        str(row.get("category_key") or "").strip(): row
+        for row in verified_rows
+        if str(row.get("category_key") or "").strip()
+    }
+    by_id: dict[int, dict] = {}
+    for row in verified_rows:
+        try:
+            by_id[int(row.get("topic_id"))] = row
+        except (TypeError, ValueError):
+            continue
+
+    excluded_keys = {"goals", "welcome", "botson_corner", "ai_en"}
+    excluded_topic_ids: set[int] = set()
+    for value in (topics.get("goals"), topics.get("welcome")):
+        try:
+            excluded_topic_ids.add(int(value))
+        except (TypeError, ValueError):
+            continue
+
+    categories: list[dict] = []
+    seen_topic_ids: set[int] = set()
+
+    def add_category(key: str, tid: int, row: dict | None = None) -> None:
+        row = row or {}
+        name = (
+            str(row.get("verified_name") or "").strip()
+            or str(row.get("observed_name") or "").strip()
+            or key
+        )
+        categories.append({
+            "category_key": key,
+            "topic_id": tid,
+            "name": name,
+            "has_pool": bool(pool.get(key)),
+        })
+        seen_topic_ids.add(tid)
+
+    for category_key, topic_id in topic_ids.items():
+        if not topic_id:
+            continue
+        key = str(category_key or "").strip()
+        if not key:
+            continue
+        try:
+            tid = int(topic_id)
+        except (TypeError, ValueError):
+            continue
+        add_category(key, tid, by_key.get(key) or by_id.get(tid))
+
+    for row in verified_rows:
+        key = str(row.get("category_key") or "").strip()
+        if not key or key in excluded_keys:
+            continue
+        try:
+            tid = int(row.get("topic_id"))
+        except (TypeError, ValueError):
+            continue
+        if tid in seen_topic_ids or tid in excluded_topic_ids:
+            continue
+        add_category(key, tid, row)
+    return categories
+
+
 async def _build_committed_index(
     db: Database, date_from: str, date_to: str
 ) -> tuple[dict, set[tuple[str, str, str]]]:
@@ -389,18 +462,24 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
                 "category": None,
             })
         if day_idx in (schedule.get("discussion_prompt") or {}).get("days", []):
-            active_categories = [c for c in discussions_pool if c in topic_ids and topic_ids[c]]
+            active_categories = await _active_discussion_categories(db, settings, discussions_pool)
             times = (schedule.get("discussion_prompt") or {}).get("times") or ["18:00"]
             for time_idx, time_s in enumerate(times):
                 if not active_categories:
                     continue
-                cat = active_categories[(day.toordinal() * 10 + time_idx) % len(active_categories)]
+                cat_info = active_categories[(day.toordinal() * 10 + time_idx) % len(active_categories)]
+                cat = cat_info["category_key"]
+                category_label = (
+                    f"{cat} / {cat_info['name']}"
+                    if cat_info.get("name") and cat_info.get("name") != cat
+                    else cat
+                )
                 candidates.append({
                     "type": "discussion",
                     "time": str(time_s)[:5],
-                    "topic": topic_ids.get(cat),
+                    "topic": cat_info.get("topic_id"),
                     "examples": list(discussions_pool.get(cat) or []),
-                    "category": cat,
+                    "category": category_label,
                 })
 
         for candidate in candidates:
