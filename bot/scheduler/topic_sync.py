@@ -84,7 +84,9 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
         raise RuntimeError("telethon is required for topic sync") from e
 
     session_string = os.getenv("TELEGRAM_SESSION_STRING", "").strip()
-    session = StringSession(session_string) if session_string else os.getenv("BOTSON_TOPIC_SYNC_SESSION", "botson_topic_sync")
+    if not session_string:
+        raise RuntimeError("TELEGRAM_SESSION_STRING must contain an authorized user session for forum topic sync")
+    session = StringSession(session_string)
     client = TelegramClient(session, int(api_id), api_hash)
     await client.connect()
     try:
