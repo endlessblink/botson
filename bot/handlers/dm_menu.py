@@ -514,7 +514,7 @@ async def show_game_subscription(
     context: ContextTypes.DEFAULT_TYPE,
     scheduled_msg_id: int,
     *,
-    subscribe: bool = True,
+    subscribe: bool = False,
 ):
     """Private deep-link landing page for one game reminder subscription."""
     if not _is_dm(update):

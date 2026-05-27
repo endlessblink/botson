@@ -263,7 +263,7 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         cbs2 = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
         self.assertIn(f"dmmenu_tr_{wid}", cbs2)
 
-    async def test_game_deep_link_subscribes_and_private_button_unsubscribes(self):
+    async def test_game_deep_link_requires_explicit_private_signup(self):
         wid = await self._make_scheduled_warmup()
         sent = {}
 
@@ -281,12 +281,21 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
 
         await dm_menu.show_game_subscription(upd, ctx, wid)
 
-        self.assertTrue(await self.db.has_trivia_interest_response(wid, 10))
+        self.assertFalse(await self.db.has_trivia_interest_response(wid, 10))
         cbs = [b.callback_data for row in sent["markup"].inline_keyboard for b in row]
-        self.assertIn(f"dmmenu_gunsub_{wid}", cbs)
+        self.assertIn(f"dmmenu_gsub_{wid}", cbs)
 
         async def answer(text=None, show_alert=False): pass
         async def edit(text=None, reply_markup=None): sent["after"] = reply_markup
+        q = SimpleNamespace(data=f"dmmenu_gsub_{wid}", answer=answer, edit_message_text=edit)
+        await dm_menu._handle_game_subscribe(
+            SimpleNamespace(callback_query=q, effective_user=user), ctx,
+        )
+
+        self.assertTrue(await self.db.has_trivia_interest_response(wid, 10))
+        cbs_after_signup = [b.callback_data for row in sent["after"].inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_gunsub_{wid}", cbs_after_signup)
+
         q = SimpleNamespace(data=f"dmmenu_gunsub_{wid}", answer=answer, edit_message_text=edit)
         await dm_menu._handle_game_unsubscribe(
             SimpleNamespace(callback_query=q, effective_user=user), ctx,
