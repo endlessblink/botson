@@ -150,14 +150,17 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
             ann = cand
             break
     if not ann:
-        # Announcement never sent — leave the game alone, the existing
-        # in-game ready-gate is still the safety net.
-        logger.info(
-            "warmup_rsvp_gate: no sent announcement for marker=%s — launching "
-            "(in-game ready gate remains the safety net)",
+        # A thresholded game with no sent warm-up has no usable signup source.
+        # Launching would make min_ready_players advisory, so skip instead of
+        # falling back to the in-game ready gate.
+        logger.warning(
+            "warmup_rsvp_gate: marker=%s threshold=%s but no sent announcement — skipping launch",
             marker,
+            threshold,
         )
-        return
+        raise SkippedActivity(
+            f"warmup_rsvp_gate: no sent warm-up announcement for marker={marker}"
+        )
 
     # Aggregate RSVPs across EVERY sent announcement row sharing this marker.
     # Resolving a single ORDER-BY-id row undercounts when Populate committed the
@@ -551,6 +554,44 @@ def _next_matching_day(current_date: date, days: list[int]) -> date:
     return current_date + timedelta(days=7)  # fallback
 
 
+def _next_recurrence_date_after(
+    *,
+    recurrence: str,
+    recurrence_days: str | None,
+    base_date: date,
+    scheduled_time: str,
+    now: datetime,
+) -> date | None:
+    """Return the next recurrence slot strictly after the current scheduler time."""
+    hhmm = (scheduled_time or "09:00")[:5]
+
+    def candidate_dt(day: date) -> datetime:
+        return datetime.strptime(f"{day.isoformat()} {hhmm}", "%Y-%m-%d %H:%M").replace(tzinfo=_IL_TZ)
+
+    def advance(day: date) -> date | None:
+        if recurrence == "daily":
+            return day + timedelta(days=1)
+        if recurrence == "weekdays":
+            next_d = day + timedelta(days=1)
+            while next_d.weekday() >= 5:  # Skip Sat/Sun
+                next_d += timedelta(days=1)
+            return next_d
+        if recurrence == "weekly" and recurrence_days:
+            days = json.loads(recurrence_days)
+            return _next_matching_day(day, days)
+        return None
+
+    next_date = advance(base_date)
+    for _ in range(400):
+        if not next_date:
+            return None
+        if candidate_dt(next_date) > now:
+            return next_date
+        next_date = advance(next_date)
+    logger.warning("recurrence advance exceeded safety bound for base date %s", base_date)
+    return None
+
+
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     """Runs every minute. Checks for due messages and sends them."""
     now = datetime.now(_IL_TZ)
@@ -583,6 +624,25 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     slot_claims_this_tick: set[tuple[str, str, str, int | None]] = set()
 
     for msg in due:
+        if hasattr(db, "get_scheduled_message"):
+            fresh_msg = await db.get_scheduled_message(int(msg["id"]))
+            if not fresh_msg:
+                logger.info("dispatch_race: msg=%s disappeared before send", msg.get("id"))
+                continue
+            if fresh_msg.get("status") != "scheduled":
+                logger.info(
+                    "dispatch_race: msg=%s status changed to %s before send; skipping",
+                    msg.get("id"), fresh_msg.get("status"),
+                )
+                continue
+            claim_scheduled = getattr(db, "claim_scheduled_message", None)
+            if claim_scheduled and not await claim_scheduled(int(msg["id"])):
+                logger.info("dispatch_race: msg=%s already claimed by another dispatcher", msg.get("id"))
+                continue
+            if claim_scheduled:
+                fresh_msg = await db.get_scheduled_message(int(msg["id"]))
+            msg = fresh_msg
+
         if should_skip_scheduled_message(msg.get("scheduled_date", ""), msg.get("created_by")):
             logger.info(
                 "Skipping auto scheduled message %s on blackout date %s",
@@ -614,10 +674,11 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
         target = msg.get("target_group", "main")
         if target == "test":
             group_id = test_group
-        elif target == "both":
-            group_id = main_group  # Send to main first, test handled separately
-        else:
+        elif target == "main":
             group_id = main_group
+        else:
+            await db.mark_message_failed(msg["id"], f"Unsupported target_group '{target}'")
+            continue
 
         if not group_id:
             await db.mark_message_failed(msg["id"], f"No group ID for target '{target}'")
@@ -672,6 +733,9 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                         msg.get("message_type"), msg.get("id"),
                         _spacing_topic, _quiet_min, _spacing,
                     )
+                    release_claim = getattr(db, "release_scheduled_message_claim", None)
+                    if release_claim:
+                        await release_claim(int(msg["id"]))
                     continue
 
         try:
@@ -718,10 +782,13 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     force=True,
                     media_types=payload.get("media_types") or None,
                     theme_label=payload.get("theme_label") or None,
+                    return_launch_info=True,
                 )
                 if session_id is None:
                     raise RuntimeError("Emoji Night did not start")
-                sent = SimpleNamespace(message_id=session_id)
+                if not isinstance(session_id, dict):
+                    raise RuntimeError("Emoji Night did not return launch info with Telegram message_id")
+                sent = SimpleNamespace(message_id=_require_message_id(session_id, "emoji_puzzle"))
             elif msg.get("message_type") in {"facts_tidbit", "facts_spooky"}:
                 pool = msg.get("message_type", "").removeprefix("facts_")
                 fact_id = None
@@ -739,6 +806,8 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     fact_id=fact_id,
                 )
                 if not sent_ok:
+                    # Legitimate facts no-ops raise SkippedActivity inside
+                    # send_scheduled_fact; False here means a real send failure.
                     raise RuntimeError(f"facts {pool} did not send")
                 sent = SimpleNamespace(message_id=1)
             elif msg.get("message_type") in {"weekly_roundup", "weekly_leaderboard"}:
@@ -868,52 +937,56 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             # to scheduled_messages.poll_options, which only catches rows that
             # weren't pruned). Marker format mirrors get_recent_activity_subjects'
             # `<key>:<value>` pattern (already used by facts via fact_id).
-            mtype = msg.get("message_type", "custom")
-            markers = _subject_markers_for_log(mtype, msg.get("poll_options"))
-            desc = f"שלח: {msg['text'][:50]}"
-            if markers:
-                desc = f"{desc} [{markers}]"
-            await db.log_activity(
-                mtype,
-                desc,
-                target_channel=str(msg.get("channel_topic_id") or "general"),
-            )
+            try:
+                mtype = msg.get("message_type", "custom")
+                markers = _subject_markers_for_log(mtype, msg.get("poll_options"))
+                desc = f"שלח: {msg['text'][:50]}"
+                if markers:
+                    desc = f"{desc} [{markers}]"
+                await db.log_activity(
+                    mtype,
+                    desc,
+                    target_channel=str(msg.get("channel_topic_id") or "general"),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("activity_log failed for sent msg %s: %s", msg.get("id"), e)
             logger.info("Sent scheduled message %d: %s", msg["id"], msg["text"][:40])
 
             # Handle recurrence — create next occurrence
-            recurrence = msg.get("recurrence")
-            if recurrence:
-                today = date.fromisoformat(current_date)
-                if recurrence == "daily":
-                    next_date = today + timedelta(days=1)
-                elif recurrence == "weekdays":
-                    next_d = today + timedelta(days=1)
-                    while next_d.weekday() >= 5:  # Skip Sat/Sun
-                        next_d += timedelta(days=1)
-                    next_date = next_d
-                elif recurrence == "weekly" and msg.get("recurrence_days"):
-                    days = json.loads(msg["recurrence_days"])
-                    next_date = _next_matching_day(today, days)
-                else:
-                    next_date = None
-
-                if next_date:
-                    await db.create_scheduled_message(
-                        text=msg["text"],
-                        message_type=msg.get("message_type", "custom"),
-                        channel_topic_id=msg.get("channel_topic_id"),
-                        target_group=msg.get("target_group", "main"),
-                        scheduled_date=next_date.isoformat(),
-                        scheduled_time=msg.get("scheduled_time", "09:00"),
+            try:
+                recurrence = msg.get("recurrence")
+                if recurrence:
+                    try:
+                        base_date = date.fromisoformat(str(msg.get("scheduled_date") or current_date))
+                    except ValueError:
+                        base_date = date.fromisoformat(current_date)
+                    next_date = _next_recurrence_date_after(
                         recurrence=recurrence,
                         recurrence_days=msg.get("recurrence_days"),
-                        auto_pin=bool(msg.get("auto_pin")),
-                        created_by="recurrence",
-                        cover_path=msg.get("cover_path"),
-                        poll_options=msg.get("poll_options"),
-                        poll_duration=msg.get("poll_duration"),
+                        base_date=base_date,
+                        scheduled_time=msg.get("scheduled_time", "09:00"),
+                        now=now,
                     )
-                    logger.info("Created next occurrence for %d on %s", msg["id"], next_date)
+
+                    if next_date:
+                        await db.create_scheduled_message(
+                            text=msg["text"],
+                            message_type=msg.get("message_type", "custom"),
+                            channel_topic_id=msg.get("channel_topic_id"),
+                            target_group=msg.get("target_group", "main"),
+                            scheduled_date=next_date.isoformat(),
+                            scheduled_time=msg.get("scheduled_time", "09:00"),
+                            recurrence=recurrence,
+                            recurrence_days=msg.get("recurrence_days"),
+                            auto_pin=bool(msg.get("auto_pin")),
+                            created_by="recurrence",
+                            cover_path=msg.get("cover_path"),
+                            poll_options=msg.get("poll_options"),
+                            poll_duration=msg.get("poll_duration"),
+                        )
+                        logger.info("Created next occurrence for %d on %s", msg["id"], next_date)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("recurrence creation failed after sent msg %s: %s", msg.get("id"), e)
 
         except SkippedActivity as e:
             mark_skipped = getattr(db, "mark_message_skipped", None)

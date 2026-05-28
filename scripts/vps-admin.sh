@@ -17,10 +17,11 @@
 #   routing               Read-only dump of bot_message_routing — which handler posts
 #                         to which topic. Editable from the dashboard, not via this
 #                         script.
-#   schedule [days]       Read-only dump of recent game / warm-up scheduled_messages
+#   schedule [days]       Read-only dump of recent/future game / warm-up scheduled_messages
 #                         rows (trivia_round, trivia_warmup_rsvp, warmup_reminder,
 #                         emoji_puzzle) with their warmup_marker, min_ready_players,
-#                         status, and RSVP counts. days = lookback window (default 3).
+#                         topic, Telegram message id, status, and RSVP counts.
+#                         days = lookback window; future rows are included (default 3).
 #                         Use this to diagnose "game never fired" — e.g. duplicate
 #                         warm-up rows sharing one marker, or a row left 'skipped'.
 #   applog [lines] [pat]  Read-only tail of data/bot.log (the app log; NOT journald).
@@ -209,16 +210,25 @@ cmd_schedule() {
   echo "=== vps-admin.sh schedule @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
   echo
   _require_sqlite3
-  echo "--- scheduled_messages: games + warm-ups, last ${days}d (marker + RSVP counts) ---"
-  echo "    rsvps counts trivia_interest_responses for THIS row; duplicate warm-up"
-  echo "    rows sharing one marker split the count -> the dispatch gate undercounts."
+  echo "--- scheduled_messages: games + warm-ups, since last ${days}d (future included) ---"
+  echo "    row_rsvps counts responses for THIS row. marker_rsvps aggregates every"
+  echo "    sent warm-up row sharing the same marker, matching the dispatch gate."
   sqlite3 -readonly "$DB_PATH" -header -column \
     "SELECT s.id, s.status, s.message_type AS type,
             s.scheduled_date AS d, s.scheduled_time AS t,
+            s.channel_topic_id AS topic,
+            s.sent_message_id AS tg_msg,
             json_extract(s.poll_options,'\$.warmup_marker') AS marker,
             json_extract(s.poll_options,'\$.min_ready_players') AS min_ready,
             (SELECT COUNT(*) FROM trivia_interest_responses r
-               WHERE r.scheduled_msg_id = s.id) AS rsvps
+               WHERE r.scheduled_msg_id = s.id) AS row_rsvps,
+            (SELECT COUNT(DISTINCT r.user_id)
+               FROM trivia_interest_responses r
+               JOIN scheduled_messages w ON w.id = r.scheduled_msg_id
+              WHERE w.message_type = 'trivia_warmup_rsvp'
+                AND w.status = 'sent'
+                AND json_extract(w.poll_options,'\$.warmup_marker') =
+                    json_extract(s.poll_options,'\$.warmup_marker')) AS marker_rsvps
        FROM scheduled_messages s
       WHERE s.message_type IN
             ('trivia_round','trivia_warmup_rsvp','warmup_reminder','emoji_puzzle')

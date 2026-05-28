@@ -536,6 +536,8 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
 
     async def test_warmup_rsvp_button_and_confirmation_include_names(self):
         """Regression: operator-visible RSVP state includes actual participant names."""
+        await self.db.set_handler_routing("trivia_warmup", 341, [])
+        await self.db.set_handler_routing("trivia_round", 4037, [])
         date_iso, _time_iso, now = _now_il_struct()
         warmup_id = await self.db.create_scheduled_message(
             text="warmup",
@@ -580,6 +582,184 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         confirmation_text = send.await_args.kwargs["text"]
         self.assertIn("Lotem", confirmation_text)
         self.assertIn("Refeli", confirmation_text)
+        self.assertEqual(send.await_args.kwargs["message_thread_id"], 4037)
+
+    async def test_threshold_confirmation_aggregates_duplicate_warmup_rows_by_marker(self):
+        """Duplicate warm-ups with one marker must not split the confirmation count."""
+        await self.db.set_handler_routing("trivia_round", 4037, [])
+        date_iso, _time_iso, now = _now_il_struct()
+        marker = "warmup-rsvp:trivia:2099-01-01:21:00"
+        payload = {
+            "min_ready_players": 2,
+            "game_time": "23:59",
+            "theme_label": "ישראל",
+            "activity_label": "הטריוויה על ישראל",
+            "warmup_marker": marker,
+        }
+        first_warmup = await self.db.create_scheduled_message(
+            text="warmup A",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=10)).strftime("%H:%M"),
+            poll_options=json.dumps(payload, ensure_ascii=False),
+            status="scheduled",
+        )
+        second_warmup = await self.db.create_scheduled_message(
+            text="warmup B",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=9)).strftime("%H:%M"),
+            poll_options=json.dumps(payload, ensure_ascii=False),
+            status="scheduled",
+        )
+        await self.db.mark_message_sent(first_warmup, 700010)
+        await self.db.mark_message_sent(second_warmup, 700011)
+        await self.db.add_trivia_interest_response(first_warmup, 101, "Lotem")
+
+        user = SimpleNamespace(
+            id=202,
+            username="refeli",
+            first_name="Refeli",
+            last_name=None,
+            full_name="Refeli",
+        )
+        with patch.object(
+            interest_handler,
+            "safe_send",
+            new=AsyncMock(return_value=SimpleNamespace(message_id=700012)),
+        ) as send:
+            result = await interest_handler.record_trivia_interest(
+                self.db, _make_context(self.db).bot, second_warmup, user,
+            )
+
+        self.assertEqual(result["count"], 2)
+        self.assertIn("Lotem", result["names"])
+        self.assertIn("Refeli", result["names"])
+        send.assert_awaited_once()
+        confirmation_text = send.await_args.kwargs["text"]
+        self.assertIn("2 אנשים בפנים", confirmation_text)
+        self.assertIn("Lotem", confirmation_text)
+        self.assertIn("Refeli", confirmation_text)
+        self.assertEqual(send.await_args.kwargs["message_thread_id"], 4037)
+
+    async def test_warmup_button_count_aggregates_duplicate_warmup_rows_by_marker(self):
+        """The visible group button must show the same marker-wide count as quorum."""
+        date_iso, _time_iso, now = _now_il_struct()
+        marker = "warmup-rsvp:trivia:2099-01-02:21:00"
+        payload = {
+            "min_ready_players": 3,
+            "game_time": "23:59",
+            "theme_label": "ישראל",
+            "warmup_marker": marker,
+        }
+        first_warmup = await self.db.create_scheduled_message(
+            text="warmup A",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=10)).strftime("%H:%M"),
+            poll_options=json.dumps(payload, ensure_ascii=False),
+            status="scheduled",
+        )
+        second_warmup = await self.db.create_scheduled_message(
+            text="warmup B",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=9)).strftime("%H:%M"),
+            poll_options=json.dumps(payload, ensure_ascii=False),
+            status="scheduled",
+        )
+        await self.db.mark_message_sent(first_warmup, 700020)
+        await self.db.mark_message_sent(second_warmup, 700021)
+        await self.db.add_trivia_interest_response(first_warmup, 101, "Lotem")
+
+        query = SimpleNamespace(
+            data=f"trivint_{second_warmup}",
+            answer=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
+        )
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(
+                id=202,
+                username="refeli",
+                first_name="Refeli",
+                last_name=None,
+                full_name="Refeli",
+            ),
+        )
+
+        await interest_handler.handle_trivia_interest(update, _make_context(self.db))
+
+        markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+        button_text = markup.inline_keyboard[0][0].text
+        self.assertIn("(2)", button_text)
+        self.assertIn("Lotem", button_text)
+        self.assertIn("Refeli", button_text)
+
+    async def test_warmup_button_signoff_removes_duplicate_marker_sibling_signup(self):
+        """Clicking any duplicate warm-up button toggles the marker-wide signup off."""
+        date_iso, _time_iso, now = _now_il_struct()
+        marker = "warmup-rsvp:trivia:2099-01-03:21:00"
+        payload = {
+            "min_ready_players": 2,
+            "game_time": "23:59",
+            "theme_label": "ישראל",
+            "warmup_marker": marker,
+        }
+        first_warmup = await self.db.create_scheduled_message(
+            text="warmup A",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=10)).strftime("%H:%M"),
+            poll_options=json.dumps(payload, ensure_ascii=False),
+            status="scheduled",
+        )
+        second_warmup = await self.db.create_scheduled_message(
+            text="warmup B",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=4037,
+            target_group="test",
+            scheduled_date=date_iso,
+            scheduled_time=(now - timedelta(minutes=9)).strftime("%H:%M"),
+            poll_options=json.dumps(payload, ensure_ascii=False),
+            status="scheduled",
+        )
+        await self.db.mark_message_sent(first_warmup, 700030)
+        await self.db.mark_message_sent(second_warmup, 700031)
+        await self.db.add_trivia_interest_response(first_warmup, 101, "Lotem")
+
+        query = SimpleNamespace(
+            data=f"trivint_{second_warmup}",
+            answer=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
+        )
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(
+                id=101,
+                username="lotem",
+                first_name="Lotem",
+                last_name=None,
+                full_name="Lotem",
+            ),
+        )
+
+        await interest_handler.handle_trivia_interest(update, _make_context(self.db))
+
+        self.assertFalse(await self.db.has_trivia_interest_response(first_warmup, 101))
+        self.assertFalse(await self.db.has_trivia_interest_response(second_warmup, 101))
+        markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+        self.assertIn("(0)", markup.inline_keyboard[0][0].text)
 
 
 if __name__ == "__main__":

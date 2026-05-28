@@ -137,25 +137,25 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()
 
 
 def warmup_reminder_enabled() -> bool:
-    """Whether the 20-min in-group warm-up reminder should be created/sent.
+    """Legacy toggle for the 20-min in-group warm-up reminder.
 
-    Defaults to True when the key is absent (no silent behavior change for a
-    config that predates this flag); the shipped settings.yaml sets it false.
+    Public group reminder rows are disabled in current runtime paths; signed-up
+    users get personal DMs instead. Default false keeps old configs from
+    silently reintroducing a second public RSVP post.
     """
-    return bool((get_settings().get("trivia") or {}).get("warmup_reminder_enabled", True))
+    return bool((get_settings().get("trivia") or {}).get("warmup_reminder_enabled", False))
 
 
 def rsvp_gate_enabled() -> bool:
     """Whether the warm-up RSVP gate may CANCEL a trivia/emoji game launch.
 
-    When False (the shipped default), games always fire regardless of how many
-    people clicked the RSVP button — the button still posts and still records
-    interest, we just stop auto-cancelling. This exists because the gate was
-    cancelling ~80% of scheduled games for fewer than 2 RSVPs, suppressing the
-    very engagement it was meant to protect (2026-05-23 analysis).
+    When False, games always fire regardless of how many people clicked the RSVP
+    button — the button still posts and still records interest, but
+    min_ready_players is advisory only. The shipped settings.yaml enables the
+    gate so configured minimums are enforced.
 
-    Defaults to False when the key is absent. Set true to restore the
-    min_ready_players cancel behavior.
+    Defaults to False when the key is absent for old configs that predate the
+    gate.
     """
     return bool((get_settings().get("trivia") or {}).get("rsvp_gate_enabled", False))
 

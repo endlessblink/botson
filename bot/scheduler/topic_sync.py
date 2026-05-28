@@ -15,6 +15,7 @@ from typing import Any, Iterable
 from ..utils.config import GROUP_ID
 
 logger = logging.getLogger(__name__)
+_FORUM_TOPIC_FETCH_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,7 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
             offset_date=0,
             offset_id=0,
             offset_topic=0,
-            limit=100,
+            limit=_FORUM_TOPIC_FETCH_LIMIT,
         ))
     finally:
         await client.disconnect()
@@ -112,7 +113,12 @@ async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
     return topics
 
 
-async def reconcile_forum_topics(db: Any, topics: list[SyncedForumTopic]) -> dict[str, int]:
+async def reconcile_forum_topics(
+    db: Any,
+    topics: list[SyncedForumTopic],
+    *,
+    remove_missing: bool = True,
+) -> dict[str, int]:
     """Upsert current topics and remove verified topics absent from the live list."""
     live_by_id = {int(topic.topic_id): topic for topic in topics if topic.topic_id and topic.name}
     if not live_by_id:
@@ -139,17 +145,24 @@ async def reconcile_forum_topics(db: Any, topics: list[SyncedForumTopic]) -> dic
         upserted += 1
 
     removed = 0
-    for topic_id in existing_by_id:
-        if topic_id not in live_by_id:
-            await db.delete_topic(topic_id)
-            removed += 1
+    if remove_missing:
+        for topic_id in existing_by_id:
+            if topic_id not in live_by_id:
+                await db.delete_topic(topic_id)
+                removed += 1
 
     return {"upserted": upserted, "removed": removed, "live": len(live_by_id)}
 
 
 async def sync_forum_topics_once(db: Any) -> dict[str, int]:
     topics = await fetch_forum_topics(GROUP_ID)
-    result = await reconcile_forum_topics(db, topics)
+    remove_missing = len(topics) < _FORUM_TOPIC_FETCH_LIMIT
+    if not remove_missing:
+        logger.warning(
+            "topic_sync: fetched %d topics, at API page limit; skipping missing-topic removals",
+            len(topics),
+        )
+    result = await reconcile_forum_topics(db, topics, remove_missing=remove_missing)
     logger.info(
         "topic_sync: live=%d upserted=%d removed=%d",
         result["live"], result["upserted"], result["removed"],

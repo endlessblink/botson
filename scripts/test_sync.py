@@ -17,6 +17,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+if "pytest" in sys.modules:
+    import pytest
+    pytest.skip(
+        "scripts/test_sync.py is an executable async smoke script; run it directly.",
+        allow_module_level=True,
+    )
+
 REPO = Path(__file__).resolve().parent.parent
 os.chdir(REPO)
 sys.path.insert(0, str(REPO))

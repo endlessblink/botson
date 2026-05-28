@@ -6,7 +6,8 @@ it cannot run in CI. These tests cover the dry-run behavior end-to-end:
   * The default invocation exits 0 and prints a plan per safe message type.
   * --only filters plans by message_type and exits 2 when nothing matches.
   * --json emits a parseable summary that names mode + plans.
-  * The safe-types set deliberately excludes stateful games.
+  * The safe-types set deliberately excludes stateful games unless explicitly
+    requested with --include-games.
 """
 
 from __future__ import annotations
@@ -47,11 +48,20 @@ class DryRunBehaviorTests(unittest.TestCase):
 
     def test_dry_run_does_not_advertise_stateful_game_types(self):
         # trivia_round / emoji_puzzle have dedicated tests; the smoke harness
-        # deliberately skips them. Pin this so a future "let's add games"
-        # change has to update the test (and pause to reconsider cleanup).
+        # deliberately skips them by default. Pin this so a future default
+        # expansion has to update the test and reconsider cleanup/safety.
         _, out, _ = self._run([])
         self.assertNotIn("trivia_round", out)
         self.assertNotIn("emoji_puzzle", out)
+
+    def test_include_games_adds_explicit_emoji_probe_only_when_requested(self):
+        code, out, _ = self._run(["--include-games", "--only", "emoji_puzzle"])
+        self.assertEqual(code, 0)
+        self.assertIn("emoji puzzle game", out)
+        self.assertIn("emoji_puzzle", out)
+        self.assertIn("poll_payload", out)
+        self.assertIn("media_types", out)
+        self.assertNotIn("plain custom text", out)
 
     def test_only_filter_narrows_to_named_types(self):
         code, out, _ = self._run(["--only", "custom,poll"])
@@ -74,6 +84,17 @@ class DryRunBehaviorTests(unittest.TestCase):
         self.assertEqual(len(payload["plans"]), 4)
         types = [p["message_type"] for p in payload["plans"]]
         self.assertEqual(types, ["custom", "poll", "facts_tidbit", "free_games"])
+
+    def test_json_mode_can_emit_explicit_game_probe(self):
+        code, out, _ = self._run(["--include-games", "--only", "emoji_puzzle", "--json"])
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["mode"], "dry-run")
+        self.assertEqual(len(payload["plans"]), 1)
+        plan = payload["plans"][0]
+        self.assertEqual(plan["message_type"], "emoji_puzzle")
+        self.assertEqual(plan["poll_payload"]["media_types"], ["movie", "tv"])
+        self.assertEqual(plan["poll_payload"]["theme_label"], "סרטים וסדרות")
 
     def test_marker_prefix_is_present_in_every_plan_text(self):
         # Cleanup safety: if the harness crashes mid-run, operators can grep

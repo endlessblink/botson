@@ -12,7 +12,6 @@ Covers the issues that bit us on 2026-04-27:
 """
 import json
 import asyncio
-import copy
 import re
 import tempfile
 import unittest
@@ -180,24 +179,13 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 )
         await db._db.commit()
         before = await self._scheduled_count(db)
-        # Distinct strings per call so the freshness guard doesn't reject
-        # follow-up generations (e.g. the warmup_reminder paired with each
-        # trivia_warmup_rsvp announcement).
         call_counter = {"n": 0}
 
         async def distinct_canned(*args, **kwargs):
             call_counter["n"] += 1
             return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
 
-        # warmup_reminder is off by default in settings.yaml; enable it here so
-        # the T-126 announcement↔reminder pairing assertions below are exercised.
-        # (The pairing logic is also covered by
-        # test_turning_trivia_live_creates_warmup_reminder_with_shared_marker.)
-        settings_reminder_on = copy.deepcopy(dashboard_app.get_settings())
-        settings_reminder_on.setdefault("trivia", {})["warmup_reminder_enabled"] = True
-
-        with patch.object(dashboard_app, "get_settings", return_value=settings_reminder_on), \
-             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
             # Use next week so this test is not dependent on the wall clock
@@ -249,27 +237,14 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             emoji_announcements[0]["topic_id"],
             4037,
-            "Emoji Night warm-up announcements must go to Botson's Corner",
+            "Emoji Night warm-up announcements must stay in the game topic",
         )
-        # T-126: every RSVP announcement should be paired with a warmup_reminder
-        # carrying the same warmup_marker.
-        reminder_rows = [
-            s for s in result["suggestions"] if s["message_type"] == "warmup_reminder"
-        ]
-        self.assertTrue(reminder_rows, "populate must emit warmup_reminder rows")
+        self.assertNotIn("warmup_reminder", types)
         for ann in (
             s for s in result["suggestions"] if s["message_type"] == "trivia_warmup_rsvp"
         ):
             ann_marker = json.loads(ann["poll_options_json"]).get("warmup_marker")
             self.assertTrue(ann_marker, f"announcement {ann} missing warmup_marker")
-            paired = [
-                r for r in reminder_rows
-                if json.loads(r["poll_options_json"]).get("warmup_marker") == ann_marker
-            ]
-            self.assertEqual(
-                len(paired), 1,
-                f"announcement marker {ann_marker} should have exactly one reminder",
-            )
         trivia_rows = [s for s in result["suggestions"] if s["message_type"] == "trivia_round"]
         self.assertTrue(trivia_rows)
         self.assertTrue(all(row.get("preview_url") for row in trivia_rows))
@@ -319,6 +294,71 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertTrue(executable_rows)
         self.assertTrue(all(row.get("preview_url") for row in executable_rows))
+
+    async def test_ai_suggest_calendar_counts_sent_games_against_week_caps(self):
+        db = Database(":memory:")
+        await db.init()
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+        today = datetime.now().date()
+        days_since_sunday = (today.weekday() + 1) % 7
+        next_sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=1)
+        for message_type, scheduled_time in (("trivia_round", "21:00"), ("emoji_puzzle", "22:00")):
+            await db.create_scheduled_message(
+                text="already ran",
+                message_type=message_type,
+                channel_topic_id=4037,
+                target_group="main",
+                scheduled_date=next_sunday.isoformat(),
+                scheduled_time=scheduled_time,
+                status="sent",
+            )
+
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=None, week_offset=1)
+
+        await db.close()
+        suggested_types = {s["message_type"] for s in result["suggestions"]}
+        self.assertNotIn("trivia_round", suggested_types)
+        self.assertNotIn("emoji_puzzle", suggested_types)
+
+    async def test_ai_suggest_day_does_not_stack_spooky_fact_on_emoji_slot(self):
+        db = Database(":memory:")
+        await db.init()
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+        target_date = (datetime.now().date() + timedelta(days=7)).isoformat()
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(db, target_date=target_date, week_offset=0)
+
+        await db.close()
+        by_slot = {(s["date"], s["time"]): s["message_type"] for s in result["suggestions"]}
+        self.assertEqual(by_slot.get((target_date, "22:00")), "emoji_puzzle")
+        self.assertFalse(any(
+            s["date"] == target_date and s["time"] == "22:00" and s["message_type"] == "facts_spooky"
+            for s in result["suggestions"]
+        ))
 
     async def test_ai_suggest_calendar_rotates_emoji_subject_away_from_recent(self):
         db = Database(":memory:")
@@ -637,6 +677,23 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ctx.exception.status_code, 400)
                 self.assertEqual(db.created, [])
 
+    async def test_create_calendar_item_rejects_unsupported_target_group(self):
+        db = FakeCalendarDb()
+        body = {
+            "text": "scheduled activity",
+            "message_type": "custom",
+            "channel_topic_id": 4037,
+            "target_group": "both",
+            "scheduled_date": "2099-01-01",
+            "scheduled_time": "18:00",
+        }
+        with self.assertRaises(HTTPException) as ctx:
+            await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("unsupported target_group", ctx.exception.detail)
+        self.assertEqual(db.created, [])
+
     async def test_ai_suggest_commit_schedules_approved_rows(self):
         db = FakeCalendarDb()
         body = {
@@ -657,6 +714,56 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created[0]["status"], "scheduled")
         self.assertEqual(db.created[0]["message_type"], "emoji_puzzle")
         self.assertEqual(db.created[0]["poll_options"], '{"theme_label":"movies"}')
+
+    async def test_ai_suggest_commit_is_idempotent_for_existing_game_slot(self):
+        db = Database(":memory:")
+        await db.init()
+        body = {
+            "approved": [{
+                "date": "2099-01-01",
+                "time": "22:00",
+                "message_type": "emoji_puzzle",
+                "topic_id": 4037,
+                "text": "",
+                "source": "ai-fill-pool-row",
+                "poll_options_json": '{"theme_label":"movies"}',
+            }]
+        }
+
+        first = await dashboard_app.ai_suggest_commit(FakeCalendarRequest(body), db)
+        second = await dashboard_app.ai_suggest_commit(FakeCalendarRequest(body), db)
+        rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        await db.close()
+
+        self.assertEqual(first["inserted"], 1, first)
+        self.assertEqual(second["inserted"], 0, second)
+        self.assertIn("duplicate slot", second["skipped"][0])
+        self.assertEqual([row["message_type"] for row in rows], ["emoji_puzzle"])
+
+    async def test_ai_suggest_commit_dedupes_duplicate_game_slots_in_one_request(self):
+        db = Database(":memory:")
+        await db.init()
+        approved = {
+            "date": "2099-01-01",
+            "time": "22:00",
+            "message_type": "trivia_round",
+            "topic_id": 4037,
+            "text": "🧠 סיבוב טריוויה",
+            "source": "ai-fill-pool-row",
+            "poll_options_json": '{"theme_label":"כללי"}',
+        }
+
+        result = await dashboard_app.ai_suggest_commit(
+            FakeCalendarRequest({"approved": [approved, dict(approved)]}),
+            db,
+        )
+        rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        await db.close()
+
+        self.assertEqual(result["inserted"], 1, result)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertIn("duplicate slot", result["skipped"][0])
+        self.assertEqual([row["message_type"] for row in rows], ["trivia_round"])
 
     async def test_ai_suggest_commit_rejects_known_low_quality_text(self):
         db = FakeCalendarDb()
@@ -1055,19 +1162,20 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                      patch("telegram.Bot", return_value=object()), \
                      patch.object(bot_calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text, \
                      patch.object(bot_calendar, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
-                     patch.object(bot_calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji:
+                     patch.object(bot_calendar, "start_emoji_night", new=AsyncMock(return_value={"session_id": 7, "message_id": 77})) as start_emoji:
                     await bot_calendar.check_and_send_due_messages(context)
 
                 send_text.assert_not_awaited()
                 start_emoji.assert_awaited_once_with(
                     context, -1001, 4037, force=True,
                     media_types=["movie", "tv"], theme_label="סרטים וסדרות",
+                    return_launch_info=True,
                 )
                 rows = await db.get_scheduled_messages(today, today)
-                self.assertEqual(
-                    {row["message_type"]: row["status"] for row in rows},
-                    {"discussion": "skipped", "emoji_puzzle": "sent"},
-                )
+                by_type = {row["message_type"]: row for row in rows}
+                self.assertEqual(by_type["emoji_puzzle"]["status"], "sent")
+                self.assertEqual(by_type["discussion"]["status"], "skipped")
+                self.assertIn("same_slot_collision", by_type["discussion"]["error_message"])
             finally:
                 await db.close()
 
@@ -1250,6 +1358,35 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_update_calendar_item_rejects_unsupported_target_group(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                msg_id = await db.create_scheduled_message(
+                    text="valid body",
+                    message_type="custom",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="18:00",
+                    status="draft",
+                )
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await dashboard_app.update_calendar_item(
+                        msg_id,
+                        FakeCalendarRequest({"target_group": "both"}),
+                        db,
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 400)
+                async with db._db.execute("SELECT target_group FROM scheduled_messages WHERE id = ?", (msg_id,)) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["target_group"], "main")
+            finally:
+                await db.close()
+
     async def test_put_approval_rejects_existing_low_quality_draft_without_text_payload(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
@@ -1333,9 +1470,9 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
-    async def test_turning_trivia_live_creates_warmup_reminder_with_shared_marker(self):
-        """T-126: announcement + reminder share warmup_marker; reminder fires
-        warmup_reminder_offset_min before game time."""
+    async def test_turning_trivia_live_creates_warmup_with_marker_but_no_public_reminder(self):
+        """Scheduling a trivia game creates the RSVP warm-up marker, but not
+        a second public reminder row; personal DMs own reminder follow-up."""
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
             await db.init()
@@ -1363,7 +1500,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ), patch.object(
                     dashboard_app, "_generate_activity_copy",
                     new=AsyncMock(return_value="טריוויה גיימינג מתחילה ב-22:00\nלחצו על הכפתור."),
-                ), patch("bot.utils.config.warmup_reminder_enabled", return_value=True):
+                ):
                     res = await dashboard_app.schedule_calendar_item(
                         game_id, FakeCalendarRequest({}), db,
                     )
@@ -1386,21 +1523,13 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     (f"warmup-reminder-draft:{game_id}",),
                 ) as cur:
                     reminder = await cur.fetchone()
-                self.assertIsNotNone(reminder, "warmup_reminder row was not created")
-                self.assertEqual(reminder["message_type"], "warmup_reminder")
-                self.assertEqual(reminder["status"], "scheduled")
-                self.assertEqual(reminder["channel_topic_id"], 4037)
-                rem_payload = json.loads(reminder["poll_options"] or "{}")
-                self.assertEqual(rem_payload["warmup_marker"], ann_payload["warmup_marker"])
-                self.assertEqual(rem_payload["min_ready_players"], 2)
-                # game 22:00 minus 20 min default reminder offset = 21:40
-                self.assertEqual(reminder["scheduled_time"], "21:40")
+                self.assertIsNone(reminder, "public warmup_reminder rows must not be created")
             finally:
                 await db.close()
 
-    async def test_reminder_prompt_uses_reminder_aware_rules(self):
-        """T-126 LLM rules: reminder kinds must instruct the LLM that the
-        button lives on the original announcement (not on this message)."""
+    async def test_legacy_reminder_prompt_uses_reminder_aware_rules(self):
+        """If legacy reminder copy generation is used, it must still say the
+        button lives on the original announcement, not on the reminder text."""
         captured = {}
 
         async def capture_cli(prompt: str) -> str:
@@ -1438,9 +1567,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("סדרות מאוירות", result)
         cli.assert_not_called()
 
-    async def test_warmup_reminder_skipped_when_threshold_met(self):
-        """T-126 dispatch: reminder short-circuits to status=skipped when
-        trivia_interest count already meets min_ready_players."""
+    async def test_legacy_warmup_reminder_row_is_skipped_when_threshold_met(self):
+        """Legacy public reminder rows are skipped; personal DMs own reminders."""
         from bot.handlers import calendar as bot_calendar
 
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
@@ -1501,6 +1629,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
                 async def fake_get_due(*args, **kwargs):
                     return [reminder_row]
+                async def fake_get_scheduled_message(msg_id):
+                    return dict(reminder_row) if msg_id == reminder_row["id"] else None
+                async def fake_claim_scheduled_message(msg_id, *, stale_after_minutes=15):
+                    return msg_id == reminder_row["id"]
 
                 async def capture_skipped(msg_id, reason):
                     skipped.append((msg_id, reason))
@@ -1509,6 +1641,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     sent.append((msg_id, sent_message_id))
 
                 db.get_due_messages = fake_get_due  # type: ignore[assignment]
+                db.get_scheduled_message = fake_get_scheduled_message  # type: ignore[assignment]
+                db.claim_scheduled_message = fake_claim_scheduled_message  # type: ignore[assignment]
                 db.mark_message_skipped = capture_skipped  # type: ignore[assignment]
                 db.mark_message_sent = capture_sent  # type: ignore[assignment]
                 async def noop_failed(msg_id, error):
@@ -1528,15 +1662,15 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 ss.assert_not_awaited()
                 self.assertEqual(len(skipped), 1)
                 self.assertEqual(skipped[0][0], 9001)
-                self.assertIn("public group reminders disabled", skipped[0][1])
+                self.assertIn("personal DM reminders", skipped[0][1])
                 self.assertEqual(sent, [])
             finally:
                 db.get_due_messages = original_get_due  # type: ignore[assignment]
                 await db.close()
 
-    async def test_warmup_reminder_sends_when_under_threshold(self):
-        """T-126 dispatch: reminder fires (as reply to announcement) when
-        responses < min_ready_players."""
+    async def test_legacy_warmup_reminder_row_is_skipped_when_under_threshold(self):
+        """Legacy public reminder rows are skipped even below threshold; the
+        RSVP gate is enforced at game launch and personal DMs handle reminders."""
         from bot.handlers import calendar as bot_calendar
 
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
@@ -1591,6 +1725,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 sent: list = []
                 async def fake_get_due(*args, **kwargs):
                     return [reminder_row]
+                async def fake_get_scheduled_message(msg_id):
+                    return dict(reminder_row) if msg_id == reminder_row["id"] else None
+                async def fake_claim_scheduled_message(msg_id, *, stale_after_minutes=15):
+                    return msg_id == reminder_row["id"]
                 async def capture_skipped(msg_id, reason):
                     skipped.append((msg_id, reason))
                 async def capture_sent(msg_id, sent_message_id):
@@ -1599,6 +1737,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     raise AssertionError(f"unexpected failure: {error}")
 
                 db.get_due_messages = fake_get_due  # type: ignore[assignment]
+                db.get_scheduled_message = fake_get_scheduled_message  # type: ignore[assignment]
+                db.claim_scheduled_message = fake_claim_scheduled_message  # type: ignore[assignment]
                 db.mark_message_skipped = capture_skipped  # type: ignore[assignment]
                 db.mark_message_sent = capture_sent  # type: ignore[assignment]
                 db.mark_message_failed = noop_failed  # type: ignore[assignment]
@@ -1617,7 +1757,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
                 self.assertEqual(len(skipped), 1)
                 self.assertEqual(skipped[0][0], 9002)
-                self.assertIn("public group reminders disabled", skipped[0][1])
+                self.assertIn("personal DM reminders", skipped[0][1])
                 self.assertEqual(sent, [])
                 ss.assert_not_awaited()
             finally:
@@ -1686,6 +1826,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
             async def fake_get_due(*a, **k):
                 return [game_row]
+            async def fake_get_scheduled_message(msg_id):
+                return dict(game_row) if msg_id == game_row["id"] else None
+            async def fake_claim_scheduled_message(msg_id, *, stale_after_minutes=15):
+                return msg_id == game_row["id"]
             async def cap_skipped(msg_id, reason):
                 skipped.append((msg_id, reason))
             async def cap_sent(msg_id, sent_message_id):
@@ -1694,6 +1838,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError(f"unexpected failure: {error}")
 
             db.get_due_messages = fake_get_due  # type: ignore[assignment]
+            db.get_scheduled_message = fake_get_scheduled_message  # type: ignore[assignment]
+            db.claim_scheduled_message = fake_claim_scheduled_message  # type: ignore[assignment]
             db.mark_message_skipped = cap_skipped  # type: ignore[assignment]
             db.mark_message_sent = cap_sent  # type: ignore[assignment]
             db.mark_message_failed = noop_failed  # type: ignore[assignment]
@@ -1781,6 +1927,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             sent: list = []
             async def fake_get_due(*a, **k):
                 return [game_row]
+            async def fake_get_scheduled_message(msg_id):
+                return dict(game_row) if msg_id == game_row["id"] else None
+            async def fake_claim_scheduled_message(msg_id, *, stale_after_minutes=15):
+                return msg_id == game_row["id"]
             async def cap_sent(msg_id, sent_message_id):
                 sent.append((msg_id, sent_message_id))
             async def noop_skipped(msg_id, reason):
@@ -1789,6 +1939,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError(f"unexpected failure: {error}")
 
             db.get_due_messages = fake_get_due  # type: ignore[assignment]
+            db.get_scheduled_message = fake_get_scheduled_message  # type: ignore[assignment]
+            db.claim_scheduled_message = fake_claim_scheduled_message  # type: ignore[assignment]
             db.mark_message_sent = cap_sent  # type: ignore[assignment]
             db.mark_message_skipped = noop_skipped  # type: ignore[assignment]
             db.mark_message_failed = noop_failed  # type: ignore[assignment]
@@ -1865,6 +2017,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             skipped: list = []
             async def fake_get_due(*a, **k):
                 return [game_row]
+            async def fake_get_scheduled_message(msg_id):
+                return dict(game_row) if msg_id == game_row["id"] else None
+            async def fake_claim_scheduled_message(msg_id, *, stale_after_minutes=15):
+                return msg_id == game_row["id"]
             async def cap_skipped(msg_id, reason):
                 skipped.append((msg_id, reason))
             async def noop_sent(msg_id, sent_message_id):
@@ -1872,6 +2028,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             async def noop_failed(msg_id, error):
                 raise AssertionError(f"unexpected failure: {error}")
             db.get_due_messages = fake_get_due  # type: ignore[assignment]
+            db.get_scheduled_message = fake_get_scheduled_message  # type: ignore[assignment]
+            db.claim_scheduled_message = fake_claim_scheduled_message  # type: ignore[assignment]
             db.mark_message_skipped = cap_skipped  # type: ignore[assignment]
             db.mark_message_sent = noop_sent  # type: ignore[assignment]
             db.mark_message_failed = noop_failed  # type: ignore[assignment]
@@ -2593,6 +2751,12 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+    def test_drag_drop_checks_failed_save_response(self):
+        block = self.html[self.html.index("eventDrop: async function"):self.html.index("dateClick: function")]
+        self.assertIn("if (!resp.ok)", block)
+        self.assertIn("info.revert()", block)
+        self.assertIn("apiErrorMessage", block)
 
 
 # Pull dashboard-side inference into a helper for the agreement check above.

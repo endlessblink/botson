@@ -5,7 +5,7 @@
 
 Handles the "🙋 אני בפנים!" inline button on trivia_warmup_rsvp messages.
 Tracks responses in trivia_interest_responses and fires a confirmation message
-to the topic defined by the trivia_warmup routing row when the threshold is met.
+to the executable game's topic when the threshold is met.
 """
 
 import json
@@ -46,6 +46,77 @@ def _format_interest_names(responses: list[dict], *, limit: int = 5) -> str:
     shown = names[:limit]
     suffix = f" +{len(names) - limit}" if len(names) > limit else ""
     return ", ".join(shown) + suffix
+
+
+async def _warmup_sibling_ids(db: Database, scheduled_msg_id: int) -> list[int]:
+    async with db._db.execute(
+        "SELECT poll_options FROM scheduled_messages WHERE id=? AND message_type='trivia_warmup_rsvp'",
+        (scheduled_msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return []
+    try:
+        payload = json.loads(row["poll_options"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+    marker = str(payload.get("warmup_marker") or "").strip()
+    if not marker:
+        return [int(scheduled_msg_id)]
+
+    async with db._db.execute(
+        """SELECT id, poll_options
+           FROM scheduled_messages
+           WHERE message_type='trivia_warmup_rsvp'
+             AND status != 'cancelled'
+           ORDER BY id ASC"""
+    ) as cur:
+        rows = await cur.fetchall()
+    ids: list[int] = []
+    for r in rows:
+        try:
+            rp = json.loads(r["poll_options"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if str(rp.get("warmup_marker") or "").strip() == marker:
+            ids.append(int(r["id"]))
+    return ids or [int(scheduled_msg_id)]
+
+
+async def _has_marker_interest_response(db: Database, scheduled_msg_id: int, user_id: int) -> bool:
+    for wid in await _warmup_sibling_ids(db, scheduled_msg_id):
+        if await db.has_trivia_interest_response(wid, user_id):
+            return True
+    return False
+
+
+async def _remove_marker_interest_response(db: Database, scheduled_msg_id: int, user_id: int) -> None:
+    for wid in await _warmup_sibling_ids(db, scheduled_msg_id):
+        await db.remove_trivia_interest_response(wid, user_id)
+
+
+async def _interest_summary_for_button(db: Database, scheduled_msg_id: int) -> tuple[int, str]:
+    async with db._db.execute(
+        "SELECT status, poll_options FROM scheduled_messages WHERE id=?",
+        (scheduled_msg_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row:
+        try:
+            payload = json.loads(row["poll_options"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        marker = str(payload.get("warmup_marker") or "").strip()
+        if row["status"] == "sent" and marker:
+            users = await db.get_warmup_rsvp_user_map(marker)
+            names = _format_interest_names(
+                [{"display_name": name} for name in users.values()],
+                limit=3,
+            )
+            return len(users), names
+
+    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
+    return len(responses), _format_interest_names(responses, limit=3)
 
 
 def _rsvp_closed(row, payload: dict, *, now: datetime | None = None) -> bool:
@@ -92,6 +163,12 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
     if row["status"] not in ("scheduled", "sent") or _rsvp_closed(row, payload):
         return {"closed": True}
 
+    marker = str(payload.get("warmup_marker") or "").strip()
+    threshold = int(payload.get("min_ready_players") or 0)
+    aggregate_before: dict[int, str] | None = None
+    if row["status"] == "sent" and marker and threshold > 0:
+        aggregate_before = await db.get_warmup_rsvp_user_map(marker)
+
     display_name = get_display_name(user)
     await db.upsert_member(user.id, user.username, display_name)
     count, already_responded = await db.add_trivia_interest_response(
@@ -102,7 +179,17 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
         if default_lead is not None:
             await db.toggle_reminder_lead(user.id, default_lead)
     responses = await db.get_trivia_interest_responses(scheduled_msg_id)
-    names = _format_interest_names(responses, limit=3)
+    aggregate_after: dict[int, str] | None = None
+    if row["status"] == "sent" and marker:
+        aggregate_after = await db.get_warmup_rsvp_user_map(marker)
+    if aggregate_after is not None:
+        count = len(aggregate_after)
+        names = _format_interest_names(
+            [{"display_name": name} for name in aggregate_after.values()],
+            limit=3,
+        )
+    else:
+        names = _format_interest_names(responses, limit=3)
     result = {"count": count, "already": already_responded, "names": names}
 
     if already_responded:
@@ -115,9 +202,11 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
     if row["status"] != "sent":
         return result
 
-    # Check threshold and fire confirmation exactly once when it's first crossed
-    threshold = int(payload.get("min_ready_players") or 0)
-    if threshold <= 0 or count != threshold:
+    # Check threshold and fire confirmation exactly once when it's first crossed.
+    # Use the same marker-wide, user-deduped RSVP set as the launch gate so
+    # duplicate warm-up rows cannot split signups and suppress confirmation.
+    before_count = len(aggregate_before) if aggregate_before is not None else count - 1
+    if threshold <= 0 or before_count >= threshold or count < threshold:
         return result
 
     game_time = str(payload.get("game_time") or "")
@@ -132,13 +221,14 @@ async def record_trivia_interest(db: Database, bot, scheduled_msg_id: int, user)
         f"{activity_label} תתקיים היום{time_part}.\n"
         f"כולם מוזמנים! 🎮"
     )  # noqa: hardcoded-content (pre-existing confirmation copy; extraction tracked separately)
+    handler = "emoji_puzzle" if ":emoji:" in marker else "trivia_round"
     try:
-        routing = await db.get_handler_routing("trivia_warmup")
+        routing = await db.get_handler_routing(handler)
     except Exception:
         routing = None
     warmup_topic_id = (routing or {}).get("play_topic_id")
     if not warmup_topic_id:
-        logger.warning("trivia_interest: no trivia_warmup routing — skipping confirmation")
+        logger.warning("trivia_interest: no %s routing — skipping confirmation", handler)
         return result
 
     try:
@@ -191,12 +281,11 @@ async def refresh_warmup_group_button(bot, db: Database, scheduled_msg_id: int):
         row = await cur.fetchone()
     if not row or not row["sent_message_id"]:
         return
-    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
-    names = _format_interest_names(responses, limit=3)
+    count, names = await _interest_summary_for_button(db, scheduled_msg_id)
     try:
         await bot.edit_message_reply_markup(
             chat_id=GROUP_ID, message_id=row["sent_message_id"],
-            reply_markup=_warmup_markup(scheduled_msg_id, len(responses), names),
+            reply_markup=_warmup_markup(scheduled_msg_id, count, names),
         )
     except Exception as e:
         if "not modified" not in str(e).lower():
@@ -225,14 +314,13 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
     db: Database = context.bot_data["db"]
 
     # Toggle off if already in.
-    if await db.has_trivia_interest_response(scheduled_msg_id, user.id):
-        await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
+    if await _has_marker_interest_response(db, scheduled_msg_id, user.id):
+        await _remove_marker_interest_response(db, scheduled_msg_id, user.id)
         await query.answer("ביטלת את ההרשמה")  # noqa: hardcoded-content (temporary fallback; copy extraction follow-up)
-        responses = await db.get_trivia_interest_responses(scheduled_msg_id)
-        names = _format_interest_names(responses, limit=3)
+        count, names = await _interest_summary_for_button(db, scheduled_msg_id)
         try:
             await query.edit_message_reply_markup(
-                reply_markup=_warmup_markup(scheduled_msg_id, len(responses), names)
+                reply_markup=_warmup_markup(scheduled_msg_id, count, names)
             )
         except Exception as e:
             if "not modified" not in str(e).lower():
@@ -248,11 +336,9 @@ async def handle_trivia_interest(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     await query.answer()
-    responses = await db.get_trivia_interest_responses(scheduled_msg_id)
-    names = _format_interest_names(responses, limit=3)
     try:
         await query.edit_message_reply_markup(
-            reply_markup=_warmup_markup(scheduled_msg_id, len(responses), names)
+            reply_markup=_warmup_markup(scheduled_msg_id, int(result["count"]), str(result["names"]))
         )
     except Exception as e:
         if "not modified" not in str(e).lower():

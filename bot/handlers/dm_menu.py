@@ -141,6 +141,50 @@ async def _get_warmup_payload(db: Database, scheduled_msg_id: int) -> tuple[dict
     return dict(row), payload
 
 
+async def _warmup_sibling_ids(db: Database, scheduled_msg_id: int) -> list[int]:
+    """All non-cancelled warm-up rows sharing this row's warmup_marker.
+
+    Duplicate warm-up rows are possible after retries/manual approvals. Signup,
+    signoff, and display state should follow the game marker, not whichever
+    duplicated public message id the user happened to click.
+    """
+    row, payload = await _get_warmup_payload(db, scheduled_msg_id)
+    if not row:
+        return []
+    marker = str(payload.get("warmup_marker") or "").strip()
+    if not marker:
+        return [int(scheduled_msg_id)]
+    async with db._db.execute(
+        """SELECT id, poll_options
+           FROM scheduled_messages
+           WHERE message_type = 'trivia_warmup_rsvp'
+             AND status != 'cancelled'
+           ORDER BY id ASC"""
+    ) as cur:
+        rows = await cur.fetchall()
+    ids: list[int] = []
+    for r in rows:
+        try:
+            rp = json.loads(r["poll_options"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if str(rp.get("warmup_marker") or "").strip() == marker:
+            ids.append(int(r["id"]))
+    return ids or [int(scheduled_msg_id)]
+
+
+async def _has_game_signup(db: Database, scheduled_msg_id: int, user_id: int) -> bool:
+    for wid in await _warmup_sibling_ids(db, scheduled_msg_id):
+        if await db.has_trivia_interest_response(wid, user_id):
+            return True
+    return False
+
+
+async def _remove_game_signup(db: Database, scheduled_msg_id: int, user_id: int) -> None:
+    for wid in await _warmup_sibling_ids(db, scheduled_msg_id):
+        await db.remove_trivia_interest_response(wid, user_id)
+
+
 def _game_toggle_markup(scheduled_msg_id: int, subscribed: bool) -> InlineKeyboardMarkup:
     label = (
         load_copy("dm_menu", "reminder_unsubscribe_btn")
@@ -245,6 +289,7 @@ async def _build_upcoming(db: Database, user_id: int):
         ])
 
     shown_games = 0
+    seen_markers: set[str] = set()
     for wu in warmups:
         if shown_games >= 5:
             break
@@ -255,6 +300,10 @@ async def _build_upcoming(db: Database, user_id: int):
         # Resolve the real kickoff: linked game row (authoritative) → warm-up's
         # stored game_time → warm-up's own time. Drop items already started.
         marker = str(payload.get("warmup_marker") or "").strip()
+        group_key = marker or f"row:{wu['id']}"
+        if group_key in seen_markers:
+            continue
+        seen_markers.add(group_key)
         game = games_by_marker.get(marker) if marker else None
         if game:
             kdate, ktime = game.get("scheduled_date"), str(game.get("scheduled_time") or "")
@@ -277,7 +326,7 @@ async def _build_upcoming(db: Database, user_id: int):
         ))
         # Toggle button: shows the signed-up state and lets the user sign off.
         wid = int(wu["id"])
-        if await db.has_trivia_interest_response(wid, user_id):
+        if await _has_game_signup(db, wid, user_id):
             rows.append([InlineKeyboardButton(
                 load_copy("dm_menu", "btn_signed_up"), callback_data=f"dmmenu_troff_{wid}",
             )])
@@ -477,6 +526,11 @@ async def _handle_trivia_signup(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer()
         return
     db: Database = context.bot_data["db"]
+    if await _has_game_signup(db, scheduled_msg_id, user.id):
+        await query.answer(load_copy("dm_menu", "signup_done"))
+        await _rerender_upcoming(query, db, user.id)
+        await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
+        return
     result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
     if result is None:
         await query.answer(load_copy("dm_menu", "signup_unavailable"), show_alert=True)
@@ -502,7 +556,7 @@ async def _handle_trivia_signoff(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer()
         return
     db: Database = context.bot_data["db"]
-    await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
+    await _remove_game_signup(db, scheduled_msg_id, user.id)
     await query.answer(load_copy("dm_menu", "signoff_done"))
     await _rerender_upcoming(query, db, user.id)
     # Keep the group warm-up's live count in sync with this DM action.
@@ -530,7 +584,7 @@ async def show_game_subscription(
         await update.message.reply_text(load_copy("dm_menu", "signup_unavailable"))
         return
     label = _game_label_from_payload(payload)
-    if subscribe and not await db.has_trivia_interest_response(scheduled_msg_id, user.id):
+    if subscribe and not await _has_game_signup(db, scheduled_msg_id, user.id):
         result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
         if result is None:
             await update.message.reply_text(load_copy("dm_menu", "signup_unavailable"))
@@ -539,7 +593,7 @@ async def show_game_subscription(
             await update.message.reply_text(load_copy("dm_menu", "signup_closed"))
             return
         await refresh_warmup_group_button(context.bot, db, scheduled_msg_id)
-    subscribed = await db.has_trivia_interest_response(scheduled_msg_id, user.id)
+    subscribed = await _has_game_signup(db, scheduled_msg_id, user.id)
     text = (
         load_copy("dm_menu", "signup_done_dm", label=label)
         if subscribed else load_copy("dm_menu", "game_dm_prompt", label=label)
@@ -565,14 +619,15 @@ async def _handle_game_subscribe(update: Update, context: ContextTypes.DEFAULT_T
     if not row:
         await query.answer(load_copy("dm_menu", "signup_unavailable"), show_alert=True)
         return
-    result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
-    if result is None:
-        await query.answer(load_copy("dm_menu", "signup_unavailable"), show_alert=True)
-        return
-    if result.get("closed"):
-        await query.answer(load_copy("dm_menu", "signup_closed"), show_alert=True)
-        return
     label = _game_label_from_payload(payload)
+    if not await _has_game_signup(db, scheduled_msg_id, user.id):
+        result = await record_trivia_interest(db, context.bot, scheduled_msg_id, user)
+        if result is None:
+            await query.answer(load_copy("dm_menu", "signup_unavailable"), show_alert=True)
+            return
+        if result.get("closed"):
+            await query.answer(load_copy("dm_menu", "signup_closed"), show_alert=True)
+            return
     await query.answer(load_copy("dm_menu", "signup_done"))
     try:
         await query.edit_message_text(
@@ -596,7 +651,7 @@ async def _handle_game_unsubscribe(update: Update, context: ContextTypes.DEFAULT
         await query.answer()
         return
     db: Database = context.bot_data["db"]
-    await db.remove_trivia_interest_response(scheduled_msg_id, user.id)
+    await _remove_game_signup(db, scheduled_msg_id, user.id)
     await query.answer(load_copy("dm_menu", "signoff_done"))
     try:
         await query.edit_message_text(
@@ -738,8 +793,10 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
     now = _il_now()
     today = now.date().isoformat()
 
-    # Sign-up lists live on the warm-up row, keyed by its shared warmup_marker.
-    warmups_by_marker: dict[str, dict] = {}
+    # Sign-up lists live on warm-up rows. Duplicate warm-up rows can share a
+    # marker after retries/manual edits, so keep all siblings and aggregate
+    # responders by user instead of letting a later empty row hide real RSVPs.
+    warmups_by_marker: dict[str, list[dict]] = {}
     for wu in await db.get_active_warmups(today):
         try:
             wp = json.loads(wu.get("poll_options") or "{}")
@@ -747,7 +804,7 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
             wp = {}
         marker = str(wp.get("warmup_marker") or "").strip()
         if marker:
-            warmups_by_marker[marker] = {"row": wu, "payload": wp}
+            warmups_by_marker.setdefault(marker, []).append({"row": wu, "payload": wp})
 
     # Iterate the actual game rows — their scheduled time is the real kickoff.
     for game in await db.get_upcoming_games(today):
@@ -765,22 +822,29 @@ async def send_due_game_reminders(context: ContextTypes.DEFAULT_TYPE):
         except (json.JSONDecodeError, TypeError):
             gp = {}
         marker = str(gp.get("warmup_marker") or "").strip()
-        warmup = warmups_by_marker.get(marker) if marker else None
-        if not warmup:
+        warmups = warmups_by_marker.get(marker) if marker else None
+        if not warmups:
             continue  # no warm-up → no sign-up list to remind
 
-        warmup_id = int(warmup["row"]["id"])
-        responders = await db.get_trivia_interest_responses(warmup_id)
+        responders_by_user: dict[int, tuple[int, dict]] = {}
+        for warmup in warmups:
+            warmup_id = int(warmup["row"]["id"])
+            for response in await db.get_trivia_interest_responses(warmup_id):
+                uid = int(response["user_id"])
+                current = responders_by_user.get(uid)
+                if current is None or warmup_id < current[0]:
+                    responders_by_user[uid] = (warmup_id, response)
+        responders = list(responders_by_user.values())
         if not responders:
             continue
-        wp = warmup["payload"]
+        wp = warmups[0]["payload"]
         label = (
             str(wp.get("activity_label") or gp.get("activity_label") or "").strip()
             or str(wp.get("theme_label") or gp.get("theme_label") or "").strip()
             or load_copy("dm_menu", "label_game_default")
         )
 
-        for r in responders:
+        for warmup_id, r in responders:
             uid = int(r["user_id"])
             leads = await db.get_reminder_leads(uid)
             if not leads:

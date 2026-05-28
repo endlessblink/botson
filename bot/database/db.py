@@ -1007,17 +1007,33 @@ class Database:
             return [dict(r) for r in rows]
 
     async def get_due_messages(self, current_date: str, current_time: str) -> list[dict]:
-        """Get messages that are due to be sent now."""
+        """Get messages that are due to be sent now.
+
+        Includes earlier dates so a scheduler outage across midnight does not
+        leave stale rows permanently scheduled. The dispatcher decides whether
+        to send or stale-drop based on the actual scheduled timestamp.
+        """
         async with self._db.execute(
             """SELECT * FROM scheduled_messages
                WHERE status = 'scheduled'
-               AND scheduled_date = ?
-               AND scheduled_time <= ?
-               ORDER BY scheduled_time""",
-            (current_date, current_time),
+                 AND (
+                   scheduled_date < ?
+                   OR (scheduled_date = ? AND scheduled_time <= ?)
+                 )
+               ORDER BY scheduled_date, scheduled_time""",
+            (current_date, current_date, current_time),
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def get_scheduled_message(self, msg_id: int) -> dict | None:
+        """Return the current scheduled_messages row by id."""
+        async with self._db.execute(
+            "SELECT * FROM scheduled_messages WHERE id = ?",
+            (msg_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return dict(row) if row else None
 
     async def get_upcoming_scheduled_games(
         self, current_date: str, current_time: str, limit: int = 5
@@ -1254,10 +1270,48 @@ class Database:
         )
         await self._db.commit()
 
+    async def claim_scheduled_message(self, msg_id: int, *, stale_after_minutes: int = 15) -> bool:
+        """Atomically claim a scheduled row for one dispatcher tick.
+
+        The row stays ``scheduled`` until the actual send succeeds/fails, but a
+        short-lived marker prevents overlapping scheduler ticks from both
+        sending the same row after they have already read it as due.
+        """
+        cutoff = (
+            datetime.now(_IL_TZ) - timedelta(minutes=max(1, int(stale_after_minutes)))
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        marker = f"dispatch_claim:{_now_il()}"
+        cursor = await self._db.execute(
+            """UPDATE scheduled_messages
+               SET error_message = ?
+               WHERE id = ?
+                 AND status = 'scheduled'
+                 AND (
+                   error_message IS NULL
+                   OR error_message NOT LIKE 'dispatch_claim:%'
+                   OR error_message < ?
+                 )""",
+            (marker, msg_id, f"dispatch_claim:{cutoff}"),
+        )
+        await self._db.commit()
+        return cursor.rowcount == 1
+
+    async def release_scheduled_message_claim(self, msg_id: int) -> None:
+        """Release a transient dispatcher claim when a row is deliberately deferred."""
+        await self._db.execute(
+            """UPDATE scheduled_messages
+               SET error_message = NULL
+               WHERE id = ?
+                 AND status = 'scheduled'
+                 AND error_message LIKE 'dispatch_claim:%'""",
+            (msg_id,),
+        )
+        await self._db.commit()
+
     async def mark_message_sent(self, msg_id: int, sent_message_id: int):
         """Mark a scheduled message as sent."""
         await self._db.execute(
-            "UPDATE scheduled_messages SET status = 'sent', sent_at = ?, sent_message_id = ? WHERE id = ?",
+            "UPDATE scheduled_messages SET status = 'sent', sent_at = ?, sent_message_id = ?, error_message = NULL WHERE id = ?",
             (_now_il(), sent_message_id, msg_id),
         )
         await self._db.commit()

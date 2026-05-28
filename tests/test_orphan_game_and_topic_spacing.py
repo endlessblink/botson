@@ -80,6 +80,16 @@ class OrphanGameGuardTests(unittest.IsolatedAsyncioTestCase):
             # Must NOT raise — the warm-up was scheduled.
             await calendar_handler._enforce_warmup_announcement_present(self.db, self._game(marker))
 
+    async def test_threshold_game_with_unsent_announcement_is_skipped(self):
+        marker = "warmup-rsvp:emoji:2026-05-23:22:00"
+        await self._seed_announcement(marker)
+        self.assertTrue(await self.db.warmup_announcement_exists(marker))
+        with patch.object(cfg, "get_settings", return_value={"trivia": {"rsvp_gate_enabled": True}}):
+            with self.assertRaisesRegex(SkippedActivity, "no sent warm-up announcement"):
+                await calendar_handler._enforce_warmup_rsvp_gate(
+                    self.db, self._game(marker), bot=AsyncMock(), group_id=TEST_GROUP_ID,
+                )
+
     async def test_game_without_marker_is_noop(self):
         with patch.object(cfg, "get_settings", return_value={"trivia": {"require_warmup_announcement": True}}):
             await calendar_handler._enforce_warmup_announcement_present(
@@ -143,6 +153,13 @@ class TopicSpacingTests(unittest.IsolatedAsyncioTestCase):
             row = await cur.fetchone()
         return row["status"] if row else None
 
+    async def _row(self, msg_id):
+        async with self.db._db.execute(
+            "SELECT * FROM scheduled_messages WHERE id = ?", (msg_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
     async def test_last_topic_send_dt_returns_recent_send(self):
         self.assertIsNone(await self.db.last_topic_send_dt(4037, "test"))
         mid = await self._sched("discussion")
@@ -162,8 +179,22 @@ class TopicSpacingTests(unittest.IsolatedAsyncioTestCase):
             await calendar_handler.check_and_send_due_messages(self._ctx())
         # Deferred: row stays scheduled, nothing was sent for it.
         self.assertEqual(await self._status(late), "scheduled")
+        self.assertIsNone((await self._row(late))["error_message"])
         self._bot.send_message.assert_not_called()
         self._bot.send_photo.assert_not_called()
+
+    async def test_static_content_deferral_releases_dispatch_claim_for_next_tick(self):
+        prior = await self._sched("discussion", text="prior")
+        await self.db.mark_message_sent(prior, 700011)
+        late = await self._sched("discussion", text="late")
+
+        with patch.object(cfg, "get_settings", return_value={"min_topic_spacing_minutes": 5}):
+            await calendar_handler.check_and_send_due_messages(self._ctx())
+
+        row = await self._row(late)
+        self.assertEqual(row["status"], "scheduled")
+        self.assertIsNone(row["error_message"])
+        self.assertTrue(await self.db.claim_scheduled_message(late))
 
     async def test_static_content_sends_when_topic_quiet(self):
         # No prior send to the topic → no spacing deferral.

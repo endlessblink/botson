@@ -23,6 +23,7 @@ covered (per MASTER_PLAN.md T-158):
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import unittest
 from datetime import datetime
@@ -136,6 +137,19 @@ class CalendarDiagnosticDetailTests(_DiagnosticsBase):
         self.assertEqual(ext["diagnosticLabel"], "יישלח")
         self.assertIn("הסקזולר", ext["diagnosticDetail"])
 
+    def test_scheduled_dispatch_claim_is_hidden_from_operator_error(self):
+        msg_id = asyncio.run(self._seed(status="scheduled"))
+        asyncio.run(self._set_status(
+            msg_id,
+            status="scheduled",
+            error_message="dispatch_claim:2099-01-01 09:00:00",
+        ))
+        ev = self._calendar_event(msg_id)
+        ext = ev["extendedProps"]
+        self.assertEqual(ext["diagnosticLabel"], "יישלח")
+        self.assertEqual(ext["errorMessage"], "")
+        self.assertNotIn("dispatch_claim", ext["diagnosticDetail"])
+
     def test_sent_status_label_marks_completion(self):
         msg_id = asyncio.run(self._seed(status="scheduled"))
         asyncio.run(self._set_status(msg_id, status="sent", sent_message_id=4242))
@@ -233,6 +247,17 @@ class PlannerDayDiagnosticReasonTests(_DiagnosticsBase):
         row, _ = self._diagnostics_row(msg_id)
         self.assertIn("טיוטה", row["diagnostic_reason"])
 
+    def test_scheduled_dispatch_claim_is_hidden_from_day_diagnostics(self):
+        msg_id = asyncio.run(self._seed(status="scheduled"))
+        asyncio.run(self._set_status(
+            msg_id,
+            status="scheduled",
+            error_message="dispatch_claim:2099-01-01 09:00:00",
+        ))
+        row, _ = self._diagnostics_row(msg_id)
+        self.assertNotIn("dispatch_claim", row["diagnostic_reason"])
+        self.assertEqual(row["error_message"], "dispatch_claim:2099-01-01 09:00:00")
+
     def test_scheduled_with_unverified_main_topic_warns(self):
         """Main-group target + topic not in verified_forum_topics → the
         topic guard will reject at send time. Operator should see the
@@ -282,6 +307,92 @@ class PlannerDayDiagnosticReasonTests(_DiagnosticsBase):
                          "seed precondition: trivia_round routing should be deleted")
         self.assertIn("trivia_round", row["diagnostic_reason"])
         self.assertIn("ניתוב", row["diagnostic_reason"])
+
+    def test_game_row_exposes_marker_wide_rsvp_diagnostics(self):
+        marker = "diag-rsvp-marker"
+
+        async def _seed_game_bundle():
+            db = Database(self.db_path)
+            await db.init()
+            try:
+                warmup_id = await db.create_scheduled_message(
+                    text="warmup",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=self.today,
+                    scheduled_time="20:00",
+                    poll_options=json.dumps({"warmup_marker": marker}),
+                    status="scheduled",
+                )
+                await db.mark_message_sent(warmup_id, 7001)
+                await db.add_trivia_interest_response(warmup_id, 101, "Lotem")
+                await db.add_trivia_interest_response(warmup_id, 202, "Refeli")
+                game_id = await db.create_scheduled_message(
+                    text="game",
+                    message_type="trivia_round",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=self.today,
+                    scheduled_time="21:00",
+                    poll_options=json.dumps({
+                        "warmup_marker": marker,
+                        "min_ready_players": 3,
+                    }),
+                    status="scheduled",
+                )
+                return game_id
+            finally:
+                await db.close()
+
+        game_id = asyncio.run(_seed_game_bundle())
+        row, _ = self._diagnostics_row(game_id)
+
+        self.assertEqual(row["game_rsvp"]["warmup_marker"], marker)
+        self.assertEqual(row["game_rsvp"]["sent_warmup_count"], 1)
+        self.assertEqual(row["game_rsvp"]["marker_rsvp_count"], 2)
+        self.assertEqual(row["game_rsvp"]["min_ready_players"], 3)
+        self.assertIn("2/3", row["diagnostic_reason"])
+
+    def test_game_row_warns_when_threshold_has_no_sent_warmup(self):
+        marker = "diag-no-sent-warmup"
+
+        async def _seed_game_bundle():
+            db = Database(self.db_path)
+            await db.init()
+            try:
+                await db.create_scheduled_message(
+                    text="warmup",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=self.today,
+                    scheduled_time="20:00",
+                    poll_options=json.dumps({"warmup_marker": marker}),
+                    status="scheduled",
+                )
+                return await db.create_scheduled_message(
+                    text="game",
+                    message_type="emoji_puzzle",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=self.today,
+                    scheduled_time="21:00",
+                    poll_options=json.dumps({
+                        "warmup_marker": marker,
+                        "min_ready_players": 2,
+                    }),
+                    status="scheduled",
+                )
+            finally:
+                await db.close()
+
+        game_id = asyncio.run(_seed_game_bundle())
+        row, _ = self._diagnostics_row(game_id)
+
+        self.assertEqual(row["game_rsvp"]["warmup_count"], 1)
+        self.assertEqual(row["game_rsvp"]["sent_warmup_count"], 0)
+        self.assertIn("אין הכרזת RSVP", row["diagnostic_reason"])
 
     def test_invalid_poll_options_surface_as_payload_or_options_field(self):
         """A poll row with malformed poll_options must be visible enough for

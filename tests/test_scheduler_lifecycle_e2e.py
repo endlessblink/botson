@@ -159,6 +159,38 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["sent_message_id"], 999)
         send_text.assert_awaited_once()
 
+    async def test_post_send_activity_log_failure_does_not_flip_sent_to_failed(self):
+        msg_id = await self._seed(message_type="custom", text="plain body")
+        sent_obj = SimpleNamespace(message_id=1001)
+        self.db.log_activity = AsyncMock(side_effect=RuntimeError("activity log down"))  # type: ignore[method-assign]
+
+        with patch.object(cal, "send_message_with_optional_cover", new=AsyncMock(return_value=sent_obj)), \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+        self.assertEqual(row["sent_message_id"], 1001)
+        self.assertIsNone(row["error_message"])
+
+    async def test_post_send_recurrence_failure_does_not_flip_sent_to_failed(self):
+        msg_id = await self._seed(
+            message_type="custom",
+            text="recurring body",
+            recurrence="daily",
+        )
+        sent_obj = SimpleNamespace(message_id=1002)
+        self.db.create_scheduled_message = AsyncMock(side_effect=RuntimeError("recurrence insert down"))  # type: ignore[method-assign]
+
+        with patch.object(cal, "send_message_with_optional_cover", new=AsyncMock(return_value=sent_obj)), \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "sent")
+        self.assertEqual(row["sent_message_id"], 1002)
+        self.assertIsNone(row["error_message"])
+
     async def test_poll_message_routes_to_send_poll(self):
         msg_id = await self._seed(
             message_type="poll",
@@ -228,7 +260,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_emoji_puzzle_starts_session(self):
         msg_id = await self._seed(message_type="emoji_puzzle", text="emoji launch")
-        with patch.object(cal, "start_emoji_night", new=AsyncMock(return_value=314)) as start_emoji, \
+        with patch.object(cal, "start_emoji_night", new=AsyncMock(return_value={"session_id": 31, "message_id": 314})) as start_emoji, \
              patch.object(cal, "emoji_skip_reason", new=AsyncMock(return_value=None)) as skip_reason, \
              patch.object(cal, "_enforce_warmup_rsvp_gate", new=AsyncMock()), \
              patch.object(cal, "send_message_with_optional_cover", new=AsyncMock()) as send_text, \
@@ -240,6 +272,18 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         start_emoji.assert_awaited_once()
         skip_reason.assert_awaited_once()
         send_text.assert_not_called()
+
+    async def test_emoji_puzzle_plain_session_id_marks_failed(self):
+        msg_id = await self._seed(message_type="emoji_puzzle", text="emoji launch")
+        with patch.object(cal, "start_emoji_night", new=AsyncMock(return_value=314)) as start_emoji, \
+             patch.object(cal, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
+             patch.object(cal, "_enforce_warmup_rsvp_gate", new=AsyncMock()), \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("launch info", row["error_message"] or "")
+        start_emoji.assert_awaited_once()
 
     async def test_emoji_puzzle_skipped_when_pool_exhausted(self):
         msg_id = await self._seed(message_type="emoji_puzzle", text="emoji exhausted")
@@ -342,6 +386,32 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((row["error_message"] or "").startswith("stale:"))
         send_text.assert_not_called()
 
+    async def test_prior_date_due_row_is_stale_dropped_not_left_scheduled(self):
+        # A bot outage across midnight used to leave yesterday's due rows
+        # invisible to get_due_messages(current_date, current_time).
+        stale_dt = self.now - timedelta(days=1, minutes=5)
+        msg_id = await self.db.create_scheduled_message(
+            text="yesterday body",
+            message_type="custom",
+            channel_topic_id=None,
+            target_group="test",
+            scheduled_date=stale_dt.strftime("%Y-%m-%d"),
+            scheduled_time=stale_dt.strftime("%H:%M"),
+            status="scheduled",
+        )
+
+        with patch.object(cal, "send_message_with_optional_cover", new=AsyncMock()) as send_text, \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+
+        rows = await self.db.get_scheduled_messages(
+            stale_dt.strftime("%Y-%m-%d"), stale_dt.strftime("%Y-%m-%d"),
+        )
+        row = next(r for r in rows if int(r["id"]) == msg_id)
+        self.assertEqual(row["status"], "failed")
+        self.assertTrue((row["error_message"] or "").startswith("stale:"))
+        send_text.assert_not_called()
+
     async def test_missing_group_id_for_main_target_marks_failed(self):
         msg_id = await self._seed(target_group="main", message_type="custom", text="no group")
         # Override GROUP_ID to 0 to simulate misconfiguration.
@@ -352,6 +422,16 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         row = await self._row(msg_id)
         self.assertEqual(row["status"], "failed")
         self.assertIn("No group ID", row["error_message"] or "")
+        send_text.assert_not_called()
+
+    async def test_unsupported_target_group_marks_failed_without_partial_send(self):
+        msg_id = await self._seed(target_group="both", message_type="custom", text="legacy target")
+        with patch.object(cal, "send_message_with_optional_cover", new=AsyncMock()) as send_text, \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("Unsupported target_group", row["error_message"] or "")
         send_text.assert_not_called()
 
     async def test_send_seam_exception_marks_failed_with_reason(self):
@@ -416,6 +496,65 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nxt["message_type"], "custom")
         self.assertEqual(nxt["recurrence"], "daily")
         self.assertEqual(nxt["created_by"], "recurrence")
+
+    async def test_overdue_daily_recurrence_uses_scheduled_slot_not_scheduler_day(self):
+        midnight_now = datetime(2099, 6, 15, 0, 5, tzinfo=_IL_TZ)
+        msg_id = await self.db.create_scheduled_message(
+            text="late daily prompt",
+            message_type="custom",
+            channel_topic_id=None,
+            target_group="test",
+            scheduled_date="2099-06-14",
+            scheduled_time="23:59",
+            status="scheduled",
+            recurrence="daily",
+        )
+        sent_obj = SimpleNamespace(message_id=2234)
+
+        with patch.object(cal, "datetime", _make_frozen_datetime(midnight_now)), \
+             patch.object(cal, "send_message_with_optional_cover",
+                          new=AsyncMock(return_value=sent_obj)), \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+
+        original = await self.db.get_scheduled_message(msg_id)
+        self.assertEqual(original["status"], "sent")
+        rows = await self.db.get_scheduled_messages("2099-06-15", "2099-06-15")
+        future_rows = [r for r in rows if r["text"] == "late daily prompt"]
+        self.assertEqual(len(future_rows), 1)
+        self.assertEqual(future_rows[0]["scheduled_date"], "2099-06-15")
+        self.assertEqual(future_rows[0]["scheduled_time"], "23:59")
+
+    async def test_overdue_daily_recurrence_skips_already_due_next_slot(self):
+        msg_id = await self.db.create_scheduled_message(
+            text="very late daily prompt",
+            message_type="custom",
+            channel_topic_id=None,
+            target_group="test",
+            scheduled_date="2099-06-14",
+            scheduled_time="00:01",
+            status="scheduled",
+            recurrence="daily",
+        )
+        sent_obj = SimpleNamespace(message_id=2235)
+
+        with patch("bot.utils.config.get_settings", return_value={"stale_drop_minutes": 3000}), \
+             patch.object(cal, "send_message_with_optional_cover",
+                          new=AsyncMock(return_value=sent_obj)), \
+             patch("telegram.Bot", return_value=SimpleNamespace()):
+            await self._tick()
+
+        original = await self.db.get_scheduled_message(msg_id)
+        self.assertEqual(original["status"], "sent")
+        same_day_rows = await self.db.get_scheduled_messages("2099-06-15", "2099-06-15")
+        self.assertFalse(
+            [r for r in same_day_rows if r["text"] == "very late daily prompt"],
+            "recurrence must not create a row whose scheduled time is already behind the scheduler",
+        )
+        next_rows = await self.db.get_scheduled_messages("2099-06-16", "2099-06-16")
+        future_rows = [r for r in next_rows if r["text"] == "very late daily prompt"]
+        self.assertEqual(len(future_rows), 1)
+        self.assertEqual(future_rows[0]["scheduled_time"], "00:01")
 
     async def test_due_messages_filters_drafts_and_cancelled(self):
         # Draft row is not due even at the same date/time.

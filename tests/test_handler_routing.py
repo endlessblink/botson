@@ -50,6 +50,26 @@ class HandlerRoutingTests(unittest.IsolatedAsyncioTestCase):
         row = await db.get_handler_routing("trivia_round")
         self.assertEqual(row["play_topic_id"], 54)
 
+    async def test_pending_game_warmup_normalization_uses_game_route_not_legacy_warmup_route(self):
+        db = await self._fresh_db()
+        await db.set_handler_routing("trivia_round", play_topic_id=4037, teaser_topic_ids=[])
+        await db.set_handler_routing("trivia_warmup", play_topic_id=341, teaser_topic_ids=[])
+        msg_id = await db.create_scheduled_message(
+            text="warmup",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=341,
+            target_group="main",
+            scheduled_date="2099-01-01",
+            scheduled_time="20:00",
+            poll_options='{"warmup_marker":"warmup-rsvp:trivia:2099-01-01:21:00"}',
+            status="scheduled",
+        )
+
+        await db._normalize_pending_game_warmup_topics()
+        row = await db.get_scheduled_message(msg_id)
+
+        self.assertEqual(row["channel_topic_id"], 4037)
+
     async def test_set_and_get_routing_with_teasers(self):
         db = await self._fresh_db()
         await db.set_handler_routing("trivia_round", play_topic_id=4037, teaser_topic_ids=[54, 1431])
