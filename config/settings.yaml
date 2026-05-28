@@ -510,11 +510,9 @@ trivia:
   # the in-group reminder (it's still auto-skipped when RSVP quorum is met).
   warmup_reminder_enabled: false
   # RSVP gate: when true, a trivia/emoji game is CANCELLED if fewer than
-  # min_ready_players clicked the warm-up RSVP button. Disabled by default —
-  # it was cancelling ~80% of scheduled games for too few RSVPs (2026-05-23),
-  # suppressing the engagement it was meant to protect. With it off, games
-  # always fire and the RSVP button still records interest. Set true to restore.
-  rsvp_gate_enabled: false
+  # min_ready_players clicked the warm-up RSVP button. Keep this enabled so
+  # configured player-count minimums are actually enforced at dispatch.
+  rsvp_gate_enabled: true
   # Orphan-game guard: a trivia/emoji row that carries a warmup_marker but has
   # NO matching warm-up announcement row was scheduled without its warm-up pair
   # (2026-05-23: an emoji game solo-launched with no announcement). When true,

@@ -263,6 +263,95 @@ class AnytimeSignupTests(unittest.IsolatedAsyncioTestCase):
         cbs2 = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
         self.assertIn(f"dmmenu_tr_{wid}", cbs2)
 
+    async def test_duplicate_marker_warmups_render_once_and_signoff_removes_siblings(self):
+        marker = "dup-menu-marker"
+        first = await self.db.create_scheduled_message(
+            text="warmup 1", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="20:00",
+            poll_options=json.dumps({"theme_label": "מדע", "warmup_marker": marker}),
+            status="scheduled",
+        )
+        second = await self.db.create_scheduled_message(
+            text="warmup 2", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="20:01",
+            poll_options=json.dumps({"theme_label": "מדע", "warmup_marker": marker}),
+            status="scheduled",
+        )
+        await self.db.create_scheduled_message(
+            text="game", message_type="trivia_round", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="21:00",
+            poll_options=json.dumps({"warmup_marker": marker}), status="scheduled",
+        )
+        await self.db.upsert_member(1, "u", "U1")
+        await self.db.add_trivia_interest_response(second, 1, "U1")
+        cap = {}
+
+        async def reply(text, reply_markup=None):
+            cap["markup"] = reply_markup
+
+        ctx = SimpleNamespace(bot_data={"db": self.db}, bot=AsyncMock())
+        upd = SimpleNamespace(
+            callback_query=None, message=SimpleNamespace(reply_text=reply),
+            effective_user=SimpleNamespace(id=1, username="u"),
+            effective_chat=SimpleNamespace(id=1, type="private"),
+        )
+        await dm_menu.show_upcoming(upd, ctx)
+        cbs = [b.callback_data for row in cap["markup"].inline_keyboard for b in row]
+        self.assertEqual(cbs.count(f"dmmenu_troff_{first}"), 1)
+        self.assertNotIn(f"dmmenu_troff_{second}", cbs)
+
+        async def answer(text=None, show_alert=False): pass
+        async def edit(text=None, reply_markup=None): cap["after"] = reply_markup
+        q = SimpleNamespace(data=f"dmmenu_troff_{first}", answer=answer, edit_message_text=edit)
+        await dm_menu._handle_trivia_signoff(
+            SimpleNamespace(callback_query=q, effective_user=SimpleNamespace(id=1, username="u")),
+            ctx,
+        )
+
+        self.assertFalse(await self.db.has_trivia_interest_response(first, 1))
+        self.assertFalse(await self.db.has_trivia_interest_response(second, 1))
+        cbs_after = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
+        self.assertEqual(cbs_after.count(f"dmmenu_tr_{first}"), 1)
+        self.assertNotIn(f"dmmenu_tr_{second}", cbs_after)
+
+    async def test_duplicate_marker_subscribe_is_idempotent_across_siblings(self):
+        marker = "dup-subscribe-marker"
+        first = await self.db.create_scheduled_message(
+            text="warmup 1", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="20:00",
+            poll_options=json.dumps({"theme_label": "מדע", "warmup_marker": marker}),
+            status="scheduled",
+        )
+        second = await self.db.create_scheduled_message(
+            text="warmup 2", message_type="trivia_warmup_rsvp", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="20:01",
+            poll_options=json.dumps({"theme_label": "מדע", "warmup_marker": marker}),
+            status="scheduled",
+        )
+        await self.db.create_scheduled_message(
+            text="game", message_type="trivia_round", channel_topic_id=None,
+            target_group="main", scheduled_date="2099-01-01", scheduled_time="21:00",
+            poll_options=json.dumps({"warmup_marker": marker}), status="scheduled",
+        )
+        await self.db.upsert_member(1, "u", "U1")
+        await self.db.add_trivia_interest_response(first, 1, "U1")
+        cap = {}
+
+        async def answer(text=None, show_alert=False): pass
+        async def edit(text=None, reply_markup=None): cap["after"] = reply_markup
+        q = SimpleNamespace(data=f"dmmenu_gsub_{second}", answer=answer, edit_message_text=edit)
+        ctx = SimpleNamespace(bot_data={"db": self.db}, bot=AsyncMock())
+
+        await dm_menu._handle_game_subscribe(
+            SimpleNamespace(callback_query=q, effective_user=SimpleNamespace(id=1, username="u")),
+            ctx,
+        )
+
+        self.assertTrue(await self.db.has_trivia_interest_response(first, 1))
+        self.assertFalse(await self.db.has_trivia_interest_response(second, 1))
+        cbs_after = [b.callback_data for row in cap["after"].inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_gunsub_{second}", cbs_after)
+
     async def test_game_deep_link_requires_explicit_private_signup(self):
         wid = await self._make_scheduled_warmup()
         sent = {}
@@ -453,6 +542,29 @@ class GameReminderTests(unittest.IsolatedAsyncioTestCase):
         ctx.bot.send_message.assert_awaited_once()
         self.assertTrue(await self.db.was_game_reminded(first, 1, 30))
         self.assertFalse(await self.db.was_game_reminded(second, 1, 30))
+
+    async def test_duplicate_warmup_rows_do_not_hide_personal_reminder_signups(self):
+        first = await self._warmup_in(15, [1], marker="duplicate-game")
+        duplicate = await self.db.create_scheduled_message(
+            text="duplicate empty warmup",
+            message_type="trivia_warmup_rsvp",
+            channel_topic_id=None,
+            target_group="main",
+            scheduled_date=dm_menu._il_now().date().isoformat(),
+            scheduled_time="00:01",
+            poll_options=json.dumps({"activity_label": "טריוויה על מדע", "warmup_marker": "duplicate-game"}),
+            status="sent",
+        )
+        ctx = self._ctx()
+
+        await dm_menu.send_due_game_reminders(ctx)
+
+        ctx.bot.send_message.assert_awaited_once()
+        markup = ctx.bot.send_message.await_args.kwargs["reply_markup"]
+        cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertIn(f"dmmenu_gunsub_{first}", cbs)
+        self.assertTrue(await self.db.was_game_reminded(first, 1, 30))
+        self.assertFalse(await self.db.was_game_reminded(duplicate, 1, 30))
 
     async def test_not_yet_due_does_not_fire(self):
         # Game in 90 min, user lead 30 → remind_at is still 60 min away.

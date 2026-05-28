@@ -53,6 +53,48 @@ class TestTopicSync(unittest.TestCase):
 
         self.run_async(scenario())
 
+    def test_reconcile_can_skip_missing_topic_removals_for_partial_fetches(self):
+        async def scenario():
+            db = Database(":memory:")
+            await db.init()
+            try:
+                await db.upsert_verified_forum_topic(111, "קיים", "existing", "manual")
+
+                result = await topic_sync.reconcile_forum_topics(
+                    db,
+                    [SyncedForumTopic(222, "חדש")],
+                    remove_missing=False,
+                )
+
+                self.assertEqual(result, {"upserted": 1, "removed": 0, "live": 1})
+                self.assertIsNotNone(await db.get_verified_forum_topic_by_id(111))
+                self.assertIsNotNone(await db.get_verified_forum_topic_by_id(222))
+            finally:
+                await db.close()
+
+        self.run_async(scenario())
+
+    def test_sync_skips_removals_when_fetch_hits_page_limit(self):
+        async def scenario():
+            db = Database(":memory:")
+            await db.init()
+            try:
+                await db.upsert_verified_forum_topic(999, "רחוק", "far", "manual")
+                topics = [
+                    SyncedForumTopic(topic_id=i, name=f"topic {i}")
+                    for i in range(1, topic_sync._FORUM_TOPIC_FETCH_LIMIT + 1)
+                ]
+                with patch.object(topic_sync, "fetch_forum_topics", new=AsyncMock(return_value=topics)):
+                    result = await topic_sync.sync_forum_topics_once(db)
+
+                self.assertEqual(result["live"], topic_sync._FORUM_TOPIC_FETCH_LIMIT)
+                self.assertEqual(result["removed"], 0)
+                self.assertIsNotNone(await db.get_verified_forum_topic_by_id(999))
+            finally:
+                await db.close()
+
+        self.run_async(scenario())
+
     def test_job_uses_fetcher_and_reconcile(self):
         async def scenario():
             db = Database(":memory:")

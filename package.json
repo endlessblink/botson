@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "test:playwright": "playwright test",
+    "test:playwright:dashboard": "playwright test tests/playwright/dashboard-game-subscription.spec.js",
+    "test:playwright:telegram": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test tests/playwright/telegram-web-game-subscription.smoke.spec.js --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

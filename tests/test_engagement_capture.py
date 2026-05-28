@@ -213,6 +213,9 @@ class EngagementRollupTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RsvpGateToggleTests(unittest.IsolatedAsyncioTestCase):
+    def test_shipped_settings_enable_rsvp_gate(self):
+        self.assertTrue(cfg.rsvp_gate_enabled())
+
     def test_rsvp_gate_disabled_by_default_enabled_when_set(self):
         with patch.object(cfg, "get_settings", return_value={}):
             self.assertFalse(cfg.rsvp_gate_enabled())

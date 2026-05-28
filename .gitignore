@@ -17,6 +17,8 @@ build/
 media/showcase/node_modules/
 media/showcase/.cache/
 **/node_modules/
+node_modules
+test-results/
 
 # VPS-local state — never commit (secrets, per-host tooling, backups)
 .doppler/

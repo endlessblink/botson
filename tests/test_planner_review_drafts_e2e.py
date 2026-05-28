@@ -169,6 +169,64 @@ class ReviewDraftLifecycleTests(unittest.TestCase):
         # Critical: PUT without an explicit `status` field must NOT auto-schedule.
         self.assertEqual(row["status"], "draft", "PUT must not silently schedule a draft")
 
+    def test_dragging_scheduled_row_to_past_is_rejected_and_not_persisted(self):
+        future = datetime.now(_IL_TZ) + timedelta(hours=3)
+        msg_id = asyncio.run(self._seed_draft(
+            status="scheduled",
+            scheduled_date=future.strftime("%Y-%m-%d"),
+            scheduled_time=future.strftime("%H:%M"),
+        ))
+        past = datetime.now(_IL_TZ) - timedelta(minutes=10)
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            resp = client.put(
+                f"/api/calendar/{msg_id}",
+                json={
+                    "scheduled_date": past.strftime("%Y-%m-%d"),
+                    "scheduled_time": past.strftime("%H:%M"),
+                },
+            )
+            self.assertEqual(resp.status_code, 409, resp.text)
+            self.assertEqual(resp.json()["detail"]["error"], "past_due")
+        row = asyncio.run(self._read_row(msg_id))
+        self.assertEqual(row["scheduled_date"], future.strftime("%Y-%m-%d"))
+        self.assertEqual(row["scheduled_time"], future.strftime("%H:%M"))
+        self.assertEqual(row["status"], "scheduled")
+
+    def test_dragging_scheduled_row_to_future_persists(self):
+        original = datetime.now(_IL_TZ) + timedelta(hours=3)
+        moved = datetime.now(_IL_TZ) + timedelta(hours=5)
+        msg_id = asyncio.run(self._seed_draft(
+            status="scheduled",
+            scheduled_date=original.strftime("%Y-%m-%d"),
+            scheduled_time=original.strftime("%H:%M"),
+        ))
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            resp = client.put(
+                f"/api/calendar/{msg_id}",
+                json={
+                    "scheduled_date": moved.strftime("%Y-%m-%d"),
+                    "scheduled_time": moved.strftime("%H:%M"),
+                },
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+        row = asyncio.run(self._read_row(msg_id))
+        self.assertEqual(row["scheduled_date"], moved.strftime("%Y-%m-%d"))
+        self.assertEqual(row["scheduled_time"], moved.strftime("%H:%M"))
+        self.assertEqual(row["status"], "scheduled")
+
+    def test_calendar_only_marks_draft_and_scheduled_rows_draggable(self):
+        scheduled_id = asyncio.run(self._seed_draft(status="scheduled"))
+        sent_id = asyncio.run(self._seed_draft(status="sent"))
+        with self._client()[0], self._client()[1] as client:
+            self._login(client)
+            resp = client.get("/api/calendar?start=2000-01-01&end=2099-12-31")
+            self.assertEqual(resp.status_code, 200, resp.text)
+        events = {int(e["id"]): e for e in resp.json() if str(e["id"]).isdigit()}
+        self.assertTrue(events[scheduled_id]["editable"])
+        self.assertFalse(events[sent_id]["editable"])
+
     def test_schedule_route_flips_draft_to_scheduled(self):
         msg_id = asyncio.run(self._seed_draft())
         future = datetime.now(_IL_TZ) + timedelta(hours=3)

@@ -72,14 +72,12 @@ def _feature_for_type(message_type: str) -> str:
 
 
 async def _active_discussion_categories(db: Database, settings: dict, discussions_pool: dict | None) -> list[dict]:
-    topics = settings.get("topics") or {}
-    topic_ids = topics.get("discussions") or {}
+    topic_ids = ((settings.get("topics") or {}).get("discussions") or {})
     pool = discussions_pool or {}
     try:
         verified_rows = await db.get_verified_forum_topics()
     except Exception:
         verified_rows = []
-
     by_key = {
         str(row.get("category_key") or "").strip(): row
         for row in verified_rows
@@ -94,7 +92,7 @@ async def _active_discussion_categories(db: Database, settings: dict, discussion
 
     excluded_keys = {"goals", "welcome", "botson_corner", "ai_en"}
     excluded_topic_ids: set[int] = set()
-    for value in (topics.get("goals"), topics.get("welcome")):
+    for value in ((settings.get("topics") or {}).get("goals"), (settings.get("topics") or {}).get("welcome")):
         try:
             excluded_topic_ids.add(int(value))
         except (TypeError, ValueError):
@@ -102,9 +100,17 @@ async def _active_discussion_categories(db: Database, settings: dict, discussion
 
     categories: list[dict] = []
     seen_topic_ids: set[int] = set()
-
-    def add_category(key: str, tid: int, row: dict | None = None) -> None:
-        row = row or {}
+    for category_key, topic_id in topic_ids.items():
+        if not topic_id:
+            continue
+        key = str(category_key or "").strip()
+        if not key:
+            continue
+        try:
+            tid = int(topic_id)
+        except (TypeError, ValueError):
+            continue
+        row = by_key.get(key) or by_id.get(tid) or {}
         name = (
             str(row.get("verified_name") or "").strip()
             or str(row.get("observed_name") or "").strip()
@@ -117,19 +123,6 @@ async def _active_discussion_categories(db: Database, settings: dict, discussion
             "has_pool": bool(pool.get(key)),
         })
         seen_topic_ids.add(tid)
-
-    for category_key, topic_id in topic_ids.items():
-        if not topic_id:
-            continue
-        key = str(category_key or "").strip()
-        if not key:
-            continue
-        try:
-            tid = int(topic_id)
-        except (TypeError, ValueError):
-            continue
-        add_category(key, tid, by_key.get(key) or by_id.get(tid))
-
     for row in verified_rows:
         key = str(row.get("category_key") or "").strip()
         if not key or key in excluded_keys:
@@ -140,7 +133,18 @@ async def _active_discussion_categories(db: Database, settings: dict, discussion
             continue
         if tid in seen_topic_ids or tid in excluded_topic_ids:
             continue
-        add_category(key, tid, row)
+        name = (
+            str(row.get("verified_name") or "").strip()
+            or str(row.get("observed_name") or "").strip()
+            or key
+        )
+        categories.append({
+            "category_key": key,
+            "topic_id": tid,
+            "name": name,
+            "has_pool": bool(pool.get(key)),
+        })
+        seen_topic_ids.add(tid)
     return categories
 
 

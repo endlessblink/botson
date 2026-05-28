@@ -383,7 +383,8 @@ async def start_emoji_night(
     force: bool = False,
     media_types: list[str] | None = None,
     theme_label: str | None = None,
-) -> int | None:
+    return_launch_info: bool = False,
+) -> int | dict | None:
     """Create one Emoji Night session and launch its timed send flow."""
     if not force and not is_feature_enabled("emoji_puzzle", chat_id):
         logger.info("emoji_puzzle: feature disabled for chat %s", chat_id)
@@ -417,6 +418,26 @@ async def start_emoji_night(
         return None
 
     session_id = await db.create_emoji_session(chat_id, thread_id, puzzle_count)
+    try:
+        if intro_offset_seconds > 0:
+            await asyncio.sleep(intro_offset_seconds)
+        intro = await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=chat_id,
+            text=_format_intro_text(len(puzzles), theme_label=theme_label),
+            message_thread_id=thread_id,
+        )
+        intro_message_id = int(getattr(intro, "message_id", 0) or 0)
+        if intro_message_id <= 0:
+            raise RuntimeError("emoji_puzzle intro send did not return a message_id")
+    except Exception:
+        try:
+            await db.complete_emoji_session(session_id, [])
+        except Exception:
+            pass
+        raise
 
     task = asyncio.create_task(
         _run_emoji_session(
@@ -427,15 +448,18 @@ async def start_emoji_night(
             thread_id=thread_id,
             puzzles=puzzles,
             theme_label=theme_label,
-            intro_offset_seconds=intro_offset_seconds,
+            intro_offset_seconds=0,
             interval_seconds=interval_seconds,
             wrap_offset_seconds=wrap_offset_seconds,
             wrap_countdown_minutes=wrap_countdown_minutes,
+            intro_already_sent=True,
         )
     )
     _session_tasks[session_id] = task
     task.add_done_callback(lambda _: _session_tasks.pop(session_id, None))
     logger.info("emoji_puzzle: started live session %s with %d puzzles", session_id, puzzle_count)
+    if return_launch_info:
+        return {"session_id": session_id, "message_id": intro_message_id}
     return session_id
 
 
@@ -451,17 +475,19 @@ async def _run_emoji_session(
     interval_seconds: int,
     wrap_offset_seconds: int,
     wrap_countdown_minutes: list[int],
+    intro_already_sent: bool = False,
 ):
-    if intro_offset_seconds > 0:
-        await asyncio.sleep(intro_offset_seconds)
-    await safe_send(
-        bot,
-        db,
-        "send_message",
-        chat_id=chat_id,
-        text=_format_intro_text(len(puzzles), theme_label=theme_label),
-        message_thread_id=thread_id,
-    )
+    if not intro_already_sent:
+        if intro_offset_seconds > 0:
+            await asyncio.sleep(intro_offset_seconds)
+        await safe_send(
+            bot,
+            db,
+            "send_message",
+            chat_id=chat_id,
+            text=_format_intro_text(len(puzzles), theme_label=theme_label),
+            message_thread_id=thread_id,
+        )
 
     for idx, puzzle in enumerate(puzzles, start=1):
         msg = await safe_send(

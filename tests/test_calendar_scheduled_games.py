@@ -22,6 +22,12 @@ class FakeScheduledDb:
     async def get_due_messages(self, current_date, current_time):
         return [dict(r) for r in self.rows]
 
+    async def get_scheduled_message(self, msg_id):
+        for row in self.rows:
+            if row.get("id") == msg_id:
+                return dict(row)
+        return None
+
     async def mark_message_sent(self, msg_id, sent_message_id):
         self.sent.append((msg_id, sent_message_id))
 
@@ -118,6 +124,104 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_due_messages_include_prior_dates_for_stale_drop(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                old_id = await db.create_scheduled_message(
+                    text="old scheduled text",
+                    message_type="discussion",
+                    channel_topic_id=None,
+                    target_group="test",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="23:59",
+                    status="scheduled",
+                )
+                future_today_id = await db.create_scheduled_message(
+                    text="future text",
+                    message_type="discussion",
+                    channel_topic_id=None,
+                    target_group="test",
+                    scheduled_date="2099-01-02",
+                    scheduled_time="23:59",
+                    status="scheduled",
+                )
+
+                due = await db.get_due_messages("2099-01-02", "00:05")
+
+                self.assertEqual([int(row["id"]) for row in due], [old_id])
+                self.assertNotIn(future_today_id, [int(row["id"]) for row in due])
+            finally:
+                await db.close()
+
+    async def test_row_cancelled_after_due_query_is_not_sent(self):
+        row = _base_row("discussion")
+        db = FakeScheduledDb(row)
+
+        async def cancelled_before_send(msg_id):
+            fresh = dict(row)
+            fresh["status"] = "cancelled"
+            return fresh
+
+        db.get_scheduled_message = cancelled_before_send
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        send_text.assert_not_awaited()
+        self.assertEqual(db.sent, [])
+        self.assertEqual(db.failed, [])
+        self.assertEqual(db.skipped, [])
+
+    async def test_row_claimed_by_another_dispatcher_is_not_sent(self):
+        row = _base_row("discussion")
+        db = FakeScheduledDb(row)
+
+        async def already_claimed(msg_id, *, stale_after_minutes=15):
+            return False
+
+        db.claim_scheduled_message = already_claimed
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
+            await calendar.check_and_send_due_messages(context)
+
+        send_text.assert_not_awaited()
+        self.assertEqual(db.sent, [])
+        self.assertEqual(db.failed, [])
+        self.assertEqual(db.skipped, [])
+
+    async def test_real_db_dispatch_claim_prevents_double_claim_and_clears_on_sent(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                msg_id = await db.create_scheduled_message(
+                    text="claim me",
+                    message_type="custom",
+                    channel_topic_id=None,
+                    target_group="test",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="09:00",
+                    status="scheduled",
+                )
+
+                self.assertTrue(await db.claim_scheduled_message(msg_id))
+                self.assertFalse(await db.claim_scheduled_message(msg_id))
+                await db.mark_message_sent(msg_id, 12345)
+                row = await db.get_scheduled_message(msg_id)
+                self.assertEqual(row["status"], "sent")
+                self.assertEqual(row["sent_message_id"], 12345)
+                self.assertIsNone(row["error_message"])
+            finally:
+                await db.close()
+
     async def test_trivia_round_row_launches_game_without_plain_send(self):
         db = FakeScheduledDb(_base_row("trivia_round"))
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
@@ -144,12 +248,13 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
              patch.object(calendar, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
-             patch.object(calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji, \
+             patch.object(calendar, "start_emoji_night", new=AsyncMock(return_value={"session_id": 7, "message_id": 77})) as start_emoji, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock()) as send_text:
             await calendar.check_and_send_due_messages(context)
 
         start_emoji.assert_awaited_once_with(
             context, -1002, None, force=True, media_types=["movie"], theme_label="סרטים",
+            return_launch_info=True,
         )
         send_text.assert_not_awaited()
         self.assertEqual(db.sent, [(123, 77)])
@@ -170,7 +275,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
              patch.object(calendar, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
-             patch.object(calendar, "start_emoji_night", new=AsyncMock(return_value=77)) as start_emoji, \
+             patch.object(calendar, "start_emoji_night", new=AsyncMock(return_value={"session_id": 7, "message_id": 77})) as start_emoji, \
              patch.object(calendar, "send_scheduled_fact", new=AsyncMock()) as send_fact:
             await calendar.check_and_send_due_messages(context)
 
@@ -586,9 +691,10 @@ class WarmupReminderToggleConfigTests(unittest.TestCase):
     def test_warmup_reminder_enabled_reads_config(self):
         from unittest.mock import patch as _patch
         import bot.utils.config as cfg
-        # absent key → default True (no silent behavior change)
+        # absent key -> default false, so old configs do not reintroduce a
+        # second public RSVP reminder row.
         with _patch.object(cfg, "get_settings", return_value={}):
-            self.assertTrue(cfg.warmup_reminder_enabled())
+            self.assertFalse(cfg.warmup_reminder_enabled())
         with _patch.object(cfg, "get_settings", return_value={"trivia": {"warmup_reminder_enabled": False}}):
             self.assertFalse(cfg.warmup_reminder_enabled())
         with _patch.object(cfg, "get_settings", return_value={"trivia": {"warmup_reminder_enabled": True}}):

@@ -1392,9 +1392,10 @@ async def _ensure_trivia_pool_ready_for_round_unlocked(row) -> dict:
 
 
 async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -> int | None:
-    """Create one 341 warm-up announcement for a scheduled trivia game.
+    """Create one warm-up announcement for a scheduled trivia game.
 
-    The real trivia launcher remains the `trivia_round` row in botson_corner.
+    The warm-up follows the game topic unless the payload explicitly carries a
+    teaser topic. This keeps game chatter in botson_corner by default.
     This companion row must be scheduled too; drafts are visible on the calendar
     but are ignored by the autonomous sender.
     """
@@ -1434,13 +1435,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     )
     if text is None:
         return None
-    try:
-        routing = await db.get_handler_routing("trivia_warmup")
-    except Exception:
-        routing = None
     announcement_topic_id = payload.get("teaser_topic_id")
-    if announcement_topic_id is None and routing and routing.get("play_topic_id") is not None:
-        announcement_topic_id = routing["play_topic_id"]
     if announcement_topic_id is None:
         announcement_topic_id = row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"]
 
@@ -1534,87 +1529,12 @@ async def _ensure_warmup_reminder_scheduled(
     min_ready: int,
     kind: str,
 ) -> int | None:
-    """Create or update the second warm-up reminder row for an RSVP announcement.
+    """Public group reminders are disabled.
 
-    Reminder fires `warmup_reminder_offset_min` before game time (must be strictly
-    after the announcement). Dispatch checks `trivia_interest_responses` against
-    `min_ready_players` and short-circuits to `skipped` if the threshold is met.
+    The sign-up announcement is the only public prompt. Users who sign up get
+    personal DM reminders from bot.handlers.dm_menu.send_due_game_reminders.
     """
-    # Operator toggle: the 20-min group reminder is redundant once signed-up
-    # users get a personal DM reminder. Off by default (settings.trivia.warmup_reminder_enabled).
-    from bot.utils.config import warmup_reminder_enabled
-    if not warmup_reminder_enabled():
-        return None
-    if min_ready <= 0:
-        return None
-    trivia_defaults = (get_settings().get("trivia") or {}).get("populate_defaults") or {}
-    try:
-        reminder_offset = int(trivia_defaults.get("warmup_reminder_offset_min") or 0)
-    except (TypeError, ValueError):
-        reminder_offset = 0
-    if reminder_offset <= 0:
-        return None
-    reminder_dt = game_dt - timedelta(minutes=reminder_offset)
-    if reminder_dt <= announcement_dt:
-        logger.info(
-            "[warmup-reminder] reminder offset (%d) >= lead, skipping reminder for %s",
-            reminder_offset, warmup_marker,
-        )
-        return None
-
-    text = await _generate_activity_copy(
-        kind,
-        avoid_texts=None,
-        game_time=game_time,
-        reminder_offset_min=reminder_offset,
-        theme_label=theme_label,
-        activity_label=activity_label,
-        min_ready_players=min_ready,
-        is_reminder=True,
-    )
-    if text is None:
-        return None
-
-    reminder_poll_options = json.dumps({
-        "min_ready_players": min_ready,
-        "game_time": game_time,
-        "theme_label": theme_label,
-        "activity_label": activity_label,
-        "warmup_marker": warmup_marker,
-        "reminder_offset_min": reminder_offset,
-    }, ensure_ascii=False)
-    reminder_marker = f"warmup-reminder-draft:{parent_id}"
-    async with db._db.execute(
-        "SELECT id FROM scheduled_messages WHERE created_by = ? AND status != 'cancelled' LIMIT 1",
-        (reminder_marker,),
-    ) as cur:
-        existing = await cur.fetchone()
-    if existing:
-        existing_id = int(existing["id"])
-        await db.update_scheduled_message(
-            existing_id,
-            text=text,
-            message_type="warmup_reminder",
-            channel_topic_id=announcement_topic_id,
-            target_group="main",
-            scheduled_date=reminder_dt.date().isoformat(),
-            scheduled_time=reminder_dt.strftime("%H:%M"),
-            poll_options=reminder_poll_options,
-            status="scheduled",
-        )
-        return existing_id
-
-    return await db.create_scheduled_message(
-        text=text,
-        message_type="warmup_reminder",
-        channel_topic_id=announcement_topic_id,
-        target_group="main",
-        scheduled_date=reminder_dt.date().isoformat(),
-        scheduled_time=reminder_dt.strftime("%H:%M"),
-        poll_options=reminder_poll_options,
-        created_by=reminder_marker,
-        status="scheduled",
-    )
+    return None
 
 # One-off Independence Day (יום העצמאות 5786) live trivia round — matches
 # _TRIVIA_DEMO_STATE["starts_at"] and the pending review id below. Surfaced
@@ -2323,7 +2243,7 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
     cover_path = data.get("cover_path")
     auto_pin = bool(data.get("auto_pin"))
     topic_id = data.get("topic_id")
-    target_group = data.get("target_group", "main")
+    target_group = _validated_target_group(data.get("target_group", "main"))
     source_poll_message_id = data.get("source_poll_message_id")
     source_poll_option_key = data.get("source_poll_option_key")
     publish = data.get("publish", True)
@@ -2696,14 +2616,23 @@ async def run_puzzles_now(request: Request, db: Database = Depends(get_db)):
     ctx = type("EmojiCtx", (), {})()
     ctx.bot = Bot(os.getenv("BOT_TOKEN", ""))
     ctx.bot_data = {"db": db}
-    session_id = await start_emoji_night(
+    launch_info = await start_emoji_night(
         ctx, chat_id, thread_id, force=True,
         media_types=media_types, theme_label=theme_label,
+        return_launch_info=True,
     )
-    if not session_id:
+    if not launch_info:
         raise HTTPException(status_code=409, detail="Could not start session")
-    return {"status": "ok", "session_id": session_id, "target": target,
-            "media_types": media_types, "theme_label": theme_label}
+    if not isinstance(launch_info, dict):
+        raise HTTPException(status_code=500, detail="Emoji Night did not return launch info")
+    return {
+        "status": "ok",
+        "session_id": launch_info.get("session_id"),
+        "message_id": launch_info.get("message_id"),
+        "target": target,
+        "media_types": media_types,
+        "theme_label": theme_label,
+    }
 
 
 @app.post("/api/trivia/questions")
@@ -3107,12 +3036,11 @@ def _active_discussion_categories_from_config(
 ) -> list[dict]:
     """Return enabled discussion categories without gating on pool entries.
 
-    `settings.yaml:topics.discussions` and auto-verified forum topics decide
-    which discussion channels exist. `discussions.yaml` is only an optional
-    few-shot/fallback pool.
+    `settings.yaml:topics.discussions` decides which discussion channels are
+    enabled. `verified_forum_topics` enriches them with human-readable names;
+    `discussions.yaml` is only an optional few-shot/fallback pool.
     """
-    topics = settings.get("topics") or {}
-    topic_ids = (topics.get("discussions") or {})
+    topic_ids = ((settings.get("topics") or {}).get("discussions") or {})
     pool = discussions_pool or {}
     verified = verified_rows or []
 
@@ -3130,7 +3058,7 @@ def _active_discussion_categories_from_config(
 
     excluded_keys = {"goals", "welcome", "botson_corner", "ai_en"}
     excluded_topic_ids: set[int] = set()
-    for value in (topics.get("goals"), topics.get("welcome")):
+    for value in ((settings.get("topics") or {}).get("goals"), (settings.get("topics") or {}).get("welcome")):
         try:
             excluded_topic_ids.add(int(value))
         except (TypeError, ValueError):
@@ -3138,9 +3066,17 @@ def _active_discussion_categories_from_config(
 
     categories: list[dict] = []
     seen_topic_ids: set[int] = set()
-
-    def add_category(key: str, tid: int, row: dict | None = None) -> None:
-        row = row or {}
+    for category_key, topic_id in topic_ids.items():
+        if not topic_id:
+            continue
+        key = str(category_key or "").strip()
+        if not key:
+            continue
+        try:
+            tid = int(topic_id)
+        except (TypeError, ValueError):
+            continue
+        row = by_key.get(key) or by_id.get(tid) or {}
         display_name = (
             str(row.get("verified_name") or "").strip()
             or str(row.get("observed_name") or "").strip()
@@ -3154,18 +3090,6 @@ def _active_discussion_categories_from_config(
         })
         seen_topic_ids.add(tid)
 
-    for category_key, topic_id in topic_ids.items():
-        if not topic_id:
-            continue
-        key = str(category_key or "").strip()
-        if not key:
-            continue
-        try:
-            tid = int(topic_id)
-        except (TypeError, ValueError):
-            continue
-        add_category(key, tid, by_key.get(key) or by_id.get(tid))
-
     for row in verified:
         key = str(row.get("category_key") or "").strip()
         if not key or key in excluded_keys:
@@ -3176,7 +3100,18 @@ def _active_discussion_categories_from_config(
             continue
         if tid in seen_topic_ids or tid in excluded_topic_ids:
             continue
-        add_category(key, tid, row)
+        display_name = (
+            str(row.get("verified_name") or "").strip()
+            or str(row.get("observed_name") or "").strip()
+            or key
+        )
+        categories.append({
+            "category_key": key,
+            "topic_id": tid,
+            "name": display_name,
+            "has_pool": bool(pool.get(key)),
+        })
+        seen_topic_ids.add(tid)
     return categories
 
 
@@ -4640,7 +4575,7 @@ async def _ai_fill_weekplan_inner(
             )
             topic = goals_topic
         else:  # discussion
-            topic = cat_info.get("topic_id") if isinstance(cat_info, dict) else topic_ids.get(cat)
+            topic = topic_ids.get(cat)
             channel_topic_id = int(topic) if topic else None
             recent_for_channel = await _fetch_recent_sent_for_dedup(
                 db, "discussion", category_topic_id=channel_topic_id, limit=60
@@ -4706,7 +4641,7 @@ async def _ai_fill_weekplan_inner(
         # channel_topic_id MUST match topic_ids[cat]. Without this guard
         # we have seen drafts land in unrelated channels (funny → ai_en).
         if mtype == "discussion":
-            expected = cat_info.get("topic_id") if isinstance(cat_info, dict) else topic_ids.get(cat)
+            expected = topic_ids.get(cat)
             if not expected or int(expected) != int(topic or 0):
                 return {"ok": False, "error": f"day {day_index} cat={cat}: topic mismatch expected={expected} got={topic}"}
 
@@ -5289,76 +5224,12 @@ async def _maybe_add_warmup_reminder_suggestion(
     source: str,
     settings: dict,
 ) -> None:
-    """Append a `warmup_reminder` suggestion paired to an RSVP announcement.
+    """Do not append public warm-up reminder suggestions.
 
-    No-op when reminder offset is invalid, the slot is occupied, or the LLM
-    copy generation fails. Reminder time = game_time - reminder_offset_min and
-    must be strictly between announcement and game time.
+    This hook stays as a no-op so older call sites do not reintroduce reminder
+    rows; personal DMs handle reminders.
     """
-    # Operator toggle (settings.trivia.warmup_reminder_enabled): suppress the
-    # redundant 20-min group reminder. Off by default — DM reminders cover it.
-    if not (settings.get("trivia") or {}).get("warmup_reminder_enabled", True):
-        return
-    if min_ready <= 0:
-        return
-    trivia_defaults = (settings.get("trivia") or {}).get("populate_defaults") or {}
-    try:
-        reminder_offset = int(trivia_defaults.get("warmup_reminder_offset_min") or 0)
-    except (TypeError, ValueError):
-        return
-    if reminder_offset <= 0 or reminder_offset >= int(announce_lead):
-        return
-    try:
-        gh, gm = [int(x) for x in str(game_time).split(":")]
-        total = gh * 60 + gm - reminder_offset
-        if total < 0:
-            total += 24 * 60
-        reminder_t = f"{total // 60:02d}:{total % 60:02d}"
-    except Exception:
-        return
-    if reminder_t == announce_t:
-        return
-    if not slot_free(d_iso, reminder_t, "warmup_reminder"):
-        return
-
-    # NOTE: do not pass generated_activity_texts as avoid_texts here.
-    # The reminder is BY DESIGN about the same event as the paired
-    # announcement (same game_time, theme, RSVP framing), so the
-    # near-duplicate check against the announcement text always rejects
-    # legitimate reminder copy. Reminder copy is short (1-2 lines) and
-    # is expected to echo the announcement's subject — the prompt's
-    # "do not repeat the original text" rule is the right gate, not the
-    # global near-duplicate corpus.
-    text = await _generate_activity_copy(
-        kind,
-        avoid_texts=None,
-        game_time=game_time,
-        reminder_offset_min=reminder_offset,
-        theme_label=theme_label,
-        activity_label=activity_label,
-        min_ready_players=min_ready,
-        is_reminder=True,
-    )
-    if not text:
-        return
-    generated_activity_texts.add(text)
-    poll = json.dumps({
-        "min_ready_players": min_ready,
-        "game_time": game_time,
-        "theme_label": theme_label,
-        "activity_label": activity_label,
-        "warmup_marker": warmup_marker,
-        "reminder_offset_min": reminder_offset,
-    }, ensure_ascii=False)
-    _add_suggestion(
-        d_iso, reminder_t, "warmup_reminder",
-        topic=topic,
-        text=text,
-        source=source,
-        rationale=f"תזכורת RSVP — {reminder_offset} דקות לפני תחילת הפעילות",
-        poll_options_json=poll,
-        count_as=None,
-    )
+    return
 
 
 async def _ai_suggest_calendar(
@@ -5418,11 +5289,11 @@ async def _ai_suggest_calendar(
     slot_map = _gather_schedule_slot_map(settings)
     topic_ids = settings.get("topics", {}).get("discussions", {}) or {}
     goals_topic = settings.get("topics", {}).get("goals")
-    welcome_topic = settings.get("topics", {}).get("welcome")
 
     # Existing rows in window — to avoid suggesting occupied or repeated slots.
     occupied: set = set()
     occupied_times: set = set()
+    existing_type_counts: dict[str, int] = {}
     existing_activity_texts: set[str] = set()
     # Only treat actual activity-copy-generated rows as duplicates of
     # newly-generated activity copy. Discussion / morning / evening text
@@ -5434,7 +5305,7 @@ async def _ai_suggest_calendar(
         async with db._db.execute(
             "SELECT scheduled_date, scheduled_time, message_type, text "
             "FROM scheduled_messages "
-            "WHERE status IN ('scheduled', 'draft') "
+            "WHERE status IN ('scheduled', 'draft', 'sent') "
             "AND scheduled_date BETWEEN ? AND ?",
             (win_start, win_end),
         ) as cur:
@@ -5443,6 +5314,7 @@ async def _ai_suggest_calendar(
             row_time = (r[1] or "")[:5]
             occupied.add((r[0], row_time, r[2]))
             occupied_times.add((r[0], row_time))
+            existing_type_counts[r[2]] = existing_type_counts.get(r[2], 0) + 1
             if r[3] and r[2] in _ACTIVITY_COPY_TYPES:
                 existing_activity_texts.add(str(r[3]))
     except Exception:
@@ -5540,6 +5412,9 @@ async def _ai_suggest_calendar(
         if not _slot_future(d_iso, t):
             _add_skip(d_iso, t, mtype, "past")
             return False
+        if (d_iso, t) in occupied_times:
+            _add_skip(d_iso, t, mtype, "time_occupied")
+            return False
         if (d_iso, t, mtype) in occupied:
             _add_skip(d_iso, t, mtype, "occupied")
             return False
@@ -5594,7 +5469,7 @@ async def _ai_suggest_calendar(
     flex_count = 0
 
     cap_per_window = _ai_populate_caps(settings, scope, slot_map)
-    counts = {k: 0 for k in cap_per_window}
+    counts = {k: existing_type_counts.get(k, 0) for k in cap_per_window}
 
     # T-170: retry budget configurable; default 3 (was effectively 1 retry,
     # then silent pool fallback). Each retry appends the prior draft + the
@@ -6179,7 +6054,7 @@ async def _ai_suggest_calendar(
                         continue
                     cat = str(cat_info.get("category_key") or "").strip()
                     cat_name = str(cat_info.get("name") or cat).strip()
-                    expected_topic = cat_info.get("topic_id") or topic_ids.get(cat)
+                    expected_topic = topic_ids.get(cat)
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(
@@ -6441,7 +6316,7 @@ async def _ai_suggest_calendar(
                     )
                     if not warmup_text:
                         continue
-                    warmup_topic = routed_topics.get("trivia_warmup") or routed_topics["trivia_round"]
+                    warmup_topic = routed_topics["trivia_round"]
                     trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
                     warmup_poll_json = json.dumps({
                         "min_ready_players": min_ready,
@@ -6507,7 +6382,7 @@ async def _ai_suggest_calendar(
                     cat_info = cats_for_flex[flex_count % len(cats_for_flex)]
                     cat = str(cat_info.get("category_key") or "").strip()
                     cat_name = str(cat_info.get("name") or cat).strip()
-                    expected_topic = cat_info.get("topic_id") or topic_ids.get(cat)
+                    expected_topic = topic_ids.get(cat)
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(
@@ -6704,7 +6579,29 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
     } - CRON_OWNED_TYPES
     inserted_ids: list = []
     errors: list = []
+    skipped: list = []
     by_type: dict = {}
+    committed_keys: set[tuple[str, str, str, int]] = set()
+
+    if getattr(db, "_db", None) is not None:
+        try:
+            async with db._db.execute(
+                """SELECT scheduled_date, scheduled_time, message_type, channel_topic_id
+                   FROM scheduled_messages
+                   WHERE status IN ('scheduled', 'draft', 'sent')"""
+            ) as cur:
+                for row in await cur.fetchall():
+                    try:
+                        committed_keys.add((
+                            str(row["scheduled_date"]),
+                            str(row["scheduled_time"] or "")[:5],
+                            str(row["message_type"]),
+                            int(row["channel_topic_id"]),
+                        ))
+                    except (TypeError, ValueError):
+                        continue
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[weekplan.ai-suggest-commit] existing slot lookup failed: %s", e)
 
     for i, item in enumerate(approved):
         if not isinstance(item, dict):
@@ -6759,6 +6656,11 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             except Exception:
                 poll_options_json = None
 
+        slot_key = (d, t[:5], mtype, topic)
+        if slot_key in committed_keys:
+            skipped.append(f"#{i}: duplicate slot {slot_key}")
+            continue
+
         try:
             new_id = await db.create_scheduled_message(
                 text=text,
@@ -6773,15 +6675,16 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             )
             inserted_ids.append(new_id)
             by_type[mtype] = by_type.get(mtype, 0) + 1
+            committed_keys.add(slot_key)
         except Exception as e:
             errors.append(f"#{i}: insert failed: {e}")
 
     logger.info(
         "[weekplan.ai-suggest-commit] inserted=%d ids=%s by_type=%s errors=%s",
-        len(inserted_ids), inserted_ids, by_type, errors,
+        len(inserted_ids), inserted_ids, by_type, errors + skipped,
     )
     return {"inserted": len(inserted_ids), "ids": inserted_ids,
-            "by_type": by_type, "errors": errors}
+            "by_type": by_type, "errors": errors, "skipped": skipped}
 
 
 # ── AI fill: today-only, context-aware ─────────────────────
@@ -10280,8 +10183,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     morning_queue = list(prompts_pool.get("morning", []))
     evening_queue = list(prompts_pool.get("evening", []))
 
-    # Discussion categories: settings/verified topics decide enabled channels;
-    # pools are optional previews.
+    # Discussion categories: settings decides enabled channels; pools are optional previews.
     topic_ids = settings.get("topics", {}).get("discussions", {})
     active_categories = await _load_active_discussion_categories(db, settings, discussions_pool)
     active_by_key = {c["category_key"]: c for c in active_categories}
@@ -10452,7 +10354,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                             logger.info("[weekplan.render]   day %d (%s) → %s[%d] = %r", i, hebrew_day_names[i], cat, q_idx, full_text[:60])
                             day_to_category_map[i] = f"{cat}[{q_idx}]"
                         channel_hint = cat_info.get("name") or CATEGORY_NAMES.get(cat, cat)
-                        disc_topic_id = cat_info.get("topic_id") or topic_ids.get(cat) or ""
+                        disc_topic_id = topic_ids.get(cat) or ""
                         disc_category = cat
                         discussion_idx += 1
                     activities.append({
@@ -10596,15 +10498,6 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                 "name": (active_by_key.get(cat) or {}).get("name") or CATEGORY_NAMES.get(cat, cat),
                 "topic_id": tid,
             })
-    for cat_info in active_categories:
-        cat = cat_info["category_key"]
-        if cat in topic_ids:
-            continue
-        discussion_channels.append({
-            "key": cat,
-            "name": cat_info.get("name") or cat,
-            "topic_id": cat_info.get("topic_id"),
-        })
 
     logger.info("[weekplan.render] day→discussion map for week starting %s: %s", sunday, day_to_category_map)
 
@@ -11250,11 +11143,12 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
             "scheduled": "מתוזמן: הסקזולר ינסה לשלוח בזמן הזה",
             "sent": "נשלח: הפעולה כבר הסתיימה",
         }.get(status, "")
+        error_message = _operator_visible_error_message(m.get("error_message"))
         if status == "skipped":
-            reason = (m.get("error_message") or "").strip()
+            reason = error_message.strip()
             diagnostic_detail = f"דולג: {reason}" if reason else "דולג: הסקזולר החליט לא לשלוח"
         elif status == "failed":
-            err = (m.get("error_message") or "").strip()
+            err = error_message.strip()
             if err.startswith("stale:"):
                 # Stale-drop is operationally distinct from a real Telegram
                 # failure — the row was just too late for the worker to fire.
@@ -11292,13 +11186,14 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
             "backgroundColor": color if status != "sent" else "#1a1a2e",
             "borderColor": "#22c55e" if status == "sent" else color,
             "textColor": "#fafafa" if status != "sent" else "#71717a",
+            "editable": status in {"draft", "scheduled"},
             "extendedProps": {
                 "fullText": m.get("text", ""),
                 "status": status,
                 "willSend": status == "scheduled",
                 "diagnosticLabel": diagnostic_label,
                 "diagnosticDetail": diagnostic_detail,
-                "errorMessage": m.get("error_message"),
+                "errorMessage": error_message,
                 "messageType": m.get("message_type", "custom"),
                 "channelTopicId": m.get("channel_topic_id"),
                 "recurrence": m.get("recurrence"),
@@ -11392,6 +11287,13 @@ _EXECUTABLE_HANDLERS_REQUIRING_ROUTING = {
 }
 
 
+def _operator_visible_error_message(error_message: str | None) -> str:
+    err = (error_message or "").strip()
+    if err.startswith("dispatch_claim:"):
+        return ""
+    return err
+
+
 def _planner_day_diagnostic_reason(
     *,
     status: str,
@@ -11403,6 +11305,7 @@ def _planner_day_diagnostic_reason(
     routing_by_handler: dict,
     minutes_from_now: int | None,
     will_calendar_checker_consider: bool,
+    game_rsvp: dict | None = None,
 ) -> str:
     """Render a one-line Hebrew explanation of why a row is in its current
     state. Operators use this via /api/diagnostics/planner-day instead of
@@ -11411,7 +11314,7 @@ def _planner_day_diagnostic_reason(
     The result must be short and self-contained: it is shown in tooltips and
     diagnostic tables, not in a Telegram message.
     """
-    err = (error_message or "").strip()
+    err = _operator_visible_error_message(error_message)
     if status == "sent":
         return "נשלח בהצלחה"
     if status == "draft":
@@ -11434,6 +11337,14 @@ def _planner_day_diagnostic_reason(
         if message_type in _EXECUTABLE_HANDLERS_REQUIRING_ROUTING:
             if message_type not in routing_by_handler:
                 notes.append(f"אזהרה: אין רשומת ניתוב ל-{message_type} ב-bot_message_routing")
+        if game_rsvp and int(game_rsvp.get("min_ready_players") or 0) > 0:
+            sent_warmups = int(game_rsvp.get("sent_warmup_count") or 0)
+            ready = int(game_rsvp.get("marker_rsvp_count") or 0)
+            threshold = int(game_rsvp.get("min_ready_players") or 0)
+            if sent_warmups <= 0:
+                notes.append(f"אזהרה: אין הכרזת RSVP שנשלחה עבור marker={game_rsvp.get('warmup_marker')}")
+            elif ready < threshold:
+                notes.append(f"אזהרה: RSVP {ready}/{threshold} — המשחק ידולג אם זה לא ישתנה")
         if minutes_from_now is not None and minutes_from_now < -30:
             notes.append(f"אזהרה: הזמן עבר ב-{abs(minutes_from_now)} דק׳ — צפוי stale-drop בטיק הבא")
         elif will_calendar_checker_consider:
@@ -11442,6 +11353,63 @@ def _planner_day_diagnostic_reason(
             notes.append("ממתין לזמן השליחה")
         return " · ".join(notes)
     return status
+
+
+async def _game_rsvp_diagnostics(db: Database, msg: dict, payload: dict) -> dict | None:
+    if msg.get("message_type") not in {"trivia_round", "emoji_puzzle"}:
+        return None
+    marker = str((payload or {}).get("warmup_marker") or "").strip()
+    if not marker:
+        return None
+    try:
+        threshold = int((payload or {}).get("min_ready_players") or 0)
+    except (TypeError, ValueError):
+        threshold = 0
+
+    async with db._db.execute(
+        """SELECT id, status, sent_message_id, poll_options
+           FROM scheduled_messages
+           WHERE message_type = 'trivia_warmup_rsvp'
+             AND status != 'cancelled'
+           ORDER BY id ASC"""
+    ) as cur:
+        rows = await cur.fetchall()
+
+    warmup_ids: list[int] = []
+    sent_warmup_ids: list[int] = []
+    for row in rows:
+        try:
+            row_payload = json.loads(row["poll_options"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if str(row_payload.get("warmup_marker") or "").strip() != marker:
+            continue
+        wid = int(row["id"])
+        warmup_ids.append(wid)
+        if row["status"] == "sent" and row["sent_message_id"]:
+            sent_warmup_ids.append(wid)
+
+    marker_rsvp_count = 0
+    if sent_warmup_ids:
+        placeholders = ",".join("?" for _ in sent_warmup_ids)
+        async with db._db.execute(
+            f"""SELECT COUNT(DISTINCT user_id) AS n
+                FROM trivia_interest_responses
+                WHERE scheduled_msg_id IN ({placeholders})""",
+            sent_warmup_ids,
+        ) as cur:
+            count_row = await cur.fetchone()
+        marker_rsvp_count = int(count_row["n"] or 0) if count_row else 0
+
+    return {
+        "warmup_marker": marker,
+        "min_ready_players": threshold,
+        "warmup_count": len(warmup_ids),
+        "sent_warmup_count": len(sent_warmup_ids),
+        "marker_rsvp_count": marker_rsvp_count,
+        "warmup_ids": warmup_ids,
+        "sent_warmup_ids": sent_warmup_ids,
+    }
 
 
 @app.get("/api/diagnostics/planner-day")
@@ -11517,6 +11485,7 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
             target_date < now.date() or (target_date == now.date() and sched_time <= now.strftime("%H:%M"))
         )
         topic_verified = topic_id_int in verified_topics if topic_id_int is not None else None
+        game_rsvp = await _game_rsvp_diagnostics(db, msg, payload)
         diagnostic_reason = _planner_day_diagnostic_reason(
             status=status,
             error_message=msg.get("error_message"),
@@ -11527,6 +11496,7 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
             routing_by_handler=routing_by_handler,
             minutes_from_now=minutes_from_now,
             will_calendar_checker_consider=will_calendar_checker_consider,
+            game_rsvp=game_rsvp,
         )
         rows.append({
             "id": msg.get("id"),
@@ -11546,6 +11516,7 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
             "error_message": msg.get("error_message"),
             "sent_at": msg.get("sent_at"),
             "sent_message_id": msg.get("sent_message_id"),
+            "game_rsvp": game_rsvp,
             "due_now": int(msg.get("id")) in due_ids,
             "will_calendar_checker_consider": will_calendar_checker_consider,
             "diagnostic_reason": diagnostic_reason,
@@ -11574,6 +11545,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         raise HTTPException(status_code=401)
 
     data = await request.json()
+    target_group = _validated_target_group(data.get("target_group", "main"))
     poll_options = data.get("poll_options")
     raw_type = data.get("message_type", "custom")
     raw_topic = data.get("channel_topic_id")
@@ -11616,7 +11588,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         text=data["text"],
         message_type=message_type,
         channel_topic_id=channel_topic_id,
-        target_group=data.get("target_group", "main"),
+        target_group=target_group,
         scheduled_date=data["scheduled_date"],
         scheduled_time=data["scheduled_time"],
         recurrence=data.get("recurrence"),
@@ -11632,6 +11604,40 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     return {"status": "ok", "id": msg_id, "announcement_draft_id": announcement_draft_id, "trivia_topup": trivia_topup}
 
 
+def _validated_target_group(target_group: str | None) -> str:
+    target = str(target_group or "main").strip() or "main"
+    if target not in {"main", "test"}:
+        raise HTTPException(status_code=400, detail=f"unsupported target_group {target!r}")
+    return target
+
+
+def _reject_too_soon_schedule(target_date_str: str, target_time_str: str, *, force: bool = False) -> datetime:
+    now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
+    try:
+        target_dt = datetime.strptime(
+            f"{target_date_str} {target_time_str}", "%Y-%m-%d %H:%M"
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid scheduled date/time {target_date_str!r} {target_time_str!r}")
+
+    if not force:
+        delta = (target_dt - now).total_seconds()
+        if delta < 120:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "past_due",
+                    "message": (
+                        "הסלוט מתוזמן בעבר או פחות מ-2 דקות בעתיד. "
+                        "הוסף force=true או 'שלח עכשיו' אם זה מה שרצית."
+                    ),
+                    "scheduled_for": target_dt.isoformat(),
+                    "seconds_from_now": int(delta),
+                },
+            )
+    return target_dt
+
+
 @app.put("/api/calendar/{msg_id}")
 async def update_calendar_item(msg_id: int, request: Request, db: Database = Depends(get_db)):
     """Update a scheduled message."""
@@ -11643,6 +11649,8 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
                "recurrence", "recurrence_days", "status", "auto_pin", "message_type", "cover_path",
                "poll_options", "poll_duration"}
     fields = {k: v for k, v in data.items() if k in allowed}
+    if "target_group" in fields:
+        fields["target_group"] = _validated_target_group(fields["target_group"])
     if "text" in fields or "message_type" in fields:
         # REG-T155-a fix: when the body sends only `text` (no message_type),
         # preserve the existing row's message_type instead of defaulting
@@ -11698,19 +11706,29 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
         if effective_text_type in {"morning", "evening", "discussion"}:
             _reject_bad_planner_text(str(fields["text"] or ""))
 
-    trivia_topup = None
-    if fields.get("status") == "scheduled":
+    existing_row = None
+    if fields.get("status") == "scheduled" or "scheduled_date" in fields or "scheduled_time" in fields:
         async with db._db.execute(
-            "SELECT id, text, scheduled_date, message_type, poll_options FROM scheduled_messages WHERE id = ?",
+            "SELECT id, text, scheduled_date, scheduled_time, status, message_type, poll_options FROM scheduled_messages WHERE id = ?",
             (msg_id,),
         ) as cur:
             existing_row = await cur.fetchone()
-        if existing_row:
+        if not existing_row:
+            raise HTTPException(status_code=404, detail="message not found")
+
+        effective_status = fields.get("status", existing_row["status"])
+        if effective_status == "scheduled":
+            effective_date = fields.get("scheduled_date", existing_row["scheduled_date"])
+            effective_time = (fields.get("scheduled_time", existing_row["scheduled_time"]) or "")[:5]
             _reject_bad_message_row({
                 "text": fields.get("text", existing_row["text"]),
                 "message_type": fields.get("message_type", existing_row["message_type"]),
-                "scheduled_date": fields.get("scheduled_date", existing_row["scheduled_date"]),
+                "scheduled_date": effective_date,
             })
+            _reject_too_soon_schedule(effective_date, effective_time, force=bool(data.get("force", False)))
+
+    trivia_topup = None
+    if fields.get("status") == "scheduled":
         effective_type = fields.get("message_type") or (existing_row["message_type"] if existing_row else None)
         if effective_type == "trivia_round":
             trivia_topup = await _ensure_trivia_pool_ready_for_round({
@@ -11720,7 +11738,9 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
 
     await db.update_scheduled_message(msg_id, **fields)
     announcement_draft_id = None
-    if fields.get("status") == "scheduled":
+    if fields.get("status") == "scheduled" or (
+        existing_row and existing_row["status"] == "scheduled" and ({"scheduled_date", "scheduled_time"} & set(fields.keys()))
+    ):
         async with db._db.execute(
             "SELECT message_type FROM scheduled_messages WHERE id = ?",
             (msg_id,),
@@ -11818,16 +11838,14 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     * Failures propagate as exceptions (the route turns them into HTTP 500);
       the row keeps its prior status rather than flipping to ``failed``.
 
-    Known gaps vs the scheduler (filed as REG-T157-* regression tasks; current
-    behavior pinned by
-    ``tests/test_send_now_parity.py::CurrentBugBehaviorPinnedTests``):
+    Parity fixes pinned by
+    ``tests/test_send_now_parity.py::FixedBugBehaviorPinnedTests``:
 
-    * Emoji puzzle: ignores ``media_types`` and ``theme_label`` from poll_options.
-    * Facts: ignores pinned ``fact_id`` from poll_options.
-    * Event: no events-table row, no RSVP button attachment.
-    * SkippedActivity: not surfaced as ``status='skipped'``; lost to a 500.
-    * Activity log: no ``db.log_activity`` audit entry.
-    * Auto-pin: ``auto_pin`` field on the row is not honored.
+    * Emoji puzzle forwards ``media_types`` and ``theme_label`` from poll_options.
+    * Facts forward pinned ``fact_id`` from poll_options.
+    * Events create an events-table row and attach RSVP buttons.
+    * SkippedActivity is surfaced as ``status='skipped'``.
+    * Activity log and ``auto_pin`` are honored through ``_finalize``.
 
     Returns the sent Telegram message_id. Raises on error.
     """
@@ -11845,7 +11863,12 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     from bot.handlers.roundup import send_weekly_roundup
     from bot.handlers.trivia_round import start_scheduled_trivia_round
     bot = Bot(os.getenv("BOT_TOKEN", ""))
-    group_id = int(os.getenv("TEST_GROUP_ID", "0") if target == "test" else os.getenv("GROUP_ID", "0"))
+    if target == "test":
+        group_id = int(os.getenv("TEST_GROUP_ID", "0"))
+    elif target == "main":
+        group_id = int(os.getenv("GROUP_ID", "0"))
+    else:
+        raise ValueError(f"Unsupported send-now target {target!r}")
     context = SimpleNamespace(bot=bot, bot_data={"db": db})
 
     async def _finalize(sent_message_id: int) -> None:
@@ -11902,11 +11925,17 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
             force=True,
             media_types=emoji_media_types,
             theme_label=emoji_theme,
+            return_launch_info=True,
         )
         if session_id is None:
             raise RuntimeError("Emoji Night did not start")
-        await _finalize(session_id)
-        return session_id
+        if not isinstance(session_id, dict):
+            raise RuntimeError("Emoji Night did not return launch info with Telegram message_id")
+        message_id = int(session_id.get("message_id") or 0)
+        if message_id <= 0:
+            raise RuntimeError("Emoji Night did not return a Telegram message_id")
+        await _finalize(message_id)
+        return message_id
     if msg.get("message_type") == "free_games":
         summary = await send_free_games(context, force=True)
         if not summary or int(summary.get("posted") or 0) <= 0:
@@ -12089,31 +12118,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
 
     target_date_str = new_date or row["scheduled_date"]
     target_time_str = new_time or (row["scheduled_time"] or "")[:5]
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
-    try:
-        target_dt = datetime.strptime(
-            f"{target_date_str} {target_time_str}", "%Y-%m-%d %H:%M"
-        )
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"invalid scheduled date/time {target_date_str!r} {target_time_str!r}")
-
-    if not force:
-        delta = (target_dt - now).total_seconds()
-        if delta < 120:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "past_due",
-                    "message": (
-                        "הסלוט מתוזמן בעבר או פחות מ-2 דקות בעתיד. "
-                        "הוסף force=true או 'שלח עכשיו' אם זה מה שרצית."
-                    ),
-                    "scheduled_for": target_dt.isoformat(),
-                    "seconds_from_now": int(delta),
-                },
-            )
+    target_dt = _reject_too_soon_schedule(target_date_str, target_time_str, force=force)
 
     topup_result = None
     if row["message_type"] == "trivia_round":

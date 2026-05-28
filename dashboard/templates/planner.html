@@ -2582,15 +2582,19 @@ document.addEventListener('DOMContentLoaded', function() {
             var date = formatLocalDate(newStart);
             var time = newStart.toTimeString().substring(0, 5);
             try {
-                await fetch('/api/calendar/' + id, {
+                var resp = await fetch('/api/calendar/' + id, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({scheduled_date: date, scheduled_time: time})
                 });
+                if (!resp.ok) {
+                    var err = await resp.json().catch(function() { return {}; });
+                    throw new Error(apiErrorMessage(err, 'HTTP ' + resp.status));
+                }
                 showToast('הועבר');
             } catch (e) {
                 info.revert();
-                showToast('שגיאה', 'error');
+                showToast(e && e.message ? e.message : 'שגיאה', 'error');
             }
         },
 

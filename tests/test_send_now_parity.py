@@ -18,9 +18,8 @@ documented and tested set of intentional differences. This file pins both:
             non-test marking semantics) — pinned so the difference is
             visible to anyone changing either side.
 
-Bugs surfaced while writing this file are filed as REG-T157-* tasks. The
-tests below pin the *current* behavior of those bugs (so fixing the bug
-will turn the relevant test red and force an explicit revisit).
+Bugs surfaced while writing this file were filed as REG-T157-* tasks. The
+tests below pin the fixed behavior so regressions turn red explicitly.
 """
 
 from __future__ import annotations
@@ -138,20 +137,24 @@ class ParityHandlerSelectionTests(_ParityBase):
 
     async def test_emoji_puzzle_calls_same_handler_on_both_paths(self):
         sched_id = await self._seed(message_type="emoji_puzzle", text="emoji A")
-        with patch.object(cal, "start_emoji_night", new=AsyncMock(return_value=333)) as h_sched, \
+        with patch.object(cal, "start_emoji_night", new=AsyncMock(return_value={"session_id": 33, "message_id": 333})) as h_sched, \
              patch.object(cal, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
              patch.object(cal, "_enforce_warmup_rsvp_gate", new=AsyncMock()), \
              patch("telegram.Bot", return_value=SimpleNamespace()):
             await self._tick_scheduler()
-        self.assertEqual((await self._row(sched_id))["status"], "sent")
+        sched_row = await self._row(sched_id)
+        self.assertEqual(sched_row["status"], "sent")
+        self.assertEqual(sched_row["sent_message_id"], 333)
         h_sched.assert_awaited_once()
 
         sn_id = await self._seed(
             message_type="emoji_puzzle", text="emoji B", target_group="main", status="draft",
         )
-        with patch("bot.handlers.emoji_puzzle.start_emoji_night", new=AsyncMock(return_value=444)) as h_sn:
+        with patch("bot.handlers.emoji_puzzle.start_emoji_night", new=AsyncMock(return_value={"session_id": 44, "message_id": 444})) as h_sn:
             await self._send_now(sn_id, target="main")
-        self.assertEqual((await self._row(sn_id))["status"], "sent")
+        sn_row = await self._row(sn_id)
+        self.assertEqual(sn_row["status"], "sent")
+        self.assertEqual(sn_row["sent_message_id"], 444)
         h_sn.assert_awaited_once()
 
     async def test_facts_tidbit_calls_same_handler_on_both_paths(self):
@@ -249,6 +252,18 @@ class IntentionalDivergenceTests(_ParityBase):
         self.assertEqual(row["status"], "draft", "test target must not flip status")
         self.assertIsNone(row["sent_message_id"])
 
+    async def test_send_now_rejects_unsupported_target_without_main_send(self):
+        msg_id = await self._seed(
+            message_type="custom", text="bad target", target_group="main", status="draft",
+        )
+        with patch("bot.handlers.calendar.send_message_with_optional_cover", new=AsyncMock()) as h:
+            with self.assertRaisesRegex(ValueError, "Unsupported send-now target"):
+                await self._send_now(msg_id, target="both")
+        h.assert_not_called()
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "draft")
+        self.assertIsNone(row["sent_message_id"])
+
     async def test_send_now_ignores_stale_drop(self):
         """Stale-drop is a scheduler-only autonomy guard. Operator says
         'send now' = send now, regardless of how stale the row is."""
@@ -302,15 +317,13 @@ class IntentionalDivergenceTests(_ParityBase):
         gate_mock.assert_not_called()
 
 
-# ── Pinned bug behavior (filed as regression tasks) ─────────────────────
+# ── Fixed bug behavior (filed as regression tasks) ──────────────────────
 
 
-class CurrentBugBehaviorPinnedTests(_ParityBase):
-    """The send-now path silently drops several scheduler-side behaviors that
-    the operator would reasonably expect to carry over. Until those gaps are
-    closed (see REG-T157-* tasks), pin the current behavior so any
-    well-intentioned fix to send-now turns these tests red and forces an
-    explicit revisit."""
+class FixedBugBehaviorPinnedTests(_ParityBase):
+    """The send-now path used to drop several scheduler-side behaviors that
+    the operator reasonably expects to carry over. Pin the fixed behavior so
+    parity regressions are explicit."""
 
     async def test_emoji_puzzle_send_now_forwards_media_types_and_theme(self):
         """Scheduler passes payload['media_types'] and payload['theme_label']
@@ -326,11 +339,28 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
             poll_options=json.dumps(payload),
         )
         with patch("bot.handlers.emoji_puzzle.start_emoji_night",
-                   new=AsyncMock(return_value=950)) as h:
+                   new=AsyncMock(return_value={"session_id": 95, "message_id": 950})) as h:
             await self._send_now(msg_id, target="main")
         kwargs = h.await_args.kwargs
         self.assertEqual(kwargs.get("media_types"), ["movie"])
         self.assertEqual(kwargs.get("theme_label"), "סרטים")
+        self.assertTrue(kwargs.get("return_launch_info"))
+
+    async def test_emoji_puzzle_send_now_rejects_plain_session_id(self):
+        msg_id = await self._seed(
+            message_type="emoji_puzzle",
+            text="emoji",
+            target_group="main",
+            status="draft",
+        )
+
+        with patch("bot.handlers.emoji_puzzle.start_emoji_night", new=AsyncMock(return_value=777)):
+            with self.assertRaisesRegex(RuntimeError, "launch info"):
+                await self._send_now(msg_id, target="main")
+
+        row = await self._row(msg_id)
+        self.assertEqual(row["status"], "draft")
+        self.assertIsNone(row["sent_message_id"])
 
     async def test_facts_send_now_forwards_pinned_fact_id_payload(self):
         """Operator pins a specific fact at preview time via
@@ -442,6 +472,42 @@ class CurrentBugBehaviorPinnedTests(_ParityBase):
                    new=AsyncMock(return_value=SimpleNamespace(message_id=981))):
             await self._send_now(msg_id, target="main")
         bot_mock.pin_chat_message.assert_awaited_once()
+
+
+class DashboardEmojiRunNowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_now_returns_real_intro_message_id(self):
+        class FakeRequest:
+            session = {"authenticated": True}
+            headers = {"content-type": "application/json"}
+
+            async def json(self):
+                return {
+                    "target": "main",
+                    "media_types": ["movie"],
+                    "theme_label": "סרטים",
+                }
+
+        db = Database(":memory:")
+        await db.init()
+        try:
+            with patch("telegram.Bot", return_value=SimpleNamespace()), \
+                 patch(
+                     "bot.handlers.emoji_puzzle.resolve_emoji_target",
+                     return_value=(-1001, 4037),
+                 ), \
+                 patch(
+                     "bot.handlers.emoji_puzzle.start_emoji_night",
+                     new=AsyncMock(return_value={"session_id": 88, "message_id": 990}),
+                 ) as start:
+                result = await dashboard_app.run_puzzles_now(FakeRequest(), db)
+
+            self.assertEqual(result["session_id"], 88)
+            self.assertEqual(result["message_id"], 990)
+            self.assertEqual(result["media_types"], ["movie"])
+            self.assertEqual(result["theme_label"], "סרטים")
+            self.assertTrue(start.await_args.kwargs.get("return_launch_info"))
+        finally:
+            await db.close()
 
 
 if __name__ == "__main__":

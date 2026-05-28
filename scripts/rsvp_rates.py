@@ -2,8 +2,8 @@
 """Print RSVP counts per recent trivia/emoji warm-up announcement.
 
 Read-only. Answers the practical question: are the warm-up RSVP messages
-reaching anyone? Run locally against `data/bot.db`, or copy the prod DB
-down and point DB_PATH at it.
+reaching anyone, and did the paired game fire in the expected topic? Run
+locally against `data/bot.db`, or copy the prod DB down and point DB_PATH at it.
 
 Usage:
     python3 scripts/rsvp_rates.py            # last 20 warm-ups, default DB
@@ -46,8 +46,9 @@ def main() -> int:
         return 0
 
     print(f"{'date':<12} {'time':<6} {'topic':<6} {'status':<10} "
-          f"{'rsvp':<5} {'thr':<5} {'theme':<25} game_outcome")
-    print("-" * 100)
+          f"{'row':<4} {'marker':<6} {'thr':<5} {'game':<10} {'g_topic':<7} "
+          f"{'g_msg':<8} theme")
+    print("-" * 125)
 
     games_skipped = 0
     games_sent = 0
@@ -64,32 +65,52 @@ def main() -> int:
         theme = str(payload.get("theme_label") or payload.get("activity_label") or "")[:24]
         marker = str(payload.get("warmup_marker") or "")
 
-        rsvp_n = 0
+        row_rsvp_n = 0
+        marker_rsvp_n = 0
         if r["status"] == "sent":
             count_row = conn.execute(
                 "SELECT COUNT(*) AS n FROM trivia_interest_responses WHERE scheduled_msg_id = ?",
                 (int(r["id"]),),
             ).fetchone()
-            rsvp_n = int(count_row["n"]) if count_row else 0
-            rsvp_sum += rsvp_n
+            row_rsvp_n = int(count_row["n"]) if count_row else 0
+            if marker:
+                marker_count_row = conn.execute(
+                    """
+                    SELECT COUNT(DISTINCT tir.user_id) AS n
+                    FROM trivia_interest_responses tir
+                    JOIN scheduled_messages wu ON wu.id = tir.scheduled_msg_id
+                    WHERE wu.message_type = 'trivia_warmup_rsvp'
+                      AND wu.status = 'sent'
+                      AND json_extract(wu.poll_options, '$.warmup_marker') = ?
+                    """,
+                    (marker,),
+                ).fetchone()
+                marker_rsvp_n = int(marker_count_row["n"]) if marker_count_row else 0
+            else:
+                marker_rsvp_n = row_rsvp_n
+            rsvp_sum += marker_rsvp_n
             if threshold > 0:
                 rows_with_threshold += 1
-                if rsvp_n >= threshold:
+                if marker_rsvp_n >= threshold:
                     threshold_met += 1
 
         outcome = "n/a"
+        game_topic = ""
+        game_message_id = ""
         if marker:
             game_row = conn.execute(
                 """
-                SELECT status FROM scheduled_messages
+                SELECT status, channel_topic_id, sent_message_id FROM scheduled_messages
                 WHERE message_type IN ('trivia_round','emoji_puzzle')
-                  AND poll_options LIKE ?
+                  AND json_extract(poll_options, '$.warmup_marker') = ?
                 ORDER BY id DESC LIMIT 1
                 """,
-                (f'%"{marker}"%',),
+                (marker,),
             ).fetchone()
             if game_row:
                 outcome = game_row["status"]
+                game_topic = str(game_row["channel_topic_id"] or "")
+                game_message_id = str(game_row["sent_message_id"] or "")
                 if outcome == "skipped":
                     games_skipped += 1
                 elif outcome == "sent":
@@ -97,13 +118,14 @@ def main() -> int:
 
         print(f"{r['scheduled_date']:<12} {r['scheduled_time'][:5]:<6} "
               f"{r['channel_topic_id'] or 0:<6} {r['status']:<10} "
-              f"{rsvp_n:<5} {threshold:<5} {theme:<25} {outcome}")
+              f"{row_rsvp_n:<4} {marker_rsvp_n:<6} {threshold:<5} "
+              f"{outcome:<10} {game_topic:<7} {game_message_id:<8} {theme}")
 
-    print("-" * 100)
+    print("-" * 125)
     sent_rows = sum(1 for r in rows if r["status"] == "sent")
     if sent_rows:
         avg = rsvp_sum / sent_rows
-        print(f"sent warm-ups: {sent_rows}   avg RSVPs: {avg:.2f}   "
+        print(f"sent warm-ups: {sent_rows}   avg marker RSVPs: {avg:.2f}   "
               f"threshold met: {threshold_met}/{rows_with_threshold}   "
               f"games sent: {games_sent}   skipped: {games_skipped}")
     return 0

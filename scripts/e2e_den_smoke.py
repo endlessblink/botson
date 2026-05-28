@@ -18,9 +18,8 @@ turns red.
 Safe content types
 ------------------
 ``custom`` (plain text), ``poll``, ``facts_tidbit`` and ``free_games`` are
-covered. Stateful game types (``trivia_round``, ``emoji_puzzle``) are
-deliberately skipped — they spin up multi-message sessions whose state
-can't be cleanly torn down by a smoke run; rely on their dedicated tests.
+covered by default. Stateful game types are opt-in via ``--include-games`` so
+they cannot accidentally start multi-message sessions in Sherlocks Den.
 
 Usage
 -----
@@ -39,6 +38,7 @@ Other flags::
     --keep            Skip cleanup; leave rows in DB (useful for inspection)
     --json            Emit a JSON summary on stdout instead of the human table
     --only TYPE,...   Restrict to specific message types (comma-separated)
+    --include-games   Add explicit test-target game probes (never on by default)
 
 Exit code
 ---------
@@ -75,6 +75,7 @@ class SmokePlan:
     message_type: str
     text: str
     poll_options: list[str] | None = None
+    poll_payload: dict[str, Any] | None = None
     expected_terminal_status: str = "sent"
 
 
@@ -147,7 +148,8 @@ class DashboardClient:
 
     def create_draft(self, *, text: str, message_type: str,
                      scheduled_date: str, scheduled_time: str,
-                     poll_options: list[str] | None = None) -> int:
+                     poll_options: list[str] | None = None,
+                     poll_payload: dict[str, Any] | None = None) -> int:
         body = {
             "text": text,
             "message_type": message_type,
@@ -157,7 +159,9 @@ class DashboardClient:
             "status": "draft",
             "channel_topic_id": None,
         }
-        if poll_options:
+        if poll_payload is not None:
+            body["poll_options"] = json.dumps(poll_payload, ensure_ascii=False)
+        elif poll_options:
             body["poll_options"] = json.dumps(poll_options)
         resp = self._request("POST", "/api/calendar", body)
         if not isinstance(resp, dict) or "id" not in resp:
@@ -210,6 +214,21 @@ def _default_plans() -> list[SmokePlan]:
     ]
 
 
+def _game_plans() -> list[SmokePlan]:
+    marker_ts = datetime.now(_IL_TZ).strftime("%H:%M:%S")
+    return [
+        SmokePlan(
+            label="emoji puzzle game",
+            message_type="emoji_puzzle",
+            text=f"{SMOKE_MARKER} emoji puzzle probe @ {marker_ts}",
+            poll_payload={
+                "media_types": ["movie", "tv"],
+                "theme_label": "סרטים וסדרות",
+            },
+        ),
+    ]
+
+
 def _format_table(results: list[SmokeResult]) -> str:
     rows = [
         ("label", "type", "row_id", "status", "tg_msg_id", "cleanup", "error"),
@@ -248,6 +267,8 @@ def run_dry_run(plans: list[SmokePlan], base_url: str) -> int:
         print(f"{i}. {plan.label}  ({plan.message_type})")
         print(f"   POST   /api/calendar           → create draft, target='test'")
         print(f"     text: {plan.text!r}")
+        if plan.poll_payload:
+            print(f"     poll_payload: {plan.poll_payload!r}")
         if plan.poll_options:
             print(f"     poll_options: {plan.poll_options!r}")
         print(f"   POST   /api/calendar/<id>/send-now  body={{'target':'test'}}")
@@ -282,6 +303,7 @@ def run_send(plans: list[SmokePlan], base_url: str, password: str,
                 text=plan.text, message_type=plan.message_type,
                 scheduled_date=date_str, scheduled_time=time_str,
                 poll_options=plan.poll_options,
+                poll_payload=plan.poll_payload,
             )
             result.row_id = row_id
             result.timings["create"] = time.monotonic() - t_create
@@ -337,9 +359,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="Emit a JSON summary on stdout instead of the human table")
     parser.add_argument("--only", default="",
                         help="Comma-separated message_types to include (default: all safe types)")
+    parser.add_argument("--include-games", action="store_true",
+                        help="Add explicit test-target game probes. These start multi-message game sessions and require the same explicit --send approval.")
     args = parser.parse_args(argv)
 
     plans = _default_plans()
+    if args.include_games:
+        plans.extend(_game_plans())
     if args.only:
         wanted = {s.strip() for s in args.only.split(",") if s.strip()}
         plans = [p for p in plans if p.message_type in wanted]
