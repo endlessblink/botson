@@ -68,7 +68,11 @@ def _sync_first_seconds() -> int:
 
 
 def topic_sync_configured() -> bool:
-    return bool(os.getenv("TELEGRAM_API_ID") and os.getenv("TELEGRAM_API_HASH"))
+    return bool(
+        os.getenv("TELEGRAM_API_ID")
+        and os.getenv("TELEGRAM_API_HASH")
+        and os.getenv("TELEGRAM_SESSION_STRING", "").strip()
+    )
 
 
 async def fetch_forum_topics(chat_id: int = GROUP_ID) -> list[SyncedForumTopic]:
@@ -186,10 +190,11 @@ def register_topic_sync_job(app: Any) -> bool:
         logger.warning("topic_sync: JobQueue unavailable")
         return False
     if not topic_sync_configured():
-        logger.error(
-            "topic_sync: TELEGRAM_API_ID/HASH missing; full automatic topic reconciliation cannot run. "
+        logger.info(
+            "topic_sync: MTProto credentials missing; full automatic topic reconciliation is disabled. "
             "Bot API event tracking still handles topic events seen while online."
         )
+        return False
     app.job_queue.run_repeating(
         topic_sync_job,
         interval=_sync_interval_seconds(),
