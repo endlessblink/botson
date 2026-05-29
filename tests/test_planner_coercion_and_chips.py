@@ -1494,6 +1494,61 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_trivia_warmup_inherits_test_target_and_cancels_with_game(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_id = await db.create_scheduled_message(
+                    text="🧠 סיבוב טריוויה בדיקה",
+                    message_type="trivia_round",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    poll_options=json.dumps({
+                        "pre_roll_s": 30,
+                        "theme_label": "כללי",
+                        "categories": [],
+                        "question_count": 5,
+                    }, ensure_ascii=False),
+                    status="draft",
+                )
+
+                with patch.object(
+                    dashboard_app,
+                    "_ensure_trivia_pool_ready_for_round",
+                    new=AsyncMock(return_value={"generated": 0, "available": 5, "required": 5}),
+                ), patch.object(
+                    dashboard_app,
+                    "_generate_activity_copy",
+                    new=AsyncMock(return_value="טריוויה בדיקה מתחילה ב-22:00"),
+                ):
+                    res = await dashboard_app.schedule_calendar_item(
+                        game_id,
+                        FakeCalendarRequest({}),
+                        db,
+                    )
+
+                warmup_id = res["announcement_draft_id"]
+                async with db._db.execute(
+                    "SELECT target_group, status FROM scheduled_messages WHERE id = ?",
+                    (warmup_id,),
+                ) as cur:
+                    warmup = await cur.fetchone()
+                self.assertEqual(warmup["target_group"], "test")
+                self.assertEqual(warmup["status"], "scheduled")
+
+                await dashboard_app.delete_calendar_item(game_id, FakeCalendarRequest({}), db)
+                async with db._db.execute(
+                    "SELECT status FROM scheduled_messages WHERE id IN (?, ?) ORDER BY id",
+                    (game_id, warmup_id),
+                ) as cur:
+                    statuses = [row["status"] for row in await cur.fetchall()]
+                self.assertEqual(statuses, ["cancelled", "cancelled"])
+            finally:
+                await db.close()
+
     async def test_turning_trivia_live_creates_warmup_with_marker_but_no_public_reminder(self):
         """Scheduling a trivia game creates the RSVP warm-up marker, but not
         a second public reminder row; personal DMs own reminder follow-up."""
