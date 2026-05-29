@@ -19,6 +19,7 @@ from .emoji_puzzle import emoji_skip_reason, send_scheduled_emoji_message, start
 from .trivia_round import start_scheduled_trivia_round
 from .facts import send_scheduled_fact
 from ..scheduler.dispatch_owner import CRON_OWNED_TYPES
+from ..scheduler.game_contracts import EXECUTABLE_GAME_TYPES, GAME_SLOT_CLAIMING_TYPES
 from ..utils.config import should_skip_scheduled_message
 from ..utils.scheduling_errors import SkippedActivity
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
@@ -225,10 +226,7 @@ async def _enforce_warmup_rsvp_gate(db: Database, msg: dict, bot, group_id: int)
 # morning/evening, custom) is "static" content that can wait a few minutes so it
 # doesn't stack on top of another post in the same topic.
 _SLOT_CLAIMING_TYPES = frozenset({
-    "trivia_round",
-    "emoji_puzzle",
-    "trivia_warmup_rsvp",
-    "warmup_reminder",
+    *GAME_SLOT_CLAIMING_TYPES,
     "poll",
     "events_publish",
     "events_reminder",
@@ -339,7 +337,7 @@ def _looks_like_emoji_launch(text: str) -> bool:
 async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
     """Treat natural-language scheduled game rows as executable game launches."""
     message_type = msg.get("message_type") or "custom"
-    if message_type in {"trivia_round", "emoji_puzzle"}:
+    if message_type in EXECUTABLE_GAME_TYPES:
         return msg
     if message_type not in {"discussion", "custom", "trivia"}:
         return msg
