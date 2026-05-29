@@ -20,8 +20,10 @@ This test pins:
 from __future__ import annotations
 
 import unittest
+import tempfile
 from unittest.mock import patch, AsyncMock
 
+from bot.database.db import Database
 from bot.scheduler import materializer
 
 
@@ -53,6 +55,32 @@ class MaterializerPromptRendersFullDedupWindow(unittest.IsolatedAsyncioTestCase)
         # appear in the prompt — that's the whole point of the fix.
         self.assertIn("שאלה היסטורית מספר 30", prompt)
         self.assertIn("שאלה היסטורית מספר 39", prompt)
+
+
+class MaterializerSlotClashIndex(unittest.IsolatedAsyncioTestCase):
+    async def test_committed_index_marks_whole_minute_occupied(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                await db.create_scheduled_message(
+                    text="game",
+                    message_type="emoji_puzzle",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="22:00",
+                    status="scheduled",
+                )
+
+                _, _, committed_times, skipped_times = await materializer._build_committed_index(
+                    db, "2099-01-01", "2099-01-01"
+                )
+            finally:
+                await db.close()
+
+        self.assertIn(("2099-01-01", "22:00"), committed_times)
+        self.assertNotIn(("2099-01-01", "22:00"), skipped_times)
 
 
 class MaterializerLimitsExampleShots(unittest.IsolatedAsyncioTestCase):

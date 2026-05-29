@@ -150,10 +150,10 @@ async def _active_discussion_categories(db: Database, settings: dict, discussion
 
 async def _build_committed_index(
     db: Database, date_from: str, date_to: str
-) -> tuple[dict, set[tuple[str, str, str]]]:
+) -> tuple[dict, set[tuple[str, str, str]], set[tuple[str, str]], set[tuple[str, str]]]:
     """Build the (date, HH:MM, type) -> row index from existing scheduled_messages.
 
-    Returns (committed_index, skipped_slots).
+    Returns (committed_index, skipped_slots, committed_times, skipped_times).
 
     Cancelled rows go into skipped_slots — they represent slots the user
     explicitly cleared (via skip-slot UI). The materializer must NOT refill
@@ -164,17 +164,25 @@ async def _build_committed_index(
     rows = await db.get_scheduled_messages(date_from, date_to, include_cancelled=True)
     index: dict = {}
     skipped: set[tuple[str, str, str]] = set()
+    committed_times: set[tuple[str, str]] = set()
+    skipped_times: set[tuple[str, str]] = set()
     for r in rows:
-        key = (
+        time_key = (
             r.get("scheduled_date"),
             (r.get("scheduled_time") or "")[:5],
+        )
+        key = (
+            time_key[0],
+            time_key[1],
             r.get("message_type"),
         )
         if r.get("status") == "cancelled":
             skipped.add(key)
+            skipped_times.add(time_key)
             continue
         index[key] = r
-    return index, skipped
+        committed_times.add(time_key)
+    return index, skipped, committed_times, skipped_times
 
 
 async def _used_texts_for_type(
@@ -417,7 +425,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
         last_sunday += timedelta(days=7)
     index_end = last_sunday + timedelta(days=6)
 
-    committed_index, skipped_slots = await _build_committed_index(
+    committed_index, skipped_slots, committed_times, skipped_times = await _build_committed_index(
         db, first_sunday.isoformat(), index_end.isoformat()
     )
     settings = get_settings()
@@ -490,7 +498,10 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
             msg_type = candidate["type"]
             time_s = candidate["time"]
             key = (day_iso, time_s, msg_type)
+            time_key = (day_iso, time_s)
             if key in committed_index or key in skipped_slots:
+                continue
+            if time_key in committed_times or time_key in skipped_times:
                 continue
             if day == today and time_s <= current_hhmm:
                 continue
@@ -521,6 +532,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
                 created_by="auto",
             )
             committed_index[key] = {"id": msg_id}
+            committed_times.add(time_key)
             # Prepend the freshly-inserted text so it appears most-recent-first
             # for the next slot in this same materialization pass.
             used_by_type[msg_type].insert(0, text)

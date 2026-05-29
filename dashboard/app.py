@@ -6617,19 +6617,26 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
     skipped: list = []
     by_type: dict = {}
     committed_keys: set[tuple[str, str, str, int]] = set()
+    committed_time_types: dict[tuple[str, str, str], set[str]] = {}
 
     if getattr(db, "_db", None) is not None:
         try:
             async with db._db.execute(
-                """SELECT scheduled_date, scheduled_time, message_type, channel_topic_id
+                """SELECT scheduled_date, scheduled_time, message_type, channel_topic_id, target_group
                    FROM scheduled_messages
                    WHERE status IN ('scheduled', 'draft', 'sent')"""
             ) as cur:
                 for row in await cur.fetchall():
+                    row_date = str(row["scheduled_date"])
+                    row_time = str(row["scheduled_time"] or "")[:5]
+                    row_group = str(row["target_group"] or "main")
+                    committed_time_types.setdefault((row_date, row_time, row_group), set()).add(
+                        str(row["message_type"])
+                    )
                     try:
                         committed_keys.add((
-                            str(row["scheduled_date"]),
-                            str(row["scheduled_time"] or "")[:5],
+                            row_date,
+                            row_time,
                             str(row["message_type"]),
                             int(row["channel_topic_id"]),
                         ))
@@ -6637,6 +6644,17 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                         continue
         except Exception as e:  # noqa: BLE001
             logger.warning("[weekplan.ai-suggest-commit] existing slot lookup failed: %s", e)
+
+    approved_game_time_keys: set[tuple[str, str, str]] = set()
+    for item in approved:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("message_type") or "") not in {"trivia_round", "emoji_puzzle"}:
+            continue
+        try:
+            approved_game_time_keys.add((str(item["date"]), str(item["time"])[:5], "main"))
+        except KeyError:
+            continue
 
     for i, item in enumerate(approved):
         if not isinstance(item, dict):
@@ -6692,8 +6710,15 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                 poll_options_json = None
 
         slot_key = (d, t[:5], mtype, topic)
+        time_key = (d, t[:5], "main")
+        if mtype not in {"trivia_round", "emoji_puzzle"} and time_key in approved_game_time_keys:
+            skipped.append(f"#{i}: slot clash {time_key}")
+            continue
         if slot_key in committed_keys:
             skipped.append(f"#{i}: duplicate slot {slot_key}")
+            continue
+        if time_key in committed_time_types:
+            skipped.append(f"#{i}: slot clash {time_key}")
             continue
 
         try:
@@ -6711,6 +6736,7 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             inserted_ids.append(new_id)
             by_type[mtype] = by_type.get(mtype, 0) + 1
             committed_keys.add(slot_key)
+            committed_time_types.setdefault(time_key, set()).add(mtype)
         except Exception as e:
             errors.append(f"#{i}: insert failed: {e}")
 
@@ -11611,6 +11637,12 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
     if message_type in {"morning", "evening", "discussion"}:
         _reject_bad_planner_text(data["text"])
+    await _reject_calendar_slot_clash(
+        db,
+        scheduled_date=data["scheduled_date"],
+        scheduled_time=data["scheduled_time"],
+        target_group=target_group,
+    )
 
     trivia_topup = None
     if message_type == "trivia_round":
@@ -11671,6 +11703,46 @@ def _reject_too_soon_schedule(target_date_str: str, target_time_str: str, *, for
                 },
             )
     return target_dt
+
+
+async def _reject_calendar_slot_clash(
+    db: Database,
+    *,
+    scheduled_date: str,
+    scheduled_time: str,
+    target_group: str = "main",
+    exclude_id: int | None = None,
+) -> None:
+    """Reject a second admin-scheduled activity in the same group minute."""
+    if getattr(db, "_db", None) is None:
+        return
+    sql = (
+        "SELECT id, message_type, channel_topic_id FROM scheduled_messages "
+        "WHERE scheduled_date = ? AND substr(COALESCE(scheduled_time, ''), 1, 5) = ? "
+        "AND COALESCE(target_group, 'main') = ? "
+        "AND status IN ('scheduled', 'draft', 'sent')"
+    )
+    params: list = [scheduled_date, str(scheduled_time or "")[:5], target_group]
+    if exclude_id is not None:
+        sql += " AND id != ?"
+        params.append(exclude_id)
+    sql += " ORDER BY id LIMIT 1"
+    async with db._db.execute(sql, params) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "error": "slot_clash",
+            "scheduled_date": scheduled_date,
+            "scheduled_time": str(scheduled_time or "")[:5],
+            "target_group": target_group,
+            "existing_id": int(row["id"]),
+            "existing_type": row["message_type"],
+            "existing_topic_id": row["channel_topic_id"],
+        },
+    )
 
 
 @app.put("/api/calendar/{msg_id}")
@@ -11744,7 +11816,7 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
     existing_row = None
     if fields.get("status") == "scheduled" or "scheduled_date" in fields or "scheduled_time" in fields:
         async with db._db.execute(
-            "SELECT id, text, scheduled_date, scheduled_time, status, message_type, poll_options FROM scheduled_messages WHERE id = ?",
+            "SELECT id, text, scheduled_date, scheduled_time, status, message_type, poll_options, target_group FROM scheduled_messages WHERE id = ?",
             (msg_id,),
         ) as cur:
             existing_row = await cur.fetchone()
@@ -11755,12 +11827,21 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
         if effective_status == "scheduled":
             effective_date = fields.get("scheduled_date", existing_row["scheduled_date"])
             effective_time = (fields.get("scheduled_time", existing_row["scheduled_time"]) or "")[:5]
+            effective_group = fields.get("target_group", existing_row["target_group"] or "main")
+            effective_group = _validated_target_group(effective_group)
             _reject_bad_message_row({
                 "text": fields.get("text", existing_row["text"]),
                 "message_type": fields.get("message_type", existing_row["message_type"]),
                 "scheduled_date": effective_date,
             })
             _reject_too_soon_schedule(effective_date, effective_time, force=bool(data.get("force", False)))
+            await _reject_calendar_slot_clash(
+                db,
+                scheduled_date=effective_date,
+                scheduled_time=effective_time,
+                target_group=effective_group,
+                exclude_id=msg_id,
+            )
 
     trivia_topup = None
     if fields.get("status") == "scheduled":

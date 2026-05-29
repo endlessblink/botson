@@ -678,6 +678,33 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created[0]["message_type"], "trivia_round")
         self.assertEqual(db.created[0]["target_group"], "test")
 
+    async def test_create_calendar_item_rejects_same_minute_clash(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.create_scheduled_message(
+                text="first",
+                message_type="custom",
+                channel_topic_id=341,
+                target_group="main",
+                scheduled_date="2099-01-01",
+                scheduled_time="18:00",
+            )
+            body = {
+                "text": "second",
+                "message_type": "emoji_puzzle",
+                "channel_topic_id": 4037,
+                "target_group": "main",
+                "scheduled_date": "2099-01-01",
+                "scheduled_time": "18:00",
+            }
+            with self.assertRaises(HTTPException) as ctx:
+                await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertEqual(ctx.exception.detail["error"], "slot_clash")
+        finally:
+            await db.close()
+
     async def test_create_calendar_item_rejects_cron_owned_types(self):
         # Cron-owned types (weekly_roundup/weekly_leaderboard/free_games — see
         # bot/scheduler/dispatch_owner.py) are sent by the APScheduler cron jobs, not
@@ -788,6 +815,42 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["skipped"]), 1)
         self.assertIn("duplicate slot", result["skipped"][0])
         self.assertEqual([row["message_type"] for row in rows], ["trivia_round"])
+
+    async def test_ai_suggest_commit_rejects_same_minute_activity_clash(self):
+        db = Database(":memory:")
+        await db.init()
+        approved = [
+            {
+                "date": "2099-01-01",
+                "time": "22:00",
+                "message_type": "emoji_puzzle",
+                "topic_id": 4037,
+                "text": "",
+                "source": "ai-fill-pool-row",
+                "poll_options_json": '{"theme_label":"movies"}',
+            },
+            {
+                "date": "2099-01-01",
+                "time": "22:00",
+                "message_type": "facts_tidbit",
+                "topic_id": 341,
+                "text": "fact",
+                "source": "ai-fill-pool-row",
+                "poll_options_json": '{"fact_id":"f1"}',
+            },
+        ]
+
+        result = await dashboard_app.ai_suggest_commit(
+            FakeCalendarRequest({"approved": approved}),
+            db,
+        )
+        rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        await db.close()
+
+        self.assertEqual(result["inserted"], 1, result)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertIn("slot clash", result["skipped"][0])
+        self.assertEqual([row["message_type"] for row in rows], ["emoji_puzzle"])
 
     async def test_ai_suggest_commit_rejects_known_low_quality_text(self):
         db = FakeCalendarDb()
@@ -1175,9 +1238,11 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     FakeCalendarRequest({"approved": approved}),
                     db,
                 )
-                self.assertEqual(commit["inserted"], 2)
+                self.assertEqual(commit["inserted"], 1)
+                self.assertEqual(len(commit["skipped"]), 1)
+                self.assertIn("slot clash", commit["skipped"][0])
                 due = await db.get_due_messages(today, due_time)
-                self.assertEqual([row["message_type"] for row in due], ["discussion", "emoji_puzzle"])
+                self.assertEqual([row["message_type"] for row in due], ["emoji_puzzle"])
                 self.assertTrue(all(row["status"] == "scheduled" for row in due))
 
                 context = SimpleNamespace(bot_data={"db": db}, bot=object())
@@ -1198,8 +1263,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 rows = await db.get_scheduled_messages(today, today)
                 by_type = {row["message_type"]: row for row in rows}
                 self.assertEqual(by_type["emoji_puzzle"]["status"], "sent")
-                self.assertEqual(by_type["discussion"]["status"], "skipped")
-                self.assertIn("same_slot_collision", by_type["discussion"]["error_message"])
+                self.assertNotIn("discussion", by_type)
             finally:
                 await db.close()
 
@@ -1408,6 +1472,45 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 async with db._db.execute("SELECT target_group FROM scheduled_messages WHERE id = ?", (msg_id,)) as cur:
                     row = await cur.fetchone()
                 self.assertEqual(row["target_group"], "main")
+            finally:
+                await db.close()
+
+    async def test_update_calendar_item_rejects_same_minute_clash(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                await db.create_scheduled_message(
+                    text="first",
+                    message_type="custom",
+                    channel_topic_id=341,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="18:00",
+                    status="scheduled",
+                )
+                msg_id = await db.create_scheduled_message(
+                    text="second",
+                    message_type="custom",
+                    channel_topic_id=4037,
+                    target_group="main",
+                    scheduled_date="2099-01-01",
+                    scheduled_time="19:00",
+                    status="scheduled",
+                )
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await dashboard_app.update_calendar_item(
+                        msg_id,
+                        FakeCalendarRequest({"scheduled_time": "18:00", "force": True}),
+                        db,
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 409)
+                self.assertEqual(ctx.exception.detail["error"], "slot_clash")
+                async with db._db.execute("SELECT scheduled_time FROM scheduled_messages WHERE id = ?", (msg_id,)) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["scheduled_time"], "19:00")
             finally:
                 await db.close()
 
