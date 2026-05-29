@@ -218,6 +218,11 @@ def _rtl_stabilize_hebrew_dominant_text(text: str) -> str:
     return "\n".join(out)
 
 
+def _normalize_slash_commands(text: str) -> str:
+    """Fix bidi/LLM-reordered command tokens such as `help/` -> `/help`."""
+    return re.sub(r"(?<![\w/])([A-Za-z][A-Za-z0-9_-]{1,31})/(?!/)", r"/\1", str(text or ""))
+
+
 async def _cleanup_ai_suggest_jobs(db: Database) -> None:
     try:
         await db.cleanup_ai_suggest_jobs(_AI_SUGGEST_JOB_TTL_SECONDS)
@@ -439,7 +444,7 @@ async def enhance_update_draft(request: Request):
         raise HTTPException(status_code=401)
 
     data = await request.json()
-    text = str(data.get("text") or "").strip()
+    text = _normalize_slash_commands(str(data.get("text") or "").strip())
     allow_emojis = bool(data.get("allow_emojis"))
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
@@ -466,7 +471,7 @@ async def enhance_update_draft(request: Request):
                 status_code=500,
                 detail=f"Enhance failed: CLI={cli_err}; API={api_err}",
             )
-    return {"status": "ok", "text": enhanced.strip()}
+    return {"status": "ok", "text": _normalize_slash_commands(enhanced.strip())}
 
 
 @app.post("/api/settings/topics")
@@ -843,7 +848,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         raise HTTPException(status_code=401)
 
     data = await request.json()
-    text = data.get("text", "").strip()
+    text = _normalize_slash_commands(data.get("text", "").strip())
     text = _rtl_stabilize_hebrew_dominant_text(text)
     topic_id = data.get("topic_id")
     target = data.get("target", "main")  # "main" or "test"
