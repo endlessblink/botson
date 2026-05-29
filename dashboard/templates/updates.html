@@ -118,7 +118,7 @@
 <script>
     const updateConfig = {{ update_config|tojson }};
     let digestItems = {{ digest_items|tojson }};
-    let attachedCoverPath = '';
+    let attachedCoverPaths = [];
 
     function fieldValue(id) {
         return (document.getElementById(id).value || '').trim();
@@ -244,7 +244,7 @@
             text: text,
             topic_id: topicId,
             target: fieldValue('send-target') || 'main',
-            cover_path: attachedCoverPath || null,
+            cover_paths: attachedCoverPaths,
         });
         showToast(updateConfig.ui.sent);
     }
@@ -279,7 +279,7 @@
         await apiCall('/api/bot/send-message', {
             text: text,
             target: 'test',
-            cover_path: attachedCoverPath || null,
+            cover_paths: attachedCoverPaths,
         });
         showToast(updateConfig.ui.preview_sent || updateConfig.ui.sent);
     }
@@ -303,32 +303,50 @@
             throw new Error(detail || ('API error: ' + res.status));
         }
         const data = await res.json();
-        attachedCoverPath = data.path || '';
-        renderAttachedImage(data.url || ('/media/' + attachedCoverPath));
+        if (data.path) {
+            attachedCoverPaths.push(data.path);
+            renderAttachedImages();
+        }
         showToast(updateConfig.ui.image_attached || updateConfig.ui.saved);
     }
 
-    function renderAttachedImage(url) {
+    function renderAttachedImages() {
         const preview = document.getElementById('attached-image-preview');
         const removeBtn = document.getElementById('remove-image-btn');
+        if (!attachedCoverPaths.length) {
+            preview.classList.add('hidden');
+            preview.innerHTML = '';
+            removeBtn.classList.add('hidden');
+            return;
+        }
         preview.classList.remove('hidden');
         removeBtn.classList.remove('hidden');
-        preview.innerHTML = '<img src="' + url + '" alt="" class="max-h-56 rounded-md border border-[#272727] object-contain">';
+        preview.innerHTML = '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">' + attachedCoverPaths.map(function (path, index) {
+            const url = '/media/' + path;
+            return '<div class="relative group">' +
+                '<img src="' + url + '" alt="" class="h-36 w-full rounded-md border border-[#272727] object-cover">' +
+                '<button type="button" onclick="removeAttachedImage(' + index + ')" class="absolute top-2 left-2 rounded bg-black/70 px-2 py-1 text-[11px] text-rose-200 opacity-90 hover:bg-black">' + updateConfig.ui.image_remove + '</button>' +
+            '</div>';
+        }).join('') + '</div>';
     }
 
-    function removeAttachedImage() {
-        attachedCoverPath = '';
-        document.getElementById('attached-image-preview').classList.add('hidden');
-        document.getElementById('attached-image-preview').innerHTML = '';
-        document.getElementById('remove-image-btn').classList.add('hidden');
+    function removeAttachedImage(index) {
+        if (typeof index === 'number') {
+            attachedCoverPaths.splice(index, 1);
+        } else {
+            attachedCoverPaths = [];
+        }
+        renderAttachedImages();
     }
 
     document.getElementById('image-drop-zone').addEventListener('paste', function (event) {
         const items = Array.from((event.clipboardData || {}).items || []);
-        const imageItem = items.find(function (item) { return item.type && item.type.startsWith('image/'); });
-        if (!imageItem) return;
+        const imageItems = items.filter(function (item) { return item.type && item.type.startsWith('image/'); });
+        if (!imageItems.length) return;
         event.preventDefault();
-        uploadAttachedImage(imageItem.getAsFile()).catch(function (err) { showToast(err.message, 'error'); });
+        imageItems.forEach(function (item) {
+            uploadAttachedImage(item.getAsFile()).catch(function (err) { showToast(err.message, 'error'); });
+        });
     });
 
     renderDigestItems();

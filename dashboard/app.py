@@ -783,6 +783,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
     topic_id = data.get("topic_id")
     target = data.get("target", "main")  # "main" or "test"
     cover_path = data.get("cover_path")
+    cover_paths = data.get("cover_paths")
     message_type = data.get("message_type")
     poll_options = data.get("poll_options")
     poll_duration = data.get("poll_duration")
@@ -798,6 +799,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         _parse_poll_options,
     )
     from bot.utils.topic_guard import UnverifiedTopicError
+    from bot.utils.topic_guard import safe_send
     bot = Bot(os.getenv("BOT_TOKEN", ""))
 
     if target == "test":
@@ -823,15 +825,37 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
                 bypass_verification=is_topic_discovery,
             )
         else:
+            if isinstance(cover_paths, list):
+                normalized_covers = [str(path).strip() for path in cover_paths if str(path or "").strip()]
+            else:
+                normalized_covers = []
+            if cover_path and not normalized_covers:
+                normalized_covers = [str(cover_path).strip()]
+
             msg = await send_message_with_optional_cover(
                 bot,
                 db=db,
                 chat_id=group_id,
                 text=text,
                 message_thread_id=int(topic_id) if topic_id else None,
-                cover_path=cover_path,
+                cover_path=normalized_covers[0] if normalized_covers else None,
                 bypass_verification=is_topic_discovery,
             )
+            for extra_cover in normalized_covers[1:]:
+                full = MEDIA_DIR / extra_cover
+                if not full.exists():
+                    logger.warning("extra cover_path %s not found at %s — skipping", extra_cover, full)
+                    continue
+                with full.open("rb") as f:
+                    await safe_send(
+                        bot,
+                        db,
+                        "send_photo",
+                        chat_id=group_id,
+                        photo=f,
+                        message_thread_id=int(topic_id) if topic_id else None,
+                        bypass_verification=is_topic_discovery,
+                    )
         await db.log_activity("manual_send", f"שלח הודעה ידנית ({'טסט' if target == 'test' else 'ראשית'})", target_channel=str(topic_id or "general"))
         return {"status": "ok", "message_id": msg.message_id}
     except UnverifiedTopicError as e:
