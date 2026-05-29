@@ -1648,6 +1648,8 @@ Verification: 4 new regression tests in `tests/test_planner_coercion_and_chips.p
 
 **Files:** `dashboard/app.py`, `bot/handlers/calendar.py`, `tests/test_planner_coercion_and_chips.py`.
 
+**Refinement 2026-05-29:** Warm-up RSVP announcements are now one-shot public teasers. Populate/manual trivia can place the first warm-up in the relevant topic (for example movies, gaming, or music), while the executable game still launches in Botson's corner. `config/settings.yaml:game_warmup_topic_routes.enabled` is the operator escape hatch: set it false to keep warm-ups in the game play topic if relevant-topic teasers feel noisy. Public warm-ups are still cleaned up after the configured window, and no public reminder rows are reintroduced.
+
 ---
 
 #### T-126: Second warm-up reminder (✅ DONE 2026-05-07)

@@ -51,17 +51,17 @@ class HandlerRoutingTests(unittest.IsolatedAsyncioTestCase):
         row = await db.get_handler_routing("trivia_round")
         self.assertEqual(row["play_topic_id"], 54)
         warmup = await db.get_handler_routing("trivia_warmup")
-        self.assertEqual(warmup["play_topic_id"], 54)
+        self.assertEqual(warmup["play_topic_id"], 4037)
 
-    async def test_trivia_warmup_routing_is_game_route_alias(self):
+    async def test_trivia_warmup_routing_is_independent_public_teaser_route(self):
         db = await self._fresh_db()
         await db.set_handler_routing("trivia_warmup", play_topic_id=341, teaser_topic_ids=[])
         trivia = await db.get_handler_routing("trivia_round")
         warmup = await db.get_handler_routing("trivia_warmup")
-        self.assertEqual(trivia["play_topic_id"], 341)
+        self.assertEqual(trivia["play_topic_id"], 4037)
         self.assertEqual(warmup["play_topic_id"], 341)
 
-    async def test_startup_normalizes_legacy_warmup_route_to_game_route(self):
+    async def test_startup_preserves_legacy_warmup_route(self):
         db = await self._fresh_db()
         await db._db.execute(
             "UPDATE bot_message_routing SET play_topic_id = 4037 WHERE handler = 'trivia_round'"
@@ -74,9 +74,9 @@ class HandlerRoutingTests(unittest.IsolatedAsyncioTestCase):
         await db._normalize_game_warmup_routing()
 
         warmup = await db.get_handler_routing("trivia_warmup")
-        self.assertEqual(warmup["play_topic_id"], 4037)
+        self.assertEqual(warmup["play_topic_id"], 341)
 
-    async def test_pending_game_warmup_normalization_uses_game_route_not_legacy_warmup_route(self):
+    async def test_pending_game_warmup_normalization_preserves_teaser_topic(self):
         db = await self._fresh_db()
         await db._db.execute(
             "UPDATE bot_message_routing SET play_topic_id = 4037 WHERE handler = 'trivia_round'"
@@ -99,7 +99,7 @@ class HandlerRoutingTests(unittest.IsolatedAsyncioTestCase):
         await db._normalize_pending_game_warmup_topics()
         row = await db.get_scheduled_message(msg_id)
 
-        self.assertEqual(row["channel_topic_id"], 4037)
+        self.assertEqual(row["channel_topic_id"], 341)
 
     async def test_set_and_get_routing_with_teasers(self):
         db = await self._fresh_db()

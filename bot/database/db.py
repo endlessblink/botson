@@ -189,90 +189,20 @@ class Database:
         await self._normalize_pending_game_warmup_topics()
 
     async def _normalize_game_warmup_routing(self):
-        """Keep legacy trivia_warmup routing aligned with trivia_round.
+        """Retained as a no-op migration hook.
 
-        Game warm-ups are not an announcements-channel primitive anymore; every
-        RSVP warm-up must launch in the same topic as the game it gates.
-        ``trivia_warmup`` remains in bot_message_routing only for old admin/API
-        surfaces, so normalize it as an alias instead of letting it drift.
+        Warm-up RSVP rows are public teasers and should preserve the relevant
+        topic chosen by the planner. Games launch in their play topic.
         """
-        try:
-            trivia = await self.get_handler_routing("trivia_round")
-            trivia_topic = trivia.get("play_topic_id") if trivia else None
-            warmup = await self.get_handler_routing("trivia_warmup")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("game warmup routing normalization skipped: %s", e)
-            return
-        if trivia_topic is None:
-            return
-        if warmup and warmup.get("play_topic_id") == trivia_topic:
-            return
-        await self._db.execute(
-            """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
-               VALUES ('trivia_warmup', ?, '[]', CURRENT_TIMESTAMP)
-               ON CONFLICT(handler) DO UPDATE SET
-                   play_topic_id = excluded.play_topic_id,
-                   teaser_topic_ids = '[]',
-                   updated_at = CURRENT_TIMESTAMP""",
-            (int(trivia_topic),),
-        )
-        await self._db.commit()
-        logger.info("Normalized trivia_warmup routing to trivia_round topic %s", trivia_topic)
+        return
 
     async def _normalize_pending_game_warmup_topics(self):
-        """Move not-yet-sent game warm-ups out of the announcements topic.
+        """Retained as a no-op migration hook.
 
-        Older scheduled rows may have been created with the updates/welcome topic.
-        The dispatcher also resolves the topic at send time, but normalizing here
-        keeps the dashboard honest before those rows fire.
+        Do not rewrite pending warm-up rows: their stored channel_topic_id is
+        the public topic where the teaser should appear.
         """
-        try:
-            trivia_routing = await self.get_handler_routing("trivia_round")
-            trivia_topic = trivia_routing.get("play_topic_id") if trivia_routing else None
-            emoji_routing = await self.get_handler_routing("emoji_puzzle")
-            emoji_topic = emoji_routing.get("play_topic_id") if emoji_routing else None
-        except Exception as e:  # noqa: BLE001
-            logger.warning("game warmup topic normalization skipped: %s", e)
-            return
-        if trivia_topic is None and emoji_topic is None:
-            return
-
-        async with self._db.execute(
-            """SELECT id, text, channel_topic_id, poll_options
-               FROM scheduled_messages
-               WHERE message_type='trivia_warmup_rsvp'
-                 AND status IN ('draft', 'scheduled')""",
-        ) as cur:
-            rows = await cur.fetchall()
-
-        changed = 0
-        for row in rows:
-            try:
-                payload = json.loads(row["poll_options"] or "{}")
-            except (json.JSONDecodeError, TypeError):
-                payload = {}
-            marker = str(payload.get("warmup_marker") or "")
-            lookup = " ".join([
-                marker,
-                str(payload.get("activity_label") or ""),
-                str(payload.get("theme_label") or ""),
-                str(row["text"] or ""),
-            ]).lower()
-            target = None
-            if ":emoji:" in marker or "emoji" in lookup or "\u05d0\u05d9\u05de\u05d5\u05d2" in lookup:
-                target = emoji_topic or trivia_topic
-            else:
-                target = trivia_topic
-            if target is None or row["channel_topic_id"] == target:
-                continue
-            await self._db.execute(
-                "UPDATE scheduled_messages SET channel_topic_id=? WHERE id=?",
-                (int(target), int(row["id"])),
-            )
-            changed += 1
-        if changed:
-            await self._db.commit()
-            logger.info("Normalized %d pending game warm-up rows to game topic", changed)
+        return
 
     async def _seed_default_handler_routing(self):
         """Seed bot_message_routing with default per-handler targets on first run.
@@ -995,7 +925,6 @@ class Database:
 
     async def set_handler_routing(self, handler: str, play_topic_id: int | None, teaser_topic_ids: list[int] | None = None) -> None:
         """Upsert a handler routing row."""
-        handler = "trivia_round" if handler == "trivia_warmup" else handler
         teaser_json = json.dumps([int(x) for x in (teaser_topic_ids or [])])
         await self._db.execute(
             """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
@@ -1006,16 +935,6 @@ class Database:
                    updated_at = CURRENT_TIMESTAMP""",
             (handler, play_topic_id, teaser_json),
         )
-        if handler == "trivia_round":
-            await self._db.execute(
-                """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
-                   VALUES ('trivia_warmup', ?, '[]', CURRENT_TIMESTAMP)
-                   ON CONFLICT(handler) DO UPDATE SET
-                       play_topic_id = excluded.play_topic_id,
-                       teaser_topic_ids = '[]',
-                       updated_at = CURRENT_TIMESTAMP""",
-                (play_topic_id,),
-            )
         await self._db.commit()
 
     async def remove_verified_forum_topic(self, category_key: str):

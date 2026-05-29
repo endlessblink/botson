@@ -375,31 +375,11 @@ async def _coerce_due_game_row(db: Database, msg: dict, target: str) -> dict:
 
 
 async def _game_warmup_thread_id(db: Database, msg: dict) -> int | None:
-    """Route game RSVP/reminder rows with their game, not the updates topic.
+    """Use the scheduled topic for public game warm-ups.
 
-    Older rows may still carry the old trivia_warmup/update-channel topic. At
-    dispatch time the marker tells us whether the row belongs to trivia or emoji,
-    so use the executable game's routing as the source of truth.
+    The warm-up is the teaser that should appear in the content-relevant forum
+    topic. The executable game row still launches in the game play topic.
     """
-    payload = _parse_payload(msg.get("poll_options"))
-    marker = str(payload.get("warmup_marker") or "")
-    handler = None
-    text = str(msg.get("text") or "")
-    activity_label = str(payload.get("activity_label") or payload.get("theme_label") or "")
-    lookup_text = f"{marker} {activity_label} {text}".lower()
-    if ":emoji:" in marker or "emoji" in lookup_text or "\u05d0\u05d9\u05de\u05d5\u05d2" in lookup_text:
-        handler = "emoji_puzzle"
-    elif ":trivia:" in marker or marker.startswith("warmup-rsvp:"):
-        handler = "trivia_round"
-    elif msg.get("message_type") == "trivia_warmup_rsvp":
-        handler = "trivia_round"
-    if handler:
-        try:
-            routing = await db.get_handler_routing(handler)
-            if routing and routing.get("play_topic_id") is not None:
-                return int(routing["play_topic_id"])
-        except Exception:
-            pass
     topic = msg.get("channel_topic_id")
     return int(topic) if topic is not None else None
 
@@ -872,8 +852,6 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     message_thread_id=warmup_thread_id,
                     reply_markup=markup,
                 )
-                if msg.get("channel_topic_id") != warmup_thread_id:
-                    await db.update_scheduled_message(msg["id"], channel_topic_id=warmup_thread_id)
             elif msg.get("message_type") == "warmup_reminder":
                 raise SkippedActivity("warmup_reminder: public group reminders disabled; personal DM reminders handle sign-ups")
             else:
@@ -1020,11 +998,6 @@ async def cleanup_public_warmup_announcements(context: ContextTypes.DEFAULT_TYPE
     main_group = int(os.getenv("GROUP_ID", "0"))
     test_group = int(os.getenv("TEST_GROUP_ID", "0"))
     for row in rows:
-        desired_thread_id = await _game_warmup_thread_id(db, row)
-        stored_thread_id = row.get("channel_topic_id")
-        if stored_thread_id == desired_thread_id:
-            await db.mark_warmup_cleanup_result(int(row["id"]), "kept-game-topic")
-            continue
         target = row.get("target_group", "main")
         chat_id = test_group if target == "test" else main_group
         message_id = int(row.get("sent_message_id") or 0)

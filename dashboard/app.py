@@ -1526,11 +1526,40 @@ async def _ensure_trivia_pool_ready_for_round_unlocked(row) -> dict:
     return {"generated": len(questions), "available": available + len(generated_matches), "required": question_count}
 
 
+def _configured_discussion_topic(settings: dict, category_key: str) -> int | None:
+    topic = ((settings.get("topics") or {}).get("discussions") or {}).get(
+        str(category_key or "").strip()
+    )
+    try:
+        return int(topic) if topic is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _configured_game_warmup_topic(
+    settings: dict,
+    *,
+    route_key: str,
+    subjects: list[str],
+    fallback_topic: int | None,
+) -> int | None:
+    cfg = settings.get("game_warmup_topic_routes") or {}
+    if not bool(cfg.get("enabled", True)):
+        return int(fallback_topic) if fallback_topic is not None else None
+    routes = (cfg.get(route_key) or {})
+    for subject in subjects:
+        category_key = routes.get(str(subject or "").strip())
+        topic = _configured_discussion_topic(settings, str(category_key or ""))
+        if topic is not None:
+            return topic
+    return int(fallback_topic) if fallback_topic is not None else None
+
+
 async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -> int | None:
     """Create one warm-up announcement for a scheduled trivia game.
 
-    The warm-up follows the game topic unless the payload explicitly carries a
-    teaser topic. This keeps game chatter in botson_corner by default.
+    The warm-up appears in the configured relevant topic when the game subject
+    maps to one. The game itself still launches in the play topic.
     This companion row must be scheduled too; drafts are visible on the calendar
     but are ignored by the autonomous sender.
     """
@@ -1572,9 +1601,15 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     )
     if text is None:
         return None
+    settings = get_settings()
     announcement_topic_id = payload.get("teaser_topic_id")
     if announcement_topic_id is None:
-        announcement_topic_id = row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"]
+        announcement_topic_id = _configured_game_warmup_topic(
+            settings,
+            route_key="trivia_categories",
+            subjects=list(payload.get("categories") or []),
+            fallback_topic=row.get("channel_topic_id") if hasattr(row, "get") else row["channel_topic_id"],
+        )
 
     warmup_marker = f"warmup-rsvp:{game_id}"
     question_count = int(payload.get("question_count") or 5)
@@ -6022,6 +6057,24 @@ async def _ai_suggest_calendar(
         clean["kind"] = kind
         return "/planner/suggestion-preview?" + urlencode(clean, doseq=True)
 
+    def _trivia_warmup_topic(categories: list[str], fallback_topic: int) -> int:
+        topic = _configured_game_warmup_topic(
+            settings,
+            route_key="trivia_categories",
+            subjects=categories,
+            fallback_topic=fallback_topic,
+        )
+        return int(topic) if topic is not None else int(fallback_topic)
+
+    def _emoji_warmup_topic(media_types: list[str], fallback_topic: int) -> int:
+        topic = _configured_game_warmup_topic(
+            settings,
+            route_key="emoji_media_types",
+            subjects=media_types,
+            fallback_topic=fallback_topic,
+        )
+        return int(topic) if topic is not None else int(fallback_topic)
+
     # T-185 (Gap 8): published-state filter for fact preview picks.
     # The populate flow used to pick facts with pure random.choice,
     # ignoring (a) recent sends in the activity_log, (b) operator
@@ -6276,7 +6329,9 @@ async def _ai_suggest_calendar(
                     # emit a naked emoji_puzzle without RSVP plumbing.
                     if emoji_min_ready > 0 and not _slot_available_or_skip(d_iso, announce_t, "trivia_warmup_rsvp"):
                         continue
-                    emoji_announcement_topic = int(routed_topics["emoji_puzzle"])
+                    emoji_announcement_topic = _emoji_warmup_topic(
+                        emoji_media_types, int(routed_topics["emoji_puzzle"])
+                    )
                     emoji_text = await _generate_activity_copy(
                         "emoji_warmup",
                         avoid_texts=existing_activity_texts | generated_activity_texts,
@@ -6489,7 +6544,9 @@ async def _ai_suggest_calendar(
                     )
                     if not warmup_text:
                         continue
-                    warmup_topic = routed_topics["trivia_round"]
+                    warmup_topic = _trivia_warmup_topic(
+                        trivia_categories, int(routed_topics["trivia_round"])
+                    )
                     trivia_warmup_marker = f"warmup-rsvp:trivia:{d_iso}:{t}"
                     warmup_poll_json = json.dumps({
                         "min_ready_players": min_ready,

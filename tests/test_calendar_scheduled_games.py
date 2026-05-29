@@ -72,7 +72,7 @@ def _base_row(message_type):
 
 
 class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
-    async def test_startup_normalizes_pending_legacy_warmup_topics(self):
+    async def test_startup_preserves_pending_warmup_topics(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
             await db.init()
@@ -98,7 +98,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
                     (msg_id,),
                 ) as cur:
                     row = await cur.fetchone()
-                self.assertEqual(row["channel_topic_id"], 4037)
+                self.assertEqual(row["channel_topic_id"], 341)
             finally:
                 await db2.close()
 
@@ -306,9 +306,9 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.sent, [(123, 789)])
         self.assertEqual(db.failed, [])
 
-    async def test_game_warmup_row_uses_game_topic_even_if_stored_as_updates(self):
+    async def test_game_warmup_row_uses_stored_relevant_topic(self):
         row = _base_row("trivia_warmup_rsvp")
-        row["channel_topic_id"] = 341
+        row["channel_topic_id"] = 54
         row["poll_options"] = json.dumps({"warmup_marker": "warmup-rsvp:trivia:2099-01-01:22:00"})
         db = FakeScheduledDb(row)
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
@@ -322,16 +322,16 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         safe_send.assert_awaited_once()
         kwargs = safe_send.await_args.kwargs
-        self.assertEqual(kwargs["message_thread_id"], 4037)
+        self.assertEqual(kwargs["message_thread_id"], 54)
         buttons = [b for row in kwargs["reply_markup"].inline_keyboard for b in row]
         self.assertTrue(any(b.url == "https://t.me/bot?start=game_123" for b in buttons))
-        self.assertEqual(db.updates, [(123, {"channel_topic_id": 4037})])
+        self.assertEqual(db.updates, [])
         self.assertEqual(db.sent, [(123, 789)])
         self.assertEqual(db.failed, [])
 
-    async def test_legacy_emoji_warmup_without_marker_still_uses_game_topic(self):
+    async def test_legacy_emoji_warmup_without_marker_preserves_stored_topic(self):
         row = _base_row("trivia_warmup_rsvp")
-        row["channel_topic_id"] = 341
+        row["channel_topic_id"] = 54
         row["text"] = "🧩 Emoji Night מתחיל ב-22:00 — לחצו כדי להירשם"
         row["poll_options"] = json.dumps({"theme_label": "מוזיקה"}, ensure_ascii=False)
         db = FakeScheduledDb(row)
@@ -344,8 +344,8 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
             await calendar.check_and_send_due_messages(context)
 
         kwargs = safe_send.await_args.kwargs
-        self.assertEqual(kwargs["message_thread_id"], 4037)
-        self.assertEqual(db.updates, [(123, {"channel_topic_id": 4037})])
+        self.assertEqual(kwargs["message_thread_id"], 54)
+        self.assertEqual(db.updates, [])
 
     async def test_emoji_puzzle_internal_row_keeps_existing_dispatch_path(self):
         row = _base_row("emoji_puzzle_round")
@@ -658,7 +658,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
-    async def test_public_warmup_cleanup_keeps_messages_already_in_game_topic(self):
+    async def test_public_warmup_cleanup_deletes_old_game_topic_message_too(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
             await db.init()
@@ -687,7 +687,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
                      patch("bot.utils.config.get_settings", return_value={"trivia": {"warmup_public_cleanup_minutes": 20}}):
                     await calendar.cleanup_public_warmup_announcements(ctx)
 
-                bot.delete_message.assert_not_awaited()
+                bot.delete_message.assert_awaited_once_with(chat_id=-1002, message_id=7002)
                 async with db._db.execute(
                     "SELECT status, sent_message_id, error_message FROM scheduled_messages WHERE id=?",
                     (msg_id,),
@@ -695,7 +695,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
                     row = await cur.fetchone()
                 self.assertEqual(row["status"], "sent")
                 self.assertEqual(row["sent_message_id"], 7002)
-                self.assertEqual(row["error_message"], "warmup_cleanup:kept-game-topic")
+                self.assertEqual(row["error_message"], "warmup_cleanup:deleted")
             finally:
                 await db.close()
 

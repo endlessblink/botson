@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-test('dashboard exposes game warmup in Botson Corner without public reminder row', async ({ page }) => {
+test('dashboard exposes game warmup in relevant topic without public reminder row', async ({ page }) => {
   await page.goto('/login');
   await page.getByLabel(/password|סיסמה/i).fill('playwright-secret');
   await page.getByRole('button').click();
@@ -17,7 +17,7 @@ test('dashboard exposes game warmup in Botson Corner without public reminder row
 
   const warmups = events.filter((event) => event.extendedProps?.messageType === 'trivia_warmup_rsvp');
   expect(warmups).toHaveLength(1);
-  expect(warmups[0].extendedProps.channelTopicId).toBe(4037);
+  expect(warmups[0].extendedProps.channelTopicId).toBe(1517);
   expect(warmups[0].extendedProps.gamePayload.warmup_marker).toBe('warmup-rsvp:playwright-dashboard');
 
   const games = events.filter((event) => event.extendedProps?.messageType === 'trivia_round');

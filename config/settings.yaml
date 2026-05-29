@@ -565,5 +565,20 @@ topics:
   general: null
   goals: 2184
   welcome: 341
+game_warmup_topic_routes:
+  enabled: true
+  trivia_categories:
+    אומנות: art
+    גיימינג: gaming
+    מוזיקה: music
+    סרטים: movies
+    טלוויזיה: movies
+  emoji_media_types:
+    movie: movies
+    series: movies
+    tv: movies
+    game: gaming
+    song: music
+    music: music
 welcome:
   batch_window_seconds: 30

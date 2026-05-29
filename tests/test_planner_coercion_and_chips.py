@@ -236,8 +236,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(emoji_announcements)
         self.assertEqual(
             emoji_announcements[0]["topic_id"],
-            4037,
-            "Emoji Night warm-up announcements must stay in the game topic",
+            54,
+            "Movie/series Emoji Night warm-up announcements must appear in the relevant topic",
         )
         self.assertNotIn("warmup_reminder", types)
         for ann in (
@@ -252,6 +252,22 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(trivia_payload["theme_label"])
         self.assertTrue(trivia_payload["categories"])
         self.assertGreaterEqual(int(trivia_payload.get("min_ready_players", 0)), 0)
+        trivia_announcements = [
+            s for s in result["suggestions"]
+            if s["message_type"] == "trivia_warmup_rsvp" and s["source"] == "ai-fill-trivia"
+        ]
+        self.assertTrue(trivia_announcements)
+        expected_trivia_topics = {
+            "אומנות": 347,
+            "גיימינג": 1517,
+            "מוזיקה": 4502,
+            "סרטים": 54,
+            "טלוויזיה": 54,
+        }
+        expected_topic = expected_trivia_topics.get(
+            trivia_payload["categories"][0], 4037
+        )
+        self.assertEqual(trivia_announcements[0]["topic_id"], expected_topic)
         # T-127 invariant: every trivia_round / emoji_puzzle suggestion with
         # min_ready_players > 0 must come with a paired warmup announcement
         # (matched on warmup_marker) so the dispatch-time RSVP gate has data.
@@ -331,6 +347,23 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         suggested_types = {s["message_type"] for s in result["suggestions"]}
         self.assertNotIn("trivia_round", suggested_types)
         self.assertNotIn("emoji_puzzle", suggested_types)
+
+    async def test_game_warmup_relevant_topic_routing_can_be_disabled(self):
+        settings = dashboard_app.get_settings()
+        patched_settings = dict(settings)
+        patched_routes = dict(settings.get("game_warmup_topic_routes") or {})
+        patched_routes["enabled"] = False
+        patched_settings["game_warmup_topic_routes"] = patched_routes
+
+        self.assertEqual(
+            dashboard_app._configured_game_warmup_topic(
+                patched_settings,
+                route_key="trivia_categories",
+                subjects=["גיימינג"],
+                fallback_topic=4037,
+            ),
+            4037,
+        )
 
     async def test_ai_suggest_day_does_not_stack_spooky_fact_on_emoji_slot(self):
         db = Database(":memory:")
@@ -1388,7 +1421,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
                 self.assertEqual(warmup["scheduled_time"], "21:00")
-                self.assertEqual(warmup["channel_topic_id"], 4037)
+                self.assertEqual(warmup["channel_topic_id"], 1517)
                 self.assertIn("22:00", warmup["text"])
                 self.assertIn("60 דקות", warmup["text"])
             finally:
@@ -1644,7 +1677,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     warmup = await cur.fetchone()
                 self.assertEqual(warmup["status"], "scheduled")
                 self.assertEqual(warmup["scheduled_time"], "21:00")
-                self.assertEqual(warmup["channel_topic_id"], 4037)
+                self.assertEqual(warmup["channel_topic_id"], 1517)
                 self.assertEqual(warmup["created_by"], f"trivia-announcement-draft:{game_id}")
             finally:
                 await db.close()
