@@ -62,8 +62,7 @@
                 </div>
             </div>
             <div class="p-6 space-y-4">
-                <textarea id="final-draft" rows="13" class="w-full bg-[#111111] border border-[#272727] rounded-md p-4 text-sm leading-7 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                     <label class="block md:col-span-1">
                         <span class="text-xs text-[#a1a1aa] block mb-1.5">{{ update_config.ui.target_topic }}</span>
                         <select id="send-topic" class="w-full bg-[#111111] border border-[#272727] rounded-md h-10 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]">
@@ -81,7 +80,19 @@
                         </select>
                     </label>
                     <button onclick="sendUpdateDraft()" class="bg-emerald-500 text-[#04130b] hover:bg-emerald-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send }}</button>
+                    <button onclick="sendPreviewDraft()" class="bg-sky-500 text-[#04101a] hover:bg-sky-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send_preview }}</button>
                 </div>
+                <div id="image-drop-zone" class="border border-dashed border-[#272727] bg-[#111111] rounded-md p-4 text-sm text-[#a1a1aa]" tabindex="0">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                            <div class="text-[#fafafa] font-medium">{{ update_config.ui.image_label }}</div>
+                            <div class="text-xs text-[#71717a] mt-1">{{ update_config.ui.image_hint }}</div>
+                        </div>
+                        <button id="remove-image-btn" type="button" onclick="removeAttachedImage()" class="hidden h-8 px-3 rounded-md text-xs border border-rose-500/20 text-rose-300 hover:bg-rose-500/10">{{ update_config.ui.image_remove }}</button>
+                    </div>
+                    <div id="attached-image-preview" class="hidden mt-3"></div>
+                </div>
+                <textarea id="final-draft" rows="13" class="w-full bg-[#111111] border border-[#272727] rounded-md p-4 text-sm leading-7 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
             </div>
         </div>
     </section>
@@ -104,6 +115,7 @@
 <script>
     const updateConfig = {{ update_config|tojson }};
     let digestItems = {{ digest_items|tojson }};
+    let attachedCoverPath = '';
 
     function fieldValue(id) {
         return (document.getElementById(id).value || '').trim();
@@ -229,9 +241,71 @@
             text: text,
             topic_id: topicId,
             target: fieldValue('send-target') || 'main',
+            cover_path: attachedCoverPath || null,
         });
         showToast(updateConfig.ui.sent);
     }
+
+    async function sendPreviewDraft() {
+        const text = fieldValue('final-draft');
+        if (!text) {
+            showToast(updateConfig.ui.draft_required, 'error');
+            return;
+        }
+        await apiCall('/api/bot/send-message', {
+            text: text,
+            target: 'test',
+            cover_path: attachedCoverPath || null,
+        });
+        showToast(updateConfig.ui.preview_sent || updateConfig.ui.sent);
+    }
+
+    async function uploadAttachedImage(file) {
+        if (!file || !file.type || !file.type.startsWith('image/')) return;
+        showToast(updateConfig.ui.image_uploading || updateConfig.ui.saved);
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/covers/upload', {
+            method: 'POST',
+            body: form,
+            credentials: 'same-origin',
+        });
+        if (!res.ok) {
+            let detail = '';
+            try {
+                const payload = await res.json();
+                detail = payload.detail || payload.message || '';
+            } catch (_) {}
+            throw new Error(detail || ('API error: ' + res.status));
+        }
+        const data = await res.json();
+        attachedCoverPath = data.path || '';
+        renderAttachedImage(data.url || ('/media/' + attachedCoverPath));
+        showToast(updateConfig.ui.image_attached || updateConfig.ui.saved);
+    }
+
+    function renderAttachedImage(url) {
+        const preview = document.getElementById('attached-image-preview');
+        const removeBtn = document.getElementById('remove-image-btn');
+        preview.classList.remove('hidden');
+        removeBtn.classList.remove('hidden');
+        preview.innerHTML = '<img src="' + url + '" alt="" class="max-h-56 rounded-md border border-[#272727] object-contain">';
+    }
+
+    function removeAttachedImage() {
+        attachedCoverPath = '';
+        document.getElementById('attached-image-preview').classList.add('hidden');
+        document.getElementById('attached-image-preview').innerHTML = '';
+        document.getElementById('remove-image-btn').classList.add('hidden');
+    }
+
+    document.getElementById('image-drop-zone').addEventListener('paste', function (event) {
+        const items = Array.from((event.clipboardData || {}).items || []);
+        const imageItem = items.find(function (item) { return item.type && item.type.startsWith('image/'); });
+        if (!imageItem) return;
+        event.preventDefault();
+        uploadAttachedImage(imageItem.getAsFile()).catch(function (err) { showToast(err.message, 'error'); });
+    });
 
     renderDigestItems();
 </script>
