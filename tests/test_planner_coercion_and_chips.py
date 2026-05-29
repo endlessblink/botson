@@ -654,6 +654,30 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(db.created[0]["message_type"], message_type)
                 self.assertEqual(db.created[0]["channel_topic_id"], 4037)
 
+    async def test_create_calendar_item_trivia_round_without_db_id_tops_up_pool(self):
+        db = FakeCalendarDb()
+        body = {
+            "text": "scheduled trivia",
+            "message_type": "trivia_round",
+            "channel_topic_id": None,
+            "target_group": "test",
+            "scheduled_date": "2099-01-01",
+            "scheduled_time": "18:00",
+            "poll_options": json.dumps({"categories": [], "question_count": 10}),
+        }
+
+        with patch.object(
+            dashboard_app,
+            "_ensure_trivia_announcement_scheduled",
+            new=AsyncMock(return_value=None),
+        ):
+            res = await dashboard_app.create_calendar_item(FakeCalendarRequest(body), db)
+
+        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["trivia_topup"], {"generated": 0, "available": 10, "required": 10})
+        self.assertEqual(db.created[0]["message_type"], "trivia_round")
+        self.assertEqual(db.created[0]["target_group"], "test")
+
     async def test_create_calendar_item_rejects_cron_owned_types(self):
         # Cron-owned types (weekly_roundup/weekly_leaderboard/free_games — see
         # bot/scheduler/dispatch_owner.py) are sent by the APScheduler cron jobs, not
