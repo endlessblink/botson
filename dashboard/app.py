@@ -376,6 +376,35 @@ async def clear_update_digest_items(request: Request):
     return {"status": "ok", "items": []}
 
 
+@app.post("/api/updates/enhance")
+async def enhance_update_draft(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    data = await request.json()
+    text = str(data.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    templates_config = _load_update_templates()
+    prompt_template = ((templates_config.get("enhance") or {}).get("prompt") or "{text}")
+    prompt = prompt_template.format(text=text)
+    cli_err = None
+    try:
+        enhanced = await _generate_via_cli(prompt)
+    except Exception as e:
+        cli_err = e
+        logger.warning("updates.enhance: CLI failed, falling back to API: %s", e)
+        try:
+            enhanced = await _generate_via_api(prompt, temperature=0.3)
+        except Exception as api_err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Enhance failed: CLI={cli_err}; API={api_err}",
+            )
+    return {"status": "ok", "text": enhanced.strip()}
+
+
 @app.post("/api/settings/topics")
 async def update_topics(request: Request):
     if not request.session.get("authenticated"):

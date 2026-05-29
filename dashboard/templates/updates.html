@@ -92,6 +92,9 @@
                     </div>
                     <div id="attached-image-preview" class="hidden mt-3"></div>
                 </div>
+                <div class="flex justify-end">
+                    <button id="enhance-text-btn" onclick="enhanceDraftText()" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.enhance_text }}</button>
+                </div>
                 <textarea id="final-draft" rows="13" class="w-full bg-[#111111] border border-[#272727] rounded-md p-4 text-sm leading-7 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
             </div>
         </div>
@@ -244,6 +247,27 @@
             cover_path: attachedCoverPath || null,
         });
         showToast(updateConfig.ui.sent);
+    }
+
+    async function enhanceDraftText() {
+        const textarea = document.getElementById('final-draft');
+        const text = textarea.value.trim();
+        if (!text) {
+            showToast(updateConfig.ui.draft_required, 'error');
+            return;
+        }
+        const btn = document.getElementById('enhance-text-btn');
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = updateConfig.ui.enhancing_text || original;
+        try {
+            const res = await apiCall('/api/updates/enhance', { text: text });
+            textarea.value = res.text || text;
+            showToast(updateConfig.ui.enhanced_text || updateConfig.ui.saved);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+        }
     }
 
     async function sendPreviewDraft() {
