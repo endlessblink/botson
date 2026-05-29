@@ -2868,6 +2868,35 @@ class TestQuestionPickerStrictMode(unittest.TestCase):
         picked = _pick_questions(5, {"__no_such_category__"})
         self.assertEqual(picked, [])
 
+    def test_recent_question_keys_are_excluded_when_pool_has_fresh_items(self):
+        from bot.handlers import trivia_round
+        pool = [
+            {"text": "already played", "options": ["a", "b"], "correct": 0, "category": "כללי"},
+            {"text": "fresh one", "options": ["a", "b"], "correct": 0, "category": "כללי"},
+            {"text": "fresh two", "options": ["a", "b"], "correct": 0, "category": "כללי"},
+        ]
+        recent = {trivia_round._question_key(pool[0])}
+
+        with patch.object(trivia_round, "_load_questions", return_value=pool):
+            picked = trivia_round._pick_questions(2, None, exclude_question_keys=recent)
+
+        self.assertEqual({q["text"] for q in picked}, {"fresh one", "fresh two"})
+
+    def test_recent_question_exclusion_falls_back_when_pool_too_small(self):
+        from bot.handlers import trivia_round
+        pool = [
+            {"text": "already played", "options": ["a", "b"], "correct": 0, "category": "כללי"},
+            {"text": "fresh one", "options": ["a", "b"], "correct": 0, "category": "כללי"},
+        ]
+        recent = {trivia_round._question_key(pool[0])}
+
+        with patch.object(trivia_round, "_load_questions", return_value=pool):
+            fresh = trivia_round._pick_questions(2, None, exclude_question_keys=recent)
+            fallback = trivia_round._pick_questions(2, None)
+
+        self.assertEqual([q["text"] for q in fresh], ["fresh one"])
+        self.assertEqual(len(fallback), 2)
+
     def test_general_round_pulls_from_full_pool(self):
         """A general round (preferred_categories=None) must NOT be biased to
         a hard-coded fallback like movies/TV. It samples randomly from the
