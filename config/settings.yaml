@@ -509,6 +509,10 @@ trivia:
   # long enough for real chat participation; very short values look like the
   # answer appears immediately because Telegram timestamps are minute-granular.
   question_timeout_s: 30
+  # Avoid repeating exact trivia questions that appeared in completed rounds
+  # during this window. If the matching pool is too small, the picker falls
+  # back rather than failing the whole game.
+  question_repeat_window_days: 30
   # The 20-min group warm-up reminder is redundant now that signed-up users get
   # a personal DM reminder. Off by default to cut group spam; set true to restore
   # the in-group reminder (it's still auto-skipped when RSVP quorum is met).

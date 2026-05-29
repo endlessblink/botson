@@ -8,6 +8,7 @@ prefix (`trivround_`) so clicks don't collide with the legacy trivia state.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -59,7 +60,45 @@ def _load_questions() -> list[dict]:
         return []
 
 
-def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> list[dict]:
+def _question_key(q: dict) -> str:
+    text = str((q or {}).get("text") or "").strip()
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12] if text else ""
+
+
+def _trivia_repeat_window_days() -> int:
+    try:
+        raw = (get_settings().get("trivia") or {}).get("question_repeat_window_days")
+        days = int(raw or 30)
+    except Exception:
+        days = 30
+    return max(0, min(365, days))
+
+
+async def _recent_trivia_question_keys(db: Database) -> set[str]:
+    try:
+        recent = await db.get_recent_activity_subjects(
+            action_type="trivia_round",
+            days=_trivia_repeat_window_days(),
+            key="question_id",
+        )
+    except Exception as e:
+        logger.warning("trivia_round: recent question lookup failed: %s", e)
+        return set()
+    return {str(item).strip() for item in recent if str(item).strip()}
+
+
+def _question_markers_for_log(questions: list[dict]) -> str:
+    keys = [_question_key(q) for q in questions]
+    keys = [key for key in keys if key]
+    return f" question_id:{'+'.join(keys)}" if keys else ""
+
+
+def _pick_questions(
+    n: int,
+    preferred_categories: set[str] | None = None,
+    *,
+    exclude_question_keys: set[str] | None = None,
+) -> list[dict]:
     """Pick n questions matching the supplied categories.
 
     When the caller passed explicit categories (preferred_categories is not None)
@@ -70,6 +109,12 @@ def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> lis
     pool = _load_questions()
     if not pool:
         return []
+    exclude_question_keys = exclude_question_keys or set()
+
+    def _fresh(q: dict) -> bool:
+        key = _question_key(q)
+        return not key or key not in exclude_question_keys
+
     strict = preferred_categories is not None
 
     if not strict:
@@ -84,6 +129,8 @@ def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> lis
             txt = q.get("text") or ""
             if txt in seen_texts:
                 continue
+            if not _fresh(q):
+                continue
             picked.append(q)
             seen_texts.add(txt)
             if len(picked) >= n:
@@ -97,7 +144,7 @@ def _pick_questions(n: int, preferred_categories: set[str] | None = None) -> lis
         cat = str(q.get("category") or "").strip().lower()
         return any(cat == str(c).strip().lower() for c in preferred_categories)
 
-    matching = [q for q in pool if _matches(q)]
+    matching = [q for q in pool if _matches(q) and _fresh(q)]
     random.shuffle(matching)
 
     picked: list[dict] = []
@@ -318,7 +365,18 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
     theme_label = theme_label or GENERAL_THEME_LABEL
     question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
 
-    questions = _pick_questions(question_count, preferred_categories)
+    recent_question_keys = await _recent_trivia_question_keys(db)
+    questions = _pick_questions(
+        question_count,
+        preferred_categories,
+        exclude_question_keys=recent_question_keys,
+    )
+    if len(questions) < question_count and recent_question_keys:
+        logger.info(
+            "trivia_round: repeat window fallback chat=%s fresh=%d/%d",
+            chat_id, len(questions), question_count,
+        )
+        questions = _pick_questions(question_count, preferred_categories)
     for q in questions:
         q["_round_question_count"] = question_count
     if len(questions) < question_count:
@@ -605,7 +663,11 @@ async def _continue_round_after_announcement(bot, db: Database, chat_id: int, th
         except Exception as e:
             logger.error("trivia_round: final message failed: %s", e)
 
-        await db.log_activity("trivia_round", f"סיום סיבוב טריוויה ({len(scores)} משתתפים)")
+        await db.log_activity(
+            "trivia_round",
+            f"סיום סיבוב טריוויה ({len(scores)} משתתפים)"
+            f"{_question_markers_for_log(round_state.get('questions') or [])}",
+        )
 
     except Exception:
         logger.exception("trivia_round: background round failed after verified start")
@@ -801,9 +863,24 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
 
     theme_label = theme_label or GENERAL_THEME_LABEL
     question_count = max(1, min(20, int(question_count or QUESTION_COUNT)))
-    questions = _pick_questions(question_count, preferred_categories)
+    recent_question_keys = await _recent_trivia_question_keys(db)
+    questions = _pick_questions(
+        question_count,
+        preferred_categories,
+        exclude_question_keys=recent_question_keys,
+    )
     if len(questions) < question_count:
         await _top_up_scheduled_questions_if_possible(msg)
+        questions = _pick_questions(
+            question_count,
+            preferred_categories,
+            exclude_question_keys=recent_question_keys,
+        )
+    if len(questions) < question_count and recent_question_keys:
+        logger.info(
+            "trivia_round: repeat window fallback row=%s fresh=%d/%d",
+            msg.get("id"), len(questions), question_count,
+        )
         questions = _pick_questions(question_count, preferred_categories)
     for q in questions:
         q["_round_question_count"] = question_count
