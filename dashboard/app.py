@@ -4858,7 +4858,7 @@ async def _ai_fill_trivia_for_week(
     """Schedule one mixed-pool trivia round for the requested week.
 
     Inserts two rows tagged `created_by='ai-fill-trivia'`:
-      - Saturday 20:25 — `discussion` warm-up in botson_corner
+      - Saturday 20:25 — `trivia_warmup_rsvp` in the trivia game topic
       - Saturday 21:00 — `trivia_round` in botson_corner with mixed pool
 
     When `target_date` is provided ('YYYY-MM-DD'), the helper only
@@ -4924,9 +4924,35 @@ async def _ai_fill_trivia_for_week(
     except Exception as e:
         return {"inserted": 0, "errors": [f"invalid trivia schedule: {e}"], "scheduled_date": sat_iso}
 
+    if warm_time == game_time:
+        return {
+            "inserted": 0,
+            "errors": ["trivia warmup and game cannot share the same minute"],
+            "scheduled_date": sat_iso,
+        }
+
+    for slot_time, slot_label in ((warm_time, "warmup"), (game_time, "round")):
+        try:
+            await _reject_calendar_slot_clash(
+                db,
+                scheduled_date=sat_iso,
+                scheduled_time=slot_time,
+                target_group="main",
+            )
+        except HTTPException as e:
+            return {
+                "inserted": 0,
+                "errors": [f"{slot_label} slot clash: {e.detail}"],
+                "scheduled_date": sat_iso,
+            }
+
+    theme_label = str(trivia_defaults.get("theme_label") or "כללי")
+    min_ready = int(trivia_defaults.get("min_ready_players") or 0)
+    question_count = int(trivia_defaults.get("question_count") or 5)
+    activity_label = f"הטריוויה על {theme_label} ({question_count} שאלות)"
+    warmup_marker = f"warmup-rsvp:trivia:{sat_iso}:{game_time}"
+
     try:
-        theme_label = str(trivia_defaults.get("theme_label") or "כללי")
-        min_ready = int(trivia_defaults.get("min_ready_players") or 0)
         warmup_text = await _generate_activity_copy(
             "trivia_warmup",
             avoid_texts=set(),
@@ -4937,15 +4963,23 @@ async def _ai_fill_trivia_for_week(
         )
         if warmup_text is None:
             raise RuntimeError("activity copy generation failed")
+        warmup_payload = {
+            "min_ready_players": min_ready,
+            "game_time": game_time,
+            "theme_label": theme_label,
+            "activity_label": activity_label,
+            "warmup_marker": warmup_marker,
+        }
         await db.create_scheduled_message(
             text=warmup_text,
-            message_type="discussion",
+            message_type="trivia_warmup_rsvp",
             channel_topic_id=topic_id,
             target_group="main",
             scheduled_date=sat_iso,
             scheduled_time=warm_time,
             created_by="ai-fill-trivia",
             status="draft",
+            poll_options=json.dumps(warmup_payload, ensure_ascii=False),
         )
         inserted += 1
     except Exception as e:
@@ -4955,11 +4989,13 @@ async def _ai_fill_trivia_for_week(
     try:
         poll_payload = {
             "pre_roll_s": int(trivia_defaults.get("pre_roll_s") or 30),
-            "theme_label": str(trivia_defaults.get("theme_label") or "כללי"),
+            "theme_label": theme_label,
             "categories": list(trivia_defaults.get("categories") or []),
-            "question_count": int(trivia_defaults.get("question_count") or 5),
+            "question_count": question_count,
             "warmup_offset_min": lead_minutes,
             "min_ready_players": min_ready,
+            "activity_label": activity_label,
+            "warmup_marker": warmup_marker,
         }
         await db.create_scheduled_message(
             text="",

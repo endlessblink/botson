@@ -705,6 +705,58 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
 
+    async def test_legacy_ai_fill_trivia_links_warmup_and_game_marker(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.set_handler_routing("trivia_round", play_topic_id=4037, teaser_topic_ids=[])
+            with patch.object(
+                dashboard_app,
+                "_generate_activity_copy",
+                new=AsyncMock(return_value="warmup copy"),
+            ):
+                result = await dashboard_app._ai_fill_trivia_for_week(db, 0)
+
+            rows = await db.get_scheduled_messages("2000-01-01", "2999-12-31", include_cancelled=True)
+            by_type = {row["message_type"]: row for row in rows}
+            self.assertEqual(result["inserted"], 2, result)
+            self.assertIn("trivia_warmup_rsvp", by_type)
+            self.assertIn("trivia_round", by_type)
+            self.assertEqual(by_type["trivia_warmup_rsvp"]["channel_topic_id"], 4037)
+            self.assertEqual(by_type["trivia_round"]["channel_topic_id"], 4037)
+            warmup_payload = json.loads(by_type["trivia_warmup_rsvp"]["poll_options"])
+            game_payload = json.loads(by_type["trivia_round"]["poll_options"])
+            self.assertEqual(warmup_payload["warmup_marker"], game_payload["warmup_marker"])
+            self.assertTrue(game_payload["warmup_marker"].startswith("warmup-rsvp:trivia:"))
+        finally:
+            await db.close()
+
+    async def test_legacy_ai_fill_trivia_refuses_occupied_game_slot(self):
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.set_handler_routing("trivia_round", play_topic_id=4037, teaser_topic_ids=[])
+            with patch.object(dashboard_app, "date") as fake_date:
+                fake_date.today.return_value = datetime(2099, 1, 1).date()
+                fake_date.fromisoformat.side_effect = lambda value: datetime.strptime(value, "%Y-%m-%d").date()
+                await db.create_scheduled_message(
+                    text="occupied",
+                    message_type="custom",
+                    channel_topic_id=341,
+                    target_group="main",
+                    scheduled_date="2099-01-03",
+                    scheduled_time="21:00",
+                    status="scheduled",
+                )
+                result = await dashboard_app._ai_fill_trivia_for_week(db, 0)
+
+            rows = await db.get_scheduled_messages("2099-01-03", "2099-01-03")
+            self.assertEqual(result["inserted"], 0, result)
+            self.assertIn("round slot clash", result["errors"][0])
+            self.assertEqual([row["message_type"] for row in rows], ["custom"])
+        finally:
+            await db.close()
+
     async def test_create_calendar_item_rejects_cron_owned_types(self):
         # Cron-owned types (weekly_roundup/weekly_leaderboard/free_games — see
         # bot/scheduler/dispatch_owner.py) are sent by the APScheduler cron jobs, not
