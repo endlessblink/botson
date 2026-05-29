@@ -45,7 +45,7 @@ from dashboard.verified_topics import (
 )
 
 RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
-_TRIVIA_TOPUP_LOCKS: dict[int, asyncio.Lock] = {}
+_TRIVIA_TOPUP_LOCKS: dict[object, asyncio.Lock] = {}
 
 
 def _signal_bot_reload():
@@ -1303,8 +1303,12 @@ def _matching_trivia_questions(pool: list, categories: list[str]) -> list[dict]:
 
 
 async def _ensure_trivia_pool_ready_for_round(row) -> dict:
-    row_id = int(row["id"])
-    lock = _TRIVIA_TOPUP_LOCKS.setdefault(row_id, asyncio.Lock())
+    raw_id = row.get("id")
+    try:
+        lock_key: object = int(raw_id)
+    except (TypeError, ValueError):
+        lock_key = str(raw_id or f"transient:{id(row)}")
+    lock = _TRIVIA_TOPUP_LOCKS.setdefault(lock_key, asyncio.Lock())
     async with lock:
         return await _ensure_trivia_pool_ready_for_round_unlocked(row)
 
