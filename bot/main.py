@@ -7,6 +7,7 @@ import signal
 import sys
 from logging.handlers import RotatingFileHandler
 
+from telegram.error import Forbidden
 from telegram.ext import AIORateLimiter, Application, CommandHandler
 
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
@@ -15,7 +16,7 @@ from .database.db import Database
 from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
-from .utils.config import BOT_TOKEN, get_emoji_puzzles, get_prompts
+from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts
 from .utils.copy import load_copy
 
 # Configure logging — file + stdout
@@ -71,18 +72,24 @@ async def start_command(update, context):
 
 async def help_command(update, context):
     """Handle /help command."""
-    text = (
-        "📋 פקודות זמינות:\n\n"
-        "/level — הצג את הרמה שלך\n"
-        "/leaderboard — טופ 10 רמות\n"
-        "/streak — הצג את הרצף שלך בהישגים\n"
-        "\n"
-        "🔧 פקודות מנהלים:\n"
-        "/stats — סטטיסטיקות קבוצה\n"
-        "/whitelist <pattern> — הוסף תבנית לרשימה לבנה\n"
-        "/resetlevels — אפס רמות לעונה חדשה"
-    )
-    await update.message.reply_text(text)
+    text = load_copy("dm_menu", "help_text")
+    if update.effective_chat and update.effective_chat.type == "private":
+        await update.message.reply_text(text)
+        return
+
+    user = update.effective_user
+    if user:
+        try:
+            await context.bot.send_message(chat_id=user.id, text=text)
+            return
+        except Forbidden:
+            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning("help: failed to DM user %s: %s", user.id, e)
+
+    url = deep_link("menu")
+    notice_key = "help_dm_failed_with_link" if url else "help_dm_failed"
+    await update.message.reply_text(load_copy("dm_menu", notice_key, url=url))
 
 
 async def stats_command(update, context):

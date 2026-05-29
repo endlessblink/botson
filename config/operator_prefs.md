@@ -100,6 +100,27 @@ Cap is ~15 entries; same replacement policy as Good examples. Added via `POST /a
 
 ### Motion grammar
 
+#### Audio cues should be semantically timed, short, and faded
+UI/loading SFX should only play during the actual appearance of text or content, not across a whole scene hold or unrelated intro. Keep these cues in the 1-3 second range, with a fade-in and fade-out baked into the asset when possible.
+- **Context:** Motion design / HyperFrames / Remotion compositions with UI, event details, data rows, cards, or staged content reveals.
+- **Why:** Noam corrected an Arthouse promo pass where a loading sound was attached to the intro/long hold; the sound made sense only while event details were appearing.
+- **How to apply:** Place loading/detail SFX on the content reveal window itself, typically starting with kicker/title/metadata entrance and ending before the static hold. If the raw SFX is longer, trim it and bake short fades rather than letting it stop abruptly.
+- **Source:** Arthouse top-10 promo audio pass, 2026-05-24 — Noam: "the loading should be only during the appearance of the text / content so about 1-3 seconds" and asked for fades at the start and end.
+
+#### Transition whooshes should be quiet texture, not the event
+Whooshes in editorial/product promos should sit under the visual cut. Loud, low, or heavy transition sounds make the edit feel cheap and overproduced. If a whoosh is too present, lower it substantially and consider pitching it slightly higher/lighter.
+- **Context:** Scene transitions, card-to-card cuts, list/promo videos, editorial motion pieces.
+- **Why:** Noam asked to make the Arthouse transition whoosh quieter and maybe higher-pitched after hearing it dominate the soundtrack.
+- **How to apply:** Start around 25-35% mix volume for repeated whooshes. Process the SFX asset itself when possible so render/preview behavior is consistent. Prefer soft, airy, short tails over cinematic impacts.
+- **Source:** Arthouse top-10 promo audio pass, 2026-05-24 — Noam: "make the whoosh quieter with maybe a higher pitch."
+
+#### Avoid blur as a transition on text-heavy/product-detail frames
+Large CSS blur transitions over UI, cards, event details, or readable text look muddy and low quality. Blur can work as a localized depth effect, but full-scene blur-in/blur-out on content frames makes the composition feel smeared rather than premium.
+- **Context:** Product/editorial videos with cards, screenshots, event listings, metadata, or any text-bearing surface.
+- **Why:** Noam rejected the Arthouse promo's blurred crossfade/detail treatment as ugly when it smeared event text and images.
+- **How to apply:** Replace full-frame blur with clean push slides, opacity crossfades, subtle scale changes, masks, or clip-path reveals. Keep text sharp throughout its readable window.
+- **Source:** Arthouse top-10 promo visual pass, 2026-05-24 — Noam: "this effect is ugly" while pointing at blurred event text.
+
 #### Match visual weight of the treatment to the weight of the feature
 Kinetic typography, macro UI close-ups, particle bursts, dramatic dissolves, multi-layer ambient — all of these read as "big announcement" grammar. When a minor feature (one new chip, one new state) is shown with big-feature grammar, the viewer waits for a payoff that never lands. The mismatch reads as marketing fluff or confusion, not clarity. This is the umbrella rule that produced [[rhetorical-question-typography-overshoots]] and [[macro-ui-shot-oversells]].
 - **Context:** Any product-demo / feature-reveal video. The minor-vs-major axis is independent of the simple-vs-complex axis in [[a-simple-feature-deserves-a-simple-video]] — a minor feature can still need 2 shots to read, but neither of those shots should be a *heavy* shot.
@@ -172,6 +193,20 @@ When a UI element transforms (button → chip, card → tile), the SAME DOM elem
 
 ### Visual style
 
+#### Artist-talk slides should feel like cinematic case files, not presentation templates
+For artist-talk / artwork-process slideshows, Noam prefers a dark, image-led, strongly art-directed structure that feels like a cinematic forensic/case-file sequence rather than a safe deck template. Avoid repeated two-column layouts, square cards as the default unit, spiritual/new-age diagrams, bright editorial cream pages, and generic “headline plus panel” rhythm. Use full-bleed or aggressively cropped artwork/reference imagery, hard cuts, contact sheets, dark screening-room frames, clinical labels, and strong typography. Multi-part ideas should reveal step-by-step on click, not appear all at once.
+- **Context:** Frontend Slides / HTML slideshow decks for artist talks, especially artwork/process presentations with video, film references, and generative-AI workflow material.
+- **Why:** During the Surfeit deck, Noam rejected multiple safe restyles because they preserved the same template structure, looked too new-age/bright/square/boring, and did not animate ideas progressively. The accepted direction used dark clinical/cinematic framing, real artwork stills, film-reference contact sheets, and click-by-click builds.
+- **How to apply:** Start from the content and media, not from a deck layout. Vary slide structures across the deck: full-frame artwork title, brutal text-cut sequence, diagnostic material slide, process evidence slide, workflow screenshot slide, film reference contact sheet, screening slide, final black statement. Preserve good 8/9-style screening and closing slides when a video artwork is central. Ask before inventing diagrams.
+- **Source:** Surfeit artist-talk slideshow session, 2026-05-27 — Noam: wanted the final deck saved as a template for future slideshow taste.
+
+#### Event/card layouts need breathing room and even information rhythm
+Centered event layouts can become compressed fast: image, index, title, description, prize, chips, and deadline all fighting in one vertical stack reads uneven and amateur. Important cards need a clear hierarchy, larger hero media, and a balanced metadata band or column.
+- **Context:** Event-list promos, catalogue cards, open-call videos, data-rich editorial layouts.
+- **Why:** Noam rejected an Arthouse event slide where the details were packed into a cramped lower block below the title.
+- **How to apply:** Give the image a strong footprint, keep at least 24-40px between major text groups, and split metadata into a balanced row/column instead of stacking everything under the title. If a layout has more than 4 information units, use a two-zone structure: title/context in one zone, details/deadline/chips in another.
+- **Source:** Arthouse top-10 promo layout pass, 2026-05-24 — Noam: "layout here is too compressed and uneven."
+
 #### Never overlap UI elements with one another
 Stat overlays, badges, captions, wordmarks, callouts — nothing should visually overlap with the main UI mockup or with each other. Even partial overlap reads as a layout bug, not as intentional layering.
 - **Context:** Any composition with overlays, stats, callouts, badges, captions adjacent to a hero element (browser mock, card, device).
@@ -219,6 +254,13 @@ A headline / caption above a UI panel needs ≥80px vertical gap. Anything close
 *(No rules captured yet.)*
 
 ### Copy/voice
+
+#### Do not promote same-day deadlines late in the day
+For weekly opportunity roundups, a call closing today is usually too late to promote once the day is already underway, especially in the evening. It creates a trust problem: the viewer may discover the opportunity is functionally expired by the time they act.
+- **Context:** Open-call promos, newsletters, weekly opportunity lists, social videos, deadline-based recommendations.
+- **Why:** Noam caught an Arthouse weekly promo item closing on the current date at 21:33 local time and questioned whether it was too late for today.
+- **How to apply:** For public recommendation content, exclude same-day deadlines unless the format explicitly says "last chance today" and there is still meaningful time to act. Prefer the next valid item and renumber the list.
+- **Source:** Arthouse top-10 promo curation pass, 2026-05-24 — Noam: "this one is too late for today no? so maybe we should remove it?"
 
 #### On-screen text must be clear to someone who doesn't already know the product
 Kinetic-typography moments where a user-who-doesn't-know-the-product sees three abstract words (`סמן · הוגש · נסגר`) and has no idea what the feature is = the type failed. Words on screen need to land a complete concept, not act as design ornament.
