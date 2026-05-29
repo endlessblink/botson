@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 
+from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
 from .config import load_yaml
 from .time_context import HEBREW_DAY_NAMES, hebrew_day_name
 
@@ -20,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 TEXT_CONTENT_TYPES = {"morning", "evening", "discussion", "custom"}
 EXECUTABLE_TYPES = {
-    "trivia_round",
-    "emoji_puzzle",
+    *EXECUTABLE_GAME_TYPES,
     "facts_tidbit",
     "facts_spooky",
     "free_games",
