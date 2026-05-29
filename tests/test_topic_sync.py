@@ -114,7 +114,7 @@ class TestTopicSync(unittest.TestCase):
 
         self.run_async(scenario())
 
-    def test_register_job_even_when_credentials_are_missing(self):
+    def test_register_skips_job_when_credentials_are_missing(self):
         class FakeJobQueue:
             def __init__(self):
                 self.calls = []
@@ -125,7 +125,36 @@ class TestTopicSync(unittest.TestCase):
         job_queue = FakeJobQueue()
         app = SimpleNamespace(job_queue=job_queue)
 
-        with patch.dict("os.environ", {"TELEGRAM_API_ID": "", "TELEGRAM_API_HASH": ""}, clear=False):
+        with patch.dict(
+            "os.environ",
+            {"TELEGRAM_API_ID": "123", "TELEGRAM_API_HASH": "hash", "TELEGRAM_SESSION_STRING": ""},
+            clear=False,
+        ):
+            registered = topic_sync.register_topic_sync_job(app)
+
+        self.assertFalse(registered)
+        self.assertEqual(job_queue.calls, [])
+
+    def test_register_job_when_full_mtproto_credentials_are_present(self):
+        class FakeJobQueue:
+            def __init__(self):
+                self.calls = []
+
+            def run_repeating(self, callback, **kwargs):
+                self.calls.append((callback, kwargs))
+
+        job_queue = FakeJobQueue()
+        app = SimpleNamespace(job_queue=job_queue)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "TELEGRAM_API_ID": "123",
+                "TELEGRAM_API_HASH": "hash",
+                "TELEGRAM_SESSION_STRING": "session",
+            },
+            clear=False,
+        ):
             registered = topic_sync.register_topic_sync_job(app)
 
         self.assertTrue(registered)
