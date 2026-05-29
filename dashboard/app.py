@@ -835,19 +835,27 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
                 normalized_covers = [str(path).strip() for path in cover_paths if str(path or "").strip()]
             else:
                 normalized_covers = []
-            if cover_path and not normalized_covers:
-                normalized_covers = [str(cover_path).strip()]
-
-            msg = await send_message_with_optional_cover(
-                bot,
-                db=db,
-                chat_id=group_id,
-                text=text,
-                message_thread_id=int(topic_id) if topic_id else None,
-                cover_path=normalized_covers[0] if normalized_covers else None,
-                bypass_verification=is_topic_discovery,
-            )
-            for extra_cover in normalized_covers[1:]:
+            if normalized_covers:
+                msg = await send_message_with_optional_cover(
+                    bot,
+                    db=db,
+                    chat_id=group_id,
+                    text=text,
+                    message_thread_id=int(topic_id) if topic_id else None,
+                    cover_path=None,
+                    bypass_verification=is_topic_discovery,
+                )
+            else:
+                msg = await send_message_with_optional_cover(
+                    bot,
+                    db=db,
+                    chat_id=group_id,
+                    text=text,
+                    message_thread_id=int(topic_id) if topic_id else None,
+                    cover_path=cover_path,
+                    bypass_verification=is_topic_discovery,
+                )
+            for extra_cover in normalized_covers:
                 full = MEDIA_DIR / extra_cover
                 if not full.exists():
                     logger.warning("extra cover_path %s not found at %s — skipping", extra_cover, full)
