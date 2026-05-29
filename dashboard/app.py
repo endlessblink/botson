@@ -1404,13 +1404,15 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
     but are ignored by the autonomous sender.
     """
     async with db._db.execute(
-        """SELECT id, text, scheduled_date, scheduled_time, message_type, status, poll_options, channel_topic_id
+        """SELECT id, text, scheduled_date, scheduled_time, message_type, status,
+                  poll_options, channel_topic_id, target_group
            FROM scheduled_messages WHERE id = ?""",
         (game_id,),
     ) as cur:
         row = await cur.fetchone()
     if not row or row["message_type"] != "trivia_round" or row["status"] == "cancelled":
         return None
+    target_group = row["target_group"] or "main"
 
     game_time = (row["scheduled_time"] or "22:00")[:5]
     try:
@@ -1467,7 +1469,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
             text=text,
             message_type="trivia_warmup_rsvp",
             channel_topic_id=announcement_topic_id,
-            target_group="main",
+            target_group=target_group,
             scheduled_date=announcement_dt.date().isoformat(),
             scheduled_time=announcement_dt.strftime("%H:%M"),
             poll_options=warmup_poll_options,
@@ -1479,7 +1481,7 @@ async def _ensure_trivia_announcement_scheduled(db: Database, *, game_id: int) -
             text=text,
             message_type="trivia_warmup_rsvp",
             channel_topic_id=announcement_topic_id,
-            target_group="main",
+            target_group=target_group,
             scheduled_date=announcement_dt.date().isoformat(),
             scheduled_time=announcement_dt.strftime("%H:%M"),
             poll_options=warmup_poll_options,
@@ -11762,6 +11764,17 @@ async def delete_calendar_item(msg_id: int, request: Request, db: Database = Dep
         raise HTTPException(status_code=401)
 
     await db.delete_scheduled_message(msg_id)
+    for marker in (
+        f"trivia-announcement-draft:{msg_id}",
+        f"warmup-reminder-draft:{msg_id}",
+    ):
+        async with db._db.execute(
+            "SELECT id FROM scheduled_messages WHERE created_by = ? AND status != 'cancelled'",
+            (marker,),
+        ) as cur:
+            rows = await cur.fetchall()
+        for row in rows:
+            await db.delete_scheduled_message(int(row["id"]))
     return {"status": "ok"}
 
 
