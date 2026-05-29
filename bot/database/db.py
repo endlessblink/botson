@@ -185,7 +185,39 @@ class Database:
                     logger.warning("Migration skipped/failed: %s (%s)", sql, e)
 
         await self._seed_default_handler_routing()
+        await self._normalize_game_warmup_routing()
         await self._normalize_pending_game_warmup_topics()
+
+    async def _normalize_game_warmup_routing(self):
+        """Keep legacy trivia_warmup routing aligned with trivia_round.
+
+        Game warm-ups are not an announcements-channel primitive anymore; every
+        RSVP warm-up must launch in the same topic as the game it gates.
+        ``trivia_warmup`` remains in bot_message_routing only for old admin/API
+        surfaces, so normalize it as an alias instead of letting it drift.
+        """
+        try:
+            trivia = await self.get_handler_routing("trivia_round")
+            trivia_topic = trivia.get("play_topic_id") if trivia else None
+            warmup = await self.get_handler_routing("trivia_warmup")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("game warmup routing normalization skipped: %s", e)
+            return
+        if trivia_topic is None:
+            return
+        if warmup and warmup.get("play_topic_id") == trivia_topic:
+            return
+        await self._db.execute(
+            """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
+               VALUES ('trivia_warmup', ?, '[]', CURRENT_TIMESTAMP)
+               ON CONFLICT(handler) DO UPDATE SET
+                   play_topic_id = excluded.play_topic_id,
+                   teaser_topic_ids = '[]',
+                   updated_at = CURRENT_TIMESTAMP""",
+            (int(trivia_topic),),
+        )
+        await self._db.commit()
+        logger.info("Normalized trivia_warmup routing to trivia_round topic %s", trivia_topic)
 
     async def _normalize_pending_game_warmup_topics(self):
         """Move not-yet-sent game warm-ups out of the announcements topic.
@@ -963,6 +995,7 @@ class Database:
 
     async def set_handler_routing(self, handler: str, play_topic_id: int | None, teaser_topic_ids: list[int] | None = None) -> None:
         """Upsert a handler routing row."""
+        handler = "trivia_round" if handler == "trivia_warmup" else handler
         teaser_json = json.dumps([int(x) for x in (teaser_topic_ids or [])])
         await self._db.execute(
             """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
@@ -973,6 +1006,16 @@ class Database:
                    updated_at = CURRENT_TIMESTAMP""",
             (handler, play_topic_id, teaser_json),
         )
+        if handler == "trivia_round":
+            await self._db.execute(
+                """INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids, updated_at)
+                   VALUES ('trivia_warmup', ?, '[]', CURRENT_TIMESTAMP)
+                   ON CONFLICT(handler) DO UPDATE SET
+                       play_topic_id = excluded.play_topic_id,
+                       teaser_topic_ids = '[]',
+                       updated_at = CURRENT_TIMESTAMP""",
+                (play_topic_id,),
+            )
         await self._db.commit()
 
     async def remove_verified_forum_topic(self, category_key: str):

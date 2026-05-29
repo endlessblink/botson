@@ -47,13 +47,44 @@ class HandlerRoutingTests(unittest.IsolatedAsyncioTestCase):
         await db.set_handler_routing("trivia_round", play_topic_id=54, teaser_topic_ids=[])
         # Re-run the seed (simulates a re-migration). Operator value must persist.
         await db._seed_default_handler_routing()
+        await db._normalize_game_warmup_routing()
         row = await db.get_handler_routing("trivia_round")
         self.assertEqual(row["play_topic_id"], 54)
+        warmup = await db.get_handler_routing("trivia_warmup")
+        self.assertEqual(warmup["play_topic_id"], 54)
+
+    async def test_trivia_warmup_routing_is_game_route_alias(self):
+        db = await self._fresh_db()
+        await db.set_handler_routing("trivia_warmup", play_topic_id=341, teaser_topic_ids=[])
+        trivia = await db.get_handler_routing("trivia_round")
+        warmup = await db.get_handler_routing("trivia_warmup")
+        self.assertEqual(trivia["play_topic_id"], 341)
+        self.assertEqual(warmup["play_topic_id"], 341)
+
+    async def test_startup_normalizes_legacy_warmup_route_to_game_route(self):
+        db = await self._fresh_db()
+        await db._db.execute(
+            "UPDATE bot_message_routing SET play_topic_id = 4037 WHERE handler = 'trivia_round'"
+        )
+        await db._db.execute(
+            "UPDATE bot_message_routing SET play_topic_id = 341 WHERE handler = 'trivia_warmup'"
+        )
+        await db._db.commit()
+
+        await db._normalize_game_warmup_routing()
+
+        warmup = await db.get_handler_routing("trivia_warmup")
+        self.assertEqual(warmup["play_topic_id"], 4037)
 
     async def test_pending_game_warmup_normalization_uses_game_route_not_legacy_warmup_route(self):
         db = await self._fresh_db()
-        await db.set_handler_routing("trivia_round", play_topic_id=4037, teaser_topic_ids=[])
-        await db.set_handler_routing("trivia_warmup", play_topic_id=341, teaser_topic_ids=[])
+        await db._db.execute(
+            "UPDATE bot_message_routing SET play_topic_id = 4037 WHERE handler = 'trivia_round'"
+        )
+        await db._db.execute(
+            "UPDATE bot_message_routing SET play_topic_id = 341 WHERE handler = 'trivia_warmup'"
+        )
+        await db._db.commit()
         msg_id = await db.create_scheduled_message(
             text="warmup",
             message_type="trivia_warmup_rsvp",
