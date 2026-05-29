@@ -122,8 +122,10 @@
 <script>
     const updateConfig = {{ update_config|tojson }};
     let digestItems = {{ digest_items|tojson }};
+    const serverDraftState = {{ draft_state|tojson }};
     let attachedCoverPaths = [];
     const draftStorageKey = 'botson:update-draft:v1';
+    let persistTimer = null;
 
     function fieldValue(id) {
         return (document.getElementById(id).value || '').trim();
@@ -177,7 +179,7 @@
 
     function persistDraftState() {
         try {
-            localStorage.setItem(draftStorageKey, JSON.stringify({
+            const state = {
                 type: fieldValue('update-type'),
                 title: fieldValue('update-title'),
                 impact: fieldValue('update-impact'),
@@ -188,15 +190,37 @@
                 sendTarget: fieldValue('send-target'),
                 enhanceEmojis: Boolean(document.getElementById('enhance-emojis').checked),
                 coverPaths: attachedCoverPaths,
-            }));
+            };
+            localStorage.setItem(draftStorageKey, JSON.stringify(state));
+            window.clearTimeout(persistTimer);
+            persistTimer = window.setTimeout(function () { persistDraftStateToServer(state); }, 300);
+        } catch (_) {}
+    }
+
+    function persistDraftStateNow() {
+        try {
+            const state = JSON.parse(localStorage.getItem(draftStorageKey) || '{}');
+            if (Object.keys(state).length) persistDraftStateToServer(state);
+        } catch (_) {}
+    }
+
+    function persistDraftStateToServer(state) {
+        try {
+            fetch('/api/updates/draft', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(state),
+                keepalive: true,
+            }).catch(function () {});
         } catch (_) {}
     }
 
     function restoreDraftState() {
         try {
             const raw = localStorage.getItem(draftStorageKey);
-            if (!raw) return;
-            const data = JSON.parse(raw) || {};
+            const data = raw ? (JSON.parse(raw) || {}) : (serverDraftState || {});
+            if (!Object.keys(data).length) return;
             setFieldValue('update-type', data.type);
             setFieldValue('update-title', data.title);
             setFieldValue('update-impact', data.impact);
@@ -416,7 +440,13 @@
         if (!el) return;
         el.addEventListener('input', persistDraftState);
         el.addEventListener('change', persistDraftState);
+        el.addEventListener('blur', persistDraftState);
+        el.addEventListener('keyup', persistDraftState);
+        el.addEventListener('paste', function () { window.setTimeout(persistDraftState, 0); });
     });
+
+    window.addEventListener('pagehide', persistDraftStateNow);
+    window.addEventListener('beforeunload', persistDraftStateNow);
 
     [
         ['build-draft-btn', buildSingleDraft],

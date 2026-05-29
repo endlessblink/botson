@@ -145,6 +145,7 @@ FACTS_IMAGES_DIR = MEDIA_DIR / "facts"
 FACTS_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 UPDATE_TEMPLATES_PATH = CONFIG_DIR / "update_templates.yaml"
 UPDATE_DIGEST_PATH = CONFIG_DIR / "member_update_digest.yaml"
+UPDATE_DRAFT_PATH = CONFIG_DIR / "member_update_draft.yaml"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -183,6 +184,38 @@ def _save_update_digest_items(items: list[dict]) -> None:
     UPDATE_DIGEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(UPDATE_DIGEST_PATH, "w", encoding="utf-8") as f:
         yaml.dump({"items": items}, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+def _load_update_draft_state() -> dict:
+    if not UPDATE_DRAFT_PATH.exists():
+        return {}
+    with open(UPDATE_DRAFT_PATH, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_update_draft_state(state: dict) -> None:
+    UPDATE_DRAFT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(UPDATE_DRAFT_PATH, "w", encoding="utf-8") as f:
+        yaml.dump(state, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+def _rtl_stabilize_hebrew_dominant_text(text: str) -> str:
+    """Prefix Hebrew-dominant lines with RLM so Telegram keeps RTL layout.
+
+    Telegram can render mixed Hebrew/English lines as LTR when the line starts
+    with punctuation or includes an English token. A right-to-left mark keeps
+    Hebrew-heavy update posts readable without changing visible copy.
+    """
+    out = []
+    for line in str(text or "").splitlines():
+        hebrew_count = len(re.findall(r"[\u0590-\u05FF]", line))
+        latin_count = len(re.findall(r"[A-Za-z]", line))
+        if hebrew_count > latin_count and hebrew_count >= 3 and not line.startswith("\u200f"):
+            out.append("\u200f" + line)
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 async def _cleanup_ai_suggest_jobs(db: Database) -> None:
@@ -327,8 +360,32 @@ async def updates_page(request: Request, db: Database = Depends(get_db)):
     return templates.TemplateResponse(request, name="updates.html", context={
         "update_config": templates_config,
         "digest_items": _load_update_digest_items(),
+        "draft_state": _load_update_draft_state(),
         "verified_topics": verified_topics,
     })
+
+
+@app.get("/api/updates/draft")
+async def get_update_draft(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    return {"status": "ok", "draft": _load_update_draft_state()}
+
+
+@app.post("/api/updates/draft")
+async def save_update_draft(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    allowed = {
+        "type", "title", "impact", "timing", "notes", "finalDraft",
+        "sendTopic", "sendTarget", "enhanceEmojis", "coverPaths",
+    }
+    state = {key: data.get(key) for key in allowed if key in data}
+    if not isinstance(state.get("coverPaths", []), list):
+        state["coverPaths"] = []
+    _save_update_draft_state(state)
+    return {"status": "ok", "draft": state}
 
 
 @app.post("/api/updates/digest")
@@ -786,6 +843,7 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
 
     data = await request.json()
     text = data.get("text", "").strip()
+    text = _rtl_stabilize_hebrew_dominant_text(text)
     topic_id = data.get("topic_id")
     target = data.get("target", "main")  # "main" or "test"
     cover_path = data.get("cover_path")
