@@ -505,6 +505,10 @@ topic_routing:
   mode: observe
   observation_days: 14
 trivia:
+  # Seconds before a trivia question closes and reveals its answer. Keep this
+  # long enough for real chat participation; very short values look like the
+  # answer appears immediately because Telegram timestamps are minute-granular.
+  question_timeout_s: 30
   # The 20-min group warm-up reminder is redundant now that signed-up users get
   # a personal DM reminder. Off by default to cut group spam; set true to restore
   # the in-group reminder (it's still auto-skipped when RSVP quorum is met).
