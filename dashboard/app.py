@@ -383,12 +383,18 @@ async def enhance_update_draft(request: Request):
 
     data = await request.json()
     text = str(data.get("text") or "").strip()
+    allow_emojis = bool(data.get("allow_emojis"))
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
 
     templates_config = _load_update_templates()
     prompt_template = ((templates_config.get("enhance") or {}).get("prompt") or "{text}")
-    prompt = prompt_template.format(text=text)
+    emoji_instruction = (
+        "מותר להוסיף 1-3 אימוג׳ים אם הם עוזרים לסריקה, אבל לא בכל שורה ולא בסגנון ילדותי."
+        if allow_emojis
+        else "אל תוסיף אימוג׳ים חדשים; אם כבר קיימים אימוג׳ים בטיוטה, אפשר להשאיר רק אם הם נחוצים."
+    )  # noqa: hardcoded-content (LLM prompt fragment; operator-facing copy lives in config/update_templates.yaml)
+    prompt = prompt_template.format(text=text, emoji_instruction=emoji_instruction)
     cli_err = None
     try:
         enhanced = await _generate_via_cli(prompt)

@@ -48,8 +48,8 @@
                 </div>
 
                 <div class="flex flex-wrap gap-3">
-                    <button onclick="buildSingleDraft()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">{{ update_config.ui.build_draft }}</button>
-                    <button onclick="addDigestItem()" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.add_to_digest }}</button>
+                    <button id="build-draft-btn" type="button" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">{{ update_config.ui.build_draft }}</button>
+                    <button id="add-digest-btn" type="button" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.add_to_digest }}</button>
                 </div>
             </div>
         </div>
@@ -79,8 +79,8 @@
                             <option value="test" class="bg-[#0a0a0a]">{{ update_config.ui.test_group }}</option>
                         </select>
                     </label>
-                    <button onclick="sendUpdateDraft()" class="bg-emerald-500 text-[#04130b] hover:bg-emerald-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send }}</button>
-                    <button onclick="sendPreviewDraft()" class="bg-sky-500 text-[#04101a] hover:bg-sky-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send_preview }}</button>
+                    <button id="send-live-btn" type="button" class="bg-emerald-500 text-[#04130b] hover:bg-emerald-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send }}</button>
+                    <button id="send-preview-btn" type="button" class="bg-sky-500 text-[#04101a] hover:bg-sky-400 h-10 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors">{{ update_config.ui.send_preview }}</button>
                 </div>
                 <div id="image-drop-zone" class="border border-dashed border-[#272727] bg-[#111111] rounded-md p-4 text-sm text-[#a1a1aa]" tabindex="0">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -92,8 +92,12 @@
                     </div>
                     <div id="attached-image-preview" class="hidden mt-3"></div>
                 </div>
-                <div class="flex justify-end">
-                    <button id="enhance-text-btn" onclick="enhanceDraftText()" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.enhance_text }}</button>
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <label class="flex items-center gap-2 text-xs text-[#a1a1aa]">
+                        <input id="enhance-emojis" type="checkbox" class="h-4 w-4 rounded border-[#272727] bg-[#111111]">
+                        <span>{{ update_config.ui.enhance_emojis }}</span>
+                    </label>
+                    <button id="enhance-text-btn" type="button" class="bg-[#171717] text-[#fafafa] hover:bg-[#1f1f1f] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors border border-[#272727]">{{ update_config.ui.enhance_text }}</button>
                 </div>
                 <textarea id="final-draft" rows="13" class="w-full bg-[#111111] border border-[#272727] rounded-md p-4 text-sm leading-7 text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8]"></textarea>
             </div>
@@ -119,9 +123,15 @@
     const updateConfig = {{ update_config|tojson }};
     let digestItems = {{ digest_items|tojson }};
     let attachedCoverPaths = [];
+    const draftStorageKey = 'botson:update-draft:v1';
 
     function fieldValue(id) {
         return (document.getElementById(id).value || '').trim();
+    }
+
+    function setFieldValue(id, value) {
+        const el = document.getElementById(id);
+        if (el && value !== undefined && value !== null) el.value = value;
     }
 
     function compactLines(lines) {
@@ -165,8 +175,55 @@
         };
     }
 
+    function persistDraftState() {
+        try {
+            localStorage.setItem(draftStorageKey, JSON.stringify({
+                type: fieldValue('update-type'),
+                title: fieldValue('update-title'),
+                impact: fieldValue('update-impact'),
+                timing: fieldValue('update-timing'),
+                notes: fieldValue('update-notes'),
+                finalDraft: document.getElementById('final-draft').value || '',
+                sendTopic: fieldValue('send-topic'),
+                sendTarget: fieldValue('send-target'),
+                enhanceEmojis: Boolean(document.getElementById('enhance-emojis').checked),
+                coverPaths: attachedCoverPaths,
+            }));
+        } catch (_) {}
+    }
+
+    function restoreDraftState() {
+        try {
+            const raw = localStorage.getItem(draftStorageKey);
+            if (!raw) return;
+            const data = JSON.parse(raw) || {};
+            setFieldValue('update-type', data.type);
+            setFieldValue('update-title', data.title);
+            setFieldValue('update-impact', data.impact);
+            setFieldValue('update-timing', data.timing);
+            setFieldValue('update-notes', data.notes);
+            setFieldValue('final-draft', data.finalDraft);
+            setFieldValue('send-topic', data.sendTopic);
+            setFieldValue('send-target', data.sendTarget);
+            document.getElementById('enhance-emojis').checked = Boolean(data.enhanceEmojis);
+            attachedCoverPaths = Array.isArray(data.coverPaths) ? data.coverPaths : [];
+            renderAttachedImages();
+        } catch (_) {}
+    }
+
+    function getDraftTextForSend() {
+        let text = fieldValue('final-draft');
+        if (!text) {
+            text = buildDraftFromItem(currentItem());
+            document.getElementById('final-draft').value = text;
+            persistDraftState();
+        }
+        return text;
+    }
+
     function buildSingleDraft() {
         document.getElementById('final-draft').value = buildDraftFromItem(currentItem());
+        persistDraftState();
     }
 
     function renderDigestItems() {
@@ -227,10 +284,11 @@
             lines.push('');
         });
         document.getElementById('final-draft').value = compactLines(lines);
+        persistDraftState();
     }
 
     async function sendUpdateDraft() {
-        const text = fieldValue('final-draft');
+        const text = getDraftTextForSend();
         const topicId = fieldValue('send-topic');
         if (!text) {
             showToast(updateConfig.ui.draft_required, 'error');
@@ -240,13 +298,17 @@
             showToast(updateConfig.ui.topic_required, 'error');
             return;
         }
-        await apiCall('/api/bot/send-message', {
-            text: text,
-            topic_id: topicId,
-            target: fieldValue('send-target') || 'main',
-            cover_paths: attachedCoverPaths,
-        });
-        showToast(updateConfig.ui.sent);
+        try {
+            await apiCall('/api/bot/send-message', {
+                text: text,
+                topic_id: topicId,
+                target: fieldValue('send-target') || 'main',
+                cover_paths: attachedCoverPaths,
+            });
+            showToast(updateConfig.ui.sent);
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
     }
 
     async function enhanceDraftText() {
@@ -261,8 +323,12 @@
         btn.disabled = true;
         btn.textContent = updateConfig.ui.enhancing_text || original;
         try {
-            const res = await apiCall('/api/updates/enhance', { text: text });
+            const res = await apiCall('/api/updates/enhance', {
+                text: text,
+                allow_emojis: Boolean(document.getElementById('enhance-emojis').checked),
+            });
             textarea.value = res.text || text;
+            persistDraftState();
             showToast(updateConfig.ui.enhanced_text || updateConfig.ui.saved);
         } finally {
             btn.disabled = false;
@@ -271,17 +337,21 @@
     }
 
     async function sendPreviewDraft() {
-        const text = fieldValue('final-draft');
+        const text = getDraftTextForSend();
         if (!text) {
             showToast(updateConfig.ui.draft_required, 'error');
             return;
         }
-        await apiCall('/api/bot/send-message', {
-            text: text,
-            target: 'test',
-            cover_paths: attachedCoverPaths,
-        });
-        showToast(updateConfig.ui.preview_sent || updateConfig.ui.sent);
+        try {
+            await apiCall('/api/bot/send-message', {
+                text: text,
+                target: 'test',
+                cover_paths: attachedCoverPaths,
+            });
+            showToast(updateConfig.ui.preview_sent || updateConfig.ui.sent);
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
     }
 
     async function uploadAttachedImage(file) {
@@ -306,6 +376,7 @@
         if (data.path) {
             attachedCoverPaths.push(data.path);
             renderAttachedImages();
+            persistDraftState();
         }
         showToast(updateConfig.ui.image_attached || updateConfig.ui.saved);
     }
@@ -337,7 +408,30 @@
             attachedCoverPaths = [];
         }
         renderAttachedImages();
+        persistDraftState();
     }
+
+    ['update-type', 'update-title', 'update-impact', 'update-timing', 'update-notes', 'final-draft', 'send-topic', 'send-target', 'enhance-emojis'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', persistDraftState);
+        el.addEventListener('change', persistDraftState);
+    });
+
+    [
+        ['build-draft-btn', buildSingleDraft],
+        ['add-digest-btn', addDigestItem],
+        ['send-live-btn', sendUpdateDraft],
+        ['send-preview-btn', sendPreviewDraft],
+        ['enhance-text-btn', enhanceDraftText],
+    ].forEach(function (pair) {
+        const el = document.getElementById(pair[0]);
+        if (!el) return;
+        el.addEventListener('click', function (event) {
+            event.preventDefault();
+            pair[1]();
+        });
+    });
 
     document.getElementById('image-drop-zone').addEventListener('paste', function (event) {
         const items = Array.from((event.clipboardData || {}).items || []);
@@ -350,5 +444,6 @@
     });
 
     renderDigestItems();
+    restoreDraftState();
 </script>
 {% endblock %}
