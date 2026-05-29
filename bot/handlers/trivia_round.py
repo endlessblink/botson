@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 POINTS_CORRECT = 12
 POINTS_FIRST_PLACE_BONUS = 20
 QUESTION_COUNT = 10
-QUESTION_TIMEOUT_S = 15
+DEFAULT_QUESTION_TIMEOUT_S = 30
 
 GENERAL_THEME_LABEL = "כללי"
 
@@ -38,6 +38,15 @@ STOP_FILE = Path(__file__).resolve().parents[2] / "data" / "trivia_round_stop"
 
 # Per-chat active round state: {chat_id: {q_index, msg_id, scores, ...}}
 _active_rounds: dict[int, dict] = {}
+
+
+def _question_timeout_s() -> int:
+    try:
+        raw = (get_settings().get("trivia") or {}).get("question_timeout_s")
+        timeout = int(raw or DEFAULT_QUESTION_TIMEOUT_S)
+    except Exception:
+        timeout = DEFAULT_QUESTION_TIMEOUT_S
+    return max(10, min(120, timeout))
 
 
 def _load_questions() -> list[dict]:
@@ -124,7 +133,9 @@ def _build_answer_markup(q_index: int, options: list[str]) -> InlineKeyboardMark
 
 
 def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: int,
-                         min_ready_players: int = 0) -> str:
+                         min_ready_players: int = 0,
+                         question_timeout_s: int | None = None) -> str:
+    timeout_s = int(question_timeout_s or _question_timeout_s())
     if pre_roll_s >= 60:
         minutes = max(1, pre_roll_s // 60)
         when = f"עוד {minutes} דקות"
@@ -139,7 +150,7 @@ def _format_announcement(pre_roll_s: int, *, theme_label: str, question_count: i
         )
     return (
         f"{theme_emoji} טריוויה: {theme_label}!\n\n"
-        f"{question_count} שאלות מהירות · {QUESTION_TIMEOUT_S} שניות לכל אחת.\n"
+        f"{question_count} שאלות מהירות · {timeout_s} שניות לכל אחת.\n"
         f"תשובה נכונה = {POINTS_CORRECT} נק׳ · מקום ראשון = +{POINTS_FIRST_PLACE_BONUS} בונוס 🏆\n"
         f"{ready_line}\n\n"
         f"השאלה הראשונה יורדת {when} — תתחממו 🍿"
@@ -153,17 +164,33 @@ def _build_ready_markup() -> InlineKeyboardMarkup:
 _TIMER_BAR_BLOCKS = 10
 
 
-def _timer_bar(remaining_s: int) -> str:
-    """Return a 10-block progress bar for remaining time (0..QUESTION_TIMEOUT_S)."""
-    filled = max(0, min(_TIMER_BAR_BLOCKS, round(remaining_s / QUESTION_TIMEOUT_S * _TIMER_BAR_BLOCKS)))
+def _timer_bar(remaining_s: int, question_timeout_s: int | None = None) -> str:
+    """Return a 10-block progress bar for remaining time."""
+    timeout_s = int(question_timeout_s or _question_timeout_s())
+    filled = max(0, min(_TIMER_BAR_BLOCKS, round(remaining_s / timeout_s * _TIMER_BAR_BLOCKS)))
     return "▓" * filled + "░" * (_TIMER_BAR_BLOCKS - filled)
 
 
-def _question_text(q: dict, q_index: int, remaining_s: int) -> str:
+def _question_timer_ticks(question_timeout_s: int) -> list[tuple[int, int]]:
+    tick_pairs: list[tuple[int, int]] = []
+    for remaining_s in (20, 10, 5):
+        if remaining_s >= question_timeout_s:
+            continue
+        elapsed_s = question_timeout_s - remaining_s
+        tick_pairs.append((elapsed_s, remaining_s))
+    if not tick_pairs and question_timeout_s > 5:
+        remaining_s = max(2, question_timeout_s // 2)
+        tick_pairs.append((question_timeout_s - remaining_s, remaining_s))
+    return tick_pairs
+
+
+def _question_text(q: dict, q_index: int, remaining_s: int,
+                   question_timeout_s: int | None = None) -> str:
     category = q.get("category", "כללי")
-    bar = _timer_bar(remaining_s)
-    if remaining_s >= QUESTION_TIMEOUT_S:
-        timer = f"⏱ {QUESTION_TIMEOUT_S} שניות {bar}"
+    timeout_s = int(question_timeout_s or _question_timeout_s())
+    bar = _timer_bar(remaining_s, timeout_s)
+    if remaining_s >= timeout_s:
+        timer = f"⏱ {timeout_s} שניות {bar}"
     elif remaining_s <= 5:
         timer = f"⏱ נשארו {remaining_s} שניות ⚠️ {bar}"
     else:
@@ -190,9 +217,10 @@ def _leaderboard_snapshot(scores: dict, *, limit: int = 5) -> str:
 
 
 async def _post_question(bot, db: Database, chat_id: int, thread_id: int | None,
-                          q_index: int, q: dict) -> int:
+                          q_index: int, q: dict,
+                          question_timeout_s: int | None = None) -> int:
     """Post question q_index and return message_id."""
-    text = _question_text(q, q_index, QUESTION_TIMEOUT_S)
+    text = _question_text(q, q_index, int(question_timeout_s or _question_timeout_s()))
     markup = _build_answer_markup(q_index, q["options"])
     msg = await safe_send(
         bot,
@@ -207,9 +235,10 @@ async def _post_question(bot, db: Database, chat_id: int, thread_id: int | None,
 
 
 async def _update_question_timer(bot, chat_id: int, message_id: int, q: dict,
-                                   q_index: int, remaining_s: int) -> None:
+                                   q_index: int, remaining_s: int,
+                                   question_timeout_s: int | None = None) -> None:
     """Edit the question message to refresh the timer bar. Keep buttons attached."""
-    text = _question_text(q, q_index, remaining_s)
+    text = _question_text(q, q_index, remaining_s, question_timeout_s)
     markup = _build_answer_markup(q_index, q["options"])
     try:
         await bot.edit_message_text(
@@ -300,7 +329,12 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             "Check that the questions saved in trivia.yaml have exactly one of these category tags."
         )
 
-    round_state = _create_round_state(questions, question_count, min_ready_players=min_ready_players)
+    round_state = _create_round_state(
+        questions,
+        question_count,
+        min_ready_players=min_ready_players,
+        question_timeout_s=_question_timeout_s(),
+    )
     _active_rounds[chat_id] = round_state
 
     try:
@@ -315,6 +349,7 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
             teaser_topic_id=teaser_topic_id,
             teaser_text=teaser_text,
             min_ready_players=min_ready_players,
+            question_timeout_s=int(round_state.get("question_timeout_s") or _question_timeout_s()),
         )
         await _continue_round_after_announcement(
             bot,
@@ -330,11 +365,14 @@ async def _run_round(bot, db: Database, chat_id: int, thread_id: int | None,
 
 def _create_round_state(questions: list[dict], question_count: int,
                         min_ready_players: int = 0,
-                        ready_users: dict[int, str] | None = None) -> dict:
+                        ready_users: dict[int, str] | None = None,
+                        question_timeout_s: int | None = None) -> dict:
     ready_users = ready_users or {}
+    timeout_s = int(question_timeout_s or _question_timeout_s())
     return {
         "questions": questions,
         "question_count": question_count,
+        "question_timeout_s": timeout_s,
         "q_index": -1,
         "msg_id": None,
         "scores": {},  # user_id → {name, correct, points}
@@ -364,7 +402,8 @@ async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, t
                                               question_count: int,
                                               teaser_topic_id: int | None = None,
                                               teaser_text: str | None = None,
-                                              min_ready_players: int = 0) -> int:
+                                              min_ready_players: int = 0,
+                                              question_timeout_s: int | None = None) -> int:
     # Optional teaser in a theme-matched topic, fired BEFORE the main
     # announcement so the linked audience has time to jump over.
     if teaser_topic_id is not None and teaser_topic_id != thread_id:
@@ -399,6 +438,7 @@ async def _send_round_teaser_and_announcement(bot, db: Database, chat_id: int, t
                 pre_roll_s,
                 theme_label=theme_label,
                 question_count=question_count,
+                question_timeout_s=question_timeout_s,
                 min_ready_players=min_ready_players,
             ),
             reply_markup=_build_ready_markup() if min_ready_players > 0 else None,
@@ -491,9 +531,8 @@ async def _continue_round_after_announcement(bot, db: Database, chat_id: int, th
             await asyncio.sleep(1)
             slept += 1
 
-        # Timer-bar tick marks for each question — (elapsed_s, remaining_s).
-        # For a 15s window: 5s → 10 left, 10s → 5 left, 13s → 2 left.
-        tick_marks = [(5, 10), (10, 5), (13, 2)]
+        question_timeout_s = int(round_state.get("question_timeout_s") or _question_timeout_s())
+        tick_marks = _question_timer_ticks(question_timeout_s)
 
         # Questions loop
         questions = round_state["questions"]
@@ -502,7 +541,10 @@ async def _continue_round_after_announcement(bot, db: Database, chat_id: int, th
                 return
             round_state["q_index"] = q_index
             round_state["answers_this_q"] = {}
-            msg_id = await _post_question(bot, db, chat_id, thread_id, q_index, q)
+            msg_id = await _post_question(
+                bot, db, chat_id, thread_id, q_index, q,
+                question_timeout_s=question_timeout_s,
+            )
             round_state["msg_id"] = msg_id
 
             # Wait for timeout with progress-bar edits at the configured ticks.
@@ -515,8 +557,9 @@ async def _continue_round_after_announcement(bot, db: Database, chat_id: int, th
                     elapsed += 1
                 await _update_question_timer(
                     bot, chat_id, msg_id, q, q_index, remaining_s,
+                    question_timeout_s=question_timeout_s,
                 )
-            while elapsed < QUESTION_TIMEOUT_S:
+            while elapsed < question_timeout_s:
                 if _should_abort(chat_id):
                     return
                 await asyncio.sleep(1)
@@ -782,6 +825,7 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
         question_count,
         min_ready_players=min_ready_players,
         ready_users=warmup_ready_users,
+        question_timeout_s=_question_timeout_s(),
     )
     _active_rounds[chat_id] = round_state
     try:
@@ -796,6 +840,7 @@ async def start_scheduled_trivia_round(context: ContextTypes.DEFAULT_TYPE, msg: 
             teaser_topic_id=teaser_topic_id,
             teaser_text=teaser_text,
             min_ready_players=min_ready_players,
+            question_timeout_s=int(round_state.get("question_timeout_s") or _question_timeout_s()),
         )
     except Exception:
         _active_rounds.pop(chat_id, None)

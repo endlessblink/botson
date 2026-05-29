@@ -582,6 +582,19 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("בוטל" in activity[1] for activity in db.activities))
         trivia_round._active_rounds.pop(-1002, None)
 
+    def test_trivia_question_timeout_defaults_to_thirty_seconds(self):
+        from bot.handlers import trivia_round
+        with patch.object(trivia_round, "get_settings", return_value={}):
+            self.assertEqual(trivia_round._question_timeout_s(), 30)
+            self.assertEqual(trivia_round._question_timer_ticks(30), [(10, 20), (20, 10), (25, 5)])
+            text = trivia_round._question_text(
+                {"text": "q", "category": "כללי", "_round_question_count": 1},
+                0,
+                30,
+                30,
+            )
+        self.assertIn("30 שניות", text)
+
     # Obsolete tests removed: free_games is no longer dispatched from
     # scheduled_messages rows (cron owns it), so the old "no post → fail" and
     # "no new candidates → skip" send paths no longer run via the calendar.
