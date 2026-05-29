@@ -447,7 +447,8 @@ async def enhance_update_draft(request: Request):
     templates_config = _load_update_templates()
     prompt_template = ((templates_config.get("enhance") or {}).get("prompt") or "{text}")
     emoji_instruction = (
-        "מותר להוסיף 1-3 אימוג׳ים אם הם עוזרים לסריקה, אבל לא בכל שורה ולא בסגנון ילדותי."
+        "הוסף אימוג׳י מתאים לרוב הכותרות והבולטים המרכזיים, בערך 4-7 אימוג׳ים לטיוטה בינונית. "
+        "בחר אימוג׳ים שעוזרים לסריקה ומבהירים את הנושא. אל תשים יותר מאימוג׳י אחד באותה שורה, ואל תהפוך את זה לילדותי."
         if allow_emojis
         else "אל תוסיף אימוג׳ים חדשים; אם כבר קיימים אימוג׳ים בטיוטה, אפשר להשאיר רק אם הם נחוצים."
     )  # noqa: hardcoded-content (LLM prompt fragment; operator-facing copy lives in config/update_templates.yaml)
