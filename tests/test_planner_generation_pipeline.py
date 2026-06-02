@@ -49,6 +49,45 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(reason)
         self.assertIn("copied static example", str(reason))
 
+    async def test_planner_uses_codex_fallback_when_claude_paths_fail(self):
+        from bot.database.db import Database
+
+        db = Database(":memory:")
+        await db.init()
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+        call_counter = {"n": 0}
+
+        async def codex_canned(*args, **kwargs):
+            call_counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
+
+        async def activity_copy(*args, **kwargs):
+            return "מתחילים עוד מעט פעילות קלילה; מי בפנים?"
+
+        with patch.object(self.app, "_generate_via_cli", new=AsyncMock(side_effect=RuntimeError("claude down"))), \
+             patch.object(self.app, "_generate_via_api", new=AsyncMock(side_effect=RuntimeError("api missing"))), \
+             patch.object(self.app, "_generate_via_codex_cli", new=AsyncMock(side_effect=codex_canned)), \
+             patch.object(self.app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
+             patch.object(self.app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await self.app._ai_suggest_calendar(db, target_date=None, week_offset=1)
+
+        await db.close()
+        types = {s["message_type"] for s in result["suggestions"]}
+        self.assertIn("morning", types)
+        self.assertIn("discussion", types)
+        self.assertTrue(
+            any("Codex CLI fallback was used" in err for err in result["errors"]),
+            result["errors"],
+        )
+
 
 class PlannerRetryBudgetSettingHonored(unittest.TestCase):
     """The new retry budget is sourced from settings; default = 3."""

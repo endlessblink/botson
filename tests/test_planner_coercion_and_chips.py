@@ -2472,7 +2472,8 @@ class TestPlannerTemplateExposure(unittest.TestCase):
     def test_activity_copy_generation_failure_skips_instead_of_fallback(self):
         async def run():
             with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=RuntimeError("cli down"))), \
-                 patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=RuntimeError("api down"))):
+                 patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=RuntimeError("api down"))), \
+                 patch.object(dashboard_app, "_generate_via_codex_cli", new=AsyncMock(side_effect=RuntimeError("codex down"))):
                 return await dashboard_app._generate_activity_copy(
                     "trivia_warmup",
                     fallback="טקסט סטטי שאסור לשלוח",
@@ -2899,6 +2900,11 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("function _formatApiError", self.html)
         self.assertIn("Array.isArray(data.detail)", self.html)
         self.assertIn("JSON.stringify(data.detail)", self.html)
+
+    def test_ai_suggest_modal_surfaces_generation_warnings_with_suggestions(self):
+        self.assertIn("Array.isArray(data.errors) && data.errors.length", self.html)
+        self.assertIn("errorLines.join('\\n')", self.html)
+        self.assertIn("data.stats_block || ''", self.html)
 
     def test_ai_suggest_empty_state_renders_skip_reasons(self):
         self.assertIn("function _aiSuggestRenderEmpty", self.html)

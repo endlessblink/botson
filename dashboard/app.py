@@ -1395,13 +1395,12 @@ async def _generate_activity_copy(kind: str, *, fallback: str | None = None,
 
 פלט JSON בלבד: {{"text":"..."}}"""
     try:
-        raw = await _generate_via_cli(prompt)
-    except Exception:
-        try:
-            raw = await _generate_via_api(prompt)
-        except Exception as e:
-            logger.info("[activity-copy] %s generation failed; skipping warm-up: %s", kind, e)
-            return None
+        raw, notices = await _generate_with_fallbacks(prompt, context=f"activity-copy.{kind}")
+        for notice in notices:
+            logger.warning("[activity-copy] %s", notice)
+    except Exception as e:
+        logger.info("[activity-copy] %s generation failed; skipping warm-up: %s", kind, e)
+        return None
     text = _clean_activity_copy(raw)
     if text is None:
         logger.info("[activity-copy] %s returned unusable copy; skipping warm-up", kind)
@@ -4048,6 +4047,110 @@ async def _generate_via_cli(prompt: str) -> str:
     return out
 
 
+async def _generate_via_codex_cli(prompt: str) -> str:
+    """Fallback generation via Codex CLI.
+
+    Codex reads auth/config from CODEX_HOME when set, otherwise from HOME. Keep
+    the invocation non-interactive and read-only so dashboard generation cannot
+    mutate the repo.
+    """
+    import pwd as _pwd
+
+    try:
+        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
+    except Exception:
+        real_home = os.path.expanduser("~")
+
+    env = {**os.environ, "HOME": real_home}
+    repo_root = BASE_DIR.parent
+    local_codex_home = repo_root / ".codex-home"
+    codex_home = (
+        os.getenv("BOTSON_CODEX_HOME")
+        or os.getenv("CODEX_HOME")
+        or (str(local_codex_home) if local_codex_home.is_dir() else "")
+    )
+    if codex_home:
+        env["CODEX_HOME"] = codex_home
+
+    import tempfile
+
+    fd, output_path = tempfile.mkstemp(prefix="botson-codex-", suffix=".txt")
+    os.close(fd)
+    try:
+        cmd = [
+            "codex", "exec",
+            "--sandbox", "read-only",
+            "--skip-git-repo-check",
+            "--cd", str(repo_root),
+            "--output-last-message", output_path,
+            "-",
+        ]
+        model = os.getenv("BOTSON_CODEX_MODEL", "").strip()
+        if model:
+            cmd[2:2] = ["--model", model]
+        profile = os.getenv("BOTSON_CODEX_PROFILE", "").strip()
+        if profile:
+            cmd[2:2] = ["--profile", profile]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode("utf-8")), timeout=120)
+        if proc.returncode != 0:
+            raise RuntimeError(f"Codex CLI error (rc={proc.returncode}): {stderr.decode()[:300]}")
+        out = Path(output_path).read_text(encoding="utf-8").strip()
+        if not out:
+            out = stdout.decode().strip()
+        if not out:
+            raise RuntimeError(f"Codex CLI returned empty output (stderr={stderr.decode()[:200]})")
+        return out
+    finally:
+        try:
+            Path(output_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = None,
+                                   context: str = "generation") -> tuple[str, list[str]]:
+    """Claude CLI -> Anthropic API -> Codex CLI.
+
+    Returns (content, notices). Notices are caller-visible warnings for flows
+    like Planner Populate where the operator should know Claude produced
+    nothing and a fallback provider was used.
+    """
+    claude_cli_error: Exception | None = None
+    anthropic_api_error: Exception | None = None
+    try:
+        return await _generate_via_cli(prompt), []
+    except Exception as claude_cli_err:
+        claude_cli_error = claude_cli_err
+        logger.warning("%s: Claude CLI failed, trying Anthropic API: %s", context, claude_cli_err)
+
+    try:
+        content = await _generate_via_api(prompt, temperature=temperature)
+        return content, []
+    except Exception as anthropic_api_err:
+        anthropic_api_error = anthropic_api_err
+        logger.warning("%s: Anthropic API failed, trying Codex CLI: %s", context, anthropic_api_err)
+
+    try:
+        content = await _generate_via_codex_cli(prompt)
+        return content, [
+            f"{context}: Claude generation failed; Codex CLI fallback was used "
+            f"(Claude CLI={claude_cli_error}; API={anthropic_api_error})"
+        ]
+    except Exception as codex_err:
+        raise RuntimeError(
+            f"Claude generation failed and Codex fallback failed "
+            f"(Claude CLI={claude_cli_error}; API={anthropic_api_error}; Codex={codex_err})"
+        ) from codex_err
+
+
 async def _generate_via_api(prompt: str, *, temperature: float | None = None) -> str:
     """Fallback: generate content via Anthropic API."""
     import httpx
@@ -5742,15 +5845,14 @@ async def _ai_suggest_calendar(
             if blocked_openers:
                 attempt_prompt += "\n\n" + "אל תפתח באותן מילים כמו הפתיחות שכבר הופיעו: " + ", ".join(sorted(blocked_openers))
             try:
-                raw = await _generate_via_cli(attempt_prompt)
-            except Exception:
-                try:
-                    raw = await _generate_via_api(
-                        attempt_prompt,
-                        temperature=float(_planner_gen_cfg["temperature"]),
-                    )
-                except Exception as e:
-                    return "", [f"generation failed: {e}"]
+                raw, notices = await _generate_with_fallbacks(
+                    attempt_prompt,
+                    temperature=float(_planner_gen_cfg["temperature"]),
+                    context=f"planner.{field}{':' + cat if cat else ''}",
+                )
+                errors.extend(notices)
+            except Exception as e:
+                return "", [f"generation failed: {e}"]
             text = (raw or "").strip().replace('"', '').replace("'", "")
             lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
             text = lines[0] if lines else text

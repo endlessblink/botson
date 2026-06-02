@@ -25,6 +25,7 @@ test-results/
 .claude/
 .claude.json
 .codex
+.codex-home/
 .playwright-mcp/
 backups/
 media/covers/

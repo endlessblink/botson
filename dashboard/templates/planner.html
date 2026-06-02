@@ -3555,8 +3555,12 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
                 _aiSuggestRenderSuggestions(listEl);
             }
         }
-        if (statsEl && data.stats_block) {
-            statsEl.textContent = data.stats_block;
+        if (statsEl && (data.stats_block || (Array.isArray(data.errors) && data.errors.length))) {
+            var errorLines = Array.isArray(data.errors) ? data.errors : [];
+            statsEl.textContent = [
+                data.stats_block || '',
+                errorLines.length ? errorLines.join('\n') : ''
+            ].filter(Boolean).join('\n\n');
             statsEl.classList.remove('hidden');
         }
         var w = data.window || {};
