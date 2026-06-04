@@ -287,6 +287,22 @@ def require_auth(request: Request):
         raise HTTPException(status_code=303, headers={"Location": "/login"})
 
 
+@app.get("/api/health/generation")
+async def generation_health(
+    request: Request,
+    include_planner: bool = False,
+    min_suggestions: int = 6,
+    db: Database = Depends(get_db),
+):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    return await run_generation_health_check(
+        db,
+        include_planner=include_planner,
+        min_suggestions=max(1, min(int(min_suggestions), 20)),
+    )
+
+
 # ── Auth ─────────────────────────────────────────────────
 
 @app.get("/login", response_class=HTMLResponse)
@@ -4038,7 +4054,12 @@ async def _generate_via_cli(prompt: str) -> str:
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+    except TimeoutError as e:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError("CLI timed out after 90s") from e
     if proc.returncode != 0:
         raise RuntimeError(f"CLI error (rc={proc.returncode}): {stderr.decode()[:300]}")
     out = stdout.decode().strip()
@@ -4099,7 +4120,12 @@ async def _generate_via_codex_cli(prompt: str) -> str:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode("utf-8")), timeout=120)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode("utf-8")), timeout=120)
+        except TimeoutError as e:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError("Codex CLI timed out after 120s") from e
         if proc.returncode != 0:
             raise RuntimeError(f"Codex CLI error (rc={proc.returncode}): {stderr.decode()[:300]}")
         out = Path(output_path).read_text(encoding="utf-8").strip()
@@ -4133,7 +4159,10 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
 
     try:
         content = await _generate_via_api(prompt, temperature=temperature)
-        return content, []
+        return content, [
+            f"{context}: Claude generation failed; Anthropic API fallback was used "
+            f"(Claude CLI={claude_cli_error})"
+        ]
     except Exception as anthropic_api_err:
         anthropic_api_error = anthropic_api_err
         logger.warning("%s: Anthropic API failed, trying Codex CLI: %s", context, anthropic_api_err)
@@ -4149,6 +4178,113 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
             f"Claude generation failed and Codex fallback failed "
             f"(Claude CLI={claude_cli_error}; API={anthropic_api_error}; Codex={codex_err})"
         ) from codex_err
+
+
+def _generation_provider_from_notices(notices: list[str]) -> str:
+    joined = "\n".join(notices)
+    if "Codex CLI fallback was used" in joined:
+        return "codex_cli"
+    if "Anthropic API fallback was used" in joined:
+        return "anthropic_api"
+    return "claude_cli"
+
+
+async def run_generation_health_check(
+    db: Database | None = None,
+    *,
+    include_planner: bool = False,
+    min_suggestions: int = 6,
+) -> dict:
+    """Read-only generation health probe for dashboard, cron, and Watchpost.
+
+    Status meanings:
+      - ok: Claude path produced clean text and optional Planner probe passed.
+      - degraded: a fallback provider succeeded, or Planner returned warnings.
+      - failed: no clean provider output, or Planner output is too thin.
+    """
+    started = time.monotonic()
+    sentinel = "botson_generation_health_ok"
+    checks: dict[str, dict] = {}
+    status = "ok"
+
+    try:
+        content, notices = await _generate_with_fallbacks(
+            f"Return exactly this text and nothing else: {sentinel}",
+            context="generation-health.provider",
+        )
+        clean = (content or "").strip()
+        provider_status = "ok"
+        if clean != sentinel:
+            provider_status = "failed"
+            status = "failed"
+        elif notices:
+            provider_status = "degraded"
+            status = "degraded"
+        checks["provider_chain"] = {
+            "status": provider_status,
+            "provider": _generation_provider_from_notices(notices),
+            "fallback_used": bool(notices),
+            "clean_output": clean == sentinel,
+            "notices": notices,
+        }
+    except Exception as e:
+        status = "failed"
+        checks["provider_chain"] = {
+            "status": "failed",
+            "provider": None,
+            "fallback_used": False,
+            "clean_output": False,
+            "error": str(e),
+        }
+
+    if include_planner and status != "failed":
+        owns_db = db is None
+        if db is None:
+            db = Database(DB_PATH)
+            await db.init()
+        try:
+            target = (datetime.now(ZoneInfo("Asia/Jerusalem")).date() + timedelta(days=1)).isoformat()
+            result = await _ai_suggest_calendar(db, target_date=target, week_offset=0)
+            suggestions = result.get("suggestions") or []
+            types = sorted({str(s.get("message_type") or "") for s in suggestions if s.get("message_type")})
+            text_types = {"morning", "evening", "discussion"}
+            has_text_type = bool(text_types.intersection(types))
+            planner_errors = [str(e) for e in (result.get("errors") or []) if e]
+            planner_status = "ok"
+            if len(suggestions) < max(1, int(min_suggestions)) or not has_text_type:
+                planner_status = "failed"
+                status = "failed"
+            elif planner_errors:
+                planner_status = "degraded"
+                if status == "ok":
+                    status = "degraded"
+            checks["planner_dry_run"] = {
+                "status": planner_status,
+                "target_date": target,
+                "suggestions": len(suggestions),
+                "min_suggestions": max(1, int(min_suggestions)),
+                "message_types": types,
+                "has_text_generated_type": has_text_type,
+                "errors": planner_errors,
+                "skip_reasons": result.get("skip_reasons") or [],
+            }
+        except Exception as e:
+            status = "failed"
+            checks["planner_dry_run"] = {
+                "status": "failed",
+                "error": str(e),
+            }
+        finally:
+            if owns_db and db is not None:
+                await db.close()
+
+    return {
+        "status": status,
+        "ok": status == "ok",
+        "degraded": status == "degraded",
+        "duration_ms": int((time.monotonic() - started) * 1000),
+        "checks": checks,
+    }
 
 
 async def _generate_via_api(prompt: str, *, temperature: float | None = None) -> str:

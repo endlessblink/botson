@@ -88,6 +88,90 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
             result["errors"],
         )
 
+    async def test_generation_health_reports_degraded_fallback(self):
+        with patch.object(
+            self.app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=(
+                "botson_generation_health_ok",
+                ["generation-health.provider: Claude generation failed; Codex CLI fallback was used"],
+            )),
+        ):
+            result = await self.app.run_generation_health_check()
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["checks"]["provider_chain"]["provider"], "codex_cli")
+        self.assertTrue(result["checks"]["provider_chain"]["fallback_used"])
+
+    async def test_generation_health_fails_on_noisy_provider_output(self):
+        with patch.object(
+            self.app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=("transcript\nbotson_generation_health_ok", [])),
+        ):
+            result = await self.app.run_generation_health_check()
+
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["checks"]["provider_chain"]["clean_output"])
+
+    async def test_generation_health_planner_dry_run_fails_on_pool_only_rows(self):
+        from bot.database.db import Database
+
+        db = Database(":memory:")
+        await db.init()
+        try:
+            with patch.object(
+                self.app,
+                "_generate_with_fallbacks",
+                new=AsyncMock(return_value=("botson_generation_health_ok", [])),
+            ), patch.object(
+                self.app,
+                "_ai_suggest_calendar",
+                new=AsyncMock(return_value={
+                    "suggestions": [
+                        {"message_type": "trivia_warmup_rsvp"},
+                        {"message_type": "emoji_puzzle"},
+                        {"message_type": "facts_tidbit"},
+                    ],
+                    "errors": [],
+                    "skip_reasons": [],
+                }),
+            ):
+                result = await self.app.run_generation_health_check(
+                    db,
+                    include_planner=True,
+                    min_suggestions=6,
+                )
+        finally:
+            await db.close()
+
+        self.assertEqual(result["status"], "failed")
+        planner = result["checks"]["planner_dry_run"]
+        self.assertEqual(planner["suggestions"], 3)
+        self.assertFalse(planner["has_text_generated_type"])
+
+    def test_generation_health_endpoint_requires_auth_and_returns_probe(self):
+        ok_payload = {"status": "ok", "ok": True, "checks": {}}
+
+        with patch.object(
+            self.app,
+            "run_generation_health_check",
+            new=AsyncMock(return_value=ok_payload),
+        ):
+            unauth = self.client.get("/api/health/generation")
+            self.assertEqual(unauth.status_code, 401)
+
+            login = self.client.post(
+                "/login",
+                data={"password": self.app.DASHBOARD_PASSWORD},
+                follow_redirects=False,
+            )
+            self.assertEqual(login.status_code, 303)
+            authed = self.client.get("/api/health/generation?include_planner=true&min_suggestions=7")
+
+        self.assertEqual(authed.status_code, 200)
+        self.assertEqual(authed.json(), ok_payload)
+
 
 class PlannerRetryBudgetSettingHonored(unittest.TestCase):
     """The new retry budget is sourced from settings; default = 3."""
