@@ -285,7 +285,12 @@ ai_populate:
     week:
       morning: 1
       evening: 1
-      discussion: 2
+      # One discussion per day across the rolling week (slow-chat 2026-05-10
+      # kept a single 18:00 slot/day, so the effective max is 7/week = 1/day).
+      # Raised 2→9 on 2026-06-06: cap 2 starved the empty days when the busy
+      # front of the week consumed the whole budget. Headroom above 7 is
+      # intentional so a future 2nd daily discussion slot can use it.
+      discussion: 9
       trivia_round: 1
       emoji_puzzle: 1
       facts_tidbit: 1
