@@ -439,9 +439,13 @@
             <button type="button" id="ai-fill-today-cancel-btn" onclick="cancelAiFillToday()" class="hidden text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 ✕ בטל
             </button>
-            <button type="button" id="ai-fill-all-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="ייצר טיוטות AI לשבועות הגלויים, וגם חידות אמוג'י ועובדות חדשות. שורות שערכת ידנית לא יישברו.">
-                ✨ מלא טיוטות ב-AI
+            <button type="button" id="ai-fill-all-btn" onclick="aiRegenerateWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="מלא את השבוע הקרוב (7 הימים הבאים מהיום) בתוכן AI — גם חידות אמוג'י ועובדות חדשות. שורות שערכת ידנית לא יישברו.">
+                ✨ מלא שבוע קרוב ב-AI
             </button>
+            <button type="button" id="ai-fill-week-btn" onclick="aiFillSpecificWeek()" class="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-500/60 px-3 py-1.5 rounded-md cursor-pointer transition-colors" title="מלא שבוע עתידי ספציפי - בחר תאריך והמערכת תמלא את כל השבוע (ראשון-שבת) שמכיל אותו.">
+                ✨ מלא שבוע ספציפי
+            </button>
+            <input type="date" id="ai-fill-week-date" onchange="aiFillSpecificWeekSelected(this.value)" class="sr-only" aria-label="בחר תאריך למילוי שבוע עתידי">
         </div>
     </div>
 </div>
@@ -3468,7 +3472,8 @@ function _aiSuggestRenderRow(s) {
     return card;
 }
 
-async function _aiSuggestFetch(targetDate, triggerLabel) {
+async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
+    opts = opts || {};
     if (_aiSuggestState.controller || _aiSuggestState.jobId) {
         closeAiSuggestModal();
     }
@@ -3484,12 +3489,16 @@ async function _aiSuggestFetch(targetDate, triggerLabel) {
     var subtitle = document.getElementById('ai-suggest-subtitle');
     var listEl = document.getElementById('ai-suggest-list');
     var statsEl = document.getElementById('ai-suggest-stats');
-    if (subtitle) subtitle.textContent = (targetDate ? ('יום ' + targetDate) : 'שבוע נוכחי') + ' — מייצר הצעות (יכול לקחת 1-3 דקות)...';
+    var loadingScope = targetDate ? ('יום ' + targetDate)
+        : (opts.weekOf ? ('שבוע ' + opts.weekOf) : 'השבוע הקרוב');
+    if (subtitle) subtitle.textContent = loadingScope + ' — מייצר הצעות (יכול לקחת 1-3 דקות)...';
     if (listEl) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">⏳ טוען הצעות מה-AI...</div>';
     openAiSuggestModal();
 
-    var body = {week_offset: 0};
+    var body = {week_offset: (typeof opts.weekOffset === 'number' ? opts.weekOffset : 0)};
     if (targetDate) body.target_date = targetDate;
+    if (opts.windowMode) body.window_mode = opts.windowMode;
+    if (opts.weekOf) body.week_of = opts.weekOf;
     var requestBody = JSON.stringify(body);
 
     async function requestSuggestions() {
@@ -3623,9 +3632,10 @@ async function aiFillToday(targetDate) {
 }
 
 async function aiRegenerateWeek() {
-    // Same suggest+confirm flow as aiFillToday, scoped to the whole
-    // current week (no target_date).
-    await _aiSuggestFetch(null, 'week');
+    // Rolling "next 7 days" fill: always populates the upcoming week of
+    // free slots, regardless of which weekday this is clicked on. The
+    // backend window length comes from settings.yaml:ai_populate.rolling_window_days.
+    await _aiSuggestFetch(null, 'week', {windowMode: 'rolling'});
 }
 
 function aiFillSpecificDay() {
@@ -3651,6 +3661,33 @@ function aiFillSpecificDaySelected(iso) {
         return;
     }
     _aiSuggestFetch(iso, 'day');
+}
+
+function aiFillSpecificWeek() {
+    var input = document.getElementById('ai-fill-week-date');
+    if (!input) return;
+    input.value = input.value || todayIsoLocal();
+    try {
+        if (typeof input.showPicker === 'function') {
+            input.showPicker();
+        } else {
+            input.click();
+        }
+    } catch (e) {
+        input.click();
+    }
+}
+
+function aiFillSpecificWeekSelected(iso) {
+    if (!iso) return;
+    iso = iso.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        showToast('תאריך לא תקין', 'error');
+        return;
+    }
+    // Populate the full Sun–Sat calendar week containing this date. The
+    // backend derives the week from the date (server-side, Israel tz).
+    _aiSuggestFetch(null, 'week', {weekOf: iso});
 }
 
 function aiPopulateDrawerDate() {

@@ -533,6 +533,161 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             )
             self.assertGreaterEqual(slot, now, suggestion)
 
+    async def _seed_emoji_pool(self, db):
+        for media_type in ("movie", "series"):
+            for idx in range(5):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+
+    async def test_ai_suggest_rolling_window_fills_next_seven_days(self):
+        # The reported bug: clicking "fill a week" on the last weekday of the
+        # Sun–Sat week only returned a couple of suggestions because the
+        # current calendar week was almost entirely in the past. Rolling mode
+        # must always span the next N days *starting today*, no matter the
+        # weekday, so a full upcoming week of slots is offered.
+        from datetime import date as _date
+
+        class FixedDate(_date):
+            @classmethod
+            def today(cls):
+                return cls(2099, 1, 2)  # arbitrary future weekday
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 2, 0, 0)
+                return base.replace(tzinfo=tz) if tz is not None else base
+
+        db = Database(":memory:")
+        await db.init()
+        await self._seed_emoji_pool(db)
+        before = await self._scheduled_count(db)
+        call_counter = {"n": 0}
+
+        async def distinct_canned(*args, **kwargs):
+            call_counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
+
+        with patch.object(dashboard_app, "date", FixedDate), \
+             patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=None, window_mode="rolling",
+            )
+
+        after = await self._scheduled_count(db)
+        await db.close()
+
+        self.assertEqual(before, after, "suggest must not write scheduled rows")
+        self.assertEqual(result["window"]["scope"], "week")
+        self.assertEqual(result["window"]["start"], "2099-01-02")
+        self.assertEqual(result["window"]["end"], "2099-01-08")  # today + 6
+        self.assertTrue(result["suggestions"], "rolling fill must produce suggestions")
+        for s in result["suggestions"]:
+            self.assertGreaterEqual(s["date"], "2099-01-02")
+            self.assertLessEqual(s["date"], "2099-01-08")
+        types = {s["message_type"] for s in result["suggestions"]}
+        # Balanced mix, not a flood of one type.
+        self.assertGreaterEqual(len(types), 3, types)
+
+    async def test_ai_suggest_rolling_window_skips_past_times_on_day_zero(self):
+        # Day 0 of the rolling window is today; already-elapsed times on it
+        # must be dropped (CLAUDE.md: never suggest slots before server time).
+        db = Database(":memory:")
+        await db.init()
+        await self._seed_emoji_pool(db)
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+        now = dashboard_app.datetime.now()
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=None, window_mode="rolling",
+            )
+
+        await db.close()
+        today_iso = now.date().isoformat()
+        for s in result["suggestions"]:
+            if s["date"] == today_iso:
+                slot = dashboard_app.datetime.fromisoformat(f"{s['date']}T{s['time'][:5]}")
+                self.assertGreaterEqual(slot, now, s)
+
+    async def test_ai_suggest_week_of_targets_that_calendar_week(self):
+        # "Fill a specific week" passes week_of=<date>; the window must be the
+        # Sun–Sat calendar week containing that date.
+        db = Database(":memory:")
+        await db.init()
+        await self._seed_emoji_pool(db)
+        # A date comfortably in the future so nothing is skipped as past.
+        anchor = datetime.now().date() + timedelta(days=21)
+        days_since_sunday = (anchor.weekday() + 1) % 7
+        sunday = anchor - timedelta(days=days_since_sunday)
+        saturday = sunday + timedelta(days=6)
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=None, window_mode="week", week_of=anchor.isoformat(),
+            )
+
+        await db.close()
+        self.assertEqual(result["window"]["scope"], "week")
+        self.assertEqual(result["window"]["start"], sunday.isoformat())
+        self.assertEqual(result["window"]["end"], saturday.isoformat())
+        for s in result["suggestions"]:
+            self.assertGreaterEqual(s["date"], sunday.isoformat())
+            self.assertLessEqual(s["date"], saturday.isoformat())
+
+    async def test_ai_suggest_rolling_window_length_is_config_driven(self):
+        # The 7 must come from settings.yaml:ai_populate.rolling_window_days,
+        # not be hardcoded. Setting it to 3 must produce a 3-day window.
+        from datetime import date as _date
+
+        class FixedDate(_date):
+            @classmethod
+            def today(cls):
+                return cls(2099, 1, 2)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 2, 0, 0)
+                return base.replace(tzinfo=tz) if tz is not None else base
+
+        base_settings = dashboard_app.get_settings()
+        patched = dict(base_settings)
+        patched_ai = dict(base_settings.get("ai_populate") or {})
+        patched_ai["rolling_window_days"] = 3
+        patched["ai_populate"] = patched_ai
+
+        db = Database(":memory:")
+        await db.init()
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+
+        with patch.object(dashboard_app, "date", FixedDate), \
+             patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "get_settings", return_value=patched), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=None, window_mode="rolling",
+            )
+
+        await db.close()
+        self.assertEqual(result["window"]["start"], "2099-01-02")
+        self.assertEqual(result["window"]["end"], "2099-01-04")  # today + (3-1)
+
     async def test_ai_suggest_calendar_returns_flex_non_game_after_evening(self):
         db = Database(":memory:")
         await db.init()

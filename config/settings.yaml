@@ -249,6 +249,10 @@ materializer:
 
 ai_populate:
   weekly_target: 10
+  # Length (in days) of the rolling "fill a week" Populate window. The week
+  # button fills the next N days starting today, regardless of the Sun–Sat
+  # calendar boundary, so it always yields a full upcoming week of free slots.
+  rolling_window_days: 7
   generation:
     retry_budget: 3
     dedup_window: 25

@@ -5592,6 +5592,20 @@ def _ai_populate_caps(settings: dict, scope: str, slot_map: dict) -> dict:
     return caps
 
 
+def _ai_populate_rolling_days(settings: dict) -> int:
+    """Length of the rolling 'next N days' Populate window. Operator-editable
+    via ai_populate.rolling_window_days; defaults to a 7-day week. Never
+    hardcode the 7 at a call site — read it here so settings.yaml stays the
+    single source of truth.
+    """
+    cfg = settings.get("ai_populate") or {}
+    try:
+        days = int(cfg.get("rolling_window_days", 7))
+    except (TypeError, ValueError):
+        days = 7
+    return max(1, days)
+
+
 def _hhmm_to_minutes(value: str) -> int | None:
     try:
         h, m = str(value or "").strip()[:5].split(":")
@@ -5681,6 +5695,7 @@ async def _maybe_add_warmup_reminder_suggestion(
 
 async def _ai_suggest_calendar(
     db: Database, target_date: str | None = None, week_offset: int = 0,
+    window_mode: str = "week", week_of: str | None = None,
 ) -> dict:
     """Build a list of suggested calendar rows for a window without
     writing to the DB. The shape is intentionally close to a draft row so
@@ -5713,11 +5728,10 @@ async def _ai_suggest_calendar(
 
     now_dt = datetime.now()
     today_d = date.today()
-    days_since_sunday = (today_d.weekday() + 1) % 7
-    sunday = today_d - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
-    saturday = sunday + timedelta(days=6)
+    settings = get_settings()
 
     if target_date:
+        # Day scope: a single explicit date.
         try:
             td = date.fromisoformat(target_date)
         except ValueError:
@@ -5726,13 +5740,35 @@ async def _ai_suggest_calendar(
         window_dates = [td]
         scope = "day"
         win_start = win_end = td.isoformat()
+    elif window_mode == "rolling":
+        # Rolling scope: the next N days starting today, independent of the
+        # Sun–Sat calendar boundary. Past slots on day 0 are dropped by the
+        # shared future-slot guard, so one click always yields a full
+        # *upcoming* week's worth of free slots.
+        rolling_days = _ai_populate_rolling_days(settings)
+        window_dates = [today_d + timedelta(days=i) for i in range(rolling_days)]
+        scope = "week"
+        win_start = today_d.isoformat()
+        win_end = (today_d + timedelta(days=rolling_days - 1)).isoformat()
     else:
+        # Calendar-week scope: a Sun–Sat week. `week_of` anchors on a chosen
+        # date's week (server-side, avoiding client tz drift); otherwise the
+        # current week shifted by `week_offset`.
+        anchor = today_d
+        if week_of:
+            try:
+                anchor = date.fromisoformat(week_of)
+            except ValueError:
+                return {"suggestions": [], "errors": [f"invalid week_of: {week_of}"],
+                        "stats_block": "", "window": {}}
+        days_since_sunday = (anchor.weekday() + 1) % 7
+        sunday = anchor - timedelta(days=days_since_sunday) + timedelta(weeks=week_offset)
+        saturday = sunday + timedelta(days=6)
         window_dates = [sunday + timedelta(days=i) for i in range(7)]
         scope = "week"
         win_start = sunday.isoformat()
         win_end = saturday.isoformat()
 
-    settings = get_settings()
     slot_map = _gather_schedule_slot_map(settings)
     topic_ids = settings.get("topics", {}).get("discussions", {}) or {}
     goals_topic = settings.get("topics", {}).get("goals")
@@ -6898,7 +6934,7 @@ async def _read_json_object_body(request: Request, log_prefix: str) -> dict:
     return data
 
 
-def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int]:
+def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | None]:
     try:
         week_offset = int(data.get("week_offset", 0))
     except (TypeError, ValueError):
@@ -6913,16 +6949,36 @@ def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int]:
         except ValueError:
             logger.warning("[weekplan.ai-suggest] invalid target_date=%r body=%s", target_date, data)
             raise HTTPException(status_code=400, detail=f"Invalid target_date: {target_date}")
-    return target_date, week_offset
+
+    window_mode = str(data.get("window_mode") or "week").strip().lower()
+    if window_mode not in {"week", "rolling"}:
+        raise HTTPException(status_code=400, detail=f"Invalid window_mode: {data.get('window_mode')!r}")
+
+    week_of_raw = (data.get("week_of") or "").strip()
+    week_of: str | None = week_of_raw or None
+    if week_of:
+        try:
+            date.fromisoformat(week_of)
+        except ValueError:
+            logger.warning("[weekplan.ai-suggest] invalid week_of=%r body=%s", week_of, data)
+            raise HTTPException(status_code=400, detail=f"Invalid week_of: {week_of}")
+
+    return target_date, week_offset, window_mode, week_of
 
 
-async def _run_ai_suggest_job(job_id: str, db: Database, target_date: str | None, week_offset: int) -> None:
+async def _run_ai_suggest_job(
+    job_id: str, db: Database, target_date: str | None, week_offset: int,
+    window_mode: str = "week", week_of: str | None = None,
+) -> None:
     try:
         await db.update_ai_suggest_job(job_id, status="running")
     except Exception as e:  # noqa: BLE001
         logger.warning("[weekplan.ai-suggest] mark-running failed id=%s: %s", job_id, e)
     try:
-        result = await _ai_suggest_calendar(db, target_date=target_date, week_offset=week_offset)
+        result = await _ai_suggest_calendar(
+            db, target_date=target_date, week_offset=week_offset,
+            window_mode=window_mode, week_of=week_of,
+        )
         try:
             result_json = json.dumps(result, ensure_ascii=False)
         except Exception as e:  # noqa: BLE001
@@ -6960,16 +7016,23 @@ async def _run_ai_suggest_job(job_id: str, db: Database, target_date: str | None
 async def ai_suggest(request: Request, db: Database = Depends(get_db)):
     """Build calendar-fill suggestions for review. Does NOT touch the DB.
 
-    Body: {target_date?: 'YYYY-MM-DD', week_offset?: int}
+    Body: {
+      target_date?: 'YYYY-MM-DD' | 'today',   # day scope
+      week_offset?: int,                       # shift the calendar week
+      window_mode?: 'week' | 'rolling',        # 'rolling' = next N days from today
+      week_of?: 'YYYY-MM-DD',                  # populate the Sun–Sat week of this date
+    }
     """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     data = await _read_json_object_body(request, "weekplan.ai-suggest")
-    target_date, week_offset = _parse_ai_suggest_request(data)
+    target_date, week_offset, window_mode, week_of = _parse_ai_suggest_request(data)
     await _cleanup_ai_suggest_jobs(db)
     job_id = secrets.token_urlsafe(18)
     await db.create_ai_suggest_job(job_id, target_date=target_date, week_offset=week_offset)
-    task = asyncio.create_task(_run_ai_suggest_job(job_id, db, target_date, week_offset))
+    task = asyncio.create_task(
+        _run_ai_suggest_job(job_id, db, target_date, week_offset, window_mode, week_of)
+    )
     _AI_SUGGEST_TASKS[job_id] = task
     return {"job_id": job_id, "status": "pending"}
 
