@@ -2973,6 +2973,72 @@ from bot.utils.quality_rules import (
 )
 
 
+def _discussion_category_for_topic(topic_id: int | str | None, settings: dict | None = None) -> str | None:
+    if topic_id in (None, ""):
+        return None
+    try:
+        topic_int = int(topic_id)
+    except (TypeError, ValueError):
+        return None
+    discussions = ((settings or get_settings()).get("topics", {}) or {}).get("discussions", {}) or {}
+    for category, configured_topic in discussions.items():
+        try:
+            if int(configured_topic) == topic_int:
+                return str(category)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _resolve_discussion_generation_context(
+    content_type: str,
+    category: str,
+    topic_id: int | str | None,
+) -> tuple[str, int | None]:
+    """For discussion generation, selected topic is the source of truth."""
+    if content_type != "discussion":
+        return category, None
+    if topic_id not in (None, ""):
+        try:
+            topic_int = int(topic_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid discussion topic_id: {topic_id!r}")
+        resolved = _discussion_category_for_topic(topic_int)
+        if not resolved:
+            raise HTTPException(status_code=400, detail=f"Unknown discussion topic_id: {topic_int}")
+        if category and category != resolved:
+            logger.info(
+                "[generate] discussion category/topic mismatch: category=%s topic=%s resolved=%s; topic wins",
+                category, topic_int, resolved,
+            )
+        return resolved, topic_int
+    if not category:
+        raise HTTPException(status_code=400, detail="Discussion requires category or topic_id")
+    expected_topic = ((get_settings().get("topics", {}) or {}).get("discussions", {}) or {}).get(category)
+    try:
+        return category, int(expected_topic) if expected_topic is not None else None
+    except (TypeError, ValueError):
+        return category, None
+
+
+async def _topic_display_name(db: "Database", topic_id: int | None) -> str | None:
+    if topic_id is None or not hasattr(db, "get_verified_forum_topics"):
+        return None
+    try:
+        rows = await db.get_verified_forum_topics()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[generate] verified topic name lookup failed: %s", e)
+        return None
+    for row in rows:
+        try:
+            if int(row.get("topic_id")) == int(topic_id):
+                name = str(row.get("verified_name") or row.get("observed_name") or "").strip()
+                return name or None
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 async def _fetch_recent_sent_for_dedup(
     db: "Database", message_type: str, *, category_topic_id: int | None = None, limit: int = 60
 ) -> list[str]:
@@ -4329,14 +4395,30 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     mode = data["mode"]         # "append", "replace", "single", or "rewrite"
     existing = data.get("existing", "")
     category = data.get("category", "")
+    topic_id = data.get("topic_id", data.get("channel_topic_id"))
     instructions = (data.get("instructions") or "").strip()
+    category, discussion_topic_id = _resolve_discussion_generation_context(field, category, topic_id)
+    category_name = await _topic_display_name(db, discussion_topic_id) if field == "discussion" else None
 
     # Fetch dedup history (skipped for trivia — that has its own dedup).
     recent_sent: list[str] = []
     if field in ("morning", "evening", "discussion"):
-        recent_sent = await _fetch_recent_sent_for_dedup(db, field, limit=60)
+        recent_sent = await _fetch_recent_sent_for_dedup(
+            db,
+            field,
+            category_topic_id=discussion_topic_id if field == "discussion" else None,
+            limit=60,
+        )
 
-    prompt = build_generation_prompt(field, mode, existing, category, instructions, recent_sent=recent_sent)
+    prompt = build_generation_prompt(
+        field,
+        mode,
+        existing,
+        category,
+        instructions,
+        recent_sent=recent_sent,
+        category_name=category_name,
+    )
 
     # Try Claude Code CLI first, fall back to Anthropic API
     cli_err = None
@@ -5838,6 +5920,7 @@ async def _ai_suggest_calendar(
 
     suggestions: list = []
     errors: list = []
+    generation_notices: list = []
     skip_reasons: list = []
     seen_skip_reasons: set[tuple[str, str, str, str]] = set()
     generated_activity_texts: set[str] = set()
@@ -5948,6 +6031,15 @@ async def _ai_suggest_calendar(
         flex_min_lead = max(0, int(flex_cfg.get("min_lead_minutes") or 0))
     except (TypeError, ValueError):
         flex_min_lead = 0
+    # Per-day ceiling so subject discussions spread across the window instead
+    # of clustering all of `max_suggestions` onto the first shuffled day.
+    # Unset / 0 → fall back to the global cap (preserves day-scope behavior).
+    try:
+        flex_per_day_max = max(0, int(flex_cfg.get("per_day_max") or 0))
+    except (TypeError, ValueError):
+        flex_per_day_max = 0
+    if flex_per_day_max <= 0:
+        flex_per_day_max = flex_max
     flex_rationale = str(flex_cfg.get("rationale") or "").strip()
     flex_count = 0
 
@@ -6017,12 +6109,12 @@ async def _ai_suggest_calendar(
             if blocked_openers:
                 attempt_prompt += "\n\n" + "אל תפתח באותן מילים כמו הפתיחות שכבר הופיעו: " + ", ".join(sorted(blocked_openers))
             try:
-                raw, notices = await _generate_with_fallbacks(
+                raw, provider_notices = await _generate_with_fallbacks(
                     attempt_prompt,
                     temperature=float(_planner_gen_cfg["temperature"]),
                     context=f"planner.{field}{':' + cat if cat else ''}",
                 )
-                errors.extend(notices)
+                generation_notices.extend(provider_notices)
             except Exception as e:
                 return "", [f"generation failed: {e}"]
             text = (raw or "").strip().replace('"', '').replace("'", "")
@@ -6875,11 +6967,14 @@ async def _ai_suggest_calendar(
 
         if flex_count < flex_max and flex_t and flex_allowed and active_categories and _feature_on("discussions"):
             cats_for_flex = random.sample(active_categories, len(active_categories))
-            for t in flex_t:
-                if flex_count >= flex_max:
+            flex_day_count = 0
+            # Shuffle the window's hours so the chosen slot varies across the
+            # range instead of always landing on the earliest available time.
+            for t in random.sample(flex_t, len(flex_t)):
+                if flex_count >= flex_max or flex_day_count >= flex_per_day_max:
                     break
                 for mtype in flex_allowed:
-                    if flex_count >= flex_max:
+                    if flex_count >= flex_max or flex_day_count >= flex_per_day_max:
                         break
                     if not _flex_available_or_skip(d_iso, t, mtype):
                         continue
@@ -6908,6 +7003,7 @@ async def _ai_suggest_calendar(
                         count_as=None,
                     )
                     flex_count += 1
+                    flex_day_count += 1
                     break
 
     return {
@@ -6915,6 +7011,7 @@ async def _ai_suggest_calendar(
         "suggestions": suggestions,
         "stats_block": stats_block,
         "errors": errors,
+        "notices": generation_notices,
         "skip_reasons": skip_reasons,
         "empty_state": empty_state_copy,
     }
@@ -7189,14 +7286,14 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
 
         category = str(item.get("category") or "").strip()
         if mtype == "discussion" and category:
-            expected_topics = (get_settings().get("topics", {}).get("discussions", {}) or {})
-            expected_topic = expected_topics.get(category)
-            if expected_topic is None:
-                errors.append(f"#{i}: unknown discussion category {category}")
+            resolved_category = _discussion_category_for_topic(topic)
+            if not resolved_category:
+                errors.append(f"#{i}: unknown discussion topic {topic}")
                 continue
-            if int(expected_topic) != topic:
+            if category and category != resolved_category:
                 errors.append(f"#{i}: discussion topic mismatch for {category}")
                 continue
+            category = resolved_category
 
         poll_options_json = item.get("poll_options_json") or None
         if poll_options_json is not None and not isinstance(poll_options_json, str):
@@ -10150,22 +10247,29 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     data = await request.json()
     mtype = (data.get("type") or "").strip()
     category = (data.get("category") or "").strip()
+    topic_id = data.get("topic_id", data.get("channel_topic_id"))
     existing = (data.get("existing") or "").strip()
     sched_date = (data.get("scheduled_date") or "").strip() or None
     sched_time = (data.get("scheduled_time") or "").strip() or None
 
     if mtype not in ("morning", "evening", "discussion", "custom", "poll"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
-    if mtype == "discussion" and not category:
-        raise HTTPException(status_code=400, detail="Discussion requires category")
+    category, discussion_topic_id = _resolve_discussion_generation_context(mtype, category, topic_id)
+    category_name = await _topic_display_name(db, discussion_topic_id) if mtype == "discussion" else None
 
     mode = "rewrite" if existing else "single"
-    recent_sent = await _fetch_recent_sent_for_dedup(db, mtype, limit=60)
+    recent_sent = await _fetch_recent_sent_for_dedup(
+        db,
+        mtype,
+        category_topic_id=discussion_topic_id if mtype == "discussion" else None,
+        limit=60,
+    )
     prompt = build_generation_prompt(
         mtype, mode, existing, category,
         recent_sent=recent_sent,
         scheduled_date=sched_date,
         scheduled_time=sched_time,
+        category_name=category_name,
     )
 
     try:

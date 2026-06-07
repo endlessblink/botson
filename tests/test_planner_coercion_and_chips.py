@@ -165,6 +165,132 @@ class FakeCalendarDb:
         return len(self.created)
 
 
+def _post_endpoint(path: str):
+    for route in dashboard_app.app.routes:
+        if getattr(route, "path", None) == path and "POST" in getattr(route, "methods", set()):
+            return route.endpoint
+    raise AssertionError(f"POST endpoint not found: {path}")
+
+
+class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.settings = {
+            "topics": {"discussions": {"art": 111, "movies": 222}},
+        }
+
+    async def _seed_recent_rows(self, db: Database):
+        await db.upsert_verified_forum_topic(111, "אמנות", "art", "test")
+        await db.upsert_verified_forum_topic(222, "סרטים", "movies", "test")
+        await db.create_scheduled_message(
+            text="טקסט ישן של אמנות",
+            message_type="discussion",
+            channel_topic_id=111,
+            target_group="main",
+            scheduled_date="2099-01-01",
+            scheduled_time="18:00",
+            status="scheduled",
+        )
+        await db.create_scheduled_message(
+            text="טקסט ישן של סרטים",
+            message_type="discussion",
+            channel_topic_id=222,
+            target_group="main",
+            scheduled_date="2099-01-02",
+            scheduled_time="18:00",
+            status="scheduled",
+        )
+
+    async def test_prompt_modal_generation_topic_wins_over_stale_category(self):
+        db = Database(":memory:")
+        await db.init()
+        await self._seed_recent_rows(db)
+        captured = {}
+
+        def fake_prompt(field, mode, existing, category, instructions="", **kwargs):
+            captured["field"] = field
+            captured["category"] = category
+            captured["category_name"] = kwargs.get("category_name")
+            captured["recent_sent"] = kwargs.get("recent_sent") or []
+            return "prompt"
+
+        try:
+            with patch.object(dashboard_app, "get_settings", return_value=self.settings), \
+                 patch.object(dashboard_app, "build_generation_prompt", side_effect=fake_prompt), \
+                 patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value="איזו יצירה ראיתם לאחרונה?")):
+                endpoint = _post_endpoint("/api/generate")
+                res = await endpoint(
+                    FakeCalendarRequest({
+                        "field": "discussion",
+                        "mode": "single",
+                        "category": "movies",
+                        "topic_id": 111,
+                    }),
+                    db,
+                )
+        finally:
+            await db.close()
+
+        self.assertEqual(res["content"], "איזו יצירה ראיתם לאחרונה?")
+        self.assertEqual(captured["category"], "art")
+        self.assertEqual(captured["category_name"], "אמנות")
+        self.assertEqual(captured["recent_sent"], ["טקסט ישן של אמנות"])
+
+    async def test_create_drawer_generation_topic_wins_over_stale_category(self):
+        db = Database(":memory:")
+        await db.init()
+        await self._seed_recent_rows(db)
+        captured = {}
+
+        def fake_prompt(field, mode, existing, category, **kwargs):
+            captured["field"] = field
+            captured["category"] = category
+            captured["category_name"] = kwargs.get("category_name")
+            captured["recent_sent"] = kwargs.get("recent_sent") or []
+            return "prompt"
+
+        try:
+            with patch.object(dashboard_app, "get_settings", return_value=self.settings), \
+                 patch.object(dashboard_app, "build_generation_prompt", side_effect=fake_prompt), \
+                 patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value="איזו יצירה ראיתם לאחרונה?")):
+                res = await dashboard_app.generate_content(
+                    FakeCalendarRequest({
+                        "type": "discussion",
+                        "category": "movies",
+                        "topic_id": 111,
+                    }),
+                    db,
+                )
+        finally:
+            await db.close()
+
+        self.assertEqual(res["text"], "איזו יצירה ראיתם לאחרונה?")
+        self.assertEqual(captured["category"], "art")
+        self.assertEqual(captured["category_name"], "אמנות")
+        self.assertEqual(captured["recent_sent"], ["טקסט ישן של אמנות"])
+
+    async def test_ai_suggest_commit_rejects_topic_category_mismatch(self):
+        db = FakeCalendarDb()
+        with patch.object(dashboard_app, "get_settings", return_value=self.settings):
+            res = await dashboard_app.ai_suggest_commit(
+                FakeCalendarRequest({
+                    "approved": [{
+                        "date": "2099-01-01",
+                        "time": "18:00",
+                        "message_type": "discussion",
+                        "topic_id": 111,
+                        "category": "movies",
+                        "text": "איזו יצירה ראיתם לאחרונה?",
+                        "source": "ai-fill",
+                    }],
+                }),
+                db,
+            )
+
+        self.assertEqual(res["inserted"], 0)
+        self.assertEqual(db.created, [])
+        self.assertIn("discussion topic mismatch", res["errors"][0])
+
+
 class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
@@ -296,9 +422,11 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             )
         # Sanity bound — not a hard cap, just protection against an unbounded
         # explosion. Adjust upward when new pairings legitimately add rows.
-        # 13 = 11 capped types + 2 RSVP announcements + 2 reminders, minus
-        # types disabled in default settings.
-        self.assertLessEqual(len(result["suggestions"]), 16)
+        # ~13 capped-type rows (11 types + 2 RSVP announcements) + up to
+        # ai_populate.flex.week.max_suggestions (12) subject discussions that
+        # fill otherwise-empty days. Bound raised 16→30 on 2026-06-07 when
+        # flex.week was enabled.
+        self.assertLessEqual(len(result["suggestions"]), 30)
         fact_rows = [s for s in result["suggestions"] if s["message_type"] in {"facts_tidbit", "facts_spooky"}]
         self.assertTrue(fact_rows)
         self.assertTrue(all(row.get("preview_url") for row in fact_rows))
@@ -687,6 +815,68 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         await db.close()
         self.assertEqual(result["window"]["start"], "2099-01-02")
         self.assertEqual(result["window"]["end"], "2099-01-04")  # today + (3-1)
+
+    async def test_ai_suggest_rolling_window_spreads_flex_subject_discussions(self):
+        # Operator intent: empty days get SUBJECT discussions at a RANGE of
+        # hours, spread across the week (not one fixed 18:00 slot, not all
+        # clustered on one day). flex.week drives this; per_day_max keeps them
+        # spread. This pins both behaviors.
+        from datetime import date as _date
+
+        class FixedDate(_date):
+            @classmethod
+            def today(cls):
+                return cls(2099, 1, 4)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 4, 0, 0)
+                return base.replace(tzinfo=tz) if tz is not None else base
+
+        flex_cfg = (dashboard_app.get_settings().get("ai_populate") or {}).get("flex") or {}
+        week_flex = flex_cfg.get("week") or {}
+        if not (flex_cfg.get("enabled") and week_flex.get("enabled")):
+            self.skipTest("flex.week not enabled in settings")
+        per_day_max = int(week_flex.get("per_day_max") or 0)
+        win = (week_flex.get("windows") or [{}])[0]
+        win_start_t, win_end_t = str(win.get("start") or "12:00"), str(win.get("end") or "22:00")
+
+        db = Database(":memory:")
+        await db.init()
+        counter = {"n": 0}
+
+        async def distinct_canned(*args, **kwargs):
+            counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({counter['n']})"
+
+        with patch.object(dashboard_app, "date", FixedDate), \
+             patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=None, window_mode="rolling",
+            )
+
+        await db.close()
+        flex_rows = [s for s in result["suggestions"] if str(s.get("source", "")).startswith("ai-fill-flex")]
+        self.assertTrue(flex_rows, "flex.week must produce subject discussions")
+        self.assertTrue(all(r["message_type"] == "discussion" for r in flex_rows))
+        # Subject discussions carry a category and route to its channel.
+        self.assertTrue(all(r.get("category") for r in flex_rows))
+        # Times fall within the configured range (a range of hours, not 18:00).
+        for r in flex_rows:
+            self.assertGreaterEqual(r["time"][:5], win_start_t, r)
+            self.assertLessEqual(r["time"][:5], win_end_t, r)
+        # Spread, not clustered: more than one distinct day used.
+        flex_dates = {r["date"] for r in flex_rows}
+        self.assertGreaterEqual(len(flex_dates), 2, flex_rows)
+        # Per-day cap respected.
+        if per_day_max:
+            from collections import Counter
+            per_day = Counter(r["date"] for r in flex_rows)
+            self.assertTrue(all(v <= per_day_max for v in per_day.values()), dict(per_day))
 
     async def test_ai_suggest_calendar_returns_flex_non_game_after_evening(self):
         db = Database(":memory:")
@@ -3027,6 +3217,15 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "statusData.status === 'completed'", self.html,
             "suggest modal must poll until background generation completes",
         )
+
+    def test_prompt_modal_regenerate_sends_topic_id(self):
+        html = (dashboard_app.TEMPLATES_DIR / "_prompt_modal.html").read_text(encoding="utf-8")
+        self.assertIn("body.topic_id = parseInt(_modalState.topicId, 10);", html)
+
+    def test_planner_drawer_generation_sends_topic_id(self):
+        self.assertIn("var TOPIC_CATEGORY = {", self.html)
+        self.assertIn("topic_id: wizardState.channelTopicId || null", self.html)
+        self.assertIn("wizardState.category = category || (newId && TOPIC_CATEGORY[newId]) || null;", self.html)
         self.assertIn(
             "statusData.status === 'cancelled'", self.html,
             "suggest modal must stop polling when backend job is cancelled",
@@ -3056,8 +3255,10 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("Array.isArray(data.detail)", self.html)
         self.assertIn("JSON.stringify(data.detail)", self.html)
 
-    def test_ai_suggest_modal_surfaces_generation_warnings_with_suggestions(self):
+    def test_ai_suggest_modal_surfaces_generation_notices_with_suggestions(self):
         self.assertIn("Array.isArray(data.errors) && data.errors.length", self.html)
+        self.assertIn("Array.isArray(data.notices) && data.notices.length", self.html)
+        self.assertIn("noticeLines.join('\\n')", self.html)
         self.assertIn("errorLines.join('\\n')", self.html)
         self.assertIn("data.stats_block || ''", self.html)
 

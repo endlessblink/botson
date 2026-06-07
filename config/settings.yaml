@@ -280,17 +280,31 @@ ai_populate:
       topic_strategy: discussion_category
       rationale: חלון גמיש פנוי
     week:
-      enabled: false
+      # Subject discussions across a RANGE of hours (not one fixed slot),
+      # spread over the rolling week to fill otherwise-empty days. Each lands
+      # in its subject's channel (topic_strategy: discussion_category). Times
+      # are picked from the window below; per_day_max keeps them spread.
+      enabled: true
+      max_suggestions: 12
+      per_day_max: 2
+      min_lead_minutes: 30
+      windows:
+      - start: '12:00'
+        end: '22:00'
+        step_minutes: 60
+      allowed_types:
+      - discussion
+      topic_strategy: discussion_category
+      rationale: דיון נושאי בשעה גמישה
   caps:
     week:
       morning: 1
       evening: 1
-      # One discussion per day across the rolling week (slow-chat 2026-05-10
-      # kept a single 18:00 slot/day, so the effective max is 7/week = 1/day).
-      # Raised 2→9 on 2026-06-06: cap 2 starved the empty days when the busy
-      # front of the week consumed the whole budget. Headroom above 7 is
-      # intentional so a future 2nd daily discussion slot can use it.
-      discussion: 9
+      # Fixed-time (18:00) anchored discussions are now the minority — empty
+      # days are filled by flex.week subject discussions across a range of
+      # hours (see flex.week above), so this stays low to avoid a definitive
+      # 18:00 slot every day. 2/week of the anchored kind is plenty.
+      discussion: 2
       trivia_round: 1
       emoji_puzzle: 1
       facts_tidbit: 1
