@@ -256,6 +256,9 @@ async function regeneratePrompt(which) {
     var instructions = document.getElementById('modalInstructionsInput').value.trim();
 
     var body = {field: field, category: _modalState.category || ''};
+    if (field === 'discussion' && _modalState.topicId) {
+        body.topic_id = parseInt(_modalState.topicId, 10);
+    }
     if (which === 'rewrite') {
         body.mode = 'rewrite';
         body.existing = currentText;

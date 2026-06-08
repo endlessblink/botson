@@ -167,7 +167,7 @@
 | T-162 | 28 | Question quality review queue | IN PROGRESS | P0 | T-134, T-135 |
 | T-163 | 28 | Draft review quality approval loop | IN PROGRESS | P0 | T-162 |
 | T-164 | 28 | Real-output regression corpus | TODO | P1 | T-162 |
-| T-165 | 28 | Channel-specific question rubrics | TODO | P1 | T-162 |
+| ~~T-165~~ | 28 | ✅ Channel-specific question rubrics | ✅ DONE (2026-06-08) | P1 | T-162 |
 | T-166 | 29 | Reaction-informed bot cadence loop | TODO | P1 | T-136 |
 | T-167 | 29 | Trivia emoji facts review flows | TODO | P2 | T-163 |
 | T-168 | 29 | Community health metrics loop | TODO | P2 | T-136 |
@@ -193,7 +193,7 @@ Active queues should reflect what to work on next, not historical shipped phases
 
 ### 🌱 Question quality lane (curation + review)
 - **T-162** — Question quality review queue (IN PROGRESS, P0) — review generated/scheduled/pending discussion prompts against `config/question_quality.md`, rewrite or reject weak rows, and capture every new failure pattern as a rule/test.
-- **T-165** — Channel-specific question rubrics (TODO, P1) — add concrete positive/negative examples per active discussion channel so generic rules become channel-aware guidance.
+- ~~**T-165**~~ — ✅ Channel-specific question rubrics (DONE 2026-06-08, P1) — channel-aware guidance now lives in `config/channel_rubrics.yaml`; support/fitness category mappings and regression coverage prevent stale topic/category prompt leakage.
 - **T-164** — Real-output regression corpus (TODO, P1) — turn bad and good real generated outputs into fixtures that guard `_validate_draft_text`, quality prompts, and pool false positives.
 - ✅ **T-133** — Grow content pools (DONE) — facts and discussions pool sizes are sufficient; future work is quality review, not raw volume.
 
@@ -495,7 +495,7 @@ Verification:
 ---
 
 #### T-165: Channel-specific question rubrics
-**Phase:** 28 — Question quality review | **Priority:** P1 | **Status:** TODO | **Deps:** T-162
+**Phase:** 28 — Question quality review | **Priority:** P1 | **Status:** DONE (2026-06-08) | **Deps:** T-162
 
 The global rules are useful but still too generic. Each active channel should have a compact rubric with local examples: what a good prompt sounds like there, what fails, and which participation pattern it is trying to trigger.
 
@@ -508,6 +508,10 @@ Scope:
 Verification:
 - `PYTHONPATH=. uv run pytest tests/test_quality_rules_wiring.py tests/test_digest_quality_consolidation.py -q`
 - Manual review of generated prompts for at least three channels.
+
+**Shipped 2026-06-08:** `config/channel_rubrics.yaml` is loaded by discussion generation, and the active discussion set now includes dedicated `support` (`מרימים אחד לשני/ה!`, topic 347) and `fitness` (`כושר`, topic 5438) categories with starter pools and rubrics. The stale `art:347` mapping was replaced so support/uplift generation no longer receives art/יצירה context. Regression coverage pins renamed-topic prompt behavior, category/topic mismatch handling, planner topic payloads, and support/fitness Populate mappings.
+
+**Verification:** `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py tests/test_planner_generation_pipeline.py -q`; `PYTHONPATH=. uv run python scripts/validate_discussions.py`; `npx playwright test tests/playwright/planner-discussion-topic.spec.js --reporter=line`. Production was also verified after restart: `support` and `fitness` are active, have pools/rubrics, and services were healthy.
 
 ---
 

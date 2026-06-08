@@ -290,6 +290,71 @@ class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created, [])
         self.assertIn("discussion topic mismatch", res["errors"][0])
 
+    def test_renamed_topic_name_suppresses_stale_category_prompt_context(self):
+        def fake_yaml(name):
+            if name == "discussions.yaml":
+                return {"art": ["ציור אחד מהשבוע?"]}
+            if name == "channel_rubrics.yaml":
+                return {"rubrics": {"art": ["חייב להזכיר יצירה או ציור"]}}
+            return {}
+
+        with patch.object(dashboard_app, "load_yaml", side_effect=fake_yaml), \
+             patch.object(dashboard_app, "_load_quality_rules", return_value=""), \
+             patch.object(dashboard_app, "_active_style_profile_block_sync", return_value=""), \
+             patch.object(dashboard_app, "_recent_feedback_block_sync", return_value=""):
+            prompt = dashboard_app.build_generation_prompt(
+                "discussion",
+                "single",
+                "",
+                "art",
+                category_name="מרימים אחד לשנייה",
+            )
+
+        self.assertIn('בקטגוריה "מרימים אחד לשנייה"', prompt)
+        self.assertNotIn("art / מרימים אחד לשנייה", prompt)
+        self.assertNotIn("דוגמאות לאיכות וסגנון", prompt)
+        self.assertNotIn("חייב להזכיר יצירה או ציור", prompt)
+
+    def test_matching_topic_name_keeps_category_prompt_context(self):
+        def fake_yaml(name):
+            if name == "discussions.yaml":
+                return {
+                    "art": ["ציור אחד מהשבוע?"],
+                    "support": ["ניצחון קטן מהשבוע?"],
+                    "fitness": ["אימון קצר שעובד לכם?"],
+                }
+            if name == "channel_rubrics.yaml":
+                return {"rubrics": {
+                    "art": ["חייב להזכיר יצירה או ציור"],
+                    "support": ["חייב להזכיר פרגון"],
+                    "fitness": ["חייב להזכיר שגרת כושר"],
+                }}
+            return {}
+
+        cases = [
+            ("art", "ערוץ אומנות ויצירה", "ציור אחד מהשבוע?", "חייב להזכיר יצירה או ציור"),
+            ("support", "מרימים אחד לשני/ה!", "ניצחון קטן מהשבוע?", "חייב להזכיר פרגון"),
+            ("fitness", "כושר", "אימון קצר שעובד לכם?", "חייב להזכיר שגרת כושר"),
+        ]
+        for category, name, pool_text, rubric_text in cases:
+            with self.subTest(category=category), \
+                 patch.object(dashboard_app, "load_yaml", side_effect=fake_yaml), \
+                 patch.object(dashboard_app, "_load_quality_rules", return_value=""), \
+                 patch.object(dashboard_app, "_active_style_profile_block_sync", return_value=""), \
+                 patch.object(dashboard_app, "_recent_feedback_block_sync", return_value=""):
+                prompt = dashboard_app.build_generation_prompt(
+                    "discussion",
+                    "single",
+                    "",
+                    category,
+                    category_name=name,
+                )
+
+            self.assertIn(f'בקטגוריה "{name}"', prompt)
+            self.assertIn("דוגמאות לאיכות וסגנון", prompt)
+            self.assertIn(pool_text, prompt)
+            self.assertIn(rubric_text, prompt)
+
 
 class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
@@ -3026,9 +3091,13 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         # (2026-05-16) — humor-as-discussion-question doesn't work; pool
         # entries are kept for when a curated joke pool replaces them.
         # See config/operator_prefs.md "no humor as discussion question" rule.
-        intentionally_disabled = {"general", "funny"}
+        # `art` was intentionally unmapped when topic 347 was repurposed to
+        # "מרימים אחד לשני/ה"; support now owns that topic.
+        intentionally_disabled = {"general", "funny", "art"}
         expected = set(discussions) - intentionally_disabled
         self.assertGreaterEqual(set(mapped), expected)
+        self.assertEqual(mapped.get("support"), 347)
+        self.assertEqual(mapped.get("fitness"), 5438)
         for category in expected:
             self.assertTrue(mapped.get(category), f"{category} must have a topic id")
 
@@ -3499,7 +3568,8 @@ class TestDiscussionCategoryDiscovery(unittest.TestCase):
             category_name="ערוץ חדש",
         )
 
-        self.assertIn("new_topic / ערוץ חדש", prompt)
+        self.assertIn('בקטגוריה "ערוץ חדש"', prompt)
+        self.assertNotIn("new_topic / ערוץ חדש", prompt)
 
     def test_materializer_discussion_categories_do_not_require_pool(self):
         class FakeDb:
@@ -3532,7 +3602,7 @@ class TestChannelChipPaletteRoute(unittest.IsolatedAsyncioTestCase):
         # Inline reimplementation of the chip-palette assembly that runs in
         # planner_page (dashboard/app.py). Keeping it here as a guard means
         # future refactors of that block can't silently drop welcome again.
-        topic_ids_dict = {"art": 347, "cute": 335, "gaming": 1517,
+        topic_ids_dict = {"support": 347, "cute": 335, "fitness": 5438, "gaming": 1517,
                           "movies": 54, "politics": 1431, "singles": 59}
         goals_id = 2184
         welcome_id = 341
@@ -3543,7 +3613,8 @@ class TestChannelChipPaletteRoute(unittest.IsolatedAsyncioTestCase):
             {"topic_id": 153,  "verified_name": "funny",          "category_key": "funny"},
             {"topic_id": 335,  "verified_name": "cute",           "category_key": "cute"},
             {"topic_id": 341,  "verified_name": "welcome",        "category_key": "welcome"},
-            {"topic_id": 347,  "verified_name": "art",            "category_key": "art"},
+            {"topic_id": 347,  "verified_name": "מרימים אחד לשני/ה!", "category_key": "support"},
+            {"topic_id": 5438, "verified_name": "כושר",           "category_key": "fitness"},
             {"topic_id": 1431, "verified_name": "politics",       "category_key": "politics"},
             {"topic_id": 1517, "verified_name": "gaming",         "category_key": "gaming"},
             {"topic_id": 2184, "verified_name": "goals",          "category_key": "goals"},

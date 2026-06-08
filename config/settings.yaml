@@ -576,9 +576,10 @@ trivia:
     min_ready_players: 2
 topics:
   discussions:
-    art: 347
+    support: 347
     cute: 335
     # funny: 153  # disabled 2026-05-16 — auto-generated humor-as-question doesn't work; channel stays alive for organic posts. Re-enable when option C (curated joke pool) ships.
+    fitness: 5438
     gaming: 1517
     movies: 54
     music: 4502

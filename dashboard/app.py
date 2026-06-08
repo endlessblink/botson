@@ -3282,6 +3282,45 @@ def _load_channel_rubric(category: str) -> str:
     return "\n\n" + header + "\n" + "\n".join(f"- {ln}" for ln in lines)
 
 
+def _discussion_category_matches_topic_name(category: str, topic_name: str | None) -> bool:
+    """Return whether the configured slug still appears to describe the live topic.
+
+    Topic ids are stable but Telegram topic names can be repurposed. In that
+    case `settings.yaml:topics.discussions[category]` is stale for content
+    semantics even though it is still a usable routing id.
+    """
+    if not category or not topic_name:
+        return True
+    try:
+        from bot.handlers.discussions import CATEGORY_NAMES
+        canonical = str(CATEGORY_NAMES.get(category, category) or category)
+    except Exception:
+        canonical = str(category)
+
+    def _tokens(value: str) -> set[str]:
+        return {
+            tok
+            for tok in re.findall(r"[A-Za-z0-9_\u0590-\u05FF]{3,}", value.lower())
+            if tok
+        }
+
+    topic_tokens = _tokens(str(topic_name))
+    if not topic_tokens:
+        return True
+    category_tokens = _tokens(str(category)) | _tokens(canonical)
+    return bool(topic_tokens & category_tokens)
+
+
+def _discussion_prompt_category(category: str, topic_name: str | None) -> str:
+    """Category key to use for category-specific prompt add-ons.
+
+    The visible topic name is always the subject label. The old category key is
+    used only when it still matches the topic name; otherwise old pools/rubrics
+    would leak stale subjects like art into a renamed room.
+    """
+    return category if _discussion_category_matches_topic_name(category, topic_name) else ""
+
+
 def _active_discussion_categories_from_config(
     settings: dict,
     discussions_pool: dict | None,
@@ -3902,8 +3941,9 @@ def build_generation_prompt(
 {existing}"""
         if instructions:
             base += f"\n\nהוראות נוספות: {instructions}"
+        prompt_category = _discussion_prompt_category(category, category_name) if field == "discussion" else category
         return _finalize_prompt(
-            base, field, category,
+            base, field, prompt_category,
             recent_sent=recent_sent,
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
@@ -3941,7 +3981,7 @@ def build_generation_prompt(
 פורמט: שורה או שתיים, אמוג'י אחד בהתחלה, עברית תקנית בלבד.
 פלט: רק ההודעה, בלי מספור, בלי מרכאות, בלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
         elif field == "discussion":
-            channel_label = f'{category} / {category_name}' if category_name and category_name != category else category
+            channel_label = category_name or category
             base = f"""צור שאלה אחת לדיון בקטגוריה "{channel_label}" בעברית עבור {COMMUNITY_CONTEXT}
 
 מטרה: שאלה שגם ספציפית (לא "מה הסרט האהוב") וגם רחבת תחולה — רוב חברי הערוץ הזה אמורים להחזיק תשובה אמיתית מהחיים שלהם, לא רק מעטים שחוו תרחיש נדיר.
@@ -3971,8 +4011,9 @@ def build_generation_prompt(
             base = f"צור תוכן בעברית עבור {COMMUNITY_CONTEXT}"
         if instructions:
             base += f"\n\nהוראות נוספות: {instructions}"
+        prompt_category = _discussion_prompt_category(category, category_name) if field == "discussion" else category
         return _finalize_prompt(
-            base, field, category,
+            base, field, prompt_category,
             recent_sent=recent_sent,
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
@@ -4020,7 +4061,7 @@ def build_generation_prompt(
 פלט: רק ההודעות, שורה אחת לכל אחת, בלי מספור ובלי הסברים."""  # noqa: hardcoded-content (Hebrew prompt template)
 
     elif field == "discussion":
-        channel_label = f'{category} / {category_name}' if category_name and category_name != category else category
+        channel_label = category_name or category
         base = f"""צור {count} שאלות לדיון בקטגוריה "{channel_label}" בעברית עבור {COMMUNITY_CONTEXT}
 
 מטרה: כל שאלה גם ספציפית (לא "מה הסרט האהוב") וגם רחבת תחולה — רוב חברי הערוץ הזה אמורים להחזיק תשובה אמיתית מהחיים שלהם.
@@ -4093,8 +4134,9 @@ def build_generation_prompt(
     # Trivia uses a separate dedup mechanism (category exact-match + question
     # text dedup inside _pick_questions) — _finalize_prompt skips dedup for
     # trivia automatically.
+    prompt_category = _discussion_prompt_category(category, category_name) if field == "discussion" else category
     return _finalize_prompt(
-        base, field, category,
+        base, field, prompt_category,
         recent_sent=recent_sent,
         scheduled_date=scheduled_date,
         scheduled_time=scheduled_time,
@@ -6083,10 +6125,11 @@ async def _ai_suggest_calendar(
         # discussion pool for this category. Catches the LLM echoing
         # a pool item verbatim or paraphrasing it.
         sources: set[str] = set()
-        if field == "discussion" and cat:
+        source_category = _discussion_prompt_category(cat, category_name) if field == "discussion" else cat
+        if field == "discussion" and source_category:
             sources = {
                 str(x).strip()
-                for x in (discussions_pool.get(cat) or [])
+                for x in (discussions_pool.get(source_category) or [])
                 if x
             }
         avoid_set = {str(x).strip() for x in (recent or []) if x}
@@ -6657,9 +6700,10 @@ async def _ai_suggest_calendar(
                         errors.extend(fails)
                         continue
                     src = "ai-fill-pool" if (fails and not _validate_draft_text(text)) else "ai-fill"
+                    prompt_category = _discussion_prompt_category(cat, cat_name)
                     _add_suggestion(d_iso, t, "discussion", topic=int(expected_topic),
-                                    text=text, source=src, category=cat,
-                                    rationale=f"שאלה ל{cat}",
+                                    text=text, source=src, category=prompt_category or None,
+                                    rationale=f"שאלה ל{cat_name or cat}",
                                     validation_failures=[])
 
         # Emoji puzzle row + announcement. Runtime filters the puzzle pool by
@@ -6992,13 +7036,14 @@ async def _ai_suggest_calendar(
                         errors.extend(fails)
                         continue
                     src = "ai-fill-flex-pool" if (fails and not _validate_draft_text(text)) else "ai-fill-flex"
+                    prompt_category = _discussion_prompt_category(cat, cat_name)
                     _add_suggestion(
                         d_iso, t, mtype,
                         topic=int(expected_topic),
                         text=text,
                         source=src,
-                        category=cat,
-                        rationale=flex_rationale,
+                        category=prompt_category or None,
+                        rationale=flex_rationale or f"שאלה ל{cat_name or cat}",
                         validation_failures=[],
                         count_as=None,
                     )

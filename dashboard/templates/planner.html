@@ -1178,6 +1178,9 @@ var TYPE_DEFAULT_TEXT = {
 var TOPIC_NAMES = {
     {% for t in forum_topics %}'{{ t.topic_id }}': '{{ t.name }}',{% endfor %}
 };
+var TOPIC_CATEGORY = {
+    {% for ch in discussion_channels %}'{{ ch.topic_id }}': '{{ ch.key }}',{% endfor %}
+};
 
 var SERVER_TODAY_ISO = '{{ now_date }}';
 
@@ -1614,7 +1617,7 @@ function selectChannel(el, topicId, category) {
     }
 
     wizardState.channelTopicId = newId;
-    wizardState.category = category || null;
+    wizardState.category = category || (newId && TOPIC_CATEGORY[newId]) || null;
 
     // Update chip styles
     document.querySelectorAll('.channel-chip').forEach(function(chip) {
@@ -1648,6 +1651,7 @@ async function aiGenerateContent() {
         var body = {
             type: type,
             category: wizardState.category || '',
+            topic_id: wizardState.channelTopicId || null,
             existing: ta.value || '',
             scheduled_date: wizardState.date || '',
             scheduled_time: wizardState.time || ''
@@ -3564,10 +3568,12 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
                 _aiSuggestRenderSuggestions(listEl);
             }
         }
-        if (statsEl && (data.stats_block || (Array.isArray(data.errors) && data.errors.length))) {
+        if (statsEl && (data.stats_block || (Array.isArray(data.errors) && data.errors.length) || (Array.isArray(data.notices) && data.notices.length))) {
             var errorLines = Array.isArray(data.errors) ? data.errors : [];
+            var noticeLines = Array.isArray(data.notices) ? data.notices : [];
             statsEl.textContent = [
                 data.stats_block || '',
+                noticeLines.length ? noticeLines.join('\n') : '',
                 errorLines.length ? errorLines.join('\n') : ''
             ].filter(Boolean).join('\n\n');
             statsEl.classList.remove('hidden');

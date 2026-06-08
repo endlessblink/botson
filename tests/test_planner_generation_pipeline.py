@@ -84,6 +84,10 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertIn("morning", types)
         self.assertIn("discussion", types)
         self.assertTrue(
+            any("Codex CLI fallback was used" in notice for notice in result["notices"]),
+            result["notices"],
+        )
+        self.assertFalse(
             any("Codex CLI fallback was used" in err for err in result["errors"]),
             result["errors"],
         )

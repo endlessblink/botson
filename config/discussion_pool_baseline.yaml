@@ -22,6 +22,8 @@
 #   category and its entries.
 
 allowlist:
+  art:
+    - "<category itself>"  # 2026-06-07: topic 347 was repurposed to support/uplift; art pool kept for future art-topic re-enable.
   cute:
     - "מה הדבר הכי חמוד שראיתם השבוע מחוץ למסך?"
   funny:
