@@ -790,6 +790,46 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         # Balanced mix, not a flood of one type.
         self.assertGreaterEqual(len(types), 3, types)
 
+    async def test_ai_suggest_rolling_window_meets_configured_daily_floor(self):
+        from collections import Counter
+        from datetime import date as _date
+
+        class FixedDate(_date):
+            @classmethod
+            def today(cls):
+                return cls(2099, 1, 4)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 4, 0, 0)
+                return base.replace(tzinfo=tz) if tz is not None else base
+
+        db = Database(":memory:")
+        await db.init()
+        counter = {"n": 0}
+
+        async def distinct_canned(*args, **kwargs):
+            counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({counter['n']})"
+
+        with patch.object(dashboard_app, "date", FixedDate), \
+             patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=None, window_mode="rolling",
+            )
+
+        await db.close()
+        floor = int((dashboard_app.get_settings().get("ai_populate") or {}).get("weekly_min_per_day") or 0)
+        self.assertGreaterEqual(floor, 1)
+        per_day = Counter(s["date"] for s in result["suggestions"])
+        for i in range(7):
+            d_iso = (FixedDate.today() + timedelta(days=i)).isoformat()
+            self.assertGreaterEqual(per_day[d_iso], floor, (d_iso, dict(per_day), result))
+
     async def test_ai_suggest_rolling_window_skips_past_times_on_day_zero(self):
         # Day 0 of the rolling window is today; already-elapsed times on it
         # must be dropped (CLAUDE.md: never suggest slots before server time).
@@ -3302,9 +3342,10 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
 
     def test_suggest_modal_surfaces_and_unchecks_quality_failures(self):
         self.assertIn("s.quality_failures", self.html)
+        self.assertIn("s.validation_failures", self.html)
         self.assertIn("בעיות איכות", self.html)
         self.assertIn("איכות תקינה", self.html)
-        self.assertIn("_aiSuggestState.checked[s.key] = !((s.quality_failures || []).length)", self.html)
+        self.assertIn("_aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length)", self.html)
 
     def test_planner_handles_expired_auth_without_raw_unauthorized(self):
         self.assertIn("פג תוקף ההתחברות", self.html)

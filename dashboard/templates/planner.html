@@ -3332,7 +3332,7 @@ function _aiSuggestUpdateCount() {
     var checked = Object.values(_aiSuggestState.checked).filter(Boolean).length;
     var total = _aiSuggestState.suggestions.length;
     var rejected = _aiSuggestState.suggestions.filter(function(s) {
-        return (s.quality_failures || []).length > 0;
+        return (s.quality_failures || []).length > 0 || (s.validation_failures || []).length > 0;
     }).length;
     var el = document.getElementById('ai-suggest-count');
     if (el) el.textContent = total > 0 ? '(' + checked + ' / ' + total + ' מסומנות' + (rejected ? ' · ' + rejected + ' בעיות איכות' : '') + ')' : '';
@@ -3580,7 +3580,7 @@ function _aiSuggestMergeSuggestions(nextSuggestions) {
         seen[sig] = true;
         _aiSuggestState.suggestions.push(s);
         if (_aiSuggestState.checked[s.key] === undefined) {
-            _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length);
+            _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
         }
     });
 }
@@ -3630,7 +3630,9 @@ function _aiSuggestRenderBoard(listEl) {
             .filter(function(s) { return s.date === iso; })
             .sort(function(a, b) { return String(a.time || '').localeCompare(String(b.time || '')); });
         var checked = laneSuggestions.filter(function(s) { return _aiSuggestState.checked[s.key] !== false && !s._denied; }).length;
-        var qualityIssues = laneSuggestions.filter(function(s) { return (s.quality_failures || []).length > 0; }).length;
+        var qualityIssues = laneSuggestions.filter(function(s) {
+            return (s.quality_failures || []).length > 0 || (s.validation_failures || []).length > 0;
+        }).length;
         var lane = document.createElement('section');
         lane.className = 'ai-suggest-day-lane';
         lane.setAttribute('data-ai-suggest-date', iso);
@@ -3864,7 +3866,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             _aiSuggestState.suggestions = data.suggestions || [];
             _aiSuggestState.checked = {};
             _aiSuggestState.suggestions.forEach(function(s) {
-                _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length);
+                _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
             });
             _aiSuggestState.boardMode = _aiSuggestShouldUseBoard(targetDate, triggerLabel, opts, w);
             _aiSuggestState.boardWindow = _aiSuggestState.boardMode ? w : null;
@@ -3888,7 +3890,9 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             ].filter(Boolean).join('\n\n');
             statsEl.classList.remove('hidden');
         }
-        var rejected = _aiSuggestState.suggestions.filter(function(s) { return (s.quality_failures || []).length > 0; }).length;
+        var rejected = _aiSuggestState.suggestions.filter(function(s) {
+            return (s.quality_failures || []).length > 0 || (s.validation_failures || []).length > 0;
+        }).length;
         if (subtitle) {
             var activeWindow = _aiSuggestState.boardWindow || w;
             var scopeText = _aiSuggestState.boardMode

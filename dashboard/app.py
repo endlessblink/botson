@@ -5730,6 +5730,21 @@ def _ai_populate_rolling_days(settings: dict) -> int:
     return max(1, days)
 
 
+def _ai_populate_weekly_min_per_day(settings: dict) -> int:
+    """Minimum suggestion density for week Populate, configured by operator.
+
+    This is a soft floor: the generator still respects occupied/past slots,
+    routing, per-day caps, and quality retries. It only tells flex fill to
+    prioritize low-density days before spending suggestions elsewhere.
+    """
+    cfg = settings.get("ai_populate") or {}
+    try:
+        value = int(cfg.get("weekly_min_per_day", 0))
+    except (TypeError, ValueError):
+        value = 0
+    return max(0, value)
+
+
 def _hhmm_to_minutes(value: str) -> int | None:
     try:
         h, m = str(value or "").strip()[:5].split(":")
@@ -6082,6 +6097,7 @@ async def _ai_suggest_calendar(
         flex_per_day_max = 0
     if flex_per_day_max <= 0:
         flex_per_day_max = flex_max
+    weekly_min_per_day = _ai_populate_weekly_min_per_day(settings) if scope == "week" else 0
     flex_rationale = str(flex_cfg.get("rationale") or "").strip()
     flex_count = 0
 
@@ -6594,6 +6610,9 @@ async def _ai_suggest_calendar(
             return True
         return _is_feature_enabled_simple(features, feature_key)
 
+    def _day_suggestion_count(d_iso: str) -> int:
+        return sum(1 for s in suggestions if s.get("date") == d_iso)
+
     def _add_suggestion(d_iso: str, t: str, mtype: str, *, topic: int, text: str,
                         source: str, rationale: str, category: str | None = None,
                         poll_options_json: str | None = None,
@@ -7012,13 +7031,15 @@ async def _ai_suggest_calendar(
         if flex_count < flex_max and flex_t and flex_allowed and active_categories and _feature_on("discussions"):
             cats_for_flex = random.sample(active_categories, len(active_categories))
             flex_day_count = 0
+            day_floor_remaining = max(0, weekly_min_per_day - _day_suggestion_count(d_iso))
+            day_flex_limit = min(flex_per_day_max, day_floor_remaining) if weekly_min_per_day else flex_per_day_max
             # Shuffle the window's hours so the chosen slot varies across the
             # range instead of always landing on the earliest available time.
             for t in random.sample(flex_t, len(flex_t)):
-                if flex_count >= flex_max or flex_day_count >= flex_per_day_max:
+                if flex_count >= flex_max or flex_day_count >= day_flex_limit:
                     break
                 for mtype in flex_allowed:
-                    if flex_count >= flex_max or flex_day_count >= flex_per_day_max:
+                    if flex_count >= flex_max or flex_day_count >= day_flex_limit:
                         break
                     if not _flex_available_or_skip(d_iso, t, mtype):
                         continue
@@ -7044,7 +7065,7 @@ async def _ai_suggest_calendar(
                         source=src,
                         category=prompt_category or None,
                         rationale=flex_rationale or f"שאלה ל{cat_name or cat}",
-                        validation_failures=[],
+                        validation_failures=fails,
                         count_as=None,
                     )
                     flex_count += 1
