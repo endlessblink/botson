@@ -4168,12 +4168,46 @@ async def _generate_via_cli(prompt: str) -> str:
         proc.kill()
         await proc.wait()
         raise RuntimeError("CLI timed out after 90s") from e
+    stdout_text = stdout.decode(errors="replace").strip()
+    stderr_text = stderr.decode(errors="replace").strip()
     if proc.returncode != 0:
-        raise RuntimeError(f"CLI error (rc={proc.returncode}): {stderr.decode()[:300]}")
-    out = stdout.decode().strip()
+        raise RuntimeError(
+            f"CLI error (rc={proc.returncode}): "
+            f"stdout={stdout_text[:400]!r} stderr={stderr_text[:400]!r}"
+        )
+    out = stdout_text
     if not out:
-        raise RuntimeError(f"CLI returned empty output (stderr={stderr.decode()[:200]})")
+        raise RuntimeError(f"CLI returned empty output (stderr={stderr_text[:400]!r})")
     return out
+
+
+def _ensure_codex_home_dir(real_home: str, *, context: str) -> None:
+    """Ensure the Codex CLI auth/config path is a directory.
+
+    A stale zero-byte `$HOME/.codex` file makes `codex exec` fail before it can
+    read CLI auth. Removing only that empty file is safe and keeps the planner
+    on the intended CLI-auth path.
+    """
+    codex_dir = os.path.join(real_home, ".codex")
+    if os.path.exists(codex_dir) and not os.path.isdir(codex_dir):
+        try:
+            size = os.path.getsize(codex_dir)
+        except OSError:
+            size = -1
+        if size == 0:
+            try:
+                os.remove(codex_dir)
+                logger.warning("[%s] removed stray zero-byte .codex file at %s", context, codex_dir)
+            except OSError as exc:
+                raise RuntimeError(f"could not remove stray .codex file at {codex_dir}: {exc}") from exc
+        else:
+            raise RuntimeError(f"{codex_dir} exists but is not a directory")
+    if not os.path.isdir(codex_dir):
+        try:
+            os.makedirs(codex_dir, mode=0o700, exist_ok=True)
+            logger.info("[%s] created .codex dir at %s", context, codex_dir)
+        except OSError as exc:
+            raise RuntimeError(f"could not create .codex dir at {codex_dir}: {exc}") from exc
 
 
 async def _generate_via_codex_cli(prompt: str) -> str:
@@ -4189,6 +4223,8 @@ async def _generate_via_codex_cli(prompt: str) -> str:
         real_home = _pwd.getpwuid(os.geteuid()).pw_dir
     except Exception:
         real_home = os.path.expanduser("~")
+
+    _ensure_codex_home_dir(real_home, context="planner-codex")
 
     env = {**os.environ, "HOME": real_home}
     repo_root = BASE_DIR.parent
@@ -4221,6 +4257,9 @@ async def _generate_via_codex_cli(prompt: str) -> str:
         if profile:
             cmd[2:2] = ["--profile", profile]
 
+        codex_bin = _codex_binary_path() or "codex"
+        cmd[0] = codex_bin
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
@@ -4234,13 +4273,18 @@ async def _generate_via_codex_cli(prompt: str) -> str:
             proc.kill()
             await proc.wait()
             raise RuntimeError("Codex CLI timed out after 120s") from e
+        stdout_text = stdout.decode(errors="replace").strip()
+        stderr_text = stderr.decode(errors="replace").strip()
         if proc.returncode != 0:
-            raise RuntimeError(f"Codex CLI error (rc={proc.returncode}): {stderr.decode()[:300]}")
+            raise RuntimeError(
+                f"Codex CLI error (rc={proc.returncode}): "
+                f"stdout={stdout_text[:400]!r} stderr={stderr_text[:400]!r}"
+            )
         out = Path(output_path).read_text(encoding="utf-8").strip()
         if not out:
-            out = stdout.decode().strip()
+            out = stdout_text
         if not out:
-            raise RuntimeError(f"Codex CLI returned empty output (stderr={stderr.decode()[:200]})")
+            raise RuntimeError(f"Codex CLI returned empty output (stderr={stderr_text[:400]!r})")
         return out
     finally:
         try:
@@ -4251,40 +4295,29 @@ async def _generate_via_codex_cli(prompt: str) -> str:
 
 async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = None,
                                    context: str = "generation") -> tuple[str, list[str]]:
-    """Claude CLI -> Anthropic API -> Codex CLI.
+    """Claude CLI -> Codex CLI.
 
     Returns (content, notices). Notices are caller-visible warnings for flows
     like Planner Populate where the operator should know Claude produced
-    nothing and a fallback provider was used.
+    nothing and the Codex CLI fallback provider was used.
     """
     claude_cli_error: Exception | None = None
-    anthropic_api_error: Exception | None = None
     try:
         return await _generate_via_cli(prompt), []
     except Exception as claude_cli_err:
         claude_cli_error = claude_cli_err
-        logger.warning("%s: Claude CLI failed, trying Anthropic API: %s", context, claude_cli_err)
-
-    try:
-        content = await _generate_via_api(prompt, temperature=temperature)
-        return content, [
-            f"{context}: Claude generation failed; Anthropic API fallback was used "
-            f"(Claude CLI={claude_cli_error})"
-        ]
-    except Exception as anthropic_api_err:
-        anthropic_api_error = anthropic_api_err
-        logger.warning("%s: Anthropic API failed, trying Codex CLI: %s", context, anthropic_api_err)
+        logger.warning("%s: Claude CLI failed, trying Codex CLI: %s", context, claude_cli_err)
 
     try:
         content = await _generate_via_codex_cli(prompt)
         return content, [
             f"{context}: Claude generation failed; Codex CLI fallback was used "
-            f"(Claude CLI={claude_cli_error}; API={anthropic_api_error})"
+            f"(Claude CLI={claude_cli_error})"
         ]
     except Exception as codex_err:
         raise RuntimeError(
             f"Claude generation failed and Codex fallback failed "
-            f"(Claude CLI={claude_cli_error}; API={anthropic_api_error}; Codex={codex_err})"
+            f"(Claude CLI={claude_cli_error}; Codex={codex_err})"
         ) from codex_err
 
 
@@ -4292,8 +4325,6 @@ def _generation_provider_from_notices(notices: list[str]) -> str:
     joined = "\n".join(notices)
     if "Codex CLI fallback was used" in joined:
         return "codex_cli"
-    if "Anthropic API fallback was used" in joined:
-        return "anthropic_api"
     return "claude_cli"
 
 
@@ -8456,24 +8487,7 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
     except Exception:
         real_home = os.path.expanduser("~")
 
-    # Defensive: ensure $HOME/.codex is a directory. The codex CLI can sometimes
-    # create `.codex` as an empty FILE if it was invoked with HOME pointing at
-    # a path where `.codex` already existed as something else, or during certain
-    # init failures. We've seen this happen multiple times in production. If it
-    # IS a file, remove it; then mkdir if missing.
-    codex_dir = os.path.join(real_home, ".codex")
-    if os.path.exists(codex_dir) and not os.path.isdir(codex_dir):
-        try:
-            os.remove(codex_dir)
-            logger.warning("[ai-fill-today] removed stray .codex file at %s", codex_dir)
-        except OSError as _e:
-            logger.warning("[ai-fill-today] could not remove stray .codex: %s", _e)
-    if not os.path.isdir(codex_dir):
-        try:
-            os.makedirs(codex_dir, mode=0o700, exist_ok=True)
-            logger.info("[ai-fill-today] created .codex dir at %s", codex_dir)
-        except OSError as _e:
-            logger.warning("[ai-fill-today] could not create .codex dir: %s", _e)
+    _ensure_codex_home_dir(real_home, context="ai-fill-today")
     # Note: this does NOT restore auth.json. If auth was lost the digest will
     # still fail, but with a clearer "Logged out" error from codex itself
     # rather than the cryptic "Not a directory (os error 20)".

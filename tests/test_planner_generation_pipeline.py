@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch, AsyncMock
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -73,7 +75,6 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
             return "מתחילים עוד מעט פעילות קלילה; מי בפנים?"
 
         with patch.object(self.app, "_generate_via_cli", new=AsyncMock(side_effect=RuntimeError("claude down"))), \
-             patch.object(self.app, "_generate_via_api", new=AsyncMock(side_effect=RuntimeError("api missing"))), \
              patch.object(self.app, "_generate_via_codex_cli", new=AsyncMock(side_effect=codex_canned)), \
              patch.object(self.app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
              patch.object(self.app, "_render_group_stats_context", new=AsyncMock(return_value="")):
@@ -91,6 +92,34 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
             any("Codex CLI fallback was used" in err for err in result["errors"]),
             result["errors"],
         )
+
+    async def test_generation_fallback_chain_skips_anthropic_api(self):
+        api_mock = AsyncMock(side_effect=AssertionError("API fallback must not be used"))
+        with patch.object(self.app, "_generate_via_cli", new=AsyncMock(side_effect=RuntimeError("claude down"))), \
+             patch.object(self.app, "_generate_via_api", new=api_mock), \
+             patch.object(self.app, "_generate_via_codex_cli", new=AsyncMock(return_value="ok")):
+            content, notices = await self.app._generate_with_fallbacks("prompt", context="planner.test")
+
+        self.assertEqual(content, "ok")
+        self.assertEqual(api_mock.await_count, 0)
+        self.assertTrue(any("Codex CLI fallback was used" in notice for notice in notices))
+
+    def test_codex_home_repairs_zero_byte_file(self):
+        with TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / ".codex"
+            codex_path.write_bytes(b"")
+
+            self.app._ensure_codex_home_dir(tmp, context="test")
+
+            self.assertTrue(codex_path.is_dir())
+
+    def test_codex_home_refuses_nonempty_file(self):
+        with TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / ".codex"
+            codex_path.write_text("not a directory", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "not a directory"):
+                self.app._ensure_codex_home_dir(tmp, context="test")
 
     async def test_generation_health_reports_degraded_fallback(self):
         with patch.object(
