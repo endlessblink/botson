@@ -8451,10 +8451,17 @@ async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]
 
 
 def _codex_binary_path() -> str | None:
-    """Resolve the codex binary, preferring the botson user's npm-global install
-    on VPS (/opt/robotnik/.npm-global/bin/codex) before falling back to PATH."""
+    """Resolve the codex binary.
+
+    Prefer the system install when present. The botson user's legacy
+    npm-global Codex can lag behind the host binary and fail before generation
+    starts, even with valid CLI auth.
+    """
     import shutil
     import pwd as _pwd
+    system_candidate = "/usr/bin/codex"
+    if os.path.isfile(system_candidate) and os.access(system_candidate, os.X_OK):
+        return system_candidate
     try:
         real_home = _pwd.getpwuid(os.geteuid()).pw_dir
     except Exception:

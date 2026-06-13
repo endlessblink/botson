@@ -121,6 +121,11 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "not a directory"):
                 self.app._ensure_codex_home_dir(tmp, context="test")
 
+    def test_codex_binary_prefers_system_install(self):
+        with patch("dashboard.app.os.path.isfile", return_value=True), \
+             patch("dashboard.app.os.access", return_value=True):
+            self.assertEqual(self.app._codex_binary_path(), "/usr/bin/codex")
+
     async def test_generation_health_reports_degraded_fallback(self):
         with patch.object(
             self.app,
