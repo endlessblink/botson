@@ -14,6 +14,7 @@ boxes without browsers don't fail. To run locally:
 from __future__ import annotations
 
 import os
+import json
 import socket
 import subprocess
 import sys
@@ -191,6 +192,147 @@ class PlannerVisualTests(unittest.TestCase):
             finally:
                 browser.close()
 
+    def test_weekly_ai_suggest_button_renders_real_board_flow(self):
+        """Clicking the actual week Populate button must render the board.
+
+        This catches stale regressions where the synthetic board helpers pass
+        but the real async suggest path still opens the old flat modal.
+        """
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            requests = []
+            try:
+                page, js_errors = self._open_planner(ctx)
+
+                def fulfill_ai_suggest(route):
+                    req = route.request
+                    requests.append({"method": req.method, "url": req.url, "body": req.post_data})
+                    if req.method == "POST" and req.url.endswith("/api/weekplan/ai-suggest"):
+                        route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps({"job_id": "job-week"}),
+                        )
+                        return
+                    if req.method == "GET" and req.url.endswith("/api/weekplan/ai-suggest/job-week"):
+                        route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps({
+                                "status": "completed",
+                                "result": {
+                                    "window": {
+                                        "start": "2099-01-04",
+                                        "end": "2099-01-10",
+                                        "scope": "week",
+                                    },
+                                    "suggestions": [
+                                        {
+                                            "key": "week-card",
+                                            "date": "2099-01-04",
+                                            "time": "18:00",
+                                            "message_type": "discussion",
+                                            "topic_id": 111,
+                                            "topic_name": "סרטים",
+                                            "category": "movies",
+                                            "text": "מה הסרט שחזרתם אליו השבוע?",
+                                            "rationale": "בדיקת שבוע",
+                                            "source": "ai-fill",
+                                            "quality_failures": [],
+                                            "validation_failures": [],
+                                        }
+                                    ],
+                                },
+                            }),
+                        )
+                        return
+                    route.fulfill(status=404, content_type="application/json", body=json.dumps({"detail": "unexpected"}))
+
+                page.route("**/api/weekplan/ai-suggest**", fulfill_ai_suggest)
+                page.click("#ai-fill-all-btn")
+                page.wait_for_selector("[data-ai-suggest-board='1']", timeout=6000)
+
+                self.assertEqual(page.locator("[data-ai-suggest-board='1']").count(), 1)
+                self.assertEqual(page.locator(".ai-suggest-day-lane").count(), 7)
+                self.assertEqual(
+                    page.locator("[data-ai-suggest-date='2099-01-04'] [data-suggest-card='week-card']").count(),
+                    1,
+                )
+                self.assertEqual(
+                    page.locator("#ai-suggest-list > [data-suggest-card='week-card']").count(),
+                    0,
+                    "week suggestions rendered as the old flat list instead of inside day lanes",
+                )
+                posted = json.loads(next(r["body"] for r in requests if r["method"] == "POST"))
+                self.assertEqual(posted["window_mode"], "rolling")
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
+    def test_day_ai_suggest_flow_stays_flat(self):
+        """Day-level populate keeps the old review list instead of the weekly board."""
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            try:
+                page, js_errors = self._open_planner(ctx)
+
+                def fulfill_ai_suggest(route):
+                    req = route.request
+                    if req.method == "POST" and req.url.endswith("/api/weekplan/ai-suggest"):
+                        route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps({"job_id": "job-day"}),
+                        )
+                        return
+                    if req.method == "GET" and req.url.endswith("/api/weekplan/ai-suggest/job-day"):
+                        route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps({
+                                "status": "completed",
+                                "result": {
+                                    "window": {
+                                        "start": "2099-01-04",
+                                        "end": "2099-01-04",
+                                        "scope": "day",
+                                    },
+                                    "suggestions": [
+                                        {
+                                            "key": "day-card",
+                                            "date": "2099-01-04",
+                                            "time": "18:00",
+                                            "message_type": "discussion",
+                                            "topic_id": 111,
+                                            "topic_name": "סרטים",
+                                            "category": "movies",
+                                            "text": "מה הסרט שחזרתם אליו השבוע?",
+                                            "rationale": "בדיקת יום",
+                                            "source": "ai-fill",
+                                            "quality_failures": [],
+                                            "validation_failures": [],
+                                        }
+                                    ],
+                                },
+                            }),
+                        )
+                        return
+                    route.fulfill(status=404, content_type="application/json", body=json.dumps({"detail": "unexpected"}))
+
+                page.route("**/api/weekplan/ai-suggest**", fulfill_ai_suggest)
+                page.evaluate("aiFillSpecificDaySelected('2099-01-04')")
+                page.wait_for_selector("[data-suggest-card='day-card']", timeout=6000)
+
+                self.assertEqual(page.locator("[data-ai-suggest-board='1']").count(), 0)
+                self.assertEqual(page.locator("#ai-suggest-list > [data-suggest-card='day-card']").count(), 1)
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
     def test_create_drawer_type_switches_do_not_leak_state(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -341,6 +483,290 @@ class PlannerVisualTests(unittest.TestCase):
                 self.assertTrue(event_after_custom["rsvpHidden"])
                 self.assertEqual(event_after_custom["rsvpText"], "")
                 self.assertNotIn("custom text", event_after_custom["previewText"])
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
+    def test_weekly_ai_suggest_board_move_updates_approval_payload(self):
+        """Week populate review is a pre-commit board: dragging between days
+        mutates the pending approval payload, not the DB.
+        """
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            captured = {}
+            try:
+                page, js_errors = self._open_planner(ctx)
+
+                def capture_commit(route):
+                    captured["payload"] = json.loads(route.request.post_data or "{}")
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({"inserted": 1, "ids": [123], "by_type": {"discussion": 1}, "errors": []}),
+                    )
+
+                page.route("**/api/weekplan/ai-suggest-commit", capture_commit)
+                page.evaluate(
+                    """
+                    () => {
+                        openAiSuggestModal();
+                        _aiSuggestState.boardMode = true;
+                        _aiSuggestState.boardWindow = {start: '2099-01-04', end: '2099-01-10', scope: 'week'};
+                        _aiSuggestState.suggestions = [
+                            {
+                                key: 'move-me',
+                                date: '2099-01-04',
+                                time: '18:00',
+                                message_type: 'discussion',
+                                topic_id: 111,
+                                topic_name: 'סרטים',
+                                category: 'movies',
+                                text: 'מה הסרט שחזרתם אליו השבוע?',
+                                rationale: 'בדיקה',
+                                source: 'ai-fill',
+                                quality_failures: [],
+                                validation_failures: []
+                            }
+                        ];
+                        _aiSuggestState.checked = {'move-me': true};
+                        _aiSuggestRenderCurrent();
+                        _aiSuggestMoveSuggestionToDate('move-me', '2099-01-06');
+                    }
+                    """
+                )
+                self.assertEqual(page.locator("[data-ai-suggest-board='1']").count(), 1)
+                self.assertEqual(
+                    page.locator("[data-ai-suggest-date='2099-01-06'] [data-suggest-card='move-me']").count(),
+                    1,
+                )
+                page.evaluate("aiSuggestApprove()")
+                page.wait_for_function("() => !document.getElementById('ai-suggest-modal').classList.contains('hidden') === false")
+                self.assertEqual(captured["payload"]["approved"][0]["date"], "2099-01-06")
+                self.assertEqual(captured["payload"]["approved"][0]["message_type"], "discussion")
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
+    def test_weekly_ai_suggest_board_append_preserves_existing_state(self):
+        """Per-day generate-more uses append semantics; existing board cards
+        and unchecked choices must survive the merge. Exact duplicates are
+        dropped, but same-minute distinct rows are preserved for the existing
+        planner game-companion contract.
+        """
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            try:
+                page, js_errors = self._open_planner(ctx)
+                result = page.evaluate(
+                    """
+                    () => {
+                        openAiSuggestModal();
+                        _aiSuggestState.boardMode = true;
+                        _aiSuggestState.boardWindow = {start: '2099-01-04', end: '2099-01-10', scope: 'week'};
+                        _aiSuggestState.suggestions = [
+                            {
+                                key: 'existing',
+                                date: '2099-01-04',
+                                time: '09:00',
+                                message_type: 'morning',
+                                topic_id: 2184,
+                                topic_name: 'יומיום',
+                                text: 'בוקר בדיקה',
+                                rationale: 'קיים',
+                                source: 'ai-fill',
+                                quality_failures: [],
+                                validation_failures: []
+                            }
+                        ];
+                        _aiSuggestState.checked = {existing: false};
+                        _aiSuggestRenderCurrent();
+                        _aiSuggestMergeSuggestions([
+                            {
+                                key: 'dupe',
+                                date: '2099-01-04',
+                                time: '09:00',
+                                message_type: 'morning',
+                                topic_id: 2184,
+                                topic_name: 'יומיום',
+                                text: 'בוקר בדיקה',
+                                rationale: 'כפול',
+                                source: 'ai-fill',
+                                quality_failures: [],
+                                validation_failures: []
+                            },
+                            {
+                                key: 'new-day-card',
+                                date: '2099-01-04',
+                                time: '12:00',
+                                message_type: 'facts_tidbit',
+                                topic_id: 341,
+                                topic_name: 'הפינה',
+                                text: 'עובדה חדשה',
+                                rationale: 'נוסף',
+                                source: 'ai-fill-pool-row',
+                                quality_failures: [],
+                                validation_failures: []
+                            },
+                            {
+                                key: 'same-minute-distinct',
+                                date: '2099-01-04',
+                                time: '09:00',
+                                message_type: 'trivia_round',
+                                topic_id: 4037,
+                                topic_name: 'משחקים',
+                                text: '',
+                                rationale: 'משחק באותו זמן',
+                                source: 'ai-fill-trivia',
+                                poll_options_json: JSON.stringify({theme_label: 'בדיקה'}),
+                                quality_failures: [],
+                                validation_failures: []
+                            }
+                        ]);
+                        _aiSuggestRenderCurrent();
+                        return {
+                            total: _aiSuggestState.suggestions.length,
+                            existingChecked: _aiSuggestState.checked.existing,
+                            newChecked: _aiSuggestState.checked['new-day-card'],
+                            cards: document.querySelectorAll("[data-ai-suggest-date='2099-01-04'] [data-suggest-card]").length
+                        };
+                    }
+                    """
+                )
+                self.assertEqual(result["total"], 3)
+                self.assertFalse(result["existingChecked"])
+                self.assertTrue(result["newChecked"])
+                self.assertEqual(result["cards"], 3)
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
+    def test_weekly_ai_suggest_board_deny_stays_in_board_mode(self):
+        """Feedback learning must still work from the board without
+        collapsing the UI back into the old flat list.
+        """
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            try:
+                page, js_errors = self._open_planner(ctx)
+                page.route(
+                    "**/api/content-feedback",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({"id": 1, "auto_promoted": False}),
+                    ),
+                )
+                result = page.evaluate(
+                    """
+                    async () => {
+                        openAiSuggestModal();
+                        _aiSuggestState.boardMode = true;
+                        _aiSuggestState.boardWindow = {start: '2099-01-04', end: '2099-01-10', scope: 'week'};
+                        _aiSuggestState.suggestions = [
+                            {
+                                key: 'deny-me',
+                                date: '2099-01-04',
+                                time: '18:00',
+                                message_type: 'discussion',
+                                topic_id: 111,
+                                topic_name: 'סרטים',
+                                category: 'movies',
+                                text: 'שאלה לדחייה',
+                                rationale: 'בדיקה',
+                                source: 'ai-fill',
+                                quality_failures: [],
+                                validation_failures: []
+                            }
+                        ];
+                        _aiSuggestState.checked = {'deny-me': true};
+                        _aiSuggestRenderCurrent();
+                        await _aiSuggestDenyOne('deny-me', {reason: 'לא מתאים לערוץ', silent: true});
+                        return {
+                            boardCount: document.querySelectorAll("[data-ai-suggest-board='1']").length,
+                            cardInLane: document.querySelectorAll("[data-ai-suggest-date='2099-01-04'] [data-suggest-card='deny-me']").length,
+                            checked: _aiSuggestState.checked['deny-me'],
+                            denied: _aiSuggestState.suggestions[0]._denied === true
+                        };
+                    }
+                    """
+                )
+                self.assertEqual(result["boardCount"], 1)
+                self.assertEqual(result["cardInLane"], 1)
+                self.assertFalse(result["checked"])
+                self.assertTrue(result["denied"])
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
+    def test_weekly_ai_suggest_board_moves_linked_game_rows_together(self):
+        """Trivia/Emoji warmup rows share a marker with the game row; moving
+        one card must keep that companion set together before approval.
+        """
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            try:
+                page, js_errors = self._open_planner(ctx)
+                result = page.evaluate(
+                    """
+                    () => {
+                        const marker = 'warmup-rsvp:trivia:2099-01-04:21:00';
+                        openAiSuggestModal();
+                        _aiSuggestState.boardMode = true;
+                        _aiSuggestState.boardWindow = {start: '2099-01-04', end: '2099-01-10', scope: 'week'};
+                        _aiSuggestState.suggestions = [
+                            {
+                                key: 'warmup',
+                                date: '2099-01-04',
+                                time: '20:00',
+                                message_type: 'trivia_warmup_rsvp',
+                                topic_id: 111,
+                                topic_name: 'סרטים',
+                                text: 'מי בפנים?',
+                                rationale: 'חימום',
+                                source: 'ai-fill-trivia',
+                                poll_options_json: JSON.stringify({warmup_marker: marker, game_time: '21:00'}),
+                                quality_failures: [],
+                                validation_failures: []
+                            },
+                            {
+                                key: 'game',
+                                date: '2099-01-04',
+                                time: '21:00',
+                                message_type: 'trivia_round',
+                                topic_id: 4037,
+                                topic_name: 'משחקים',
+                                text: '',
+                                rationale: 'משחק',
+                                source: 'ai-fill-trivia',
+                                poll_options_json: JSON.stringify({warmup_marker: marker, game_time: '21:00'}),
+                                quality_failures: [],
+                                validation_failures: []
+                            }
+                        ];
+                        _aiSuggestState.checked = {warmup: true, game: true};
+                        _aiSuggestRenderCurrent();
+                        _aiSuggestMoveSuggestionToDate('game', '2099-01-07');
+                        return _aiSuggestState.suggestions.map((s) => ({
+                            key: s.key,
+                            date: s.date,
+                            marker: JSON.parse(s.poll_options_json).warmup_marker
+                        }));
+                    }
+                    """
+                )
+                self.assertEqual({row["date"] for row in result}, {"2099-01-07"})
+                self.assertEqual(
+                    {row["marker"] for row in result},
+                    {"warmup-rsvp:trivia:2099-01-07:21:00"},
+                )
                 self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
             finally:
                 browser.close()

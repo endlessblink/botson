@@ -379,6 +379,84 @@
     /* When the holiday badge contains the day number, hide FC's own day-number
        element to prevent the visual overlap with the badge or the +button. */
     .fc-daygrid-day.planner-holiday-block .fc-daygrid-day-number { visibility: hidden; }
+
+    /* Weekly AI review board */
+    .ai-suggest-board {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(165px, 1fr));
+        gap: 10px;
+        min-width: 0;
+        align-items: stretch;
+    }
+    .ai-suggest-day-lane {
+        min-height: 360px;
+        background: #0f1116;
+        border: 1px solid #272727;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .ai-suggest-day-lane.drag-over {
+        border-color: rgba(245, 158, 11, 0.7);
+        background: rgba(245, 158, 11, 0.08);
+    }
+    .ai-suggest-day-header {
+        padding: 10px 10px 8px;
+        border-bottom: 1px solid #1f1f1f;
+        background: #111318;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+    }
+    .ai-suggest-day-body {
+        flex: 1;
+        min-height: 260px;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .ai-suggest-day-empty {
+        color: #52525b;
+        border: 1px dashed #272727;
+        border-radius: 6px;
+        min-height: 74px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: 12px;
+        line-height: 1.5;
+    }
+    .ai-suggest-card {
+        border: 1px solid #272727;
+        border-radius: 7px;
+        background: #15171c;
+        padding: 9px;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        cursor: grab;
+    }
+    .ai-suggest-card:active { cursor: grabbing; }
+    .ai-suggest-card.is-denied {
+        opacity: 0.52;
+        cursor: default;
+    }
+    .ai-suggest-card-text {
+        max-height: 105px;
+        overflow-y: auto;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+    @media (max-width: 900px) {
+        .ai-suggest-board {
+            grid-template-columns: repeat(7, minmax(230px, 76vw));
+            min-width: 0;
+        }
+    }
 </style>
 
 <div id="planner-sticky-bar" class="planner-sticky-bar">
@@ -967,7 +1045,7 @@
      lets the user reject individual suggestions before commit. -->
 <div id="ai-suggest-modal" class="hidden fixed inset-y-0 left-0 right-0 lg:right-56 z-[110] flex items-center justify-center p-4" dir="rtl">
     <div class="absolute inset-0 bg-black/70" onclick="closeAiSuggestModal()"></div>
-    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1100px] max-h-[90vh] flex flex-col overflow-hidden min-h-0">
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-[1500px] max-h-[90vh] flex flex-col overflow-hidden min-h-0">
         <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center justify-between flex-shrink-0">
             <div>
                 <h3 class="text-base font-medium text-[#fafafa]">הצעות תזמון AI</h3>
@@ -976,7 +1054,7 @@
             <button onclick="closeAiSuggestModal()" class="text-[#71717a] hover:text-[#fafafa] cursor-pointer text-xl leading-none">&times;</button>
         </div>
         <div id="ai-suggest-stats" class="hidden px-5 py-3 border-b border-[#1f1f1f] bg-[#111318] text-xs text-[#a1a1aa] flex-shrink-0 whitespace-pre-wrap"></div>
-        <div id="ai-suggest-list" class="flex-1 min-h-[260px] overflow-y-auto px-5 py-4 space-y-2 bg-[#0a0a0a]">
+        <div id="ai-suggest-list" class="flex-1 min-h-[260px] overflow-auto px-5 py-4 space-y-2 bg-[#0a0a0a]">
             <div class="text-center text-[#71717a] py-8">טוען הצעות...</div>
         </div>
         <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between flex-shrink-0">
@@ -2772,6 +2850,9 @@ var _aiSuggestState = {
     timeoutHandle: null,
     timedOut: false,
     triggerLabel: '',
+    boardMode: false,
+    boardWindow: null,
+    draggingKey: null,
 };
 
 function openAiSuggestModal() {
@@ -2798,6 +2879,9 @@ function closeAiSuggestModal() {
     _aiSuggestState.suggestions = [];
     _aiSuggestState.checked = {};
     _aiSuggestState.jobId = null;
+    _aiSuggestState.boardMode = false;
+    _aiSuggestState.boardWindow = null;
+    _aiSuggestState.draggingKey = null;
     var listEl = document.getElementById('ai-suggest-list');
     if (listEl) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">טוען הצעות...</div>';
     var statsEl = document.getElementById('ai-suggest-stats');
@@ -3076,7 +3160,7 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
         _aiSuggestState.checked[s.key] = false;
         s._denied = true;
         s._deny_reason = reason || '';
-        _aiSuggestRenderSuggestions(document.getElementById('ai-suggest-list'));
+        _aiSuggestRenderCurrent();
         _aiSuggestUpdateCount();
         if (!opts.silent) showToast('נדחה, נשמר למשוב');
     } catch (e) {
@@ -3244,6 +3328,7 @@ async function applyLearnFromFeedback() {
 }
 
 function _aiSuggestUpdateCount() {
+    _aiSuggestSyncCheckedFromDom();
     var checked = Object.values(_aiSuggestState.checked).filter(Boolean).length;
     var total = _aiSuggestState.suggestions.length;
     var rejected = _aiSuggestState.suggestions.filter(function(s) {
@@ -3255,11 +3340,17 @@ function _aiSuggestUpdateCount() {
 
 function aiSuggestToggleAll(value) {
     _aiSuggestState.suggestions.forEach(function(s) {
-        _aiSuggestState.checked[s.key] = !!value;
+        _aiSuggestState.checked[s.key] = !!value && !s._denied;
         var cb = document.querySelector('input[data-suggest-key="' + s.key + '"]');
-        if (cb) cb.checked = !!value;
+        if (cb && !cb.disabled) cb.checked = !!value;
     });
     _aiSuggestUpdateCount();
+}
+
+function _aiSuggestSyncCheckedFromDom() {
+    document.querySelectorAll('input[data-suggest-key]').forEach(function(cb) {
+        _aiSuggestState.checked[cb.getAttribute('data-suggest-key')] = cb.checked && !cb.disabled;
+    });
 }
 
 function _aiSuggestIsChecked(s) {
@@ -3354,22 +3445,47 @@ function _aiSuggestMarker(s) {
 }
 
 function _aiSuggestTimeControl(s, emoji) {
-    var stamp = escapeHtml(s.date || '') + ' · ';
     var marker = _aiSuggestMarker(s);
-    if ((s.message_type !== 'trivia_round' && s.message_type !== 'emoji_puzzle') || !marker) {
-        return '<span class="text-[#fafafa] font-medium">' + emoji + ' ' + stamp + escapeHtml(s.time || '') + '</span>';
+    if ((s.message_type === 'trivia_round' || s.message_type === 'emoji_puzzle') && marker) {
+        return '<span class="text-[#fafafa] font-medium inline-flex items-center gap-1">' + emoji +
+            '<input type="time" data-suggest-time-key="' + escapeHtml(s.key) + '" value="' + escapeHtml((s.time || '').slice(0, 5)) + '" class="bg-[#0a0a0a] border border-[#272727] rounded px-1 py-0.5 text-xs text-[#fafafa]" />' +
+            '</span>';
     }
-    return '<span class="text-[#fafafa] font-medium inline-flex items-center gap-1">' + emoji + ' ' + stamp +
-        '<input type="time" data-suggest-time-key="' + escapeHtml(s.key) + '" value="' + escapeHtml((s.time || '').slice(0, 5)) + '" class="bg-[#0a0a0a] border border-[#272727] rounded px-1 py-0.5 text-xs text-[#fafafa]" />' +
+    return '<span class="text-[#fafafa] font-medium inline-flex items-center gap-1">' + emoji +
+        '<input type="time" data-suggest-simple-time-key="' + escapeHtml(s.key) + '" value="' + escapeHtml((s.time || '').slice(0, 5)) + '" class="bg-[#0a0a0a] border border-[#272727] rounded px-1 py-0.5 text-xs text-[#fafafa]" />' +
         '</span>';
+}
+
+function _aiSuggestRenderCurrent() {
+    var listEl = document.getElementById('ai-suggest-list');
+    if (!listEl) return;
+    if (_aiSuggestState.boardMode) {
+        _aiSuggestRenderBoard(listEl);
+    } else {
+        _aiSuggestRenderSuggestions(listEl);
+    }
+    _aiSuggestUpdateCount();
 }
 
 function _aiSuggestRenderSuggestions(listEl) {
     if (!listEl) return;
     listEl.innerHTML = '';
+    listEl.classList.add('space-y-2');
     _aiSuggestState.suggestions.forEach(function(s) {
         listEl.appendChild(_aiSuggestRenderRow(s));
     });
+}
+
+function _aiSuggestShouldUseBoard(targetDate, triggerLabel, opts, win) {
+    opts = opts || {};
+    win = win || {};
+    return win.scope === 'week' ||
+        (!targetDate && (
+            triggerLabel === 'week' ||
+            !!opts.weekOf ||
+            opts.windowMode === 'rolling' ||
+            opts.windowMode === 'week'
+        ));
 }
 
 function _aiSuggestUpdateActivityTime(key, nextTime) {
@@ -3399,8 +3515,169 @@ function _aiSuggestUpdateActivityTime(key, nextTime) {
         }
         _aiSuggestStorePoll(s, payload);
     });
-    _aiSuggestRenderSuggestions(document.getElementById('ai-suggest-list'));
+    _aiSuggestRenderCurrent();
     _aiSuggestUpdateCount();
+}
+
+function _aiSuggestUpdateSingleTime(key, nextTime) {
+    if (!/^\d{2}:\d{2}$/.test(nextTime || '')) return;
+    _aiSuggestSyncCheckedFromDom();
+    var s = _aiSuggestState.suggestions.find(function(x) { return x.key === key; });
+    if (!s) return;
+    s.time = nextTime;
+    _aiSuggestRenderCurrent();
+}
+
+function _aiSuggestParseDate(iso) {
+    var parts = String(iso || '').split('-').map(function(x) { return parseInt(x, 10); });
+    if (parts.length !== 3 || parts.some(function(x) { return !Number.isFinite(x); })) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function _aiSuggestDateAdd(iso, days) {
+    var d = _aiSuggestParseDate(iso);
+    if (!d) return iso;
+    d.setDate(d.getDate() + days);
+    return formatLocalDate(d);
+}
+
+function _aiSuggestWindowDates(win) {
+    win = win || {};
+    var start = win.start || (_aiSuggestState.suggestions[0] || {}).date || todayIsoLocal();
+    var end = win.end || _aiSuggestDateAdd(start, 6);
+    var dates = [];
+    var cursor = start;
+    for (var i = 0; i < 7; i++) {
+        dates.push(cursor);
+        if (cursor === end && dates.length >= 7) break;
+        cursor = _aiSuggestDateAdd(cursor, 1);
+    }
+    return dates;
+}
+
+function _aiSuggestDayLabel(iso) {
+    var d = _aiSuggestParseDate(iso);
+    var names = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    return d ? names[d.getDay()] : iso;
+}
+
+function _aiSuggestSignature(s) {
+    return [
+        s.date || '', (s.time || '').slice(0, 5), s.message_type || '',
+        String(s.topic_id || ''), String(s.text || '').trim(),
+        String(s.poll_options_json || '')
+    ].join('|');
+}
+
+function _aiSuggestMergeSuggestions(nextSuggestions) {
+    _aiSuggestSyncCheckedFromDom();
+    var seen = {};
+    _aiSuggestState.suggestions.forEach(function(s) { seen[_aiSuggestSignature(s)] = true; });
+    (nextSuggestions || []).forEach(function(s) {
+        if (!s || !s.key) return;
+        var sig = _aiSuggestSignature(s);
+        if (seen[sig]) return;
+        seen[sig] = true;
+        _aiSuggestState.suggestions.push(s);
+        if (_aiSuggestState.checked[s.key] === undefined) {
+            _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length);
+        }
+    });
+}
+
+function _aiSuggestLinkedGroupFor(s) {
+    var marker = _aiSuggestMarker(s);
+    if (!marker) return [s];
+    return _aiSuggestState.suggestions.filter(function(x) { return _aiSuggestMarker(x) === marker; });
+}
+
+function _aiSuggestRewriteMarker(oldMarker, newDate, gameTime) {
+    var m = /^(warmup-rsvp:[^:]+):[^:]+:(\d{2}:\d{2})$/.exec(String(oldMarker || ''));
+    if (!m) return oldMarker;
+    return m[1] + ':' + newDate + ':' + (gameTime || m[2]);
+}
+
+function _aiSuggestMoveSuggestionToDate(key, nextDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate || '')) return;
+    _aiSuggestSyncCheckedFromDom();
+    var s = _aiSuggestState.suggestions.find(function(x) { return x.key === key; });
+    if (!s || s._denied) return;
+    var group = _aiSuggestLinkedGroupFor(s);
+    var marker = _aiSuggestMarker(s);
+    var game = group.find(function(x) {
+        return x.message_type === 'trivia_round' || x.message_type === 'emoji_puzzle';
+    }) || s;
+    var newMarker = marker ? _aiSuggestRewriteMarker(marker, nextDate, (game.time || '').slice(0, 5)) : '';
+    group.forEach(function(item) {
+        item.date = nextDate;
+        if (!newMarker) return;
+        var payload = _aiSuggestParsePoll(item);
+        payload.warmup_marker = newMarker;
+        _aiSuggestStorePoll(item, payload);
+    });
+    _aiSuggestRenderCurrent();
+}
+
+function _aiSuggestRenderBoard(listEl) {
+    listEl.innerHTML = '';
+    listEl.classList.remove('space-y-2');
+    var board = document.createElement('div');
+    board.className = 'ai-suggest-board';
+    board.setAttribute('data-ai-suggest-board', '1');
+    var dates = _aiSuggestWindowDates(_aiSuggestState.boardWindow);
+    dates.forEach(function(iso) {
+        var laneSuggestions = _aiSuggestState.suggestions
+            .filter(function(s) { return s.date === iso; })
+            .sort(function(a, b) { return String(a.time || '').localeCompare(String(b.time || '')); });
+        var checked = laneSuggestions.filter(function(s) { return _aiSuggestState.checked[s.key] !== false && !s._denied; }).length;
+        var qualityIssues = laneSuggestions.filter(function(s) { return (s.quality_failures || []).length > 0; }).length;
+        var lane = document.createElement('section');
+        lane.className = 'ai-suggest-day-lane';
+        lane.setAttribute('data-ai-suggest-date', iso);
+        lane.innerHTML = (
+            '<div class="ai-suggest-day-header">' +
+                '<div class="min-w-0">' +
+                    '<div class="text-sm text-[#fafafa] font-medium">' + escapeHtml(_aiSuggestDayLabel(iso)) + '</div>' +
+                    '<div class="text-[11px] text-[#71717a]" dir="ltr">' + escapeHtml(iso) + '</div>' +
+                    '<div class="text-[10px] text-[#52525b] mt-1">' + checked + '/' + laneSuggestions.length + ' מסומנות' + (qualityIssues ? ' · ' + qualityIssues + ' בעיות' : '') + '</div>' +
+                '</div>' +
+                '<button type="button" data-generate-more-date="' + escapeHtml(iso) + '" class="text-[11px] text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 rounded px-2 py-1 whitespace-nowrap">+ עוד</button>' +
+            '</div>' +
+            '<div class="ai-suggest-day-body"></div>'
+        );
+        var body = lane.querySelector('.ai-suggest-day-body');
+        if (!laneSuggestions.length) {
+            var empty = document.createElement('div');
+            empty.className = 'ai-suggest-day-empty';
+            empty.textContent = 'אין הצעות ביום הזה';
+            body.appendChild(empty);
+        } else {
+            laneSuggestions.forEach(function(s) {
+                body.appendChild(_aiSuggestRenderRow(s));
+            });
+        }
+        lane.addEventListener('dragover', function(e) {
+            if (!_aiSuggestState.draggingKey) return;
+            e.preventDefault();
+            lane.classList.add('drag-over');
+        });
+        lane.addEventListener('dragleave', function() {
+            lane.classList.remove('drag-over');
+        });
+        lane.addEventListener('drop', function(e) {
+            e.preventDefault();
+            lane.classList.remove('drag-over');
+            var key = e.dataTransfer.getData('text/plain') || _aiSuggestState.draggingKey;
+            _aiSuggestState.draggingKey = null;
+            _aiSuggestMoveSuggestionToDate(key, iso);
+        });
+        var moreBtn = lane.querySelector('button[data-generate-more-date]');
+        moreBtn.addEventListener('click', function() {
+            _aiSuggestFetch(iso, 'day', {appendToBoard: true});
+        });
+        board.appendChild(lane);
+    });
+    listEl.appendChild(board);
 }
 
 function _aiSuggestRenderRow(s) {
@@ -3428,7 +3705,22 @@ function _aiSuggestRenderRow(s) {
         ? '<a href="' + s.preview_url + '" target="_blank" rel="noopener" class="text-[11px] text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 rounded px-2 py-0.5">פתח תצוגה מקדימה</a>'
         : '';
     var card = document.createElement('div');
-    card.className = 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3' + (s._denied ? ' opacity-50' : '');
+    card.className = (_aiSuggestState.boardMode ? 'ai-suggest-card' : 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3') + (s._denied ? ' is-denied opacity-50' : '');
+    card.setAttribute('data-suggest-card', s.key);
+    if (!s._denied) {
+        card.draggable = !!_aiSuggestState.boardMode;
+        card.addEventListener('dragstart', function(e) {
+            _aiSuggestState.draggingKey = s.key;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', s.key);
+        });
+        card.addEventListener('dragend', function() {
+            _aiSuggestState.draggingKey = null;
+            document.querySelectorAll('.ai-suggest-day-lane.drag-over').forEach(function(el) {
+                el.classList.remove('drag-over');
+            });
+        });
+    }
     var safeText = (s.text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     var timeControl = _aiSuggestTimeControl(s, emoji);
     var denyBtn = s._denied
@@ -3452,7 +3744,7 @@ function _aiSuggestRenderRow(s) {
                 previewLink +
                 denyBtn +
             '</div>' +
-            '<div class="text-sm text-[#e4e4e7] whitespace-pre-wrap">' + safeText + '</div>' +
+            '<div class="text-sm text-[#e4e4e7] whitespace-pre-wrap ai-suggest-card-text">' + safeText + '</div>' +
             qualityWarning +
         '</div>'
     );
@@ -3467,6 +3759,12 @@ function _aiSuggestRenderRow(s) {
             _aiSuggestUpdateActivityTime(s.key, timeInput.value);
         });
     }
+    var simpleTimeInput = card.querySelector('input[data-suggest-simple-time-key]');
+    if (simpleTimeInput) {
+        simpleTimeInput.addEventListener('change', function() {
+            _aiSuggestUpdateSingleTime(s.key, simpleTimeInput.value);
+        });
+    }
     var denyButton = card.querySelector('button[data-deny-key]');
     if (denyButton) {
         denyButton.addEventListener('click', function() {
@@ -3478,8 +3776,12 @@ function _aiSuggestRenderRow(s) {
 
 async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     opts = opts || {};
-    if (_aiSuggestState.controller || _aiSuggestState.jobId) {
+    var appendToBoard = !!opts.appendToBoard;
+    if (!appendToBoard && (_aiSuggestState.controller || _aiSuggestState.jobId)) {
         closeAiSuggestModal();
+    }
+    if (appendToBoard) {
+        _aiSuggestSyncCheckedFromDom();
     }
     _aiSuggestState.triggerLabel = triggerLabel || '';
     _aiSuggestState.timedOut = false;
@@ -3496,7 +3798,8 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     var loadingScope = targetDate ? ('יום ' + targetDate)
         : (opts.weekOf ? ('שבוע ' + opts.weekOf) : 'השבוע הקרוב');
     if (subtitle) subtitle.textContent = loadingScope + ' — מייצר הצעות (יכול לקחת 1-3 דקות)...';
-    if (listEl) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">⏳ טוען הצעות מה-AI...</div>';
+    if (listEl && !appendToBoard) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">⏳ טוען הצעות מה-AI...</div>';
+    if (appendToBoard && subtitle) subtitle.textContent = 'מוסיף הצעות ליום ' + targetDate + '...';
     openAiSuggestModal();
 
     var body = {week_offset: (typeof opts.weekOffset === 'number' ? opts.weekOffset : 0)};
@@ -3554,18 +3857,25 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
 
     try {
         var data = await requestSuggestions();
-        _aiSuggestState.suggestions = data.suggestions || [];
-        _aiSuggestState.checked = {};
-        _aiSuggestState.suggestions.forEach(function(s) {
-            _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length);
-        });
+        var w = data.window || {};
+        if (appendToBoard) {
+            _aiSuggestMergeSuggestions(data.suggestions || []);
+        } else {
+            _aiSuggestState.suggestions = data.suggestions || [];
+            _aiSuggestState.checked = {};
+            _aiSuggestState.suggestions.forEach(function(s) {
+                _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length);
+            });
+            _aiSuggestState.boardMode = _aiSuggestShouldUseBoard(targetDate, triggerLabel, opts, w);
+            _aiSuggestState.boardWindow = _aiSuggestState.boardMode ? w : null;
+        }
 
         if (listEl) {
             listEl.innerHTML = '';
             if (_aiSuggestState.suggestions.length === 0) {
                 listEl.innerHTML = _aiSuggestRenderEmpty(data.skip_reasons || [], data.empty_state || {});
             } else {
-                _aiSuggestRenderSuggestions(listEl);
+                _aiSuggestRenderCurrent();
             }
         }
         if (statsEl && (data.stats_block || (Array.isArray(data.errors) && data.errors.length) || (Array.isArray(data.notices) && data.notices.length))) {
@@ -3578,9 +3888,14 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             ].filter(Boolean).join('\n\n');
             statsEl.classList.remove('hidden');
         }
-        var w = data.window || {};
         var rejected = _aiSuggestState.suggestions.filter(function(s) { return (s.quality_failures || []).length > 0; }).length;
-        if (subtitle) subtitle.textContent = (w.scope === 'day' ? 'יום ' + w.start : 'שבוע ' + w.start + ' — ' + w.end) + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן את אלה שתרצה לאשר.';
+        if (subtitle) {
+            var activeWindow = _aiSuggestState.boardWindow || w;
+            var scopeText = _aiSuggestState.boardMode
+                ? ('שבוע ' + activeWindow.start + ' — ' + activeWindow.end)
+                : ('יום ' + (activeWindow.start || targetDate || ''));
+            subtitle.textContent = scopeText + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן, גרור בין ימים, ואז אשר.';
+        }
         _aiSuggestUpdateCount();
     } catch (e) {
         if (subtitle) subtitle.textContent = 'שגיאה: ' + (e && e.message || e);
