@@ -412,6 +412,52 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             discussion_rows,
         )
 
+    async def test_ai_suggest_rolling_week_batches_flex_discussion_generation(self):
+        from collections import Counter
+
+        db = Database(":memory:")
+        await db.init()
+        calls = Counter()
+
+        async def generated(prompt, **kwargs):
+            calls["generate"] += 1
+            prompt_text = str(prompt)
+            if "פריטים:" in prompt_text:
+                raw_items = prompt_text.split("פריטים:\n", 1)[1]
+                items = json.loads(raw_items)
+                return json.dumps({
+                    "items": [
+                        {
+                            "id": item["id"],
+                            "text": f"איזה פרט קטן מהשבוע האחרון הפתיע אתכם? ({item['id']})",
+                        }
+                        for item in items
+                    ]
+                }, ensure_ascii=False), []
+            return f"איזה רגע קטן מהשבוע האחרון הפתיע אתכם? ({calls['generate']})", []
+
+        async def activity_copy(*args, **kwargs):
+            calls["activity"] += 1
+            return "מי בפנים לערב קצר?"
+
+        try:
+            with patch.object(dashboard_app, "_generate_with_fallbacks", new=AsyncMock(side_effect=generated)), \
+                 patch.object(dashboard_app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
+                 patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+                result = await dashboard_app._ai_suggest_calendar(
+                    db, target_date=None, window_mode="rolling",
+                )
+        finally:
+            await db.close()
+
+        suggestions = result["suggestions"]
+        flex_rows = [
+            s for s in suggestions
+            if s["message_type"] == "discussion" and str(s.get("source") or "").startswith("ai-fill-flex")
+        ]
+        self.assertGreaterEqual(len(flex_rows), 7, result)
+        self.assertLessEqual(calls["generate"], 6, dict(calls))
+
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
         await db.init()

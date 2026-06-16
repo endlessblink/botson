@@ -6243,6 +6243,110 @@ async def _ai_suggest_calendar(
         # not a quality-failure hiding mechanism.
         return last_text, last_fails
 
+    async def _gen_flex_discussion_batch(items: list[dict]) -> dict[int, tuple[str, list]]:
+        """Generate flexible weekly discussion rows in batches.
+
+        The rolling-week board can need many subject discussion rows. Calling
+        the CLI once per row makes the operator wait several minutes, so flex
+        rows share a prompt while every returned draft is still validated
+        independently before it is shown.
+        """
+        if not items:
+            return {}
+        pending = list(items)
+        results: dict[int, tuple[str, list]] = {}
+        last_by_id: dict[int, tuple[str, list]] = {}
+        for attempt in range(max(1, _planner_retry_budget)):
+            payload_items = []
+            for item in pending:
+                pattern_directive = _planner_pattern_directive(
+                    _planner_gen_cfg["pattern_rotation"],
+                    "discussion",
+                    item["cat"],
+                    item["date"],
+                    item["time"],
+                    attempt,
+                )
+                payload = {
+                    "id": item["id"],
+                    "date": item["date"],
+                    "time": item["time"],
+                    "category": item["category_name"],
+                    "recent": list(item["recent"][:8]),
+                    "source_examples": list(item["sources"][:5]),
+                    "pattern": pattern_directive,
+                }
+                if item["id"] in last_by_id:
+                    payload["previous_failure"] = ", ".join(last_by_id[item["id"]][1])
+                payload_items.append(payload)
+            prompt = (
+                "צור שאלת דיון אחת בעברית לכל פריט ברשימה. "  # noqa: hardcoded-content (LLM prompt, not user copy)
+                "כל שאלה חייבת להיות מוכנה לשליחה, בלי קווים ריקים, בלי ___, בלי הסברים, בלי מספרים מהקשר הקבוצה. "  # noqa: hardcoded-content
+                "החזר JSON בלבד במבנה {\"items\":[{\"id\":1,\"text\":\"...\"}]}.\n\n"  # noqa: hardcoded-content
+                "פריטים:\n" + json.dumps(payload_items, ensure_ascii=False)
+            )
+            try:
+                raw, provider_notices = await _generate_with_fallbacks(
+                    prompt,
+                    temperature=float(_planner_gen_cfg["temperature"]),
+                    context="planner.flex_batch",
+                )
+                generation_notices.extend(provider_notices)
+            except Exception as e:
+                for item in pending:
+                    results[item["id"]] = ("", [f"generation failed: {e}"])
+                return results
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                match = re.search(r"\{.*\}", raw or "", flags=re.S)
+                try:
+                    parsed = json.loads(match.group(0)) if match else {}
+                except Exception:
+                    parsed = {}
+            returned = {
+                int(row.get("id")): str(row.get("text") or "").strip()
+                for row in (parsed.get("items") or [])
+                if isinstance(row, dict) and str(row.get("id") or "").isdigit()
+            } if isinstance(parsed, dict) else {}
+            if not returned:
+                break
+            next_pending: list[dict] = []
+            for item in pending:
+                text = returned.get(item["id"], "").replace('"', '').replace("'", "")
+                lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+                text = lines[0] if lines else text
+                fails = _validate_draft_text(text)
+                freshness_failure = freshness_rejection(
+                    text,
+                    avoid_texts=set(item["recent"]),
+                    source_examples=set(item["sources"]),
+                    scheduled_date=item["date"],
+                )
+                if freshness_failure:
+                    fails.append(freshness_failure)
+                if fails and attempt + 1 < _planner_retry_budget:
+                    last_by_id[item["id"]] = (text, fails)
+                    next_pending.append(item)
+                else:
+                    results[item["id"]] = (text, fails)
+            if not next_pending:
+                break
+            pending = next_pending
+        for item in pending:
+            if item["id"] in results:
+                continue
+            text, fails = await _gen_text(
+                "discussion",
+                item["cat"],
+                item["date"],
+                item["time"],
+                item["recent"],
+                category_name=item["category_name"],
+            )
+            results[item["id"]] = (text, fails)
+        return results
+
     # Recent dedup blocks per type. T-170: limit shrunk 60→25 — the old
     # 60-item ceiling collided with ~25-item pool sizes and exhausted the
     # model's variance room. Near-dup detection (Jaccard via freshness) now
@@ -6635,6 +6739,8 @@ async def _ai_suggest_calendar(
     # on day 0 first. Cap per type enforces variety.
     day_indices = list(range(len(window_dates)))
     random.shuffle(day_indices)
+    flex_batch_items: list[dict] = []
+    flex_reserved_by_day: dict[str, int] = {}
 
     features = settings.get("features", {}) or {}
 
@@ -6644,7 +6750,10 @@ async def _ai_suggest_calendar(
         return _is_feature_enabled_simple(features, feature_key)
 
     def _day_suggestion_count(d_iso: str) -> int:
-        return sum(1 for s in suggestions if s.get("date") == d_iso)
+        return (
+            sum(1 for s in suggestions if s.get("date") == d_iso)
+            + int(flex_reserved_by_day.get(d_iso, 0))
+        )
 
     def _add_suggestion(d_iso: str, t: str, mtype: str, *, topic: int, text: str,
                         source: str, rationale: str, category: str | None = None,
@@ -7085,6 +7194,31 @@ async def _ai_suggest_calendar(
                     recent_chan = await _fetch_recent_sent_for_dedup(
                         db, "discussion", category_topic_id=int(expected_topic), limit=_dedup_limit,
                     )
+                    if scope == "week":
+                        source_category = _discussion_prompt_category(cat, cat_name)
+                        sources = [
+                            str(x).strip()
+                            for x in (discussions_pool.get(source_category) or [])
+                            if x
+                        ]
+                        flex_batch_items.append({
+                            "id": len(flex_batch_items) + 1,
+                            "date": d_iso,
+                            "time": t,
+                            "mtype": mtype,
+                            "topic": int(expected_topic),
+                            "cat": cat,
+                            "category_name": cat_name,
+                            "prompt_category": source_category,
+                            "recent": [str(x).strip() for x in recent_chan if x],
+                            "sources": sources,
+                        })
+                        flex_reserved_by_day[d_iso] = flex_reserved_by_day.get(d_iso, 0) + 1
+                        occupied.add((d_iso, t, mtype))
+                        occupied_times.add((d_iso, t))
+                        flex_count += 1
+                        flex_day_count += 1
+                        break
                     text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan, category_name=cat_name)
                     if not text:
                         errors.extend(fails)
@@ -7104,6 +7238,25 @@ async def _ai_suggest_calendar(
                     flex_count += 1
                     flex_day_count += 1
                     break
+
+    if flex_batch_items:
+        batch_results = await _gen_flex_discussion_batch(flex_batch_items)
+        for item in flex_batch_items:
+            text, fails = batch_results.get(item["id"], ("", ["generation failed"]))
+            if not text:
+                errors.extend(fails)
+                continue
+            src = "ai-fill-flex-pool" if (fails and not _validate_draft_text(text)) else "ai-fill-flex"
+            _add_suggestion(
+                item["date"], item["time"], item["mtype"],
+                topic=int(item["topic"]),
+                text=text,
+                source=src,
+                category=item["prompt_category"] or None,
+                rationale=flex_rationale or f"שאלה ל{item['category_name'] or item['cat']}",
+                validation_failures=fails,
+                count_as=None,
+            )
 
     return {
         "window": {"start": win_start, "end": win_end, "scope": scope},
