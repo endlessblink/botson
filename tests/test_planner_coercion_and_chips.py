@@ -357,6 +357,61 @@ class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
 
 
 class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
+    async def test_ai_suggest_discussion_surfaces_validation_failures(self):
+        db = Database(":memory:")
+        await db.init()
+
+        async def blank_scaffold(*args, **kwargs):
+            return "ארוחת שלישי הטבעונית שלי = __ + __ + __. שלכם?", []
+
+        try:
+            with patch.object(dashboard_app, "_generate_with_fallbacks", new=AsyncMock(side_effect=blank_scaffold)), \
+                 patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+                result = await dashboard_app._ai_suggest_calendar(
+                    db, target_date=None, week_offset=1,
+                )
+        finally:
+            await db.close()
+
+        discussion_rows = [
+            s for s in result["suggestions"]
+            if s["message_type"] == "discussion"
+        ]
+        self.assertTrue(discussion_rows, result)
+        self.assertTrue(
+            any("fill_in_blank_scaffold" in (s.get("validation_failures") or []) for s in discussion_rows),
+            discussion_rows,
+        )
+
+    async def test_ai_suggest_retries_fill_in_blank_until_clean_draft(self):
+        db = Database(":memory:")
+        await db.init()
+
+        async def blank_then_clean(prompt, **kwargs):
+            if "הניסיון הקודם נדחה" in str(prompt):
+                return "איזה פרט קטן מהשבוע האחרון הפתיע אתכם יותר ממה שציפיתם?", []
+            return "ארוחת שלישי הטבעונית שלי = __ + __ + __. שלכם?", []
+
+        try:
+            with patch.object(dashboard_app, "_generate_with_fallbacks", new=AsyncMock(side_effect=blank_then_clean)), \
+                 patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+                result = await dashboard_app._ai_suggest_calendar(
+                    db, target_date=None, week_offset=1,
+                )
+        finally:
+            await db.close()
+
+        discussion_rows = [
+            s for s in result["suggestions"]
+            if s["message_type"] == "discussion"
+        ]
+        self.assertTrue(discussion_rows, result)
+        self.assertTrue(all("__" not in s["text"] for s in discussion_rows), discussion_rows)
+        self.assertTrue(
+            all("fill_in_blank_scaffold" not in (s.get("validation_failures") or []) for s in discussion_rows),
+            discussion_rows,
+        )
+
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
         await db.init()

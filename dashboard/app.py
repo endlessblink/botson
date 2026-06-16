@@ -3154,6 +3154,8 @@ def _validate_draft_text(text: str) -> list[str]:
     # sees the strict rule in the prompt regardless.
     if s.count("?") > 2:
         failures.append("multiple question marks")
+    if re.search(r"_{2,}|(?:^|[\s=+])\.{3,}(?:[\s=+]|$)", s):
+        failures.append("fill_in_blank_scaffold")
     tokens = re.findall(r"\b[A-Za-z]{2,}\b", s)
     for tok in tokens:
         if tok in _DRAFT_ENGLISH_JARGON:
@@ -6754,7 +6756,7 @@ async def _ai_suggest_calendar(
                     _add_suggestion(d_iso, t, "discussion", topic=int(expected_topic),
                                     text=text, source=src, category=prompt_category or None,
                                     rationale=f"שאלה ל{cat_name or cat}",
-                                    validation_failures=[])
+                                    validation_failures=fails)
 
         # Emoji puzzle row + announcement. Runtime filters the puzzle pool by
         # the selected subject payload, so the modal's subject is truthful.

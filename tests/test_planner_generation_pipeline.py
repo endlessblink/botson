@@ -243,6 +243,24 @@ class PlannerRetryBudgetSettingHonored(unittest.TestCase):
         self.assertEqual(cfg["temperature"], 0.9)
         self.assertEqual(cfg["pattern_rotation"], ["A", "B"])
 
+    def test_generation_config_does_not_force_fill_in_blank_patterns(self):
+        from dashboard import app as dashboard_app
+
+        cfg = dashboard_app._planner_generation_config(dashboard_app.get_settings())
+
+        joined = "\n".join(cfg["pattern_rotation"])
+        self.assertNotIn("השלמת משפט", joined)
+        self.assertNotIn("___", joined)
+
+    def test_draft_validator_rejects_fill_in_blank_scaffolds(self):
+        from dashboard import app as dashboard_app
+
+        failures = dashboard_app._validate_draft_text(
+            "ארוחת שלישי הטבעונית שלי = __ + __ + __. שלכם?"
+        )
+
+        self.assertIn("fill_in_blank_scaffold", failures)
+
     def test_pattern_rotation_changes_across_attempts(self):
         from dashboard import app as dashboard_app
 

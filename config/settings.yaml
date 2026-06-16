@@ -255,7 +255,7 @@ ai_populate:
   # calendar boundary, so it always yields a full upcoming week of free slots.
   rolling_window_days: 7
   generation:
-    retry_budget: 3
+    retry_budget: 5
     dedup_window: 25
     opener_recent_window: 10
     temperature: 0.85
@@ -264,7 +264,7 @@ ai_populate:
     - "תבנית חובה לניסיון הזה: דירוג קצר או בחירת מקום ראשון מתוך זיכרון קונקרטי."
     - "תבנית חובה לניסיון הזה: המלצה ספציפית שאפשר לענות עליה בשם אחד או פרט אחד."
     - "תבנית חובה לניסיון הזה: דעה לא פופולרית או ויכוח קטן, בלי פרובוקציה."
-    - "תבנית חובה לניסיון הזה: השלמת משפט קצרה עם עוגן מוחשי."
+    - "תבנית חובה לניסיון הזה: שאלה על מקרה קונקרטי מהשבוע האחרון, עם פרט אחד שאפשר לענות עליו קצר."
   flex:
     enabled: true
     day:
