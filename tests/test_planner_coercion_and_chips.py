@@ -3427,6 +3427,16 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "statusData.status === 'completed'", self.html,
             "suggest modal must poll until background generation completes",
         )
+        self.assertIn(
+            "var controller = new AbortController();",
+            self.html,
+            "suggest fetch must keep a request-local abort controller",
+        )
+        self.assertNotIn(
+            "_aiSuggestState.controller.signal",
+            self.html,
+            "suggest fetch must not dereference shared controller state after await",
+        )
 
     def test_prompt_modal_regenerate_sends_topic_id(self):
         html = (dashboard_app.TEMPLATES_DIR / "_prompt_modal.html").read_text(encoding="utf-8")

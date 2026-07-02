@@ -3788,10 +3788,11 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     _aiSuggestState.triggerLabel = triggerLabel || '';
     _aiSuggestState.timedOut = false;
     _aiSuggestState.jobId = null;
-    _aiSuggestState.controller = new AbortController();
+    var controller = new AbortController();
+    _aiSuggestState.controller = controller;
     _aiSuggestState.timeoutHandle = setTimeout(function() {
         _aiSuggestState.timedOut = true;
-        if (_aiSuggestState.controller) _aiSuggestState.controller.abort('client_timeout');
+        if (!controller.signal.aborted) controller.abort('client_timeout');
     }, AI_FILL_CLIENT_TIMEOUT_MS);
 
     var subtitle = document.getElementById('ai-suggest-subtitle');
@@ -3813,7 +3814,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     async function requestSuggestions() {
         var startResp = await fetch('/api/weekplan/ai-suggest', {
             method: 'POST',
-            signal: _aiSuggestState.controller.signal,
+            signal: controller.signal,
             headers: {'Content-Type': 'application/json'},
             body: requestBody,
         });
@@ -3828,7 +3829,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
         while (true) {
             await new Promise(function(resolve, reject) {
                 var delay = setTimeout(resolve, 2000);
-                _aiSuggestState.controller.signal.addEventListener('abort', function() {
+                controller.signal.addEventListener('abort', function() {
                     clearTimeout(delay);
                     reject(new DOMException('Aborted', 'AbortError'));
                 }, {once: true});
@@ -3837,7 +3838,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             try {
                 statusResp = await fetch('/api/weekplan/ai-suggest/' + encodeURIComponent(startData.job_id), {
                     method: 'GET',
-                    signal: _aiSuggestState.controller.signal,
+                    signal: controller.signal,
                 });
             } catch (pollErr) {
                 consecutivePollErrors += 1;
@@ -3909,8 +3910,10 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             clearTimeout(_aiSuggestState.timeoutHandle);
             _aiSuggestState.timeoutHandle = null;
         }
-        _aiSuggestState.controller = null;
-        _aiSuggestState.jobId = null;
+        if (_aiSuggestState.controller === controller) {
+            _aiSuggestState.controller = null;
+            _aiSuggestState.jobId = null;
+        }
     }
 }
 
