@@ -699,6 +699,92 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
+    async def test_public_warmup_cleanup_keeps_rsvp_button_until_after_game_time(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_at = datetime.now() + timedelta(minutes=45)
+                msg_id = await db.create_scheduled_message(
+                    text="🧩 Emoji Night מתחיל בקרוב",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=game_at.strftime("%Y-%m-%d"),
+                    scheduled_time=(game_at - timedelta(minutes=90)).strftime("%H:%M"),
+                    poll_options=json.dumps({
+                        "warmup_marker": f"warmup-rsvp:emoji:{game_at:%Y-%m-%d}:{game_at:%H:%M}",
+                        "game_time": game_at.strftime("%H:%M"),
+                    }),
+                    status="scheduled",
+                )
+                await db.mark_message_sent(msg_id, 7003)
+                old_sent_at = (datetime.now() - timedelta(minutes=60)).strftime("%Y-%m-%d %H:%M:%S")
+                await db._db.execute(
+                    "UPDATE scheduled_messages SET sent_at=? WHERE id=?",
+                    (old_sent_at, msg_id),
+                )
+                await db._db.commit()
+                bot = SimpleNamespace(delete_message=AsyncMock())
+                ctx = SimpleNamespace(bot_data={"db": db}, bot=bot)
+
+                with patch.dict(calendar.os.environ, {"TEST_GROUP_ID": "-1002", "GROUP_ID": "-1001"}), \
+                     patch("bot.utils.config.get_settings", return_value={"trivia": {"warmup_public_cleanup_minutes": 20}}):
+                    await calendar.cleanup_public_warmup_announcements(ctx)
+
+                bot.delete_message.assert_not_awaited()
+                async with db._db.execute(
+                    "SELECT error_message FROM scheduled_messages WHERE id=?",
+                    (msg_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                self.assertIsNone(row["error_message"])
+            finally:
+                await db.close()
+
+    async def test_public_warmup_cleanup_deletes_after_game_time_grace(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                game_at = datetime.now() - timedelta(minutes=25)
+                msg_id = await db.create_scheduled_message(
+                    text="🧩 Emoji Night התחיל",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=game_at.strftime("%Y-%m-%d"),
+                    scheduled_time=(game_at - timedelta(minutes=90)).strftime("%H:%M"),
+                    poll_options=json.dumps({
+                        "warmup_marker": f"warmup-rsvp:emoji:{game_at:%Y-%m-%d}:{game_at:%H:%M}",
+                        "game_time": game_at.strftime("%H:%M"),
+                    }),
+                    status="scheduled",
+                )
+                await db.mark_message_sent(msg_id, 7004)
+                old_sent_at = (datetime.now() - timedelta(minutes=120)).strftime("%Y-%m-%d %H:%M:%S")
+                await db._db.execute(
+                    "UPDATE scheduled_messages SET sent_at=? WHERE id=?",
+                    (old_sent_at, msg_id),
+                )
+                await db._db.commit()
+                bot = SimpleNamespace(delete_message=AsyncMock())
+                ctx = SimpleNamespace(bot_data={"db": db}, bot=bot)
+
+                with patch.dict(calendar.os.environ, {"TEST_GROUP_ID": "-1002", "GROUP_ID": "-1001"}), \
+                     patch("bot.utils.config.get_settings", return_value={"trivia": {"warmup_public_cleanup_minutes": 20}}):
+                    await calendar.cleanup_public_warmup_announcements(ctx)
+
+                bot.delete_message.assert_awaited_once_with(chat_id=-1002, message_id=7004)
+                async with db._db.execute(
+                    "SELECT error_message FROM scheduled_messages WHERE id=?",
+                    (msg_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["error_message"], "warmup_cleanup:deleted")
+            finally:
+                await db.close()
+
 
 class WarmupReminderToggleConfigTests(unittest.TestCase):
     def test_warmup_reminder_enabled_reads_config(self):

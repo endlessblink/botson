@@ -1281,23 +1281,53 @@ class Database:
     async def get_warmup_announcements_due_for_cleanup(self, *, older_than_minutes: int) -> list[dict]:
         """Sent public game sign-up announcements old enough to delete.
 
+        Game warm-ups carry the actual kickoff in ``poll_options.game_time``.
+        Cleanup must be anchored to that kickoff, not ``sent_at``: Emoji Night can
+        post its RSVP prompt 90 minutes early, and deleting it after 20 minutes
+        removes the only public signup button before the game starts.
+
+        Rows without a parseable game time keep the legacy sent-at cleanup.
         The scheduled row stays as history; cleanup state is stored in
         error_message so a failed/finished cleanup is not retried forever.
         """
-        cutoff = (datetime.now(_IL_TZ) - timedelta(minutes=max(0, int(older_than_minutes)))).strftime("%Y-%m-%d %H:%M:%S")
+        cleanup_minutes = max(0, int(older_than_minutes))
+        now = datetime.now(_IL_TZ)
+        sent_cutoff = (now - timedelta(minutes=cleanup_minutes)).strftime("%Y-%m-%d %H:%M:%S")
         async with self._db.execute(
             """SELECT * FROM scheduled_messages
                WHERE message_type = 'trivia_warmup_rsvp'
                  AND status = 'sent'
                  AND sent_message_id IS NOT NULL
                  AND sent_at IS NOT NULL
-                 AND sent_at <= ?
                  AND (error_message IS NULL OR error_message NOT LIKE 'warmup_cleanup:%')
                ORDER BY sent_at ASC""",
-            (cutoff,),
         ) as cursor:
             rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        due: list[dict] = []
+        for row in rows:
+            item = dict(row)
+            game_time = ""
+            try:
+                payload = json.loads(item.get("poll_options") or "{}")
+                game_time = str(payload.get("game_time") or "").strip()
+            except (json.JSONDecodeError, TypeError):
+                game_time = ""
+
+            if game_time:
+                try:
+                    game_at = datetime.fromisoformat(
+                        f"{item.get('scheduled_date')} {game_time[:5]}"
+                    ).replace(tzinfo=_IL_TZ)
+                except (TypeError, ValueError):
+                    game_at = None
+                if game_at is not None:
+                    if now >= game_at + timedelta(minutes=cleanup_minutes):
+                        due.append(item)
+                    continue
+
+            if str(item.get("sent_at") or "") <= sent_cutoff:
+                due.append(item)
+        return due
 
     async def mark_warmup_cleanup_result(self, msg_id: int, result: str):
         """Record public warm-up cleanup result without changing sent history."""
@@ -1404,6 +1434,34 @@ class Database:
             if str(payload.get("warmup_marker") or "") == marker:
                 return True
         return False
+
+    async def get_warmup_announcement_for_marker(self, warmup_marker: str) -> dict | None:
+        """Find the active warm-up row that owns a game marker.
+
+        Daily digest buttons are keyed to executable game rows
+        (``trivia_round`` / ``emoji_puzzle``), while the RSVP table is keyed to
+        the paired ``trivia_warmup_rsvp`` row. Include both scheduled and sent
+        warm-ups so morning digest clicks can count before the public warm-up
+        posts.
+        """
+        marker = str(warmup_marker or "").strip()
+        if not marker:
+            return None
+        async with self._db.execute(
+            """SELECT * FROM scheduled_messages
+               WHERE message_type = 'trivia_warmup_rsvp'
+                 AND status IN ('scheduled', 'sent')
+               ORDER BY CASE status WHEN 'sent' THEN 0 ELSE 1 END, id ASC"""
+        ) as cur:
+            rows = await cur.fetchall()
+        for r in rows:
+            try:
+                payload = json.loads(r["poll_options"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if str(payload.get("warmup_marker") or "") == marker:
+                return dict(r)
+        return None
 
     async def last_topic_send_dt(self, channel_topic_id, target_group: str = "main"):
         """Most recent `sent_at` (as a datetime) of a sent row in this topic, or

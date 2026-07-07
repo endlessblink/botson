@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -109,6 +110,45 @@ def _reminder_delay_seconds(row: dict, *, lead_minutes: int = 15) -> float | Non
     return max(1.0, (remind_at - now).total_seconds())
 
 
+def _game_warmup_marker(row: dict) -> str:
+    if str(row.get("message_type") or "") not in {"trivia_round", "emoji_puzzle"}:
+        return ""
+    try:
+        payload = json.loads(row.get("poll_options") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    return str(payload.get("warmup_marker") or "").strip()
+
+
+async def _record_digest_game_rsvp(context: ContextTypes.DEFAULT_TYPE, row: dict, user) -> None:
+    """Treat digest interest in a game as a real game RSVP.
+
+    The daily digest UI says "tap activity to get a reminder", but for games it
+    also shows interested users beside the activity. The launch gate must count
+    those users, so persist them through the same RSVP path as the warm-up button
+    and DM menu.
+    """
+    marker = _game_warmup_marker(row)
+    if not marker or user is None:
+        return
+    db: Database | None = context.bot_data.get("db") if getattr(context, "bot_data", None) else None
+    if db is None:
+        return
+    warmup = await db.get_warmup_announcement_for_marker(marker)
+    if not warmup:
+        logger.warning("daily_activity_digest: no warm-up row for marker %s", marker)
+        return
+    from .trivia_interest import record_trivia_interest, refresh_warmup_group_button
+    result = await record_trivia_interest(db, context.bot, int(warmup["id"]), user)
+    if result is None or result.get("closed"):
+        logger.info(
+            "daily_activity_digest: digest game RSVP ignored marker=%s warmup=%s result=%s",
+            marker, warmup.get("id"), result,
+        )
+        return
+    await refresh_warmup_group_button(context.bot, db, int(warmup["id"]))
+
+
 def build_daily_activity_keyboard(rows: list[dict]) -> InlineKeyboardMarkup | None:
     items = [r for r in rows if r.get("status") == "scheduled" and r.get("message_type") in _DIGEST_TYPES]
     if not items:
@@ -153,6 +193,7 @@ async def handle_daily_digest_button(update: Update, context: ContextTypes.DEFAU
     entry = _REMINDER_INTEREST.setdefault(key, {"detail": detail, "users": {}, "job_scheduled": False})
     entry["users"][user.id] = _mention_user(user)
     entry.setdefault("button_users", {})[user.id] = _button_user_label(user)
+    await _record_digest_game_rsvp(context, detail["row"], user)
     if not entry["job_scheduled"] and context.job_queue:
         delay = _reminder_delay_seconds(detail["row"])
         if delay is not None:
