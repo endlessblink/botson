@@ -83,10 +83,24 @@ class BotsonHealthGuardTests(unittest.TestCase):
         cmd = run.call_args.args[1]
         self.assertNotIn("--planner", cmd)
 
-    def test_weekly_generation_health_includes_planner_probe(self):
+    def test_weekly_generation_health_is_provider_only_by_default(self):
         args = SimpleNamespace(
             mode="weekly-full",
             planner_health=False,
+            min_suggestions=1,
+            generation_timeout_seconds=420,
+            allow_degraded_generation=False,
+        )
+        with patch.object(guard, "_run", return_value=guard.Check("generation_health", "ok")) as run:
+            guard.check_generation_health(args)
+
+        cmd = run.call_args.args[1]
+        self.assertNotIn("--planner", cmd)
+
+    def test_generation_health_can_opt_into_planner_probe(self):
+        args = SimpleNamespace(
+            mode="daily",
+            planner_health=True,
             min_suggestions=1,
             generation_timeout_seconds=420,
             allow_degraded_generation=False,

@@ -124,7 +124,7 @@ def check_generation_health(args: argparse.Namespace) -> Check:
         "--timeout-seconds",
         str(args.generation_timeout_seconds),
     ]
-    if args.mode == "weekly-full" or args.planner_health:
+    if args.planner_health:
         cmd.extend(["--planner", "--min-suggestions", str(args.min_suggestions)])
     warn_codes = {1} if args.allow_degraded_generation else set()
     return _run("generation_health", cmd, timeout_s=args.generation_timeout_seconds + 45, warn_codes=warn_codes)
