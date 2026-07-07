@@ -346,6 +346,21 @@ class FixedBugBehaviorPinnedTests(_ParityBase):
         self.assertEqual(kwargs.get("theme_label"), "סרטים")
         self.assertTrue(kwargs.get("return_launch_info"))
 
+    async def test_emoji_puzzle_send_now_test_target_does_not_reuse_main_topic(self):
+        payload = {"media_types": ["movie"], "theme_label": "סרטים"}
+        msg_id = await self._seed(
+            message_type="emoji_puzzle", text="emoji test target",
+            target_group="main", status="draft", channel_topic_id=4037,
+            poll_options=json.dumps(payload),
+        )
+        with patch("bot.handlers.emoji_puzzle.start_emoji_night",
+                   new=AsyncMock(return_value={"session_id": 96, "message_id": 960})) as h:
+            await self._send_now(msg_id, target="test")
+
+        args = h.await_args.args
+        self.assertEqual(args[1], -1000000002)
+        self.assertIsNone(args[2])
+
     async def test_emoji_puzzle_send_now_rejects_plain_session_id(self):
         msg_id = await self._seed(
             message_type="emoji_puzzle",

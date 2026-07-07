@@ -23,6 +23,7 @@ def _args(**overrides):
         "alert_repeat_hours": 24,
         "alert_timeout_seconds": 1,
         "weekly_smoke_max_age_days": 8,
+        "stale_session_hours": 6,
     }
     base.update(overrides)
     return type("Args", (), base)()
@@ -53,6 +54,20 @@ def _init_db(path: str) -> None:
                 play_topic_id INTEGER,
                 teaser_topic_ids TEXT NOT NULL DEFAULT '[]',
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE emoji_puzzle_sessions (
+                id INTEGER PRIMARY KEY,
+                chat_id INTEGER NOT NULL,
+                message_thread_id INTEGER,
+                started_at TIMESTAMP NOT NULL,
+                ended_at TIMESTAMP,
+                puzzle_count INTEGER NOT NULL,
+                winner_summary TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'active'
             )
             """
         )
@@ -259,6 +274,31 @@ class BotsonHealthGuardTests(unittest.TestCase):
 
         self.assertEqual(result.status, "fail")
         self.assertIn("expected 1", result.detail)
+
+    def test_schedule_fails_on_stale_active_emoji_session(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            _init_db(tmp.name)
+            conn = sqlite3.connect(tmp.name)
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO emoji_puzzle_sessions
+                    (id, chat_id, message_thread_id, started_at, puzzle_count, status)
+                    VALUES (11, -1001, 4037, '2099-01-01 01:00:00', 5, 'active')
+                    """
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            original_now = guard._now
+            guard._now = lambda: guard.datetime(2099, 1, 1, 9, 0, tzinfo=guard.IL_TZ)
+            try:
+                result = guard.check_schedule(_args(db=tmp.name, stale_session_hours=6))
+            finally:
+                guard._now = original_now
+
+        self.assertEqual(result.status, "fail")
+        self.assertIn("stale active emoji session #11", result.detail)
 
     def test_logs_fail_on_recent_warmup_gate_skip(self):
         with tempfile.TemporaryDirectory() as td:

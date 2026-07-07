@@ -12973,8 +12973,9 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
                 emoji_theme = (emoji_payload.get("theme_label") or None) or None
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
+        emoji_thread_id = None if target == "test" else msg.get("channel_topic_id")
         session_id = await start_emoji_night(
-            context, group_id, msg.get("channel_topic_id"),
+            context, group_id, emoji_thread_id,
             force=True,
             media_types=emoji_media_types,
             theme_label=emoji_theme,

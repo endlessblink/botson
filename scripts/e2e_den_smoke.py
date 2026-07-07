@@ -17,9 +17,11 @@ turns red.
 
 Safe content types
 ------------------
-``custom`` (plain text), ``poll``, ``facts_tidbit`` and ``free_games`` are
-covered by default. Stateful game types are opt-in via ``--include-games`` so
-they cannot accidentally start multi-message sessions in Sherlocks Den.
+``custom`` (plain text), ``poll`` and ``facts_tidbit`` are covered by default.
+Cron-owned activity types are intentionally excluded because the dashboard
+correctly rejects them as ad-hoc calendar rows. Stateful game types are opt-in
+via ``--include-games`` so they cannot accidentally start multi-message
+sessions in Sherlocks Den.
 
 Usage
 -----
@@ -206,11 +208,6 @@ def _default_plans() -> list[SmokePlan]:
             message_type="facts_tidbit",
             text=f"{SMOKE_MARKER} facts_tidbit probe @ {marker_ts}",
         ),
-        SmokePlan(
-            label="free_games digest",
-            message_type="free_games",
-            text=f"{SMOKE_MARKER} free_games probe @ {marker_ts}",
-        ),
     ]
 
 
@@ -222,8 +219,8 @@ def _game_plans() -> list[SmokePlan]:
             message_type="emoji_puzzle",
             text=f"{SMOKE_MARKER} emoji puzzle probe @ {marker_ts}",
             poll_payload={
-                "media_types": ["movie", "tv"],
-                "theme_label": "סרטים וסדרות",
+                "media_types": [],
+                "theme_label": "",
             },
         ),
     ]

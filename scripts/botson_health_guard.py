@@ -165,6 +165,14 @@ def _json_obj(raw: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone()
+    return row is not None
+
+
 def check_schedule(args: argparse.Namespace) -> Check:
     path = args.db or _db_path()
     if not Path(path).exists():
@@ -190,6 +198,22 @@ def check_schedule(args: argparse.Namespace) -> Check:
                 (today,),
             )
         ]
+        stale_sessions: list[dict] = []
+        if _table_exists(conn, "emoji_puzzle_sessions"):
+            cutoff = (_now() - timedelta(hours=max(1, int(args.stale_session_hours)))).strftime("%Y-%m-%d %H:%M:%S")
+            stale_sessions = [
+                dict(r)
+                for r in conn.execute(
+                    """
+                    SELECT id, chat_id, message_thread_id, started_at, status
+                      FROM emoji_puzzle_sessions
+                     WHERE status = 'active'
+                       AND datetime(started_at) < datetime(?)
+                     ORDER BY started_at
+                    """,
+                    (cutoff,),
+                )
+            ]
     finally:
         conn.close()
     warmups_by_marker: dict[str, list[dict]] = {}
@@ -235,6 +259,12 @@ def check_schedule(args: argparse.Namespace) -> Check:
             paired = [w for w in warmups_by_marker.get(marker, []) if w.get("status") in {"scheduled", "sent"}]
             if not paired:
                 issues.append(f"{row_label} has no scheduled/sent warmup for marker {marker}")
+    for session in stale_sessions:
+        issues.append(
+            "stale active emoji session "
+            f"#{session['id']} chat={session['chat_id']} thread={session['message_thread_id']} "
+            f"started_at={session['started_at']}"
+        )
     summary["issues"] = len(issues)
     if issues:
         return Check("schedule", "fail", "; ".join(issues[:8]), {"summary": summary, "issues": issues})
@@ -631,6 +661,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default=os.environ.get("BOTSON_HEALTH_BASE_URL", "http://127.0.0.1:8080"))
     parser.add_argument("--since-hours", type=int, default=_env_int("BOTSON_HEALTH_SINCE_HOURS", 12))
     parser.add_argument("--coverage-days", type=int, default=_env_int("BOTSON_HEALTH_COVERAGE_DAYS", 2))
+    parser.add_argument("--stale-session-hours", type=int, default=_env_int("BOTSON_HEALTH_STALE_SESSION_HOURS", 6))
     parser.add_argument("--expected-min-ready", type=int, default=_env_int("BOTSON_HEALTH_EXPECTED_MIN_READY", 1), help="-1 disables quorum drift check")
     parser.add_argument("--min-suggestions", type=int, default=_env_int("BOTSON_GENERATION_HEALTH_MIN_SUGGESTIONS", 1))
     parser.add_argument("--generation-timeout-seconds", type=int, default=_env_int("BOTSON_GENERATION_HEALTH_TIMEOUT_SECONDS", 420))

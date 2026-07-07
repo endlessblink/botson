@@ -3,7 +3,7 @@
 The full --send mode requires a live dashboard + a real Telegram target, so
 it cannot run in CI. These tests cover the dry-run behavior end-to-end:
 
-  * The default invocation exits 0 and prints a plan per safe message type.
+  * The default invocation exits 0 and prints a plan per safe calendar message type.
   * --only filters plans by message_type and exits 2 when nothing matches.
   * --json emits a parseable summary that names mode + plans.
   * The safe-types set deliberately excludes stateful games unless explicitly
@@ -43,8 +43,9 @@ class DryRunBehaviorTests(unittest.TestCase):
         code, out, _ = self._run([])
         self.assertEqual(code, 0)
         for label in ("plain custom text", "poll with three options",
-                      "facts_tidbit from pool", "free_games digest"):
+                      "facts_tidbit from pool"):
             self.assertIn(label, out)
+        self.assertNotIn("free_games digest", out)
 
     def test_dry_run_does_not_advertise_stateful_game_types(self):
         # trivia_round / emoji_puzzle have dedicated tests; the smoke harness
@@ -69,7 +70,6 @@ class DryRunBehaviorTests(unittest.TestCase):
         self.assertIn("plain custom text", out)
         self.assertIn("poll with three options", out)
         self.assertNotIn("facts_tidbit", out)
-        self.assertNotIn("free_games", out)
 
     def test_only_filter_with_no_match_exits_two(self):
         code, _, err = self._run(["--only", "trivia_round"])
@@ -81,9 +81,9 @@ class DryRunBehaviorTests(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(out)
         self.assertEqual(payload["mode"], "dry-run")
-        self.assertEqual(len(payload["plans"]), 4)
+        self.assertEqual(len(payload["plans"]), 3)
         types = [p["message_type"] for p in payload["plans"]]
-        self.assertEqual(types, ["custom", "poll", "facts_tidbit", "free_games"])
+        self.assertEqual(types, ["custom", "poll", "facts_tidbit"])
 
     def test_json_mode_can_emit_explicit_game_probe(self):
         code, out, _ = self._run(["--include-games", "--only", "emoji_puzzle", "--json"])
@@ -93,14 +93,14 @@ class DryRunBehaviorTests(unittest.TestCase):
         self.assertEqual(len(payload["plans"]), 1)
         plan = payload["plans"][0]
         self.assertEqual(plan["message_type"], "emoji_puzzle")
-        self.assertEqual(plan["poll_payload"]["media_types"], ["movie", "tv"])
-        self.assertEqual(plan["poll_payload"]["theme_label"], "סרטים וסדרות")
+        self.assertEqual(plan["poll_payload"]["media_types"], [])
+        self.assertEqual(plan["poll_payload"]["theme_label"], "")
 
     def test_marker_prefix_is_present_in_every_plan_text(self):
         # Cleanup safety: if the harness crashes mid-run, operators can grep
         # by marker to find leftover rows.
         _, out, _ = self._run([])
-        self.assertGreaterEqual(out.count(smoke.SMOKE_MARKER), 4)
+        self.assertGreaterEqual(out.count(smoke.SMOKE_MARKER), 3)
 
 
 if __name__ == "__main__":
