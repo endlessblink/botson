@@ -28,6 +28,8 @@
 #                         lines default 200. Optional pat = grep -E filter, e.g.
 #                         'warmup_rsvp_gate|trivia_round'. Use to read dispatch
 #                         decisions and skip/fail reasons.
+#   health                Read-only dump of Botson health guard timer state,
+#                         last persisted result, and recent health service logs.
 #   activity [n] [filter] Read-only dump of the activity_log table (most recent n,
 #                         default 50). Optional filter matches action_type OR
 #                         description (LIKE). This is where game outcomes that are
@@ -267,6 +269,37 @@ cmd_applog() {
   fi
 }
 
+cmd_health() {
+  echo "=== vps-admin.sh health @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo
+  echo "--- Health timers ---"
+  systemctl list-timers --all --no-pager botson-health-daily.timer botson-health-weekly.timer || true
+  echo
+  echo "--- Health services ---"
+  for svc in botson-health-daily.service botson-health-weekly.service; do
+    if systemctl is-failed --quiet "$svc"; then
+      echo "  [FAIL] $svc"
+    else
+      state=$(systemctl show "$svc" -p ActiveState -p Result --value | tr '\n' '/' | sed 's:/$::')
+      echo "  [ok]   $svc ($state)"
+    fi
+  done
+  echo
+  echo "--- Last state ---"
+  local state_file="/opt/robotnik/data/health_guard_state.json"
+  if [ -f "$state_file" ]; then
+    python3 -m json.tool "$state_file" 2>/dev/null || cat "$state_file"
+  else
+    echo "No state file yet: $state_file"
+  fi
+  echo
+  echo "--- Recent daily health log ---"
+  journalctl -u botson-health-daily.service -n 60 --no-pager || true
+  echo
+  echo "--- Recent weekly health log ---"
+  journalctl -u botson-health-weekly.service -n 40 --no-pager || true
+}
+
 cmd_activity() {
   local lines="${1:-50}"
   local pattern="${2:-}"
@@ -354,6 +387,7 @@ main() {
     routing)       cmd_routing "$@" ;;
     schedule)      cmd_schedule "$@" ;;
     applog)        cmd_applog "$@" ;;
+    health)        cmd_health "$@" ;;
     activity)      cmd_activity "$@" ;;
     verify-topic)  cmd_verify_topic "$@" ;;
     -h|--help|help|"") usage 0 ;;
