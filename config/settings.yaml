@@ -574,7 +574,7 @@ trivia:
     theme_label: כללי
     categories: []
     question_count: 5
-    min_ready_players: 2
+    min_ready_players: 1
 topics:
   discussions:
     support: 347

@@ -1,10 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from datetime import datetime, timedelta
 import json
 import tempfile
 import unittest
 
 from bot.database.db import Database
+from bot.handlers import calendar
 from bot.handlers import daily_activity_digest as digest
 
 
@@ -110,7 +112,8 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
             "status": "scheduled",
             "text": "🧠 סיבוב טריוויה — מדע",
         }]
-        digest.build_daily_activity_keyboard(rows)
+        keyboard = digest.build_daily_activity_keyboard(rows)
+        key = keyboard.inline_keyboard[0][0].callback_data
 
         class FakeJobQueue:
             def __init__(self):
@@ -121,7 +124,7 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
 
         job_queue = FakeJobQueue()
         query = SimpleNamespace(
-            data="daily_digest:0",
+            data=key,
             message=SimpleNamespace(chat_id=-1001, message_thread_id=341),
             answer=AsyncMock(),
             edit_message_reply_markup=AsyncMock(),
@@ -155,7 +158,8 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
             "text": "",
             "poll_options": json.dumps({"warmup_marker": marker}),
         }]
-        digest.build_daily_activity_keyboard(rows)
+        keyboard = digest.build_daily_activity_keyboard(rows)
+        key = keyboard.inline_keyboard[0][0].callback_data
 
         class FakeDb:
             async def get_warmup_announcement_for_marker(self, warmup_marker):
@@ -163,7 +167,7 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
                 return {"id": 593, "status": "scheduled"}
 
         query = SimpleNamespace(
-            data="daily_digest:0",
+            data=key,
             message=SimpleNamespace(chat_id=-1001, message_thread_id=341),
             answer=AsyncMock(),
             edit_message_reply_markup=AsyncMock(),
@@ -214,9 +218,10 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
                     "text": "",
                     "poll_options": json.dumps({"warmup_marker": marker}),
                 }]
-                digest.build_daily_activity_keyboard(rows)
+                keyboard = digest.build_daily_activity_keyboard(rows)
+                key = keyboard.inline_keyboard[0][0].callback_data
                 query = SimpleNamespace(
-                    data="daily_digest:0",
+                    data=key,
                     message=SimpleNamespace(chat_id=-1001, message_thread_id=341),
                     answer=AsyncMock(),
                     edit_message_reply_markup=AsyncMock(),
@@ -240,6 +245,127 @@ class DailyActivityDigestTests(unittest.IsolatedAsyncioTestCase):
                 await db.mark_message_sent(warmup_id, 7003)
                 users = await db.get_warmup_rsvp_user_map(marker)
                 self.assertEqual(users, {123: "Noam"})
+            finally:
+                await db.close()
+
+    async def test_digest_button_survives_restart_by_resolving_from_db(self):
+        today = datetime.now().date().isoformat()
+        db = FakeDigestDb([
+            {
+                "id": 604,
+                "scheduled_date": today,
+                "scheduled_time": "22:00",
+                "message_type": "emoji_puzzle",
+                "status": "scheduled",
+                "text": "",
+                "poll_options": "{}",
+            },
+        ])
+        digest._DETAIL_CACHE.clear()
+        query = SimpleNamespace(
+            data="daily_digest:0",
+            message=SimpleNamespace(chat_id=-1001, message_thread_id=341),
+            answer=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
+        )
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=123, username="noam", full_name="Noam"),
+        )
+        context = SimpleNamespace(job_queue=None, bot=object(), bot_data={"db": db})
+
+        await digest.handle_daily_digest_button(update, context)
+
+        query.answer.assert_awaited_once()
+        self.assertIn("אזכיר לך לפני", query.answer.await_args.args[0])
+        self.assertTrue(query.answer.await_args.kwargs["show_alert"])
+        self.assertIn("daily_digest:0", digest._DETAIL_CACHE)
+
+    async def test_one_digest_signup_launches_emoji_game_without_silent_skip(self):
+        marker = "warmup-rsvp:emoji:test:20:00"
+        today = datetime.now().date().isoformat()
+        future_game_time = (datetime.now() + timedelta(hours=1)).strftime("%H:%M")
+        due_time = (datetime.now() - timedelta(minutes=1)).strftime("%H:%M")
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            db = Database(tmp.name)
+            await db.init()
+            try:
+                warmup_id = await db.create_scheduled_message(
+                    text="warmup",
+                    message_type="trivia_warmup_rsvp",
+                    channel_topic_id=4502,
+                    target_group="test",
+                    scheduled_date=today,
+                    scheduled_time="23:59",
+                    poll_options=json.dumps({
+                        "warmup_marker": marker,
+                        "game_time": future_game_time,
+                        "min_ready_players": 1,
+                    }),
+                    status="scheduled",
+                )
+                game_id = await db.create_scheduled_message(
+                    text="",
+                    message_type="emoji_puzzle",
+                    channel_topic_id=4037,
+                    target_group="test",
+                    scheduled_date=today,
+                    scheduled_time=due_time,
+                    poll_options=json.dumps({
+                        "warmup_marker": marker,
+                        "game_time": future_game_time,
+                        "min_ready_players": 1,
+                        "media_types": ["song"],
+                        "theme_label": "מוזיקה",
+                    }),
+                    status="scheduled",
+                )
+                keyboard = digest.build_daily_activity_keyboard([{
+                    "id": game_id,
+                    "scheduled_date": today,
+                    "scheduled_time": due_time,
+                    "message_type": "emoji_puzzle",
+                    "status": "scheduled",
+                    "text": "",
+                    "poll_options": json.dumps({"warmup_marker": marker}),
+                }])
+                query = SimpleNamespace(
+                    data=keyboard.inline_keyboard[0][0].callback_data,
+                    message=SimpleNamespace(chat_id=-1001, message_thread_id=341),
+                    answer=AsyncMock(),
+                    edit_message_reply_markup=AsyncMock(),
+                )
+                user = SimpleNamespace(
+                    id=123,
+                    username="noam",
+                    first_name="Noam",
+                    last_name=None,
+                    full_name="Noam",
+                )
+                await digest.handle_daily_digest_button(
+                    SimpleNamespace(callback_query=query, effective_user=user),
+                    SimpleNamespace(job_queue=None, bot=object(), bot_data={"db": db}),
+                )
+                await db.mark_message_sent(warmup_id, 7003)
+
+                context = SimpleNamespace(bot=object(), bot_data={"db": db})
+                with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+                     patch("telegram.Bot", return_value=object()), \
+                     patch.object(calendar, "emoji_skip_reason", new=AsyncMock(return_value=None)), \
+                     patch.object(calendar, "start_emoji_night",
+                                  new=AsyncMock(return_value={"session_id": 7, "message_id": 77})) as start_emoji:
+                    await calendar.check_and_send_due_messages(context)
+
+                start_emoji.assert_awaited_once()
+                self.assertEqual(json.loads((await db.get_scheduled_message(game_id))["poll_options"])["min_ready_players"], 1)
+                async with db._db.execute(
+                    "SELECT status, sent_message_id, error_message FROM scheduled_messages WHERE id=?",
+                    (game_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                self.assertEqual(row["status"], "sent")
+                self.assertEqual(row["sent_message_id"], 77)
+                self.assertIsNone(row["error_message"])
             finally:
                 await db.close()
 

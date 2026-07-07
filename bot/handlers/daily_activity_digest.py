@@ -96,6 +96,51 @@ def _daily_activity_keyboard_from_cache() -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(buttons) if buttons else None
 
 
+def _digest_items(rows: list[dict]) -> list[dict]:
+    items = [r for r in rows if r.get("status") == "scheduled" and r.get("message_type") in _DIGEST_TYPES]
+    items.sort(key=lambda r: (str(r.get("scheduled_time") or ""), str(r.get("message_type") or "")))
+    return items
+
+
+def _digest_key(row: dict, idx: int) -> str:
+    row_id = row.get("id")
+    return f"daily_digest:{row_id if row_id is not None else idx}"
+
+
+async def _resolve_digest_detail(context: ContextTypes.DEFAULT_TYPE, key: str) -> dict | None:
+    detail = _DETAIL_CACHE.get(key)
+    if detail:
+        return detail
+    db: Database | None = context.bot_data.get("db") if getattr(context, "bot_data", None) else None
+    if db is None:
+        return None
+    try:
+        token = key.split(":", 1)[1]
+    except IndexError:
+        return None
+    today = datetime.now(_IL_TZ).date().isoformat()
+    rows = await db.get_scheduled_messages(today, today)
+    items = _digest_items(rows)[:8]
+
+    # New buttons use the scheduled row id, so they survive process restarts.
+    for idx, row in enumerate(items):
+        if _digest_key(row, idx) == key:
+            detail = {"title": _clean_title(row), "row": dict(row)}
+            _DETAIL_CACHE[key] = detail
+            return detail
+
+    # Backward compatibility for already-posted digest buttons that used
+    # daily_digest:<index>. This is what broke after deploy/restart.
+    if token.isdigit():
+        idx = int(token)
+        if 0 <= idx < len(items):
+            row = items[idx]
+            detail = {"title": _clean_title(row), "row": dict(row)}
+            _DETAIL_CACHE[key] = detail
+            return detail
+    return None
+
+
 def _reminder_delay_seconds(row: dict, *, lead_minutes: int = 15) -> float | None:
     date_s = str(row.get("scheduled_date") or datetime.now(_IL_TZ).date().isoformat())
     time_s = str(row.get("scheduled_time") or "").strip()[:5]
@@ -150,24 +195,22 @@ async def _record_digest_game_rsvp(context: ContextTypes.DEFAULT_TYPE, row: dict
 
 
 def build_daily_activity_keyboard(rows: list[dict]) -> InlineKeyboardMarkup | None:
-    items = [r for r in rows if r.get("status") == "scheduled" and r.get("message_type") in _DIGEST_TYPES]
+    items = _digest_items(rows)
     if not items:
         return None
-    items.sort(key=lambda r: (str(r.get("scheduled_time") or ""), str(r.get("message_type") or "")))
     _DETAIL_CACHE.clear()
     buttons = []
     for idx, row in enumerate(items[:8]):
-        key = f"daily_digest:{idx}"
+        key = _digest_key(row, idx)
         _DETAIL_CACHE[key] = {"title": _clean_title(row), "row": dict(row)}
         buttons.append([InlineKeyboardButton(_button_label(row), callback_data=key)])
     return InlineKeyboardMarkup(buttons)
 
 
 def build_daily_activity_digest(rows: list[dict], *, day_label: str = "היום") -> str | None:
-    items = [r for r in rows if r.get("status") == "scheduled" and r.get("message_type") in _DIGEST_TYPES]
+    items = _digest_items(rows)
     if not items:
         return None
-    items.sort(key=lambda r: (str(r.get("scheduled_time") or ""), str(r.get("message_type") or "")))
     count = len(items)
     lines = [f"{_RLM}📅 היום בבוטסון", ""]
     lines.append(f"{_RLM}יש {count} פעילויות מתוכננות {day_label}.")
@@ -182,7 +225,7 @@ async def handle_daily_digest_button(update: Update, context: ContextTypes.DEFAU
     if not query:
         return
     key = query.data or ""
-    detail = _DETAIL_CACHE.get(key)
+    detail = await _resolve_digest_detail(context, key)
     if not detail:
         await query.answer("הפעילות הזו כבר לא זמינה בתצוגה", show_alert=False)
         return
