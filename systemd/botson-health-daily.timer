@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Botson daily health guard
+
+[Timer]
+OnCalendar=*-*-* 08:10:00
+Persistent=true
+Unit=botson-health-daily.service
+
+[Install]
+WantedBy=timers.target

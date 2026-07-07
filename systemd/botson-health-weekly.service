@@ -1,0 +1,14 @@
+[Unit]
+Description=Botson weekly full health guard and Sherlocks Den smoke
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=botson
+Group=botson
+WorkingDirectory=/opt/robotnik
+EnvironmentFile=-/opt/robotnik/.env
+Environment=BOTSON_HEALTH_EXPECTED_MIN_READY=1
+Environment=BOTSON_HEALTH_WEEKLY_SEND=1
+ExecStart=/opt/robotnik/.venv/bin/python /opt/robotnik/scripts/botson_health_guard.py --mode weekly-full --json

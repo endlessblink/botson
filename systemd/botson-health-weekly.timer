@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Botson weekly full health guard
+
+[Timer]
+OnCalendar=Sun *-*-* 08:30:00
+Persistent=true
+Unit=botson-health-weekly.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Botson daily read-only health guard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=botson
+Group=botson
+WorkingDirectory=/opt/robotnik
+EnvironmentFile=-/opt/robotnik/.env
+Environment=BOTSON_HEALTH_EXPECTED_MIN_READY=1
+ExecStart=/opt/robotnik/.venv/bin/python /opt/robotnik/scripts/botson_health_guard.py --mode daily --json
