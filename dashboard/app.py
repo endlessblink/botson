@@ -48,6 +48,35 @@ RELOAD_FLAG = Path(__file__).parent.parent / "data" / "reload"
 _TRIVIA_TOPUP_LOCKS: dict[object, asyncio.Lock] = {}
 
 
+class GenerationProviderUnavailable(RuntimeError):
+    """Raised when every configured LLM provider is unavailable for auth."""
+
+    def __init__(self, message: str, *, reason_code: str = "provider_auth_failed") -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+_PROVIDER_AUTH_FRAGMENTS = (
+    "invalid authentication credentials",
+    "failed to authenticate",
+    "refresh_token_invalidated",
+    "your session has ended",
+    "401 unauthorized",
+)
+
+
+def _is_provider_auth_error(exc: Exception | str | None) -> bool:
+    text = str(exc or "").lower()
+    return any(fragment in text for fragment in _PROVIDER_AUTH_FRAGMENTS)
+
+
+def _provider_auth_error_message() -> str:
+    return (
+        "AI generation provider authentication failed. "
+        "Re-authenticate Claude/Codex on the dashboard host and retry."
+    )
+
+
 def _signal_bot_reload():
     """Create a reload flag file that the bot watches for schedule reload."""
     try:
@@ -4317,6 +4346,8 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
             f"(Claude CLI={claude_cli_error})"
         ]
     except Exception as codex_err:
+        if _is_provider_auth_error(claude_cli_error) and _is_provider_auth_error(codex_err):
+            raise GenerationProviderUnavailable(_provider_auth_error_message()) from codex_err
         raise RuntimeError(
             f"Claude generation failed and Codex fallback failed "
             f"(Claude CLI={claude_cli_error}; Codex={codex_err})"
@@ -5868,6 +5899,7 @@ async def _maybe_add_warmup_reminder_suggestion(
 async def _ai_suggest_calendar(
     db: Database, target_date: str | None = None, week_offset: int = 0,
     window_mode: str = "week", week_of: str | None = None,
+    client_occupied: list[dict] | None = None,
 ) -> dict:
     """Build a list of suggested calendar rows for a window without
     writing to the DB. The shape is intentionally close to a draft row so
@@ -5975,6 +6007,20 @@ async def _ai_suggest_calendar(
     except Exception:
         pass
 
+    for row in client_occupied or []:
+        if not isinstance(row, dict):
+            continue
+        d_iso = str(row.get("date") or "").strip()
+        t = str(row.get("time") or "").strip()[:5]
+        mtype = str(row.get("message_type") or "").strip()
+        if not d_iso or not t or not mtype:
+            continue
+        if d_iso < win_start or d_iso > win_end:
+            continue
+        occupied.add((d_iso, t, mtype))
+        occupied_times.add((d_iso, t))
+        existing_type_counts[mtype] = existing_type_counts.get(mtype, 0) + 1
+
     routed_topics: dict[str, int] = {}
     for handler in (
         "trivia_round", "trivia_warmup", "emoji_puzzle", "free_games", "facts_tidbit",
@@ -6014,6 +6060,14 @@ async def _ai_suggest_calendar(
     skip_reasons: list = []
     seen_skip_reasons: set[tuple[str, str, str, str]] = set()
     generated_activity_texts: set[str] = set()
+    provider_unavailable_error: str | None = None
+
+    def _record_generation_failure(exc: Exception) -> list[str]:
+        nonlocal provider_unavailable_error
+        if isinstance(exc, GenerationProviderUnavailable):
+            provider_unavailable_error = str(exc)
+            return [provider_unavailable_error]
+        return [f"generation failed: {exc}"]
 
     from bot.utils.copy import load_copy as _load_copy
     skip_reason_labels = {
@@ -6162,6 +6216,8 @@ async def _ai_suggest_calendar(
         why generation failed instead of getting a silent pool fallback. Pool
         draws are a separate, explicit operator action (T-170).
         """
+        if provider_unavailable_error:
+            return "", []
         base_prompt = build_generation_prompt(
             field, "single", "", cat,
             recent_sent=recent,
@@ -6208,7 +6264,7 @@ async def _ai_suggest_calendar(
                 )
                 generation_notices.extend(provider_notices)
             except Exception as e:
-                return "", [f"generation failed: {e}"]
+                return "", _record_generation_failure(e)
             text = (raw or "").strip().replace('"', '').replace("'", "")
             lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
             text = lines[0] if lines else text
@@ -6251,6 +6307,8 @@ async def _ai_suggest_calendar(
         rows share a prompt while every returned draft is still validated
         independently before it is shown.
         """
+        if provider_unavailable_error:
+            return {int(item["id"]): ("", []) for item in items}
         if not items:
             return {}
         pending = list(items)
@@ -6293,8 +6351,9 @@ async def _ai_suggest_calendar(
                 )
                 generation_notices.extend(provider_notices)
             except Exception as e:
+                fails = _record_generation_failure(e)
                 for item in pending:
-                    results[item["id"]] = ("", [f"generation failed: {e}"])
+                    results[item["id"]] = ("", list(fails))
                 return results
             try:
                 parsed = json.loads(raw)
@@ -6335,6 +6394,9 @@ async def _ai_suggest_calendar(
             pending = next_pending
         for item in pending:
             if item["id"] in results:
+                continue
+            if item["id"] in last_by_id:
+                results[item["id"]] = last_by_id[item["id"]]
                 continue
             text, fails = await _gen_text(
                 "discussion",
@@ -7260,9 +7322,9 @@ async def _ai_suggest_calendar(
 
     return {
         "window": {"start": win_start, "end": win_end, "scope": scope},
-        "suggestions": suggestions,
+        "suggestions": [] if provider_unavailable_error else suggestions,
         "stats_block": stats_block,
-        "errors": errors,
+        "errors": [provider_unavailable_error] if provider_unavailable_error else errors,
         "notices": generation_notices,
         "skip_reasons": skip_reasons,
         "empty_state": empty_state_copy,
@@ -7283,7 +7345,7 @@ async def _read_json_object_body(request: Request, log_prefix: str) -> dict:
     return data
 
 
-def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | None]:
+def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | None, list[dict]]:
     try:
         week_offset = int(data.get("week_offset", 0))
     except (TypeError, ValueError):
@@ -7312,12 +7374,33 @@ def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | N
             logger.warning("[weekplan.ai-suggest] invalid week_of=%r body=%s", week_of, data)
             raise HTTPException(status_code=400, detail=f"Invalid week_of: {week_of}")
 
-    return target_date, week_offset, window_mode, week_of
+    client_occupied_raw = data.get("client_occupied") or []
+    if client_occupied_raw and not isinstance(client_occupied_raw, list):
+        raise HTTPException(status_code=400, detail="client_occupied must be a list")
+    client_occupied: list[dict] = []
+    for row in client_occupied_raw[:50]:
+        if not isinstance(row, dict):
+            continue
+        d_iso = str(row.get("date") or "").strip()
+        t = str(row.get("time") or "").strip()[:5]
+        mtype = str(row.get("message_type") or "").strip()
+        if not d_iso or not t or not mtype:
+            continue
+        try:
+            date.fromisoformat(d_iso)
+        except ValueError:
+            continue
+        if not re.match(r"^\d{2}:\d{2}$", t):
+            continue
+        client_occupied.append({"date": d_iso, "time": t, "message_type": mtype})
+
+    return target_date, week_offset, window_mode, week_of, client_occupied
 
 
 async def _run_ai_suggest_job(
     job_id: str, db: Database, target_date: str | None, week_offset: int,
     window_mode: str = "week", week_of: str | None = None,
+    client_occupied: list[dict] | None = None,
 ) -> None:
     try:
         await db.update_ai_suggest_job(job_id, status="running")
@@ -7327,6 +7410,7 @@ async def _run_ai_suggest_job(
         result = await _ai_suggest_calendar(
             db, target_date=target_date, week_offset=week_offset,
             window_mode=window_mode, week_of=week_of,
+            client_occupied=client_occupied,
         )
         try:
             result_json = json.dumps(result, ensure_ascii=False)
@@ -7375,12 +7459,12 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     data = await _read_json_object_body(request, "weekplan.ai-suggest")
-    target_date, week_offset, window_mode, week_of = _parse_ai_suggest_request(data)
+    target_date, week_offset, window_mode, week_of, client_occupied = _parse_ai_suggest_request(data)
     await _cleanup_ai_suggest_jobs(db)
     job_id = secrets.token_urlsafe(18)
     await db.create_ai_suggest_job(job_id, target_date=target_date, week_offset=week_offset)
     task = asyncio.create_task(
-        _run_ai_suggest_job(job_id, db, target_date, week_offset, window_mode, week_of)
+        _run_ai_suggest_job(job_id, db, target_date, week_offset, window_mode, week_of, client_occupied)
     )
     _AI_SUGGEST_TASKS[job_id] = task
     return {"job_id": job_id, "status": "pending"}

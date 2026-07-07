@@ -3361,7 +3361,7 @@ function _aiSuggestIsChecked(s) {
 }
 
 function _formatApiError(data, fallback) {
-    if (fallback && String(fallback).indexOf('401') !== -1) {
+    if (String(fallback || '').trim() === 'HTTP 401') {
         setTimeout(function() { window.location.href = '/login'; }, 800);
         return 'פג תוקף ההתחברות. מעביר למסך התחברות...';
     }
@@ -3572,6 +3572,7 @@ function _aiSuggestSignature(s) {
 function _aiSuggestMergeSuggestions(nextSuggestions) {
     _aiSuggestSyncCheckedFromDom();
     var seen = {};
+    var added = 0;
     _aiSuggestState.suggestions.forEach(function(s) { seen[_aiSuggestSignature(s)] = true; });
     (nextSuggestions || []).forEach(function(s) {
         if (!s || !s.key) return;
@@ -3579,10 +3580,25 @@ function _aiSuggestMergeSuggestions(nextSuggestions) {
         if (seen[sig]) return;
         seen[sig] = true;
         _aiSuggestState.suggestions.push(s);
+        added += 1;
         if (_aiSuggestState.checked[s.key] === undefined) {
             _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
         }
     });
+    return added;
+}
+
+function _aiSuggestClientOccupiedForDate(iso) {
+    return _aiSuggestState.suggestions
+        .filter(function(s) { return s && s.date === iso && !s._denied; })
+        .map(function(s) {
+            return {
+                date: s.date,
+                time: (s.time || '').slice(0, 5),
+                message_type: s.message_type || ''
+            };
+        })
+        .filter(function(s) { return s.date && s.time && s.message_type; });
 }
 
 function _aiSuggestLinkedGroupFor(s) {
@@ -3809,6 +3825,9 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     if (targetDate) body.target_date = targetDate;
     if (opts.windowMode) body.window_mode = opts.windowMode;
     if (opts.weekOf) body.week_of = opts.weekOf;
+    if (appendToBoard && targetDate) {
+        body.client_occupied = _aiSuggestClientOccupiedForDate(targetDate);
+    }
     var requestBody = JSON.stringify(body);
 
     async function requestSuggestions() {
@@ -3861,8 +3880,9 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     try {
         var data = await requestSuggestions();
         var w = data.window || {};
+        var added = null;
         if (appendToBoard) {
-            _aiSuggestMergeSuggestions(data.suggestions || []);
+            added = _aiSuggestMergeSuggestions(data.suggestions || []);
         } else {
             _aiSuggestState.suggestions = data.suggestions || [];
             _aiSuggestState.checked = {};
@@ -3899,7 +3919,8 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             var scopeText = _aiSuggestState.boardMode
                 ? ('שבוע ' + activeWindow.start + ' — ' + activeWindow.end)
                 : ('יום ' + (activeWindow.start || targetDate || ''));
-            subtitle.textContent = scopeText + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן, גרור בין ימים, ואז אשר.';
+            var appendText = appendToBoard && added === 0 ? ' · לא נמצאו הצעות חדשות ליום הזה' : '';
+            subtitle.textContent = scopeText + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + appendText + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן, גרור בין ימים, ואז אשר.';
         }
         _aiSuggestUpdateCount();
     } catch (e) {
@@ -4181,7 +4202,7 @@ function escapeHtml(s) {
 }
 
 function apiErrorMessage(err, fallback) {
-    if (fallback && String(fallback).indexOf('401') !== -1) {
+    if (String(fallback || '').trim() === 'HTTP 401') {
         setTimeout(function() { window.location.href = '/login'; }, 800);
         return 'פג תוקף ההתחברות. מעביר למסך התחברות...';
     }

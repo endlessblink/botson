@@ -104,6 +104,47 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api_mock.await_count, 0)
         self.assertTrue(any("Codex CLI fallback was used" in notice for notice in notices))
 
+    async def test_generation_fallback_chain_classifies_provider_auth_failure(self):
+        with patch.object(
+            self.app,
+            "_generate_via_cli",
+            new=AsyncMock(side_effect=RuntimeError("Failed to authenticate. API Error: 401")),
+        ), patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(side_effect=RuntimeError("refresh_token_invalidated: Your session has ended")),
+        ):
+            with self.assertRaises(self.app.GenerationProviderUnavailable) as ctx:
+                await self.app._generate_with_fallbacks("prompt", context="planner.test")
+
+        message = str(ctx.exception)
+        self.assertIn("AI generation provider authentication failed", message)
+        self.assertNotIn("refresh_token_invalidated", message)
+
+    async def test_ai_suggest_provider_auth_failure_is_single_visible_error(self):
+        from bot.database.db import Database
+
+        db = Database(":memory:")
+        await db.init()
+        claude = AsyncMock(side_effect=RuntimeError("Invalid authentication credentials 401 Unauthorized"))
+        codex = AsyncMock(side_effect=RuntimeError("refresh_token_invalidated: Your session has ended"))
+        try:
+            with patch.object(self.app, "_generate_via_cli", new=claude), \
+                 patch.object(self.app, "_generate_via_codex_cli", new=codex), \
+                 patch.object(self.app, "_generate_activity_copy", new=AsyncMock(return_value="מתחילים עוד מעט פעילות קלילה; מי בפנים?")), \
+                 patch.object(self.app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+                result = await self.app._ai_suggest_calendar(db, target_date=None, week_offset=1)
+        finally:
+            await db.close()
+
+        self.assertEqual(result["suggestions"], [])
+        self.assertEqual(
+            result["errors"],
+            ["AI generation provider authentication failed. Re-authenticate Claude/Codex on the dashboard host and retry."],
+        )
+        self.assertEqual(claude.await_count, 1)
+        self.assertEqual(codex.await_count, 1)
+
     def test_codex_home_repairs_zero_byte_file(self):
         with TemporaryDirectory() as tmp:
             codex_path = Path(tmp) / ".codex"

@@ -1117,6 +1117,57 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(row["message_type"] in {"discussion", "custom"} for row in flex_rows))
         self.assertTrue(all(row["time"] >= "20:39" for row in flex_rows))
 
+    async def test_ai_suggest_calendar_treats_client_board_rows_as_occupied(self):
+        db = Database(":memory:")
+        await db.init()
+        target_date = "2099-01-01"
+        call_counter = {"n": 0}
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                base = cls(2099, 1, 1, 20, 29)
+                if tz is not None:
+                    return base.replace(tzinfo=tz)
+                return base
+
+        async def distinct_canned(*args, **kwargs):
+            call_counter["n"] += 1
+            return f"איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש? ({call_counter['n']})"
+
+        with patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db,
+                target_date=target_date,
+                week_offset=0,
+                client_occupied=[{
+                    "date": target_date,
+                    "time": "21:00",
+                    "message_type": "discussion",
+                }],
+            )
+
+        await db.close()
+
+        flex_rows = [s for s in result["suggestions"] if str(s.get("source", "")).startswith("ai-fill-flex")]
+        self.assertTrue(flex_rows, result)
+        self.assertFalse(
+            any(row["time"] == "21:00" for row in flex_rows),
+            "The +עוד refill must not reuse a slot already visible in the review board.",
+        )
+        self.assertTrue(
+            any(
+                r.get("code") == "time_occupied"
+                and r.get("date") == target_date
+                and r.get("time") == "21:00"
+                for r in result["skip_reasons"]
+            ),
+            result["skip_reasons"],
+        )
+
     async def test_ai_suggest_commit_accepts_custom_flex_rows(self):
         db = Database(":memory:")
         await db.init()
@@ -3461,6 +3512,8 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
     def test_planner_handles_expired_auth_without_raw_unauthorized(self):
         self.assertIn("פג תוקף ההתחברות", self.html)
         self.assertIn("window.location.href = '/login'", self.html)
+        self.assertIn("String(fallback || '').trim() === 'HTTP 401'", self.html)
+        self.assertNotIn("String(fallback).indexOf('401')", self.html)
 
     def test_trivia_form_defaults_not_hardcoded_to_israel(self):
         self.assertNotIn('id="trivia-theme" type="text" value="ישראל"', self.html)
@@ -3488,6 +3541,13 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("data.skip_reasons", self.html)
         self.assertIn("data.empty_state", self.html)
         self.assertNotIn("_aiSuggestSkipLabel", self.html)
+
+    def test_ai_suggest_board_more_sends_visible_rows_as_occupied(self):
+        self.assertIn('data-generate-more-date', self.html)
+        self.assertIn("function _aiSuggestClientOccupiedForDate", self.html)
+        self.assertIn("body.client_occupied = _aiSuggestClientOccupiedForDate(targetDate);", self.html)
+        self.assertIn("_aiSuggestFetch(iso, 'day', {appendToBoard: true});", self.html)
+        self.assertIn("לא נמצאו הצעות חדשות ליום הזה", self.html)
 
     def test_ai_suggest_game_time_editor_updates_linked_rows(self):
         for fn in (
