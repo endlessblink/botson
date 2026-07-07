@@ -17,6 +17,10 @@ def _args(**overrides):
         "log": "",
         "expected_min_ready": 1,
         "since_hours": 24,
+        "state_file": "",
+        "alerts": True,
+        "alert_repeat_hours": 24,
+        "alert_timeout_seconds": 1,
     }
     base.update(overrides)
     return type("Args", (), base)()
@@ -69,6 +73,71 @@ def _insert(path: str, *, row_id: int, status: str, message_type: str, marker: s
 
 
 class BotsonHealthGuardTests(unittest.TestCase):
+    def _result(self, status: str, *, check_status: str = "ok", detail: str = "") -> dict:
+        return {
+            "status": status,
+            "ok": status == "ok",
+            "mode": "daily",
+            "checks": [{
+                "name": "schedule",
+                "status": check_status,
+                "detail": detail,
+                "data": None,
+                "duration_s": 0.0,
+            }],
+        }
+
+    def test_alerts_stay_quiet_on_first_ok(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(guard, "_send_telegram", return_value=[]) as send:
+            result = self._result("ok")
+
+            alert = guard.handle_alerts(result, _args(state_file=str(Path(td) / "state.json")))
+
+        self.assertFalse(alert["sent"])
+        send.assert_not_called()
+
+    def test_alerts_send_on_new_issue_and_persist_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(guard, "_send_telegram", return_value=[]) as send:
+            state_file = Path(td) / "state.json"
+            result = self._result("failed", check_status="fail", detail="game has no warmup")
+
+            alert = guard.handle_alerts(result, _args(state_file=str(state_file)))
+
+            self.assertTrue(alert["sent"])
+            self.assertIn("game has no warmup", send.call_args.args[0])
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(state["last_status"], "failed")
+            self.assertIn("game has no warmup", state["last_fingerprint"])
+
+    def test_alerts_do_not_repeat_same_issue_before_repeat_window(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(guard, "_send_telegram", return_value=[]) as send:
+            state_file = Path(td) / "state.json"
+            result = self._result("failed", check_status="fail", detail="same issue")
+            args = _args(state_file=str(state_file), alert_repeat_hours=24)
+
+            first = guard.handle_alerts(result, args)
+            second = guard.handle_alerts(result, args)
+
+        self.assertTrue(first["sent"])
+        self.assertFalse(second["sent"])
+        self.assertEqual(send.call_count, 1)
+
+    def test_alerts_send_recovery_after_failure(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(guard, "_send_telegram", return_value=[]) as send:
+            state_file = Path(td) / "state.json"
+            guard.handle_alerts(
+                self._result("failed", check_status="fail", detail="broken"),
+                _args(state_file=str(state_file)),
+            )
+            recovery = guard.handle_alerts(self._result("ok"), _args(state_file=str(state_file)))
+
+        self.assertTrue(recovery["sent"])
+        self.assertIn("recovered", send.call_args.args[0])
+
     def test_daily_generation_health_is_provider_only(self):
         args = SimpleNamespace(
             mode="daily",

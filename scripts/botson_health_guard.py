@@ -16,6 +16,8 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -70,6 +72,10 @@ def _env_int(name: str, default: int) -> int:
 
 def _db_path() -> str:
     return os.environ.get("DB_PATH") or str(REPO_ROOT / "data" / "bot.db")
+
+
+def _state_path() -> Path:
+    return Path(os.environ.get("BOTSON_HEALTH_STATE_PATH") or str(REPO_ROOT / "data" / "health_guard_state.json"))
 
 
 def _run(
@@ -246,6 +252,165 @@ def check_logs(args: argparse.Namespace) -> Check:
     return Check("logs", "ok", f"no bad log lines in last {args.since_hours}h")
 
 
+def _load_state(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_state(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _parse_iso(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=IL_TZ)
+    return parsed
+
+
+def _issue_checks(result: dict) -> list[dict]:
+    return [c for c in (result.get("checks") or []) if c.get("status") in {"fail", "warn"}]
+
+
+def _fingerprint(result: dict) -> str:
+    issues = _issue_checks(result)
+    if not issues:
+        return "ok"
+    parts = [
+        f"{c.get('name')}:{c.get('status')}:{str(c.get('detail') or '')[:300]}"
+        for c in issues
+    ]
+    return "|".join(parts)
+
+
+def _chat_ids() -> list[str]:
+    raw = os.environ.get("BOTSON_HEALTH_ALERT_CHAT_IDS") or os.environ.get("ADMIN_IDS", "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _short_commit() -> str:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode == 0:
+        return (proc.stdout or "").strip()
+    return "unknown"
+
+
+def _format_alert(result: dict, *, recovery: bool) -> str:
+    if recovery:
+        return (
+            "Botson health recovered\n"
+            f"mode: {result.get('mode')}\n"
+            f"commit: {_short_commit()}\n"
+            "status: ok"
+        )
+    issues = _issue_checks(result)
+    lines = [
+        "Botson health issue",
+        f"status: {result.get('status')}",
+        f"mode: {result.get('mode')}",
+        f"commit: {_short_commit()}",
+    ]
+    for check in issues[:5]:
+        detail = str(check.get("detail") or "").replace("\n", " ")
+        if len(detail) > 500:
+            detail = detail[:497] + "..."
+        lines.append(f"- {check.get('name')}: {check.get('status')} — {detail}")
+    lines.extend([
+        "inspect:",
+        "journalctl -u botson-health-daily.service -n 100 --no-pager",
+        "/opt/robotnik/scripts/vps-admin.sh schedule 10",
+    ])
+    return "\n".join(lines)
+
+
+def _send_telegram(text: str, *, timeout_s: int) -> list[str]:
+    token = os.environ.get("BOT_TOKEN", "").strip()
+    chats = _chat_ids()
+    if not token or not chats:
+        return ["BOT_TOKEN or ADMIN_IDS/BOTSON_HEALTH_ALERT_CHAT_IDS missing; alert not sent"]
+    errors: list[str] = []
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    for chat_id in chats:
+        payload = urllib.parse.urlencode({
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": "true",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+                if resp.status >= 400:
+                    errors.append(f"{chat_id}: HTTP {resp.status}")
+        except Exception as exc:
+            errors.append(f"{chat_id}: {exc}")
+    return errors
+
+
+def handle_alerts(result: dict, args: argparse.Namespace) -> dict:
+    state_file = Path(args.state_file or _state_path())
+    state = _load_state(state_file)
+    now = _now()
+    status = str(result.get("status") or "failed")
+    fingerprint = _fingerprint(result)
+    previous_status = str(state.get("last_status") or "")
+    previous_fingerprint = str(state.get("last_fingerprint") or "")
+    last_alert_at = _parse_iso(state.get("last_alert_at"))
+    repeat_due = (
+        last_alert_at is None
+        or (now - last_alert_at).total_seconds() >= max(60, int(args.alert_repeat_hours) * 3600)
+    )
+    recovery = status == "ok" and previous_status and previous_status != "ok"
+    new_issue = status != "ok" and (fingerprint != previous_fingerprint or previous_status == "ok" or repeat_due)
+    sent = False
+    errors: list[str] = []
+    if args.alerts and (recovery or new_issue):
+        errors = _send_telegram(_format_alert(result, recovery=recovery), timeout_s=args.alert_timeout_seconds)
+        sent = not errors
+        if errors:
+            print("health alert send failed: " + "; ".join(errors), file=sys.stderr)
+    state.update({
+        "last_status": status,
+        "last_fingerprint": fingerprint,
+        "last_result_at": now.isoformat(),
+    })
+    if sent:
+        state["last_alert_at"] = now.isoformat()
+    try:
+        _write_state(state_file, state)
+    except OSError as exc:
+        errors.append(f"state write failed: {exc}")
+        print(f"health state write failed: {exc}", file=sys.stderr)
+    return {
+        "enabled": bool(args.alerts),
+        "sent": sent,
+        "recovery": recovery,
+        "new_issue": new_issue,
+        "state_file": str(state_file),
+        "errors": errors,
+    }
+
+
 def _pytest_command() -> list[str]:
     pytest_bin = REPO_ROOT / ".venv" / "bin" / "pytest"
     if pytest_bin.exists():
@@ -319,12 +484,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-degraded-generation", action="store_true", default=os.environ.get("BOTSON_GENERATION_HEALTH_ALLOW_DEGRADED") == "1")
     parser.add_argument("--planner-health", action="store_true", default=os.environ.get("BOTSON_HEALTH_DAILY_PLANNER") == "1")
     parser.add_argument("--weekly-send", action="store_true", default=os.environ.get("BOTSON_HEALTH_WEEKLY_SEND") == "1")
+    parser.add_argument("--state-file", default=os.environ.get("BOTSON_HEALTH_STATE_PATH", ""))
+    parser.add_argument("--alert-repeat-hours", type=int, default=_env_int("BOTSON_HEALTH_ALERT_REPEAT_HOURS", 24))
+    parser.add_argument("--alert-timeout-seconds", type=int, default=_env_int("BOTSON_HEALTH_ALERT_TIMEOUT_SECONDS", 15))
+    parser.add_argument("--alerts", action=argparse.BooleanOptionalAction, default=os.environ.get("BOTSON_HEALTH_ALERTS", "1") != "0")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     result = run_guard(args)
+    result["alert"] = handle_alerts(result, args)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     else:
