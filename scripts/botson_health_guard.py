@@ -28,6 +28,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 IL_TZ = ZoneInfo("Asia/Jerusalem")
 GAME_TYPES = {"trivia_round", "emoji_puzzle"}
 WARMUP_TYPE = "trivia_warmup_rsvp"
+DIGEST_TYPES = {
+    "trivia_round",
+    "emoji_puzzle",
+    "facts_tidbit",
+    "facts_spooky",
+    "free_games",
+    "weekly_roundup",
+    "weekly_leaderboard",
+}
+ROUTING_BY_MESSAGE_TYPE = {
+    "trivia_round": "trivia_round",
+    "emoji_puzzle": "emoji_puzzle",
+    "trivia_warmup_rsvp": "trivia_warmup",
+    "facts_tidbit": "facts_tidbit",
+    "facts_spooky": "facts_spooky",
+    "free_games": "free_games",
+    "weekly_roundup": "weekly_roundup",
+    "weekly_leaderboard": "weekly_leaderboard",
+}
 RECENT_BAD_LOG = re.compile(
     r"(Traceback|ERROR|warmup_rsvp_gate: .*decision=skip|Skipped scheduled message .*warmup_rsvp_gate)",
     re.IGNORECASE,
@@ -222,6 +241,92 @@ def check_schedule(args: argparse.Namespace) -> Check:
     return Check("schedule", "ok", f"{summary['game_rows']} future game rows checked", summary)
 
 
+def _routing_map(conn: sqlite3.Connection) -> dict[str, int | None]:
+    try:
+        rows = conn.execute("SELECT handler, play_topic_id FROM bot_message_routing").fetchall()
+    except sqlite3.Error:
+        return {}
+    return {str(r["handler"]): r["play_topic_id"] for r in rows}
+
+
+def check_coverage(args: argparse.Namespace) -> Check:
+    path = args.db or _db_path()
+    if not Path(path).exists():
+        return Check("coverage", "fail", f"DB not found: {path}")
+    today = _now().date()
+    end_day = today + timedelta(days=max(1, int(args.coverage_days)) - 1)
+    today_s = today.isoformat()
+    end_s = end_day.isoformat()
+    issues: list[str] = []
+    warnings: list[str] = []
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT id, status, message_type, scheduled_date, scheduled_time,
+                       channel_topic_id, target_group, poll_options
+                  FROM scheduled_messages
+                 WHERE status = 'scheduled'
+                   AND scheduled_date BETWEEN ? AND ?
+                 ORDER BY scheduled_date, scheduled_time, id
+                """,
+                (today_s, end_s),
+            )
+        ]
+        routing = _routing_map(conn)
+    finally:
+        conn.close()
+
+    if not rows:
+        warnings.append(f"no scheduled rows between {today_s} and {end_s}")
+
+    digest_today = [r for r in rows if r.get("scheduled_date") == today_s and r.get("message_type") in DIGEST_TYPES]
+    digest_window = [r for r in rows if r.get("message_type") in DIGEST_TYPES]
+    games_window = [r for r in rows if r.get("message_type") in GAME_TYPES]
+    if not digest_today:
+        warnings.append(f"no daily-digest activity rows scheduled for today ({today_s})")
+    if not digest_window:
+        warnings.append(f"no digestable activity rows scheduled through {end_s}")
+    if len(digest_today) > 8:
+        warnings.append(f"daily digest has {len(digest_today)} rows today; keyboard shows only 8")
+    if not games_window:
+        warnings.append(f"no games scheduled between {today_s} and {end_s}")
+
+    for row in rows:
+        mtype = str(row.get("message_type") or "")
+        handler = ROUTING_BY_MESSAGE_TYPE.get(mtype)
+        row_label = f"#{row['id']} {mtype} {row['scheduled_date']} {row['scheduled_time']}"
+        if handler:
+            if handler not in routing:
+                issues.append(f"{row_label} missing bot_message_routing row for {handler}")
+            elif routing.get(handler) is None:
+                issues.append(f"{row_label} has null play_topic_id for routing handler {handler}")
+        if (
+            str(row.get("target_group") or "main") == "main"
+            and mtype in ROUTING_BY_MESSAGE_TYPE
+            and row.get("channel_topic_id") is None
+        ):
+            issues.append(f"{row_label} targets main but has no channel_topic_id")
+
+    data = {
+        "window": {"start": today_s, "end": end_s},
+        "scheduled_rows": len(rows),
+        "digest_today": len(digest_today),
+        "digest_window": len(digest_window),
+        "games_window": len(games_window),
+        "issues": issues,
+        "warnings": warnings,
+    }
+    if issues:
+        return Check("coverage", "fail", "; ".join(issues[:8]), data)
+    if warnings:
+        return Check("coverage", "warn", "; ".join(warnings[:8]), data)
+    return Check("coverage", "ok", f"{len(rows)} scheduled rows checked through {end_s}", data)
+
+
 def _log_files(base: Path) -> list[Path]:
     files = [base.with_name(base.name + suffix) for suffix in (".3", ".2", ".1", "")]
     return [p for p in files if p.exists()]
@@ -258,6 +363,47 @@ def _load_state(path: Path) -> dict:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def check_weekly_smoke_freshness(args: argparse.Namespace) -> Check:
+    state_file = Path(args.state_file or _state_path())
+    state = _load_state(state_file)
+    now = _now()
+    first_seen = _parse_iso(state.get("first_seen_at"))
+    if first_seen is None:
+        return Check("weekly_smoke_freshness", "ok", "no health state yet; weekly freshness grace not started")
+    successes = state.get("last_success_by_mode") if isinstance(state.get("last_success_by_mode"), dict) else {}
+    weekly_at = _parse_iso(successes.get("weekly-full") if isinstance(successes, dict) else None)
+    max_age_days = max(1, int(args.weekly_smoke_max_age_days))
+    if weekly_at is None:
+        age_days = (now - first_seen).total_seconds() / 86400
+        if age_days > max_age_days:
+            return Check(
+                "weekly_smoke_freshness",
+                "warn",
+                f"no successful weekly-full smoke recorded for {age_days:.1f}d",
+                {"state_file": str(state_file), "first_seen_at": first_seen.isoformat()},
+            )
+        return Check(
+            "weekly_smoke_freshness",
+            "ok",
+            f"no weekly-full success yet; still inside {max_age_days}d initial grace",
+            {"state_file": str(state_file), "first_seen_at": first_seen.isoformat()},
+        )
+    age_days = (now - weekly_at).total_seconds() / 86400
+    if age_days > max_age_days:
+        return Check(
+            "weekly_smoke_freshness",
+            "warn",
+            f"last successful weekly-full smoke is {age_days:.1f}d old",
+            {"state_file": str(state_file), "last_weekly_success_at": weekly_at.isoformat()},
+        )
+    return Check(
+        "weekly_smoke_freshness",
+        "ok",
+        f"last successful weekly-full smoke is {age_days:.1f}d old",
+        {"state_file": str(state_file), "last_weekly_success_at": weekly_at.isoformat()},
+    )
 
 
 def _write_state(path: Path, state: dict) -> None:
@@ -390,10 +536,15 @@ def handle_alerts(result: dict, args: argparse.Namespace) -> dict:
         if errors:
             print("health alert send failed: " + "; ".join(errors), file=sys.stderr)
     state.update({
+        "first_seen_at": state.get("first_seen_at") or now.isoformat(),
         "last_status": status,
         "last_fingerprint": fingerprint,
         "last_result_at": now.isoformat(),
     })
+    if status == "ok":
+        successes = state.get("last_success_by_mode") if isinstance(state.get("last_success_by_mode"), dict) else {}
+        successes[str(result.get("mode") or "unknown")] = now.isoformat()
+        state["last_success_by_mode"] = successes
     if sent:
         state["last_alert_at"] = now.isoformat()
     try:
@@ -443,6 +594,8 @@ def run_guard(args: argparse.Namespace) -> dict:
         check_services(),
         check_generation_health(args),
         check_schedule(args),
+        check_coverage(args),
+        check_weekly_smoke_freshness(args),
         check_logs(args),
     ]
     if args.mode == "weekly-full":
@@ -476,6 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", default="", help="override bot log path")
     parser.add_argument("--base-url", default=os.environ.get("BOTSON_HEALTH_BASE_URL", "http://127.0.0.1:8080"))
     parser.add_argument("--since-hours", type=int, default=_env_int("BOTSON_HEALTH_SINCE_HOURS", 12))
+    parser.add_argument("--coverage-days", type=int, default=_env_int("BOTSON_HEALTH_COVERAGE_DAYS", 2))
     parser.add_argument("--expected-min-ready", type=int, default=_env_int("BOTSON_HEALTH_EXPECTED_MIN_READY", 1), help="-1 disables quorum drift check")
     parser.add_argument("--min-suggestions", type=int, default=_env_int("BOTSON_GENERATION_HEALTH_MIN_SUGGESTIONS", 1))
     parser.add_argument("--generation-timeout-seconds", type=int, default=_env_int("BOTSON_GENERATION_HEALTH_TIMEOUT_SECONDS", 420))
@@ -486,6 +640,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weekly-send", action="store_true", default=os.environ.get("BOTSON_HEALTH_WEEKLY_SEND") == "1")
     parser.add_argument("--state-file", default=os.environ.get("BOTSON_HEALTH_STATE_PATH", ""))
     parser.add_argument("--alert-repeat-hours", type=int, default=_env_int("BOTSON_HEALTH_ALERT_REPEAT_HOURS", 24))
+    parser.add_argument("--weekly-smoke-max-age-days", type=int, default=_env_int("BOTSON_HEALTH_WEEKLY_SMOKE_MAX_AGE_DAYS", 8))
     parser.add_argument("--alert-timeout-seconds", type=int, default=_env_int("BOTSON_HEALTH_ALERT_TIMEOUT_SECONDS", 15))
     parser.add_argument("--alerts", action=argparse.BooleanOptionalAction, default=os.environ.get("BOTSON_HEALTH_ALERTS", "1") != "0")
     return parser
