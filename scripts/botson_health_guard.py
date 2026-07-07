@@ -578,6 +578,7 @@ def check_weekly_smoke(args: argparse.Namespace) -> Check:
     if not args.weekly_send:
         return Check("weekly_smoke", "warn", "skipped; pass --weekly-send or set BOTSON_HEALTH_WEEKLY_SEND=1")
     cmd = [
+        sys.executable,
         str(REPO_ROOT / "scripts" / "e2e_den_smoke.py"),
         "--send",
         "--include-games",

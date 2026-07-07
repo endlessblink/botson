@@ -203,6 +203,16 @@ class BotsonHealthGuardTests(unittest.TestCase):
         cmd = run.call_args.args[1]
         self.assertNotIn("--planner", cmd)
 
+    def test_weekly_smoke_runs_script_through_python(self):
+        args = SimpleNamespace(weekly_send=True, base_url="http://127.0.0.1:9000", smoke_timeout_seconds=240)
+        with patch.object(guard, "_run", return_value=guard.Check("weekly_smoke", "ok")) as run:
+            guard.check_weekly_smoke(args)
+
+        cmd = run.call_args.args[1]
+        self.assertEqual(cmd[0], guard.sys.executable)
+        self.assertTrue(cmd[1].endswith("scripts/e2e_den_smoke.py"))
+        self.assertIn("--send", cmd)
+
     def test_generation_health_can_opt_into_planner_probe(self):
         args = SimpleNamespace(
             mode="daily",
