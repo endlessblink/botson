@@ -121,12 +121,11 @@ def check_services() -> Check:
 def check_generation_health(args: argparse.Namespace) -> Check:
     cmd = [
         str(REPO_ROOT / "scripts" / "check_generation_health.py"),
-        "--planner",
-        "--min-suggestions",
-        str(args.min_suggestions),
         "--timeout-seconds",
         str(args.generation_timeout_seconds),
     ]
+    if args.mode == "weekly-full" or args.planner_health:
+        cmd.extend(["--planner", "--min-suggestions", str(args.min_suggestions)])
     warn_codes = {1} if args.allow_degraded_generation else set()
     return _run("generation_health", cmd, timeout_s=args.generation_timeout_seconds + 45, warn_codes=warn_codes)
 
@@ -318,6 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pytest-timeout-seconds", type=int, default=_env_int("BOTSON_HEALTH_PYTEST_TIMEOUT_SECONDS", 900))
     parser.add_argument("--smoke-timeout-seconds", type=int, default=_env_int("BOTSON_HEALTH_SMOKE_TIMEOUT_SECONDS", 240))
     parser.add_argument("--allow-degraded-generation", action="store_true", default=os.environ.get("BOTSON_GENERATION_HEALTH_ALLOW_DEGRADED") == "1")
+    parser.add_argument("--planner-health", action="store_true", default=os.environ.get("BOTSON_HEALTH_DAILY_PLANNER") == "1")
     parser.add_argument("--weekly-send", action="store_true", default=os.environ.get("BOTSON_HEALTH_WEEKLY_SEND") == "1")
     return parser
 

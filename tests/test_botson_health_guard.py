@@ -5,6 +5,8 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from scripts import botson_health_guard as guard
 
@@ -67,6 +69,34 @@ def _insert(path: str, *, row_id: int, status: str, message_type: str, marker: s
 
 
 class BotsonHealthGuardTests(unittest.TestCase):
+    def test_daily_generation_health_is_provider_only(self):
+        args = SimpleNamespace(
+            mode="daily",
+            planner_health=False,
+            min_suggestions=1,
+            generation_timeout_seconds=420,
+            allow_degraded_generation=False,
+        )
+        with patch.object(guard, "_run", return_value=guard.Check("generation_health", "ok")) as run:
+            guard.check_generation_health(args)
+
+        cmd = run.call_args.args[1]
+        self.assertNotIn("--planner", cmd)
+
+    def test_weekly_generation_health_includes_planner_probe(self):
+        args = SimpleNamespace(
+            mode="weekly-full",
+            planner_health=False,
+            min_suggestions=1,
+            generation_timeout_seconds=420,
+            allow_degraded_generation=False,
+        )
+        with patch.object(guard, "_run", return_value=guard.Check("generation_health", "ok")) as run:
+            guard.check_generation_health(args)
+
+        cmd = run.call_args.args[1]
+        self.assertIn("--planner", cmd)
+
     def test_schedule_passes_when_game_has_paired_warmup_and_expected_quorum(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             _init_db(tmp.name)
