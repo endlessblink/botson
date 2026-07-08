@@ -24,6 +24,7 @@ def _args(**overrides):
         "alert_timeout_seconds": 1,
         "weekly_smoke_max_age_days": 8,
         "stale_session_hours": 6,
+        "emoji_puzzle_count": 5,
     }
     base.update(overrides)
     return type("Args", (), base)()
@@ -71,12 +72,46 @@ def _init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE emoji_puzzles (
+                id INTEGER PRIMARY KEY,
+                emoji_prompt TEXT NOT NULL,
+                answer_he TEXT NOT NULL,
+                answer_en TEXT NOT NULL,
+                aliases TEXT DEFAULT '[]',
+                difficulty INTEGER DEFAULT 2,
+                media_type TEXT DEFAULT 'general',
+                enabled INTEGER DEFAULT 1,
+                times_used INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE emoji_puzzle_rounds (
+                id INTEGER PRIMARY KEY,
+                session_id INTEGER,
+                puzzle_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                message_thread_id INTEGER,
+                message_id INTEGER NOT NULL,
+                sent_at TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'active',
+                award_points INTEGER DEFAULT 0
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
 
 
-def _insert(path: str, *, row_id: int, status: str, message_type: str, marker: str, min_ready: int = 1) -> None:
+def _insert(
+    path: str, *, row_id: int, status: str, message_type: str, marker: str,
+    min_ready: int = 1, extra_payload: dict | None = None,
+) -> None:
     conn = sqlite3.connect(path)
     try:
         conn.execute(
@@ -92,7 +127,7 @@ def _insert(path: str, *, row_id: int, status: str, message_type: str, marker: s
                 "2099-01-01",
                 "22:00",
                 4037,
-                json.dumps({"warmup_marker": marker, "min_ready_players": min_ready}),
+                json.dumps({"warmup_marker": marker, "min_ready_players": min_ready, **(extra_payload or {})}),
             ),
         )
         conn.commit()
@@ -107,6 +142,50 @@ def _route(path: str, handler: str, topic_id: int | None = 4037) -> None:
             "INSERT INTO bot_message_routing (handler, play_topic_id, teaser_topic_ids) VALUES (?, ?, '[]')",
             (handler, topic_id),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _seed_used_song_pool(path: str, *, count: int = 5) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        for idx in range(count):
+            puzzle_id = idx + 1
+            conn.execute(
+                """
+                INSERT INTO emoji_puzzles
+                (id, emoji_prompt, answer_he, answer_en, media_type, enabled, created_at)
+                VALUES (?, ?, ?, ?, 'song', 1, '2099-01-01 00:00:00')
+                """,
+                (puzzle_id, f"song-{puzzle_id}", f"שיר {puzzle_id}", f"Song {puzzle_id}"),
+            )
+            conn.execute(
+                """
+                INSERT INTO emoji_puzzle_rounds
+                (id, session_id, puzzle_id, chat_id, message_thread_id, message_id, sent_at, status, award_points)
+                VALUES (?, 1, ?, -1001, 4037, ?, '2099-01-01 01:00:00', 'revealed', 0)
+                """,
+                (puzzle_id, puzzle_id, 7000 + puzzle_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _seed_fresh_song_pool(path: str, *, count: int = 5) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        for idx in range(count):
+            puzzle_id = idx + 1
+            conn.execute(
+                """
+                INSERT INTO emoji_puzzles
+                (id, emoji_prompt, answer_he, answer_en, media_type, enabled, created_at)
+                VALUES (?, ?, ?, ?, 'song', 1, '2099-01-01 00:00:00')
+                """,
+                (puzzle_id, f"song-{puzzle_id}", f"שיר {puzzle_id}", f"Song {puzzle_id}"),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -245,9 +324,17 @@ class BotsonHealthGuardTests(unittest.TestCase):
     def test_schedule_passes_when_game_has_paired_warmup_and_expected_quorum(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             _init_db(tmp.name)
+            _seed_fresh_song_pool(tmp.name)
             marker = "warmup-rsvp:emoji:2099-01-01:22:00"
             _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
-            _insert(tmp.name, row_id=2, status="scheduled", message_type="emoji_puzzle", marker=marker)
+            _insert(
+                tmp.name,
+                row_id=2,
+                status="scheduled",
+                message_type="emoji_puzzle",
+                marker=marker,
+                extra_payload={"media_types": ["music"]},
+            )
 
             result = guard.check_schedule(_args(db=tmp.name))
 
@@ -299,6 +386,31 @@ class BotsonHealthGuardTests(unittest.TestCase):
 
         self.assertEqual(result.status, "fail")
         self.assertIn("stale active emoji session #11", result.detail)
+
+    def test_schedule_warns_when_upcoming_emoji_needs_auto_refill(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            _init_db(tmp.name)
+            _seed_used_song_pool(tmp.name)
+            marker = "warmup-rsvp:emoji:2099-01-01:22:00"
+            _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
+            _insert(
+                tmp.name,
+                row_id=2,
+                status="scheduled",
+                message_type="emoji_puzzle",
+                marker=marker,
+                extra_payload={"media_types": ["music"]},
+            )
+            original_now = guard._now
+            guard._now = lambda: guard.datetime(2099, 1, 1, 9, 0, tzinfo=guard.IL_TZ)
+            try:
+                result = guard.check_schedule(_args(db=tmp.name, emoji_puzzle_count=5))
+            finally:
+                guard._now = original_now
+
+        self.assertEqual(result.status, "warn")
+        self.assertIn("will auto-refill emoji pool (0/5 fresh, total=5)", result.detail)
+        self.assertIn("media_types=['music']", result.detail)
 
     def test_logs_fail_on_recent_warmup_gate_skip(self):
         with tempfile.TemporaryDirectory() as td:

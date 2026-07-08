@@ -18,6 +18,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 from ..database.db import Database
 from ..utils.config import GROUP_ID, TEST_GROUP_ID, get_settings, is_auto_blocked_on, is_feature_enabled
 from ..utils.copy import load_copy
+from ..utils.emoji_puzzle_generation import generate_emoji_puzzles
 from ..utils.game_categories import canonical_emoji_media_type
 from ..utils.helpers import get_display_name, is_bot_user
 from ..utils.levels import check_level_up
@@ -272,43 +273,9 @@ def _get_answer_actor(update: Update):
 async def _pick_session_puzzles(
     db: Database, puzzle_count: int, media_types: list[str] | None = None,
 ) -> list[dict]:
-    pool = await db.list_emoji_puzzles(enabled_only=True)
-    allowed: set[str] = set()
-    # Canonicalize both sides of the filter so legacy scheduled rows with
-    # poll_options.media_types=["music"] still match a normalized pool
-    # where rows now carry media_type="song". Without this, post-normalize
-    # the older scheduled rows would silently produce an empty pool and
-    # skip the round (BUG-1 audit, 2026-05-17).
-    for media in media_types or []:
-        canonical = canonical_emoji_media_type(media)
-        if canonical:
-            allowed.add(canonical)
-    if allowed:
-        pool = [
-            p for p in pool
-            if canonical_emoji_media_type(p.get("media_type")) in allowed
-        ]
+    pool = await _ensure_fresh_emoji_pool(db, puzzle_count, media_types=media_types)
     if not pool:
         return []
-
-    # Phase A.1.2: exclude puzzles that ran in any round within the last
-    # 30 days so the same emoji set doesn't repeat. Soft exclusion — if
-    # the filter leaves too few candidates, allow repeats so the session
-    # still launches (the alternative is a cancelled emoji night, which
-    # is worse than a familiar one).
-    try:
-        recent_ids = await db.get_recent_emoji_puzzle_ids(days=30)
-    except Exception as e:
-        logger.warning("emoji_puzzle: recent-ids lookup failed: %s", e)
-        recent_ids = set()
-    fresh_pool = [p for p in pool if int(p["id"]) not in recent_ids]
-    if len(fresh_pool) >= puzzle_count:
-        pool = fresh_pool
-    elif recent_ids:
-        logger.info(
-            "emoji_puzzle: only %d fresh puzzles after 30-day exclusion (need %d) — allowing repeats",
-            len(fresh_pool), puzzle_count,
-        )
 
     picked: list[dict] = []
     picked_ids: set[int] = set()
@@ -329,49 +296,77 @@ async def _pick_session_puzzles(
     return picked[:puzzle_count]
 
 
-async def emoji_skip_reason(
-    db: Database, chat_id: int, thread_id: int | None,
-    *, media_types: list[str] | None = None,
-) -> str | None:
-    """Pre-flight: return a reason this session should be SKIPPED (legit
-    no-op), or None if it should proceed.
+def _allowed_emoji_media_types(media_types: list[str] | None) -> set[str]:
+    allowed: set[str] = set()
+    # Canonicalize both sides of the filter so legacy scheduled rows with
+    # poll_options.media_types=["music"] still match a normalized pool
+    # where rows now carry media_type="song". Without this, post-normalize
+    # the older scheduled rows would silently produce an empty pool and
+    # skip the round (BUG-1 audit, 2026-05-17).
+    for media in media_types or []:
+        canonical = canonical_emoji_media_type(media)
+        if canonical:
+            allowed.add(canonical)
+    return allowed
 
-    Mirrors the no-op cases in ``start_emoji_night`` (active session,
-    pool too small after media-type filter and 30-day cooldown
-    exclusion). Doesn't actually pick puzzles — just counts eligibility —
-    so the real launch still gets fresh randomness.
 
-    Used by the calendar dispatcher (A.1.4) to distinguish "pool
-    exhausted by cooldown" from "genuine bug". Without this, the dispatch
-    path raises ``RuntimeError("Emoji Night did not start")`` for the
-    cooldown-exhaustion case and the row gets marked ``failed`` instead
-    of ``skipped`` — same bug class as facts (verified 2026-05-09)."""
-    if await db.get_active_session(chat_id, thread_id):
-        return "active session in this thread"
-    _, schedule = _emoji_settings()
-    puzzle_count = int(schedule.get("puzzle_count", 5) or 5)
+async def _fresh_emoji_pool(
+    db: Database, media_types: list[str] | None = None,
+) -> tuple[list[dict], list[dict], set[str]]:
     pool = await db.list_emoji_puzzles(enabled_only=True)
-    if media_types:
-        allowed: set[str] = set()
-        for media in media_types:
-            canonical = canonical_emoji_media_type(media)
-            if canonical:
-                allowed.add(canonical)
+    allowed = _allowed_emoji_media_types(media_types)
+    if allowed:
         pool = [
             p for p in pool
             if canonical_emoji_media_type(p.get("media_type")) in allowed
         ]
+
     try:
         recent_ids = await db.get_recent_emoji_puzzle_ids(days=30)
-    except Exception:
+    except Exception as e:
+        logger.warning("emoji_puzzle: recent-ids lookup failed: %s", e)
         recent_ids = set()
     fresh_pool = [p for p in pool if int(p["id"]) not in recent_ids]
-    eligible = len(fresh_pool) if len(fresh_pool) >= puzzle_count else len(pool)
-    if eligible < puzzle_count:
+    return pool, fresh_pool, allowed
+
+
+async def _ensure_fresh_emoji_pool(
+    db: Database, puzzle_count: int, media_types: list[str] | None = None,
+) -> list[dict]:
+    pool, fresh_pool, allowed = await _fresh_emoji_pool(db, media_types)
+    if len(fresh_pool) < puzzle_count:
+        deficit = puzzle_count - len(fresh_pool)
+        refill_media = sorted(allowed)[0] if allowed else "general"
+        logger.warning(
+            "emoji_puzzle: only %d fresh puzzles after 30-day exclusion (need %d) — auto-refilling %d %s puzzles",
+            len(fresh_pool), puzzle_count, deficit, refill_media,
+        )
+        await generate_emoji_puzzles(db, media_type=refill_media, count=deficit)
+        _, fresh_pool, _ = await _fresh_emoji_pool(db, media_types)
+    if len(fresh_pool) < puzzle_count:
+        logger.error(
+            "emoji_puzzle: auto-refill left only %d fresh puzzles (need %d); no recent replay will be sent",
+            len(fresh_pool), puzzle_count,
+        )
+        return []
+    return fresh_pool
+
+
+async def emoji_skip_reason(
+    db: Database, chat_id: int, thread_id: int | None,
+    *, media_types: list[str] | None = None,
+) -> str | None:
+    """Pre-flight: auto-refill the matching pool and report only hard blockers."""
+    if await db.get_active_session(chat_id, thread_id):
+        return "active session in this thread"
+    _, schedule = _emoji_settings()
+    puzzle_count = int(schedule.get("puzzle_count", 5) or 5)
+    fresh_pool = await _ensure_fresh_emoji_pool(db, puzzle_count, media_types=media_types)
+    if len(fresh_pool) < puzzle_count:
         return (
-            f"pool too small ({eligible}/{puzzle_count}) for "
+            f"auto-refill could not create enough fresh puzzles ({len(fresh_pool)}/{puzzle_count}) for "
             f"media_types={media_types or 'any'} — "
-            "consider growing emoji_puzzles or relaxing filters"
+            "recent replays are blocked"
         )
     return None
 

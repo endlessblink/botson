@@ -223,10 +223,7 @@ class FactsCooldownExhaustionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EmojiSkipReasonTests(unittest.IsolatedAsyncioTestCase):
-    """A.1.4: pre-flight check distinguishes pool-exhausted (skip) from
-    real launch failure. Without this, calendar dispatch raises
-    RuntimeError → marks emoji_puzzle row 'failed' even when the pool
-    is just too small for filters."""
+    """Emoji pre-flight tops up undersized pools before launch."""
 
     async def test_returns_none_when_pool_sufficient(self):
         from bot.handlers.emoji_puzzle import emoji_skip_reason
@@ -248,7 +245,7 @@ class EmojiSkipReasonTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await db.close()
 
-    async def test_returns_skip_reason_when_pool_too_small(self):
+    async def test_returns_reason_only_when_auto_refill_cannot_fill_pool(self):
         from bot.handlers.emoji_puzzle import emoji_skip_reason
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             db = Database(tmp.name)
@@ -263,9 +260,10 @@ class EmojiSkipReasonTests(unittest.IsolatedAsyncioTestCase):
                         ("xx", f"answer {i}", f"answer {i}", "[]", 2, "movie", 1),
                     )
                 await db._db.commit()
-                reason = await emoji_skip_reason(db, -1001, 4037, media_types=["movie"])
+                with patch("bot.handlers.emoji_puzzle.generate_emoji_puzzles", new=AsyncMock(return_value=0)):
+                    reason = await emoji_skip_reason(db, -1001, 4037, media_types=["movie"])
                 self.assertIsNotNone(reason)
-                self.assertIn("pool too small", reason)
+                self.assertIn("auto-refill could not create enough fresh puzzles", reason)
             finally:
                 await db.close()
 

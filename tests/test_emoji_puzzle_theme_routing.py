@@ -7,6 +7,7 @@ wrapper text was hardcoded. This guardian locks the fix in place.
 """
 
 from bot.handlers.emoji_puzzle import _format_puzzle_text
+from unittest.mock import AsyncMock, patch
 
 
 def _puzzle(emoji_prompt: str, media_type: str) -> dict:
@@ -103,6 +104,51 @@ def test_pick_session_puzzles_legacy_media_types_match_canonical_pool():
     assert len(picked) == 3, picked
     for p in picked:
         assert p["media_type"] == "song", p
+
+
+def test_pick_session_puzzles_auto_refills_when_fresh_pool_too_small():
+    """Exact replay is a hard failure: if all matching puzzles ran recently,
+    the launcher must create fresh rows instead of reusing them.
+    """
+    import asyncio as _asyncio
+
+    from bot.database.db import Database as _Database
+    from bot.handlers.emoji_puzzle import _pick_session_puzzles, emoji_skip_reason
+
+    async def run():
+        db = _Database(":memory:")
+        await db.init()
+        try:
+            old_ids = []
+            for idx, emoji_prompt in enumerate(("👑🎸🥁", "💋", "🌙", "🎤💜", "🌧️🦄"), start=1):
+                pid = await db.create_emoji_puzzle(
+                    emoji_prompt, f"שיר {idx}", f"Song {idx}", media_type="song",
+                )
+                old_ids.append(pid)
+            session_id = await db.create_emoji_session(-1001, 4037, 5)
+            for offset, pid in enumerate(old_ids, start=1):
+                await db.start_emoji_round(session_id, pid, -1001, 200 + offset, 4037, 0)
+
+            async def refill(db_arg, *, media_type, count):
+                assert media_type == "song"
+                for idx in range(count):
+                    await db_arg.create_emoji_puzzle(
+                        f"new-{idx}", f"שיר חדש {idx}", f"New Song {idx}", media_type=media_type,
+                    )
+                return count
+
+            with patch("bot.handlers.emoji_puzzle.generate_emoji_puzzles", new=AsyncMock(side_effect=refill)) as refill_mock:
+                picked = await _pick_session_puzzles(db, 5, media_types=["music"])
+                refill_mock.assert_awaited()
+            reason = await emoji_skip_reason(db, -1001, 9999, media_types=["music"])
+            return picked, reason, old_ids
+        finally:
+            await db.close()
+
+    picked, reason, old_ids = _asyncio.run(run())
+    assert len(picked) == 5
+    assert not ({p["id"] for p in picked} & set(old_ids))
+    assert reason is None
 
 
 # ── Normalization endpoint coverage ──────────────────────────

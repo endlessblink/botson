@@ -60,6 +60,7 @@ WEEKLY_TESTS = [
     "tests/test_engagement_capture.py",
     "tests/test_rsvp_rates_diagnostics.py",
     "tests/test_orphan_game_and_topic_spacing.py",
+    "tests/test_emoji_puzzle_theme_routing.py",
     "tests/test_planner_generation_pipeline.py",
     "tests/test_planner_coercion_and_chips.py",
 ]
@@ -173,6 +174,68 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return row is not None
 
 
+def _canonical_emoji_media_type(raw: str | None) -> str:
+    value = str(raw or "").strip().lower()
+    aliases = {
+        "movies": "movie",
+        "film": "movie",
+        "films": "movie",
+        "tv": "series",
+        "show": "series",
+        "shows": "series",
+        "music": "song",
+        "songs": "song",
+        "book": "book",
+        "books": "book",
+        "game": "game",
+        "games": "game",
+    }
+    return aliases.get(value, value or "general")
+
+
+def _emoji_puzzle_count(args: argparse.Namespace) -> int:
+    explicit = getattr(args, "emoji_puzzle_count", 0)
+    if explicit:
+        return max(1, int(explicit))
+    try:
+        import yaml  # type: ignore
+
+        settings_path = REPO_ROOT / "config" / "settings.yaml"
+        settings = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
+        return max(1, int((settings.get("schedule", {}).get("emoji_puzzle", {}) or {}).get("puzzle_count") or 5))
+    except Exception:
+        return 5
+
+
+def _emoji_fresh_pool_count(conn: sqlite3.Connection, media_types: list[str], *, days: int = 30) -> tuple[int, int]:
+    if not (_table_exists(conn, "emoji_puzzles") and _table_exists(conn, "emoji_puzzle_rounds")):
+        return 0, 0
+    allowed = {_canonical_emoji_media_type(m) for m in media_types if str(m or "").strip()}
+    params: list[object] = []
+    where = ["enabled = 1"]
+    if allowed:
+        placeholders = ",".join("?" for _ in allowed)
+        where.append(f"media_type IN ({placeholders})")
+        params.extend(sorted(allowed))
+    where_sql = " AND ".join(where)
+    total = int(conn.execute(f"SELECT COUNT(*) FROM emoji_puzzles WHERE {where_sql}", params).fetchone()[0] or 0)
+    cutoff = (_now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    recent = int(conn.execute(
+        f"""
+        SELECT COUNT(*)
+          FROM emoji_puzzles
+         WHERE {where_sql}
+           AND id IN (
+               SELECT DISTINCT puzzle_id
+                 FROM emoji_puzzle_rounds
+                WHERE datetime(sent_at) >= datetime(?)
+           )
+        """,
+        [*params, cutoff],
+    ).fetchone()[0] or 0)
+    return max(0, total - recent), total
+
+
 def check_schedule(args: argparse.Namespace) -> Check:
     path = args.db or _db_path()
     if not Path(path).exists():
@@ -180,6 +243,7 @@ def check_schedule(args: argparse.Namespace) -> Check:
     today = _now().date().isoformat()
     expected_min = args.expected_min_ready
     issues: list[str] = []
+    warnings: list[str] = []
     summary: dict[str, int] = {"game_rows": 0, "warmup_rows": 0, "issues": 0}
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -214,6 +278,14 @@ def check_schedule(args: argparse.Namespace) -> Check:
                     (cutoff,),
                 )
             ]
+        emoji_freshness_by_row: dict[int, tuple[int, int]] = {}
+        puzzle_count = _emoji_puzzle_count(args)
+        for row in rows:
+            if row.get("message_type") != "emoji_puzzle" or row.get("status") != "scheduled":
+                continue
+            payload = _json_obj(row.get("poll_options"))
+            media_types = payload.get("media_types") if isinstance(payload.get("media_types"), list) else []
+            emoji_freshness_by_row[int(row["id"])] = _emoji_fresh_pool_count(conn, [str(m) for m in media_types])
     finally:
         conn.close()
     warmups_by_marker: dict[str, list[dict]] = {}
@@ -259,6 +331,16 @@ def check_schedule(args: argparse.Namespace) -> Check:
             paired = [w for w in warmups_by_marker.get(marker, []) if w.get("status") in {"scheduled", "sent"}]
             if not paired:
                 issues.append(f"{row_label} has no scheduled/sent warmup for marker {marker}")
+        freshness = emoji_freshness_by_row.get(int(row["id"]))
+        if freshness is not None:
+            fresh_count, total_count = freshness
+            puzzle_count = _emoji_puzzle_count(args)
+            if fresh_count < puzzle_count:
+                media_types = payload.get("media_types") if isinstance(payload.get("media_types"), list) else []
+                warnings.append(
+                    f"{row_label} will auto-refill emoji pool ({fresh_count}/{puzzle_count} fresh, "
+                    f"total={total_count}) for media_types={media_types or 'any'}"
+                )
     for session in stale_sessions:
         issues.append(
             "stale active emoji session "
@@ -267,7 +349,9 @@ def check_schedule(args: argparse.Namespace) -> Check:
         )
     summary["issues"] = len(issues)
     if issues:
-        return Check("schedule", "fail", "; ".join(issues[:8]), {"summary": summary, "issues": issues})
+        return Check("schedule", "fail", "; ".join(issues[:8]), {"summary": summary, "issues": issues, "warnings": warnings})
+    if warnings:
+        return Check("schedule", "warn", "; ".join(warnings[:8]), {"summary": summary, "issues": issues, "warnings": warnings})
     return Check("schedule", "ok", f"{summary['game_rows']} future game rows checked", summary)
 
 
@@ -662,6 +746,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--since-hours", type=int, default=_env_int("BOTSON_HEALTH_SINCE_HOURS", 12))
     parser.add_argument("--coverage-days", type=int, default=_env_int("BOTSON_HEALTH_COVERAGE_DAYS", 2))
     parser.add_argument("--stale-session-hours", type=int, default=_env_int("BOTSON_HEALTH_STALE_SESSION_HOURS", 6))
+    parser.add_argument("--emoji-puzzle-count", type=int, default=_env_int("BOTSON_HEALTH_EMOJI_PUZZLE_COUNT", 0), help="override Emoji Night puzzle_count; default reads config/settings.yaml")
     parser.add_argument("--expected-min-ready", type=int, default=_env_int("BOTSON_HEALTH_EXPECTED_MIN_READY", 1), help="-1 disables quorum drift check")
     parser.add_argument("--min-suggestions", type=int, default=_env_int("BOTSON_GENERATION_HEALTH_MIN_SUGGESTIONS", 1))
     parser.add_argument("--generation-timeout-seconds", type=int, default=_env_int("BOTSON_GENERATION_HEALTH_TIMEOUT_SECONDS", 420))
