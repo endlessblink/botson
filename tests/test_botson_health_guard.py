@@ -526,6 +526,37 @@ class BotsonHealthGuardTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             _init_db(tmp.name)
             _route(tmp.name, "emoji_puzzle", 4037)
+            _route(tmp.name, "trivia_round", 4037)
+            _route(tmp.name, "trivia_warmup", 4502)
+            marker = "warmup-rsvp:emoji:2099-01-01:22:00"
+            _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
+            _insert(tmp.name, row_id=2, status="scheduled", message_type="emoji_puzzle", marker=marker)
+            trivia_marker = "warmup-rsvp:trivia:2099-01-01:20:30"
+            _insert(
+                tmp.name,
+                row_id=3,
+                status="scheduled",
+                message_type="trivia_round",
+                marker=trivia_marker,
+                extra_payload={"categories": ["science"], "question_count": 2},
+            )
+            original_now = guard._now
+            guard._now = lambda: guard.datetime(2099, 1, 1, 9, 0, tzinfo=guard.IL_TZ)
+            try:
+                with patch.object(guard, "_load_trivia_questions", return_value=[
+                    _trivia_question("q1", "science"),
+                    _trivia_question("q2", "science"),
+                ]):
+                    result = guard.check_coverage(_args(db=tmp.name))
+            finally:
+                guard._now = original_now
+
+        self.assertEqual(result.status, "ok", result)
+
+    def test_coverage_warns_when_games_window_has_no_trivia_round(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            _init_db(tmp.name)
+            _route(tmp.name, "emoji_puzzle", 4037)
             _route(tmp.name, "trivia_warmup", 4502)
             marker = "warmup-rsvp:emoji:2099-01-01:22:00"
             _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
@@ -537,7 +568,8 @@ class BotsonHealthGuardTests(unittest.TestCase):
             finally:
                 guard._now = original_now
 
-        self.assertEqual(result.status, "ok", result)
+        self.assertEqual(result.status, "warn")
+        self.assertIn("no trivia_round games scheduled", result.detail)
 
     def test_coverage_fails_when_routing_missing(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:

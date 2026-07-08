@@ -1503,6 +1503,83 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("duplicate slot", result["skipped"][0])
         self.assertEqual([row["message_type"] for row in rows], ["trivia_round"])
 
+    async def test_ai_suggest_commit_rejects_orphan_rsvp_game(self):
+        db = Database(":memory:")
+        await db.init()
+        marker = "warmup-rsvp:trivia:2099-01-01:21:00"
+        approved = [{
+            "date": "2099-01-01",
+            "time": "20:30",
+            "message_type": "trivia_round",
+            "topic_id": 4037,
+            "text": "",
+            "source": "ai-fill-trivia",
+            "poll_options_json": json.dumps({
+                "warmup_marker": marker,
+                "min_ready_players": 1,
+                "question_count": 5,
+                "categories": ["מדע"],
+            }, ensure_ascii=False),
+        }]
+
+        result = await dashboard_app.ai_suggest_commit(
+            FakeCalendarRequest({"approved": approved}),
+            db,
+        )
+        rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        await db.close()
+
+        self.assertEqual(result["inserted"], 0, result)
+        self.assertIn("orphan game marker", result["errors"][0])
+        self.assertEqual(rows, [])
+
+    async def test_ai_suggest_commit_accepts_paired_rsvp_game(self):
+        db = Database(":memory:")
+        await db.init()
+        marker = "warmup-rsvp:trivia:2099-01-01:20:30"
+        approved = [
+            {
+                "date": "2099-01-01",
+                "time": "19:30",
+                "message_type": "trivia_warmup_rsvp",
+                "topic_id": 4502,
+                "text": "warmup",
+                "source": "ai-fill-trivia",
+                "poll_options_json": json.dumps({
+                    "warmup_marker": marker,
+                    "min_ready_players": 1,
+                    "game_time": "20:30",
+                }, ensure_ascii=False),
+            },
+            {
+                "date": "2099-01-01",
+                "time": "20:30",
+                "message_type": "trivia_round",
+                "topic_id": 4037,
+                "text": "",
+                "source": "ai-fill-trivia",
+                "poll_options_json": json.dumps({
+                    "warmup_marker": marker,
+                    "min_ready_players": 1,
+                    "question_count": 5,
+                    "categories": ["מדע"],
+                }, ensure_ascii=False),
+            },
+        ]
+
+        result = await dashboard_app.ai_suggest_commit(
+            FakeCalendarRequest({"approved": approved}),
+            db,
+        )
+        rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        await db.close()
+
+        self.assertEqual(result["inserted"], 2, result)
+        self.assertEqual(
+            [row["message_type"] for row in rows],
+            ["trivia_warmup_rsvp", "trivia_round"],
+        )
+
     async def test_ai_suggest_commit_rejects_same_minute_activity_clash(self):
         db = Database(":memory:")
         await db.init()

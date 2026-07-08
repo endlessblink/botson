@@ -530,6 +530,7 @@ def check_coverage(args: argparse.Namespace) -> Check:
     digest_today = [r for r in rows if r.get("scheduled_date") == today_s and r.get("message_type") in DIGEST_TYPES]
     digest_window = [r for r in rows if r.get("message_type") in DIGEST_TYPES]
     games_window = [r for r in rows if r.get("message_type") in GAME_TYPES]
+    trivia_window = [r for r in rows if r.get("message_type") == "trivia_round"]
     if not digest_today:
         warnings.append(f"no daily-digest activity rows scheduled for today ({today_s})")
     if not digest_window:
@@ -538,6 +539,8 @@ def check_coverage(args: argparse.Namespace) -> Check:
         warnings.append(f"daily digest has {len(digest_today)} rows today; keyboard shows only 8")
     if not games_window:
         warnings.append(f"no games scheduled between {today_s} and {end_s}")
+    elif not trivia_window:
+        warnings.append(f"no trivia_round games scheduled between {today_s} and {end_s}")
 
     for row in rows:
         mtype = str(row.get("message_type") or "")

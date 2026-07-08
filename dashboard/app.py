@@ -7547,11 +7547,12 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
     by_type: dict = {}
     committed_keys: set[tuple[str, str, str, int]] = set()
     committed_time_types: dict[tuple[str, str, str], set[str]] = {}
+    committed_warmup_markers: set[str] = set()
 
     if getattr(db, "_db", None) is not None:
         try:
             async with db._db.execute(
-                """SELECT scheduled_date, scheduled_time, message_type, channel_topic_id, target_group
+                """SELECT scheduled_date, scheduled_time, message_type, channel_topic_id, target_group, poll_options
                    FROM scheduled_messages
                    WHERE status IN ('scheduled', 'draft', 'sent')"""
             ) as cur:
@@ -7571,13 +7572,36 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                         ))
                     except (TypeError, ValueError):
                         continue
+                    if str(row["message_type"]) == "trivia_warmup_rsvp":
+                        try:
+                            payload = json.loads(row["poll_options"] or "{}")
+                            marker = str(payload.get("warmup_marker") or "").strip()
+                            if marker:
+                                committed_warmup_markers.add(marker)
+                        except Exception:
+                            continue
         except Exception as e:  # noqa: BLE001
             logger.warning("[weekplan.ai-suggest-commit] existing slot lookup failed: %s", e)
 
     approved_game_time_keys: set[tuple[str, str, str]] = set()
+    approved_warmup_markers: set[str] = set()
     for item in approved:
         if not isinstance(item, dict):
             continue
+        if str(item.get("message_type") or "") == "trivia_warmup_rsvp":
+            raw_payload = item.get("poll_options_json") or "{}"
+            if not isinstance(raw_payload, str):
+                try:
+                    raw_payload = json.dumps(raw_payload, ensure_ascii=False)
+                except Exception:
+                    raw_payload = "{}"
+            try:
+                payload = json.loads(raw_payload or "{}")
+                marker = str(payload.get("warmup_marker") or "").strip()
+                if marker:
+                    approved_warmup_markers.add(marker)
+            except Exception:
+                pass
         if str(item.get("message_type") or "") not in {"trivia_round", "emoji_puzzle"}:
             continue
         try:
@@ -7637,6 +7661,23 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                 poll_options_json = json.dumps(poll_options_json, ensure_ascii=False)
             except Exception:
                 poll_options_json = None
+        poll_payload = {}
+        if poll_options_json:
+            try:
+                parsed_payload = json.loads(poll_options_json)
+                poll_payload = parsed_payload if isinstance(parsed_payload, dict) else {}
+            except Exception:
+                poll_payload = {}
+
+        if mtype in {"trivia_round", "emoji_puzzle"}:
+            marker = str(poll_payload.get("warmup_marker") or "").strip()
+            try:
+                min_ready = int(poll_payload.get("min_ready_players") or 0)
+            except (TypeError, ValueError):
+                min_ready = 0
+            if min_ready > 0 and marker and marker not in approved_warmup_markers and marker not in committed_warmup_markers:
+                errors.append(f"#{i}: orphan game marker {marker} has no approved or existing warmup")
+                continue
 
         slot_key = (d, t[:5], mtype, topic)
         time_key = (d, t[:5], "main")
