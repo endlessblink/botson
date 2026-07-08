@@ -103,6 +103,18 @@ def _init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action_type TEXT NOT NULL,
+                description TEXT,
+                target_user_id INTEGER,
+                target_channel TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -189,6 +201,15 @@ def _seed_fresh_song_pool(path: str, *, count: int = 5) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _trivia_question(text: str, category: str) -> dict:
+    return {
+        "text": text,
+        "options": ["a", "b", "c"],
+        "correct": 1,
+        "category": category,
+    }
 
 
 class BotsonHealthGuardTests(unittest.TestCase):
@@ -411,6 +432,77 @@ class BotsonHealthGuardTests(unittest.TestCase):
         self.assertEqual(result.status, "warn")
         self.assertIn("will auto-refill emoji pool (0/5 fresh, total=5)", result.detail)
         self.assertIn("media_types=['music']", result.detail)
+
+    def test_schedule_passes_when_upcoming_trivia_pool_can_load_requested_questions(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            _init_db(tmp.name)
+            marker = "warmup-rsvp:trivia:2099-01-01:22:00"
+            _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
+            _insert(
+                tmp.name,
+                row_id=2,
+                status="scheduled",
+                message_type="trivia_round",
+                marker=marker,
+                extra_payload={"categories": ["science"], "question_count": 2},
+            )
+            questions = [
+                _trivia_question("q1", "science"),
+                _trivia_question("q2", "science"),
+                _trivia_question("q3", "movies"),
+            ]
+            with patch.object(guard, "_load_trivia_questions", return_value=questions):
+                result = guard.check_schedule(_args(db=tmp.name))
+
+        self.assertEqual(result.status, "ok", result)
+
+    def test_schedule_fails_when_upcoming_trivia_pool_cannot_load_requested_questions(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            _init_db(tmp.name)
+            marker = "warmup-rsvp:trivia:2099-01-01:22:00"
+            _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
+            _insert(
+                tmp.name,
+                row_id=2,
+                status="scheduled",
+                message_type="trivia_round",
+                marker=marker,
+                extra_payload={"categories": ["science"], "question_count": 2},
+            )
+            questions = [
+                _trivia_question("q1", "science"),
+                _trivia_question("q2", "movies"),
+                {"text": "broken", "options": ["a"], "correct": 4, "category": "science"},
+            ]
+            with patch.object(guard, "_load_trivia_questions", return_value=questions):
+                result = guard.check_schedule(_args(db=tmp.name))
+
+        self.assertEqual(result.status, "fail")
+        self.assertIn("trivia pool too small (1/2 loadable, 1/2 fresh, invalid=1)", result.detail)
+        self.assertIn("categories=['science']", result.detail)
+
+    def test_schedule_warns_when_upcoming_trivia_needs_repeat_window_fallback(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            _init_db(tmp.name)
+            marker = "warmup-rsvp:trivia:2099-01-01:22:00"
+            _insert(tmp.name, row_id=1, status="scheduled", message_type="trivia_warmup_rsvp", marker=marker)
+            _insert(
+                tmp.name,
+                row_id=2,
+                status="scheduled",
+                message_type="trivia_round",
+                marker=marker,
+                extra_payload={"categories": ["science"], "question_count": 2},
+            )
+            used = _trivia_question("q1", "science")
+            questions = [used, _trivia_question("q2", "science")]
+            with patch.object(guard, "_load_trivia_questions", return_value=questions), \
+                 patch.object(guard, "_recent_trivia_question_keys", return_value={guard._trivia_question_key(used)}):
+                result = guard.check_schedule(_args(db=tmp.name))
+
+        self.assertEqual(result.status, "warn")
+        self.assertIn("trivia can run only with top-up or repeat-window fallback", result.detail)
+        self.assertIn("(1/2 fresh, total=2)", result.detail)
 
     def test_logs_fail_on_recent_warmup_gate_skip(self):
         with tempfile.TemporaryDirectory() as td:

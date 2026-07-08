@@ -8,6 +8,7 @@ explicit Sherlocks Den smoke send, never the main group.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -236,6 +237,116 @@ def _emoji_fresh_pool_count(conn: sqlite3.Connection, media_types: list[str], *,
     return max(0, total - recent), total
 
 
+def _load_trivia_questions() -> list[dict]:
+    try:
+        import yaml  # type: ignore
+
+        data = yaml.safe_load((REPO_ROOT / "config" / "trivia.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:
+        return []
+    questions = data.get("questions", []) if isinstance(data, dict) else []
+    return [q for q in questions if isinstance(q, dict)]
+
+
+def _trivia_repeat_window_days() -> int:
+    try:
+        import yaml  # type: ignore
+
+        settings = yaml.safe_load((REPO_ROOT / "config" / "settings.yaml").read_text(encoding="utf-8")) or {}
+        raw = (settings.get("trivia") or {}).get("question_repeat_window_days")
+        return max(0, min(365, int(raw or 30)))
+    except Exception:
+        return 30
+
+
+def _trivia_question_key(question: dict) -> str:
+    text = str((question or {}).get("text") or "").strip()
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12] if text else ""
+
+
+def _recent_trivia_question_keys(conn: sqlite3.Connection) -> set[str]:
+    if not _table_exists(conn, "activity_log"):
+        return set()
+    days = _trivia_repeat_window_days()
+    if days <= 0:
+        return set()
+    cutoff = (_now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    pattern = re.compile(r"\bquestion_id:([A-Za-z0-9_\-+]+)")
+    keys: set[str] = set()
+    try:
+        rows = conn.execute(
+            "SELECT description FROM activity_log WHERE action_type = ? AND timestamp >= ?",
+            ("trivia_round", cutoff),
+        ).fetchall()
+    except sqlite3.Error:
+        return set()
+    for row in rows:
+        match = pattern.search(str(row["description"] or ""))
+        if not match:
+            continue
+        keys.update(token.strip() for token in match.group(1).split("+") if token.strip())
+    return keys
+
+
+def _valid_trivia_question(question: dict) -> bool:
+    text = str(question.get("text") or "").strip()
+    options = question.get("options")
+    if not text or not isinstance(options, list) or len(options) < 2:
+        return False
+    try:
+        correct = int(question.get("correct"))
+    except (TypeError, ValueError):
+        return False
+    return 0 <= correct < len(options)
+
+
+def _trivia_row_pool_counts(row: dict, questions: list[dict], recent_keys: set[str]) -> dict:
+    payload = row.get("_payload") or _json_obj(row.get("poll_options"))
+    try:
+        required = int(payload.get("question_count") or 10)
+    except (TypeError, ValueError):
+        required = 10
+    required = max(1, min(20, required))
+    raw_categories = payload.get("categories") or []
+    if isinstance(raw_categories, str):
+        raw_categories = [raw_categories]
+    categories = [str(cat).strip() for cat in raw_categories if str(cat).strip()]
+    category_set = {cat.lower() for cat in categories}
+
+    seen_total: set[str] = set()
+    seen_fresh: set[str] = set()
+    total = 0
+    fresh = 0
+    invalid = 0
+    for question in questions:
+        if category_set:
+            category = str(question.get("category") or "").strip().lower()
+            if category not in category_set:
+                continue
+        if not _valid_trivia_question(question):
+            invalid += 1
+            continue
+        text = str(question.get("text") or "").strip()
+        if text in seen_total:
+            continue
+        seen_total.add(text)
+        total += 1
+        key = _trivia_question_key(question)
+        if key and key in recent_keys:
+            continue
+        if text in seen_fresh:
+            continue
+        seen_fresh.add(text)
+        fresh += 1
+    return {
+        "required": required,
+        "fresh": fresh,
+        "total": total,
+        "invalid": invalid,
+        "categories": categories,
+    }
+
+
 def check_schedule(args: argparse.Namespace) -> Check:
     path = args.db or _db_path()
     if not Path(path).exists():
@@ -286,6 +397,8 @@ def check_schedule(args: argparse.Namespace) -> Check:
             payload = _json_obj(row.get("poll_options"))
             media_types = payload.get("media_types") if isinstance(payload.get("media_types"), list) else []
             emoji_freshness_by_row[int(row["id"])] = _emoji_fresh_pool_count(conn, [str(m) for m in media_types])
+        trivia_questions = _load_trivia_questions()
+        recent_trivia_keys = _recent_trivia_question_keys(conn)
     finally:
         conn.close()
     warmups_by_marker: dict[str, list[dict]] = {}
@@ -340,6 +453,23 @@ def check_schedule(args: argparse.Namespace) -> Check:
                 warnings.append(
                     f"{row_label} will auto-refill emoji pool ({fresh_count}/{puzzle_count} fresh, "
                     f"total={total_count}) for media_types={media_types or 'any'}"
+                )
+        if row["message_type"] == "trivia_round" and row.get("status") == "scheduled":
+            trivia_counts = _trivia_row_pool_counts(row, trivia_questions, recent_trivia_keys)
+            required = int(trivia_counts["required"])
+            fresh_count = int(trivia_counts["fresh"])
+            total_count = int(trivia_counts["total"])
+            invalid_count = int(trivia_counts["invalid"])
+            categories = trivia_counts["categories"] or ["(general — full pool)"]
+            if total_count < required:
+                issues.append(
+                    f"{row_label} trivia pool too small ({total_count}/{required} loadable, "
+                    f"{fresh_count}/{required} fresh, invalid={invalid_count}) for categories={categories}"
+                )
+            elif fresh_count < required:
+                warnings.append(
+                    f"{row_label} trivia can run only with top-up or repeat-window fallback "
+                    f"({fresh_count}/{required} fresh, total={total_count}) for categories={categories}"
                 )
     for session in stale_sessions:
         issues.append(
