@@ -41,6 +41,7 @@ async def _run(args: argparse.Namespace) -> dict:
             db,
             include_planner=args.planner,
             min_suggestions=args.min_suggestions,
+            check_codex_fallback=not args.skip_codex_fallback,
         )
     finally:
         await db.close()
@@ -53,6 +54,7 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=int, default=180, help="hard timeout for the whole check")
     parser.add_argument("--allow-degraded", action="store_true", help="exit 0 when fallback providers were needed")
     parser.add_argument("--db", default="", help="override DB path")
+    parser.add_argument("--skip-codex-fallback", action="store_true", help="skip the explicit Codex fallback auth/output probe")
     args = parser.parse_args()
 
     try:

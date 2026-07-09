@@ -199,6 +199,7 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "degraded")
         self.assertEqual(result["checks"]["provider_chain"]["provider"], "codex_cli")
         self.assertTrue(result["checks"]["provider_chain"]["fallback_used"])
+        self.assertEqual(result["checks"]["codex_fallback"]["status"], "ok")
 
     async def test_generation_health_fails_on_noisy_provider_output(self):
         with patch.object(
@@ -211,6 +212,42 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "failed")
         self.assertFalse(result["checks"]["provider_chain"]["clean_output"])
 
+    async def test_generation_health_fails_when_codex_fallback_auth_is_broken(self):
+        with patch.object(
+            self.app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=("botson_generation_health_ok", [])),
+        ), patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(side_effect=RuntimeError("refresh_token_reused")),
+        ):
+            result = await self.app.run_generation_health_check()
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["checks"]["provider_chain"]["status"], "ok")
+        self.assertEqual(result["checks"]["codex_fallback"]["status"], "failed")
+        self.assertEqual(
+            result["checks"]["codex_fallback"]["error"],
+            "AI generation provider authentication failed. Re-authenticate Claude/Codex on the dashboard host and retry.",
+        )
+
+    async def test_generation_health_passes_when_primary_and_codex_fallback_work(self):
+        with patch.object(
+            self.app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=("botson_generation_health_ok", [])),
+        ), patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(return_value="botson_codex_fallback_ok"),
+        ):
+            result = await self.app.run_generation_health_check()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["checks"]["provider_chain"]["status"], "ok")
+        self.assertEqual(result["checks"]["codex_fallback"]["status"], "ok")
+
     async def test_generation_health_planner_dry_run_fails_on_pool_only_rows(self):
         from bot.database.db import Database
 
@@ -221,6 +258,10 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
                 self.app,
                 "_generate_with_fallbacks",
                 new=AsyncMock(return_value=("botson_generation_health_ok", [])),
+            ), patch.object(
+                self.app,
+                "_generate_via_codex_cli",
+                new=AsyncMock(return_value="botson_codex_fallback_ok"),
             ), patch.object(
                 self.app,
                 "_ai_suggest_calendar",

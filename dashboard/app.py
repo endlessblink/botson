@@ -4363,11 +4363,39 @@ def _generation_provider_from_notices(notices: list[str]) -> str:
     return "claude_cli"
 
 
+async def _run_codex_fallback_health_probe() -> dict:
+    sentinel = "botson_codex_fallback_ok"
+    try:
+        content = await _generate_via_codex_cli(f"Return exactly this text and nothing else: {sentinel}")
+    except Exception as e:
+        if _is_provider_auth_error(e):
+            return {
+                "status": "failed",
+                "provider": "codex_cli",
+                "clean_output": False,
+                "error": _provider_auth_error_message(),
+            }
+        return {
+            "status": "failed",
+            "provider": "codex_cli",
+            "clean_output": False,
+            "error": str(e),
+        }
+    clean = (content or "").strip()
+    return {
+        "status": "ok" if clean == sentinel else "failed",
+        "provider": "codex_cli",
+        "clean_output": clean == sentinel,
+        "error": "" if clean == sentinel else f"unexpected output: {clean[:200]}",
+    }
+
+
 async def run_generation_health_check(
     db: Database | None = None,
     *,
     include_planner: bool = False,
     min_suggestions: int = 6,
+    check_codex_fallback: bool = True,
 ) -> dict:
     """Read-only generation health probe for dashboard, cron, and Watchpost.
 
@@ -4410,6 +4438,20 @@ async def run_generation_health_check(
             "clean_output": False,
             "error": str(e),
         }
+
+    if check_codex_fallback and status != "failed":
+        if checks.get("provider_chain", {}).get("provider") == "codex_cli":
+            checks["codex_fallback"] = {
+                "status": "ok",
+                "provider": "codex_cli",
+                "clean_output": True,
+                "covered_by_provider_chain": True,
+            }
+        else:
+            codex_check = await _run_codex_fallback_health_probe()
+            checks["codex_fallback"] = codex_check
+            if codex_check.get("status") != "ok":
+                status = "failed"
 
     if include_planner and status != "failed":
         owns_db = db is None
