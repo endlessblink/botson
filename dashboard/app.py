@@ -60,6 +60,8 @@ _PROVIDER_AUTH_FRAGMENTS = (
     "invalid authentication credentials",
     "failed to authenticate",
     "refresh_token_invalidated",
+    "refresh_token_reused",
+    "refresh token",
     "your session has ended",
     "401 unauthorized",
 )
@@ -4346,7 +4348,7 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
             f"(Claude CLI={claude_cli_error})"
         ]
     except Exception as codex_err:
-        if _is_provider_auth_error(claude_cli_error) and _is_provider_auth_error(codex_err):
+        if _is_provider_auth_error(codex_err):
             raise GenerationProviderUnavailable(_provider_auth_error_message()) from codex_err
         raise RuntimeError(
             f"Claude generation failed and Codex fallback failed "

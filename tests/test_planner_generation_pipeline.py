@@ -121,6 +121,24 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertIn("AI generation provider authentication failed", message)
         self.assertNotIn("refresh_token_invalidated", message)
 
+    async def test_generation_fallback_chain_sanitizes_codex_auth_after_claude_timeout(self):
+        with patch.object(
+            self.app,
+            "_generate_via_cli",
+            new=AsyncMock(side_effect=RuntimeError("Claude CLI timed out after 90s")),
+        ), patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(side_effect=RuntimeError("401 Unauthorized: refresh_token_reused")),
+        ):
+            with self.assertRaises(self.app.GenerationProviderUnavailable) as ctx:
+                await self.app._generate_with_fallbacks("prompt", context="planner.test")
+
+        message = str(ctx.exception)
+        self.assertIn("AI generation provider authentication failed", message)
+        self.assertNotIn("refresh_token", message)
+        self.assertNotIn("Claude CLI timed out", message)
+
     async def test_ai_suggest_provider_auth_failure_is_single_visible_error(self):
         from bot.database.db import Database
 
