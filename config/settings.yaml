@@ -173,6 +173,12 @@ copy:
     question_book: "איזה ספר זה?"
     question_song: "איזה שיר או אמן זה?"
     admin_pool_exhausted_alert: "⚠️ ערב אימוג'י בנושא {theme} לא פורסם בקבוצה.\n\nלא נותרו חידות חדשות במאגר, והניסיון לייצר חידות חדשות נכשל. המשחק דולג ואף הודעה לא נשלחה למשתמשים.\n\nכדי להריץ אותו: הוסיפו חידות מהדשבורד ותזמנו מחדש.\n\nפרטים טכניים: {reason}"
+    theme_general: "כללי"
+    theme_movie: "סרטים"
+    theme_series: "סדרות"
+    theme_book: "ספרים"
+    theme_song: "מוזיקה"
+    theme_game: "משחקים"
   time_context:
     day_names:
     - "ראשון"

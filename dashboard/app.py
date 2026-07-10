@@ -6470,11 +6470,13 @@ async def _ai_suggest_calendar(
         return [media] if media else []
 
     def _emoji_media_signature(media_types: list[str]) -> tuple[str, ...]:
-        canonical = []
+        # Taxonomy rule: alias normalization lives in game_categories, never
+        # hand-rolled here. A local `tv -> series` map silently missed
+        # `music -> song`, so a music row and a song row produced different
+        # signatures and the rotation treated them as different themes.
+        canonical: list[str] = []
         for media in media_types:
-            m = str(media or "").strip()
-            if m == "tv":
-                m = "series"
+            m = canonical_emoji_media_type(media)
             if m and m not in canonical:
                 canonical.append(m)
         return tuple(canonical)
@@ -6492,10 +6494,17 @@ async def _ai_suggest_calendar(
             cutoff = "1970-01-01"
         try:
             async with db._db.execute(
+                # 'skipped' must count as recently-used. A game the RSVP gate
+                # skipped still published its warm-up announcement, so the
+                # theme was already shown to the group. Omitting it made the
+                # 2026-07-06 music night invisible to the rotation, the
+                # recency list came back empty, and music was re-picked twice
+                # more. 'cancelled' stays excluded: the operator pulled that
+                # row deliberately and its theme should rotate back in.
                 """SELECT poll_options FROM scheduled_messages
                    WHERE message_type = 'emoji_puzzle'
                      AND poll_options IS NOT NULL AND poll_options != ''
-                     AND status IN ('sent', 'scheduled', 'draft')
+                     AND status IN ('sent', 'scheduled', 'draft', 'skipped')
                      AND scheduled_date >= ?
                    ORDER BY scheduled_date DESC, scheduled_time DESC, id DESC""",
                 (cutoff,),
@@ -6573,7 +6582,7 @@ async def _ai_suggest_calendar(
             ) as cur:
                 rows = await cur.fetchall()
             return list(dict.fromkeys(
-                "series" if str(row[0]).strip() == "tv" else str(row[0]).strip()
+                canonical_emoji_media_type(str(row[0]).strip())
                 for row in rows
                 if str(row[0]).strip()
             ))
@@ -6586,27 +6595,28 @@ async def _ai_suggest_calendar(
         configured = [str(x).strip() for x in (emoji_cfg.get("media_types") or []) if str(x).strip()]
         if not configured:
             configured = await _emoji_media_types_from_pool()
-        configured = ["series" if x == "tv" else x for x in configured]
+        configured = [canonical_emoji_media_type(x) for x in configured]
         configured = list(dict.fromkeys(configured))
-        # Hebrew theme labels per canonical media_type. Both `song` (canonical)
-        # and `music` (alias) point at "מוזיקה" so the announcement label stays
-        # correct before AND after running /api/puzzles/normalize-media-types.
-        # `tv` is a legacy alias of `series`; keep both for the same reason.
-        labels = {
-            "movie": "סרטים",
-            "series": "סדרות",
-            "tv": "סדרות",
-            "game": "משחקים",
-            "song": "מוזיקה",
-            "music": "מוזיקה",
-            "book": "ספרים",
-        }
+
+        def _theme_label(media: str) -> str:
+            """Hebrew theme label per canonical media_type, from config.
+
+            Aliases collapse first, so `music` and `song` resolve to the same
+            key and the announcement label stays correct before AND after
+            /api/puzzles/normalize-media-types runs.
+            """
+            from bot.utils.copy import load_copy as _load_copy
+            label = _load_copy("emoji_puzzle", f"theme_{canonical_emoji_media_type(media)}")
+            if label.startswith("[copy missing"):
+                return str(emoji_cfg.get("theme_label") or media)
+            return label
+
         choices: list[tuple[str, list[str], int, tuple[str, ...]]] = []
         for media in configured:
             pool_n = await _count_emoji_pool([media])
             if pool_n >= puzzle_count:
                 sig = _emoji_media_signature([media])
-                choices.append((labels.get(media, str(emoji_cfg.get("theme_label") or media)), [media], pool_n, sig))
+                choices.append((_theme_label(media), [media], pool_n, sig))
         if not choices:
             pool_n = await _count_emoji_pool(configured)
             if pool_n >= puzzle_count:
@@ -6616,12 +6626,26 @@ async def _ai_suggest_calendar(
         if not choices:
             return "", [], 0
         newest = recent_signatures[0] if recent_signatures else None
+
+        def _recency_rank(sig: tuple[str, ...]) -> int:
+            """0 = never used in the window (best). Otherwise the more
+            recently a theme ran, the higher its rank, so it sorts last.
+
+            `recent_signatures` is ordered newest-first. The previous key was
+            `index + 1`, which handed the NEWEST used theme the lowest
+            non-zero rank — i.e. among used themes it preferred the one that
+            just ran. Invert it so the least-recently-used theme comes first.
+            """
+            if sig not in recent_signatures:
+                return 0
+            return len(recent_signatures) - recent_signatures.index(sig)
+
         ranked = sorted(
             choices,
             key=lambda c: (
                 c[3] == newest,
                 c[3] in used_signatures,
-                (recent_signatures.index(c[3]) + 1) if c[3] in recent_signatures else 0,
+                _recency_rank(c[3]),
                 random.random(),
             ),
         )

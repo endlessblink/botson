@@ -220,6 +220,8 @@ cmd_schedule() {
             s.scheduled_date AS d, s.scheduled_time AS t,
             s.channel_topic_id AS topic,
             s.sent_message_id AS tg_msg,
+            json_extract(s.poll_options,'\$.theme_label') AS theme,
+            json_extract(s.poll_options,'\$.media_types') AS media,
             json_extract(s.poll_options,'\$.warmup_marker') AS marker,
             json_extract(s.poll_options,'\$.min_ready_players') AS min_ready,
             (SELECT COUNT(*) FROM trivia_interest_responses r
