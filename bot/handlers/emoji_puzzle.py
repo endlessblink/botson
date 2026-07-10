@@ -352,6 +352,19 @@ async def _ensure_fresh_emoji_pool(
     return fresh_pool
 
 
+POOL_EXHAUSTED_REASON_PREFIX = "auto-refill could not create enough fresh puzzles"
+
+
+def is_pool_exhausted_reason(reason: str | None) -> bool:
+    """True when the skip cause is "refill could not produce enough fresh
+    puzzles" — the one cause an operator must act on.
+
+    Other skip causes (active session, RSVP gate) are self-healing or already
+    visible in the group, so they must not page the admin.
+    """
+    return bool(reason) and str(reason).startswith(POOL_EXHAUSTED_REASON_PREFIX)
+
+
 async def emoji_skip_reason(
     db: Database, chat_id: int, thread_id: int | None,
     *, media_types: list[str] | None = None,
@@ -364,7 +377,7 @@ async def emoji_skip_reason(
     fresh_pool = await _ensure_fresh_emoji_pool(db, puzzle_count, media_types=media_types)
     if len(fresh_pool) < puzzle_count:
         return (
-            f"auto-refill could not create enough fresh puzzles ({len(fresh_pool)}/{puzzle_count}) for "
+            f"{POOL_EXHAUSTED_REASON_PREFIX} ({len(fresh_pool)}/{puzzle_count}) for "
             f"media_types={media_types or 'any'} — "
             "recent replays are blocked"
         )

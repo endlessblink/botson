@@ -15,12 +15,19 @@ from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes
 
 from ..database.db import Database
-from .emoji_puzzle import emoji_skip_reason, send_scheduled_emoji_message, start_emoji_night
+from .emoji_puzzle import (
+    emoji_skip_reason,
+    is_pool_exhausted_reason,
+    send_scheduled_emoji_message,
+    start_emoji_night,
+)
 from .trivia_round import start_scheduled_trivia_round
 from .facts import send_scheduled_fact
 from ..scheduler.dispatch_owner import CRON_OWNED_TYPES
 from ..scheduler.game_contracts import EXECUTABLE_GAME_TYPES, GAME_SLOT_CLAIMING_TYPES
+from ..utils.admin_alerts import notify_admins
 from ..utils.config import should_skip_scheduled_message
+from ..utils.copy import default_theme_label, load_copy
 from ..utils.scheduling_errors import SkippedActivity
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
@@ -570,6 +577,25 @@ def _next_recurrence_date_after(
     return None
 
 
+async def _alert_admin_on_dead_emoji_pool(bot, payload: dict, reason: str) -> bool:
+    """DM the admins when an Emoji Night will be skipped because its puzzle
+    pool could not be refilled. Returns True when an alert was sent.
+
+    Called from the dispatch pre-flight, *before* `start_emoji_night`, so the
+    operator learns the game is dead before the group would have seen it.
+    Only the pool-exhausted cause alerts: an active session resolves itself,
+    and an RSVP-gate skip already posts a visible notice in the warm-up topic.
+    """
+    if not is_pool_exhausted_reason(reason):
+        return False
+    await notify_admins(bot, load_copy(
+        "emoji_puzzle", "admin_pool_exhausted_alert",
+        theme=payload.get("theme_label") or default_theme_label(),
+        reason=reason,
+    ))
+    return True
+
+
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     """Runs every minute. Checks for due messages and sends them."""
     now = datetime.now(_IL_TZ)
@@ -752,6 +778,9 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     media_types=payload.get("media_types") or None,
                 )
                 if _emoji_skip:
+                    # Runs before start_emoji_night, so the admin hears about a
+                    # dead pool before the group would have seen anything.
+                    await _alert_admin_on_dead_emoji_pool(bot, payload, _emoji_skip)
                     raise SkippedActivity(f"emoji_puzzle: {_emoji_skip}")
                 session_id = await start_emoji_night(
                     context,
