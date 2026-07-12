@@ -305,6 +305,12 @@ ai_populate:
       topic_strategy: discussion_category
       rationale: דיון נושאי בשעה גמישה
   caps:
+    # Combined ceiling on executable games (trivia_round + emoji_puzzle) per day,
+    # across types. The per-type week/day caps below still decide which game type
+    # is eligible and how many per week; this only prevents two different games
+    # landing on the same day. Which type wins a contested day follows the per-type
+    # caps + the day's attempt order. Set to 0 to suppress game suggestions.
+    games_per_day: 1
     week:
       morning: 1
       evening: 1

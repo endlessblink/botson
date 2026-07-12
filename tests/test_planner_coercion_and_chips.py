@@ -642,6 +642,69 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("trivia_round", suggested_types)
         self.assertNotIn("emoji_puzzle", suggested_types)
 
+    async def _seed_emoji_pool(self, db):
+        for media_type in ("movie", "series", "song", "game"):
+            for idx in range(6):
+                await db._db.execute(
+                    """INSERT INTO emoji_puzzles
+                       (emoji_prompt, answer_he, answer_en, aliases, difficulty, media_type, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    ("🎬⭐", f"{media_type} {idx}", f"{media_type} {idx}", "[]", 2, media_type, 1),
+                )
+        await db._db.commit()
+
+    def _future_monday(self):
+        today = datetime.now().date()
+        days_since_sunday = (today.weekday() + 1) % 7
+        next_sunday = today - timedelta(days=days_since_sunday) + timedelta(weeks=1)
+        return next_sunday + timedelta(days=1)
+
+    async def _assert_no_game_added_when_day_has(self, committed_type: str, committed_time: str):
+        """Day-scope Populate must add no game to a day that already has an
+        executable game of `committed_type`, regardless of which type it is —
+        the games_per_day ceiling is cross-type. Returns the suggested games so
+        callers can assert emptiness."""
+        db = Database(":memory:")
+        await db.init()
+        await self._seed_emoji_pool(db)
+        target = self._future_monday().isoformat()
+        await db.create_scheduled_message(
+            text="already ran",
+            message_type=committed_type,
+            channel_topic_id=4037,
+            target_group="main",
+            scheduled_date=target,
+            scheduled_time=committed_time,
+            status="sent",
+        )
+        canned = "איזה רגע קטן מהשבוע הזה ממשיך להישאר אצלכם בראש?"
+        with patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(return_value=canned)), \
+             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+            result = await dashboard_app._ai_suggest_calendar(
+                db, target_date=target, window_mode="day",
+            )
+        await db.close()
+        return [
+            s for s in result["suggestions"]
+            if s["message_type"] in ("trivia_round", "emoji_puzzle")
+        ]
+
+    async def test_committed_trivia_blocks_a_second_game_that_day(self):
+        """A committed trivia game fills the day's single game slot, so no emoji
+        (or other) game may be added — even though emoji's own per-type cap is
+        free. Without games_per_day this day would get trivia + emoji.
+
+        This is the one direction the suggest engine can be driven to exercise:
+        in day-scope only the emoji branch competes to add a game, so a
+        pre-committed trivia is what forces the cross-type collision. The
+        reverse (a committed emoji blocking a *suggested* trivia) can't be
+        driven here because trivia does not co-fire in day-scope, so it is left
+        untested rather than asserted vacuously.
+        """
+        games = await self._assert_no_game_added_when_day_has("trivia_round", "21:00")
+        self.assertEqual(games, [], f"no second game allowed; got {games}")
+
     async def test_game_warmup_relevant_topic_routing_can_be_disabled(self):
         settings = dashboard_app.get_settings()
         patched_settings = dict(settings)

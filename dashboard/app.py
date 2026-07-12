@@ -37,6 +37,7 @@ from bot.utils.freshness import freshness_rejection
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
 from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
+from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
     VerifiedTopicError,
@@ -6065,6 +6066,15 @@ async def _ai_suggest_calendar(
         occupied_times.add((d_iso, t))
         existing_type_counts[mtype] = existing_type_counts.get(mtype, 0) + 1
 
+    # One-game-per-day cap: count executable games (trivia_round, emoji_puzzle)
+    # already committed on each day so Populate never proposes a second game on
+    # a day that already has one. Companion rows (warmups/reminders) are not in
+    # EXECUTABLE_GAME_TYPES, so they never count as a game.
+    game_day_counts: dict[str, int] = {}
+    for _od, _ot, _omt in occupied:
+        if _omt in EXECUTABLE_GAME_TYPES:
+            game_day_counts[_od] = game_day_counts.get(_od, 0) + 1
+
     routed_topics: dict[str, int] = {}
     for handler in (
         "trivia_round", "trivia_warmup", "emoji_puzzle", "free_games", "facts_tidbit",
@@ -6234,6 +6244,15 @@ async def _ai_suggest_calendar(
 
     cap_per_window = _ai_populate_caps(settings, scope, slot_map)
     counts = {k: existing_type_counts.get(k, 0) for k in cap_per_window}
+
+    # Combined cross-type ceiling: at most this many executable games per day,
+    # regardless of type. The existing per-type caps (trivia_round, emoji_puzzle)
+    # still shape weekly distribution and which type is eligible; this only stops
+    # two different games landing on the same day. Configurable via
+    # ai_populate.caps.games_per_day (default 1). Set to 0 to suppress games.
+    games_per_day_cap = max(0, int(
+        ((settings.get("ai_populate") or {}).get("caps") or {}).get("games_per_day", 1)
+    ))
 
     # T-170: retry budget configurable; default 3 (was effectively 1 retry,
     # then silent pool fallback). Each retry appends the prior draft + the
@@ -6919,6 +6938,8 @@ async def _ai_suggest_calendar(
             count_as = mtype
         if count_as:
             counts[count_as] = counts.get(count_as, 0) + 1
+        if mtype in EXECUTABLE_GAME_TYPES:
+            game_day_counts[d_iso] = game_day_counts.get(d_iso, 0) + 1
         occupied.add((d_iso, t, mtype))
         occupied_times.add((d_iso, t))
 
@@ -7000,6 +7021,7 @@ async def _ai_suggest_calendar(
         # Emoji puzzle row + announcement. Runtime filters the puzzle pool by
         # the selected subject payload, so the modal's subject is truthful.
         if (counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]
+                and game_day_counts.get(d_iso, 0) < games_per_day_cap
                 and _feature_on("emoji_puzzle")
                 and routed_topics.get("emoji_puzzle") is not None):
             emoji_cfg = (settings.get("schedule", {}) or {}).get("emoji_puzzle", {}) or {}
@@ -7188,6 +7210,7 @@ async def _ai_suggest_calendar(
 
         # Trivia round + warm-up. Defaults and warm-up offset come from settings.
         if (counts.get("trivia_round", 0) < cap_per_window.get("trivia_round", 0)
+                and game_day_counts.get(d_iso, 0) < games_per_day_cap
                 and _feature_on("trivia")
                 and routed_topics.get("trivia_round") is not None):
             for t in trivia_t:
