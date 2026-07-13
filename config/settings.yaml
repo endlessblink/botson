@@ -256,7 +256,12 @@ materializer:
 
 ai_populate:
   weekly_target: 10
-  weekly_min_per_day: 2
+  # 0 = conversation starters (flex.week discussions) are NOT throttled on days
+  # that already have other content. A truthy value here was being used as a
+  # *ceiling* on flex discussions (min(per_day_max, floor - existing)), so busy
+  # near-term days got zero conversation starters — the opposite of a "minimum".
+  # Keep at 0 so flex is governed only by flex.week.per_day_max.
+  weekly_min_per_day: 0
   # Length (in days) of the rolling "fill a week" Populate window. The week
   # button fills the next N days starting today, regardless of the Sun–Sat
   # calendar boundary, so it always yields a full upcoming week of free slots.
@@ -293,8 +298,12 @@ ai_populate:
       # in its subject's channel (topic_strategy: discussion_category). Times
       # are picked from the window below; per_day_max keeps them spread.
       enabled: true
-      max_suggestions: 12
-      per_day_max: 2
+      # Whole-week flex budget. Covers 7 days × per_day_max with margin so later
+      # days don't starve; today is processed first, so it is never
+      # budget-starved. per_day_max still caps any single day.
+      max_suggestions: 24
+      # Conversation starters are the main content, so allow up to 3/day.
+      per_day_max: 3
       min_lead_minutes: 30
       windows:
       - start: '12:00'

@@ -589,10 +589,11 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         # Sanity bound — not a hard cap, just protection against an unbounded
         # explosion. Adjust upward when new pairings legitimately add rows.
         # ~13 capped-type rows (11 types + 2 RSVP announcements) + up to
-        # ai_populate.flex.week.max_suggestions (12) subject discussions that
-        # fill otherwise-empty days. Bound raised 16→30 on 2026-06-07 when
-        # flex.week was enabled.
-        self.assertLessEqual(len(result["suggestions"]), 30)
+        # ai_populate.flex.week.max_suggestions (24) subject discussions that
+        # fill days. Bound raised 16→30 on 2026-06-07 when flex.week was enabled,
+        # then 30→45 on 2026-07-13 when conversation starters were decoupled from
+        # the per-day floor (weekly_min_per_day→0, per_day_max 2→3, budget 12→24).
+        self.assertLessEqual(len(result["suggestions"]), 45)
         fact_rows = [s for s in result["suggestions"] if s["message_type"] in {"facts_tidbit", "facts_spooky"}]
         self.assertTrue(fact_rows)
         self.assertTrue(all(row.get("preview_url") for row in fact_rows))
@@ -954,7 +955,17 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         # Balanced mix, not a flood of one type.
         self.assertGreaterEqual(len(types), 3, types)
 
-    async def test_ai_suggest_rolling_window_meets_configured_daily_floor(self):
+    async def test_ai_suggest_rolling_window_fills_every_day_with_conversation_starters(self):
+        # Regression guard for the operator's repeated complaint: near-term days
+        # came out with almost no conversation starters (discussion rows), even
+        # though those are the main content. Root cause was the flex-discussion
+        # gate coupling flex to a per-day "floor" — a day's own morning+evening
+        # suggestions consumed the floor, so `day_flex_limit` collapsed to 0 and
+        # zero discussions were added. (The old floor test passed only because
+        # morning+evening themselves satisfied the floor — it never checked for
+        # actual discussions.) With weekly_min_per_day=0 flex is governed purely
+        # by flex.week.per_day_max, so every future day gets real conversation
+        # starters regardless of what else is scheduled on it.
         from collections import Counter
         from datetime import date as _date
 
@@ -987,12 +998,23 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             )
 
         await db.close()
-        floor = int((dashboard_app.get_settings().get("ai_populate") or {}).get("weekly_min_per_day") or 0)
-        self.assertGreaterEqual(floor, 1)
-        per_day = Counter(s["date"] for s in result["suggestions"])
+        flex_week = (
+            ((dashboard_app.get_settings().get("ai_populate") or {}).get("flex") or {}).get("week") or {}
+        )
+        per_day_max = int(flex_week.get("per_day_max") or 0)
+        self.assertGreaterEqual(per_day_max, 1)
+        # Every day in the rolling window (all slots future: now is 00:00) must
+        # get at least per_day_max conversation-starter rows.
+        starters_per_day = Counter(
+            s["date"] for s in result["suggestions"]
+            if s["message_type"] in ("discussion", "custom")
+        )
         for i in range(7):
             d_iso = (FixedDate.today() + timedelta(days=i)).isoformat()
-            self.assertGreaterEqual(per_day[d_iso], floor, (d_iso, dict(per_day), result))
+            self.assertGreaterEqual(
+                starters_per_day[d_iso], per_day_max,
+                (d_iso, dict(starters_per_day), result),
+            )
 
     async def test_ai_suggest_rolling_window_skips_past_times_on_day_zero(self):
         # Day 0 of the rolling window is today; already-elapsed times on it
