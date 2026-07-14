@@ -325,6 +325,36 @@ cmd_activity() {
        LIMIT ${lines}"
 }
 
+cmd_rows() {
+  # Read-only dump of ALL scheduled_messages (every type, not just games) in a
+  # date window, so we can see whether a day is already committed vs genuinely
+  # empty. Diagnostic only — no writes.
+  local days="${1:-7}"
+  case "$days" in
+    ''|*[!0-9]*) echo "usage: vps-admin.sh rows [days]  (days = integer forward window, default 7)" >&2; exit 2 ;;
+  esac
+  echo "=== vps-admin.sh rows @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo
+  _require_sqlite3
+  echo "--- scheduled_messages: today .. +${days}d, all types ---"
+  sqlite3 -readonly "$DB_PATH" -header -column \
+    "SELECT scheduled_date AS d, scheduled_time AS t, message_type AS type,
+            status, channel_topic_id AS topic, substr(text,1,40) AS text
+       FROM scheduled_messages
+      WHERE scheduled_date >= date('now')
+        AND scheduled_date <= date('now','+${days} days')
+      ORDER BY scheduled_date, scheduled_time"
+  echo
+  echo "--- per-day counts by status ---"
+  sqlite3 -readonly "$DB_PATH" -header -column \
+    "SELECT scheduled_date AS d, status, COUNT(*) AS n
+       FROM scheduled_messages
+      WHERE scheduled_date >= date('now')
+        AND scheduled_date <= date('now','+${days} days')
+      GROUP BY scheduled_date, status
+      ORDER BY scheduled_date, status"
+}
+
 cmd_verify_topic() {
   local topic_id="${1:-}" category="${2:-}" name="${3:-}"
   if [ -z "$topic_id" ] || [ -z "$category" ] || [ -z "$name" ]; then
@@ -388,6 +418,7 @@ main() {
     topics)        cmd_topics "$@" ;;
     routing)       cmd_routing "$@" ;;
     schedule)      cmd_schedule "$@" ;;
+    rows)          cmd_rows "$@" ;;
     applog)        cmd_applog "$@" ;;
     health)        cmd_health "$@" ;;
     activity)      cmd_activity "$@" ;;
