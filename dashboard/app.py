@@ -3382,16 +3382,7 @@ def _active_discussion_categories_from_config(
         except (TypeError, ValueError):
             continue
 
-    excluded_keys = {"goals", "welcome", "botson_corner", "ai_en"}
-    excluded_topic_ids: set[int] = set()
-    for value in ((settings.get("topics") or {}).get("goals"), (settings.get("topics") or {}).get("welcome")):
-        try:
-            excluded_topic_ids.add(int(value))
-        except (TypeError, ValueError):
-            continue
-
     categories: list[dict] = []
-    seen_topic_ids: set[int] = set()
     for category_key, topic_id in topic_ids.items():
         if not topic_id:
             continue
@@ -3414,30 +3405,6 @@ def _active_discussion_categories_from_config(
             "name": display_name,
             "has_pool": bool(pool.get(key)),
         })
-        seen_topic_ids.add(tid)
-
-    for row in verified:
-        key = str(row.get("category_key") or "").strip()
-        if not key or key in excluded_keys:
-            continue
-        try:
-            tid = int(row.get("topic_id"))
-        except (TypeError, ValueError):
-            continue
-        if tid in seen_topic_ids or tid in excluded_topic_ids:
-            continue
-        display_name = (
-            str(row.get("verified_name") or "").strip()
-            or str(row.get("observed_name") or "").strip()
-            or key
-        )
-        categories.append({
-            "category_key": key,
-            "topic_id": tid,
-            "name": display_name,
-            "has_pool": bool(pool.get(key)),
-        })
-        seen_topic_ids.add(tid)
     return categories
 
 

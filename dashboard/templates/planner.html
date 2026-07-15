@@ -2852,6 +2852,7 @@ var _aiSuggestState = {
     triggerLabel: '',
     boardMode: false,
     boardWindow: null,
+    skipReasons: [],
     draggingKey: null,
 };
 
@@ -3645,6 +3646,13 @@ function _aiSuggestRenderBoard(listEl) {
         var laneSuggestions = _aiSuggestState.suggestions
             .filter(function(s) { return s.date === iso; })
             .sort(function(a, b) { return String(a.time || '').localeCompare(String(b.time || '')); });
+        var dayReasonLabels = [];
+        (_aiSuggestState.skipReasons || [])
+            .filter(function(r) { return r.date === iso; })
+            .forEach(function(r) {
+                var label = String(r.label || '').trim();
+                if (label && dayReasonLabels.indexOf(label) === -1) dayReasonLabels.push(label);
+            });
         var checked = laneSuggestions.filter(function(s) { return _aiSuggestState.checked[s.key] !== false && !s._denied; }).length;
         var qualityIssues = laneSuggestions.filter(function(s) {
             return (s.quality_failures || []).length > 0 || (s.validation_failures || []).length > 0;
@@ -3667,7 +3675,9 @@ function _aiSuggestRenderBoard(listEl) {
         if (!laneSuggestions.length) {
             var empty = document.createElement('div');
             empty.className = 'ai-suggest-day-empty';
-            empty.textContent = 'אין הצעות ביום הזה';
+            empty.textContent = dayReasonLabels.length
+                ? dayReasonLabels.join(' · ')
+                : 'אין הצעות ביום הזה';
             body.appendChild(empty);
         } else {
             laneSuggestions.forEach(function(s) {
@@ -3883,8 +3893,10 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
         var added = null;
         if (appendToBoard) {
             added = _aiSuggestMergeSuggestions(data.suggestions || []);
+            _aiSuggestState.skipReasons = _aiSuggestState.skipReasons.concat(data.skip_reasons || []);
         } else {
             _aiSuggestState.suggestions = data.suggestions || [];
+            _aiSuggestState.skipReasons = data.skip_reasons || [];
             _aiSuggestState.checked = {};
             _aiSuggestState.suggestions.forEach(function(s) {
                 _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
