@@ -990,6 +990,27 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(dashboard_app, "date", FixedDate), \
              patch.object(dashboard_app, "datetime", FixedDateTime), \
+             patch.object(
+                 db,
+                 "get_verified_forum_topics",
+                 new=AsyncMock(return_value=[
+                     {
+                         "topic_id": 153,
+                         "verified_name": "מצחיק / מגניב",
+                         "category_key": "funny",
+                     },
+                     {
+                         "topic_id": 1,
+                         "verified_name": "כל מה שאין לו ערוץ",
+                         "category_key": "topic_1",
+                     },
+                 ]),
+             ), \
+             patch.object(
+                 dashboard_app.random,
+                 "sample",
+                 side_effect=lambda population, k: list(population)[:k],
+             ), \
              patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
@@ -1008,6 +1029,13 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         starters_per_day = Counter(
             s["date"] for s in result["suggestions"]
             if s["message_type"] in ("discussion", "custom")
+        )
+        configured_topic_ids = set(
+            (dashboard_app.get_settings().get("topics", {}).get("discussions", {}) or {}).values()
+        )
+        self.assertTrue(
+            all(s["topic_id"] in configured_topic_ids for s in result["suggestions"] if s["message_type"] == "discussion"),
+            result,
         )
         for i in range(7):
             d_iso = (FixedDate.today() + timedelta(days=i)).isoformat()
@@ -3704,6 +3732,12 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("data.empty_state", self.html)
         self.assertNotIn("_aiSuggestSkipLabel", self.html)
 
+    def test_ai_suggest_board_empty_lane_renders_its_skip_reasons(self):
+        self.assertIn("skipReasons: []", self.html)
+        self.assertIn("_aiSuggestState.skipReasons = data.skip_reasons || []", self.html)
+        self.assertIn("r.date === iso", self.html)
+        self.assertIn("dayReasonLabels.join(' · ')", self.html)
+
     def test_ai_suggest_board_more_sends_visible_rows_as_occupied(self):
         self.assertIn('data-generate-more-date', self.html)
         self.assertIn("function _aiSuggestClientOccupiedForDate", self.html)
@@ -3957,7 +3991,7 @@ class TestDiscussionCategoryDiscovery(unittest.TestCase):
         self.assertEqual(categories[0]["topic_id"], 7777)
         self.assertFalse(categories[0]["has_pool"])
 
-    def test_auto_verified_topic_is_active_without_settings_entry(self):
+    def test_auto_verified_topic_is_not_active_without_settings_entry(self):
         settings = {"topics": {"goals": 2184, "welcome": 341, "discussions": {}}}
         verified_rows = [
             {"topic_id": 2184, "verified_name": "יעדים", "category_key": "goals"},
@@ -3966,7 +4000,17 @@ class TestDiscussionCategoryDiscovery(unittest.TestCase):
 
         categories = _active_discussion_categories_from_config(settings, {}, verified_rows)
 
-        self.assertEqual([c["category_key"] for c in categories], ["topic_7777"])
+        self.assertEqual(categories, [])
+
+    def test_materializer_does_not_activate_verified_topic_without_settings_entry(self):
+        class FakeDb:
+            async def get_verified_forum_topics(self):
+                return [{"topic_id": 7777, "verified_name": "ערוץ חדש", "category_key": "topic_7777"}]
+
+        settings = {"topics": {"goals": 2184, "welcome": 341, "discussions": {}}}
+        categories = asyncio.run(materializer._active_discussion_categories(FakeDb(), settings, {}))
+
+        self.assertEqual(categories, [])
 
 
 class TestChannelChipPaletteRoute(unittest.IsolatedAsyncioTestCase):
