@@ -38,6 +38,7 @@ from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
 from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
 from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
+from bot.utils.redaction import redact_sensitive
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
     VerifiedTopicError,
@@ -67,10 +68,26 @@ _PROVIDER_AUTH_FRAGMENTS = (
     "401 unauthorized",
 )
 
+_PROVIDER_TRANSPORT_FRAGMENTS = (
+    "connection refused",
+    "connection reset",
+    "network is unreachable",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "remote disconnected",
+    "timed out",
+    "timeout",
+)
+
 
 def _is_provider_auth_error(exc: Exception | str | None) -> bool:
     text = str(exc or "").lower()
     return any(fragment in text for fragment in _PROVIDER_AUTH_FRAGMENTS)
+
+
+def _is_provider_transport_error(exc: Exception | str | None) -> bool:
+    text = str(exc or "").lower()
+    return any(fragment in text for fragment in _PROVIDER_TRANSPORT_FRAGMENTS)
 
 
 def _provider_auth_error_message() -> str:
@@ -183,8 +200,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
-# Dashboard password from env
-DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "botson-admin")
+# No built-in production credential: an unset password keeps login closed.
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "").strip()
 
 # DB instance (initialized on startup)
 _db: Database | None = None
@@ -344,7 +361,9 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
-    if password == DASHBOARD_PASSWORD:
+    if not DASHBOARD_PASSWORD:
+        raise HTTPException(status_code=503, detail="Dashboard login is not configured")
+    if secrets.compare_digest(password, DASHBOARD_PASSWORD):
         request.session["authenticated"] = True
         return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(request, name="login.html", context={"error": "סיסמה שגויה"})
@@ -4277,6 +4296,8 @@ async def _generate_via_codex_cli(prompt: str) -> str:
         stdout_text = stdout.decode(errors="replace").strip()
         stderr_text = stderr.decode(errors="replace").strip()
         if proc.returncode != 0:
+            stdout_text = redact_sensitive(stdout_text)
+            stderr_text = redact_sensitive(stderr_text)
             raise RuntimeError(
                 f"Codex CLI error (rc={proc.returncode}): "
                 f"stdout={stdout_text[:400]!r} stderr={stderr_text[:400]!r}"
@@ -4285,7 +4306,9 @@ async def _generate_via_codex_cli(prompt: str) -> str:
         if not out:
             out = stdout_text
         if not out:
-            raise RuntimeError(f"Codex CLI returned empty output (stderr={stderr_text[:400]!r})")
+            raise RuntimeError(
+                f"Codex CLI returned empty output (stderr={redact_sensitive(stderr_text)[:400]!r})"
+            )
         return out
     finally:
         try:
@@ -4307,20 +4330,24 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
         return await _generate_via_cli(prompt), []
     except Exception as claude_cli_err:
         claude_cli_error = claude_cli_err
-        logger.warning("%s: Claude CLI failed, trying Codex CLI: %s", context, claude_cli_err)
+        logger.warning(
+            "%s: Claude CLI failed, trying Codex CLI: %s",
+            context,
+            redact_sensitive(claude_cli_err),
+        )
 
     try:
         content = await _generate_via_codex_cli(prompt)
         return content, [
             f"{context}: Claude generation failed; Codex CLI fallback was used "
-            f"(Claude CLI={claude_cli_error})"
+            f"(Claude CLI={redact_sensitive(claude_cli_error)})"
         ]
     except Exception as codex_err:
         if _is_provider_auth_error(codex_err):
             raise GenerationProviderUnavailable(_provider_auth_error_message()) from codex_err
         raise RuntimeError(
             f"Claude generation failed and Codex fallback failed "
-            f"(Claude CLI={claude_cli_error}; Codex={codex_err})"
+            f"(Claude CLI={redact_sensitive(claude_cli_error)}; Codex={redact_sensitive(codex_err)})"
         ) from codex_err
 
 
@@ -4343,11 +4370,19 @@ async def _run_codex_fallback_health_probe() -> dict:
                 "clean_output": False,
                 "error": _provider_auth_error_message(),
             }
+        if _is_provider_transport_error(e):
+            return {
+                "status": "degraded",
+                "provider": "codex_cli",
+                "clean_output": False,
+                "reason": "transport_unavailable",
+                "error": redact_sensitive(e),
+            }
         return {
             "status": "failed",
             "provider": "codex_cli",
             "clean_output": False,
-            "error": str(e),
+            "error": redact_sensitive(e),
         }
     clean = (content or "").strip()
     return {
@@ -4418,7 +4453,9 @@ async def run_generation_health_check(
         else:
             codex_check = await _run_codex_fallback_health_probe()
             checks["codex_fallback"] = codex_check
-            if codex_check.get("status") != "ok":
+            if codex_check.get("status") == "degraded":
+                status = "degraded"
+            elif codex_check.get("status") != "ok":
                 status = "failed"
 
     if include_planner and status != "failed":
@@ -8885,12 +8922,16 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
     )
 
     if proc.returncode != 0:
+        safe_stdout = redact_sensitive(stdout)
+        safe_stderr = redact_sensitive(stderr)
         raise RuntimeError(
             f"codex CLI rc={proc.returncode} "
-            f"stdout={stdout[:400]!r} stderr={stderr[:400]!r}"
+            f"stdout={safe_stdout[:400]!r} stderr={safe_stderr[:400]!r}"
         )
     if not stdout:
-        raise RuntimeError(f"codex CLI empty stdout, stderr={stderr[:400]!r}")
+        raise RuntimeError(
+            f"codex CLI empty stdout, stderr={redact_sensitive(stderr)[:400]!r}"
+        )
 
     # Codex transcript wraps the JSON with session/user/codex blocks; grab the
     # last standalone JSON object (which is duplicated after "tokens used").
@@ -8905,7 +8946,10 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
     # Pick the largest parseable dict — that's the real payload, not a
     # fragment from some session header.
     if not candidates:
-        raise RuntimeError(f"codex CLI: no parseable JSON in output (first 400 chars): {stdout[:400]}")
+        raise RuntimeError(
+            "codex CLI: no parseable JSON in output (first 400 chars): "
+            f"{redact_sensitive(stdout)[:400]}"
+        )
     candidates.sort(key=lambda d: len(json.dumps(d)), reverse=True)
     return candidates[0], {"transport": "codex-cli"}
 
@@ -8973,8 +9017,9 @@ async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
             logger.info("[ai-fill-today] digest OK via %s", transport_name)
             return plan, usage
         except Exception as e:
-            errors.append(f"{transport_name}: {e}")
-            logger.warning("[ai-fill-today] %s failed: %s", transport_name, e)
+            safe_error = redact_sensitive(e)
+            errors.append(f"{transport_name}: {safe_error}")
+            logger.warning("[ai-fill-today] %s failed: %s", transport_name, safe_error)
 
     logger.error("[ai-fill-today] all transports failed: %s", " | ".join(errors))
     raise RuntimeError("digest failed on all transports: " + " | ".join(errors))

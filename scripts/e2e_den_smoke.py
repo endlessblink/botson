@@ -36,7 +36,7 @@ Real send (requires explicit operator approval — never run unattended)::
 Other flags::
 
     --base-url URL    Dashboard base URL (default http://localhost:8080)
-    --password PW     Dashboard password (defaults to $DASHBOARD_PASSWORD or 'botson-admin')
+    --password PW     Dashboard password (defaults to $DASHBOARD_PASSWORD)
     --keep            Skip cleanup; leave rows in DB (useful for inspection)
     --json            Emit a JSON summary on stdout instead of the human table
     --only TYPE,...   Restrict to specific message types (comma-separated)
@@ -349,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", default="http://localhost:8080",
                         help="Dashboard base URL (default: http://localhost:8080)")
     parser.add_argument("--password", default=None,
-                        help="Dashboard password (default: $DASHBOARD_PASSWORD or 'botson-admin')")
+                        help="Dashboard password (default: $DASHBOARD_PASSWORD)")
     parser.add_argument("--keep", action="store_true",
                         help="Skip cleanup; leave rows in DB for inspection")
     parser.add_argument("--json", dest="emit_json", action="store_true",
@@ -376,7 +376,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         return run_dry_run(plans, args.base_url)
 
-    password = args.password or os.environ.get("DASHBOARD_PASSWORD", "botson-admin")
+    password = args.password or os.environ.get("DASHBOARD_PASSWORD", "").strip()
+    if not password:
+        parser.error("dashboard password is required via --password or DASHBOARD_PASSWORD")
     exit_code, results = run_send(plans, args.base_url, password, keep=args.keep)
     if args.emit_json:
         print(json.dumps(

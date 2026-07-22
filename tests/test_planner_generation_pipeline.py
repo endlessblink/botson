@@ -232,6 +232,56 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
             "AI generation provider authentication failed. Re-authenticate Claude/Codex on the dashboard host and retry.",
         )
 
+    async def test_generation_health_degrades_on_transport_only_codex_outage(self):
+        with patch.object(
+            self.app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=("botson_generation_health_ok", [])),
+        ), patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(side_effect=RuntimeError("connection refused")),
+        ):
+            result = await self.app.run_generation_health_check()
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["checks"]["provider_chain"]["status"], "ok")
+        self.assertEqual(result["checks"]["codex_fallback"]["status"], "degraded")
+        self.assertEqual(result["checks"]["codex_fallback"]["reason"], "transport_unavailable")
+
+    async def test_codex_transport_health_error_redacts_credentials(self):
+        token = "1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+        with patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(
+                side_effect=RuntimeError(
+                    f"connection refused https://api.telegram.org/bot{token}/sendMessage"
+                )
+            ),
+        ):
+            result = await self.app._run_codex_fallback_health_probe()
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertNotIn(token, result["error"])
+        self.assertIn("[REDACTED_TELEGRAM_TOKEN]", result["error"])
+
+    async def test_generation_health_fails_on_codex_fallback_noisy_output(self):
+        with patch.object(
+            self.app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=("botson_generation_health_ok", [])),
+        ), patch.object(
+            self.app,
+            "_generate_via_codex_cli",
+            new=AsyncMock(return_value="transcript\nbotson_codex_fallback_ok"),
+        ):
+            result = await self.app.run_generation_health_check()
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["checks"]["codex_fallback"]["status"], "failed")
+        self.assertFalse(result["checks"]["codex_fallback"]["clean_output"])
+
     async def test_generation_health_passes_when_primary_and_codex_fallback_work(self):
         with patch.object(
             self.app,
