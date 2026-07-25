@@ -3589,6 +3589,28 @@ function _aiSuggestMergeSuggestions(nextSuggestions) {
     return added;
 }
 
+// When the operator unchecks (rejects) a day's suggestion and then asks for
+// more, the freed slot should be refilled — not treated as occupied. Drop the
+// unchecked, non-denied, non-linked suggestions for this date so the follow-up
+// fetch sees their slots as free and can propose replacements. Linked
+// warm-up/game groups are left intact (they commit as a unit).
+function _aiSuggestDropUncheckedForDate(iso) {
+    var kept = [];
+    var dropped = 0;
+    _aiSuggestState.suggestions.forEach(function(s) {
+        if (s && s.date === iso && !s._denied
+            && _aiSuggestState.checked[s.key] === false
+            && !_aiSuggestMarker(s)) {
+            delete _aiSuggestState.checked[s.key];
+            dropped += 1;
+            return;
+        }
+        kept.push(s);
+    });
+    if (dropped) _aiSuggestState.suggestions = kept;
+    return dropped;
+}
+
 function _aiSuggestClientOccupiedForDate(iso) {
     return _aiSuggestState.suggestions
         .filter(function(s) { return s && s.date === iso && !s._denied; })
@@ -3810,6 +3832,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     }
     if (appendToBoard) {
         _aiSuggestSyncCheckedFromDom();
+        if (targetDate) _aiSuggestDropUncheckedForDate(targetDate);
     }
     _aiSuggestState.triggerLabel = triggerLabel || '';
     _aiSuggestState.timedOut = false;
