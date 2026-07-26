@@ -1,0 +1,18 @@
+{
+  "id": "botson",
+  "name": "Botson",
+  "aliases": ["robotnik", "telegram group bot", "botson bot"],
+  "platform": "telegram",
+  "lifecycle": "active",
+  "summary": "Telegram group bot — commands, scheduling, trivia, leaderboard, plus Hebrew discussion/morning/evening content.",
+  "deployment": {
+    "kind": "vps-systemd",
+    "vpsBotId": "botson",
+    "service": "botson",
+    "host": "84.46.253.137"
+  },
+  "chats": [],
+  "personas": [],
+  "docs": ["http://84.46.253.137:8080", "/opt/robotnik/"],
+  "notes": "Two units: botson (bot) and botson-dashboard. Its health guard timers (botson-health-daily, botson-health-weekly) are currently in a failed state. Hebrew content rules live in config/operator_prefs.md in this repo."
+}

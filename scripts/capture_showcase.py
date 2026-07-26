@@ -581,8 +581,9 @@ def main():
     password = (
         args.password
         or os.environ.get("DASHBOARD_PASSWORD")
-        or "botson-admin"
     )
+    if not password:
+        parser.error("dashboard password is required via --password or DASHBOARD_PASSWORD")
     base_url = args.base_url.rstrip("/")
 
     mode = "screenshots" if args.screenshots else "video"

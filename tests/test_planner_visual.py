@@ -78,10 +78,11 @@ class PlannerVisualTests(unittest.TestCase):
             cls.proc.terminate()
             raise unittest.SkipTest(f"dashboard didn't start on port {cls.port}")
 
-        # Pull the dashboard password so we can authenticate the browser.
+        # Prefer the same test-only password inherited by the subprocess.
+        # Fall back to .env for direct unittest runs outside pytest.
         env_path = Path(".env")
-        cls.password = ""
-        if env_path.exists():
+        cls.password = env.get("DASHBOARD_PASSWORD", "").strip()
+        if not cls.password and env_path.exists():
             for line in env_path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("DASHBOARD_PASSWORD"):
                     cls.password = line.split("=", 1)[1].strip().strip('"').strip("'")

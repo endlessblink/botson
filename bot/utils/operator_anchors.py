@@ -1,4 +1,4 @@
-"""Shared loader for operator-curated good/bad anchor examples.
+"""Shared loader for the operator-learned prompt layer.
 
 Gap 3b (2026-05-18): both the dashboard's `_active_style_profile_block_sync`
 and the bot-side prompt builders (`bot/scheduler/materializer.py`,
@@ -6,23 +6,33 @@ and the bot-side prompt builders (`bot/scheduler/materializer.py`,
 anchors. Hosting the reader here keeps one source of truth across the two
 processes and avoids a dashboard→bot reverse import.
 
-The canonical sections live in `config/operator_prefs.md`:
+The sections live in the operator-prefs store (see `prefs_store`):
+  - `### Hebrew content rules`         — learned directives
   - `### Good examples — Hebrew content`
   - `### Bad examples — Hebrew content`
 
-Each is a flat list of `- ...` bullets, capped around 15 entries (the
-diminishing-returns ceiling for few-shot examples). 60-second mtime-based
-cache; safe to call from every prompt build.
+Each is a flat list of `- ...` bullets. The example sections are capped
+around 15 entries (the diminishing-returns ceiling for few-shot
+examples). 60-second mtime-based cache; safe to call from every prompt
+build.
+
+2026-07-25: the rules section was added here because the *bulk* fill
+path — the materializer, which writes the daily morning/evening/
+discussion rows the group actually sees — only ever injected the static
+`question_quality.md` rules and the anchors. Every rule learned from an
+operator rejection was invisible to the surface that produces most of
+the content.
 """
 from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
+from bot.utils.prefs_store import runtime_prefs_path
 
 logger = logging.getLogger(__name__)
 
-_PREFS_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "operator_prefs.md"
+_PREFS_PATH = runtime_prefs_path()
+_RULES_HEADING = "### Hebrew content rules"
 _GOOD_HEADING = "### Good examples — Hebrew content"
 _BAD_HEADING = "### Bad examples — Hebrew content"
 _TTL_SECONDS = 60.0
@@ -30,6 +40,7 @@ _TTL_SECONDS = 60.0
 _cache: dict = {
     "mtime": 0.0,
     "loaded_at": 0.0,
+    "rules": [],
     "good": [],
     "bad": [],
 }
@@ -73,6 +84,7 @@ def _load() -> None:
         return
     def _bullets(body: str) -> list[str]:
         return [ln.strip() for ln in body.splitlines() if ln.strip().startswith("- ")]
+    _cache["rules"] = _bullets(_split_at_section(text, _RULES_HEADING))
     _cache["good"] = _bullets(_split_at_section(text, _GOOD_HEADING))
     _cache["bad"] = _bullets(_split_at_section(text, _BAD_HEADING))
     _cache["mtime"] = st.st_mtime
@@ -83,6 +95,30 @@ def load_anchors() -> tuple[list[str], list[str]]:
     """Return (good_bullets, bad_bullets). Empty lists if file missing."""
     _load()
     return list(_cache["good"]), list(_cache["bad"])
+
+
+def load_learned_rules() -> list[str]:
+    """Return the learned Hebrew directive bullets (empty if none)."""
+    _load()
+    return list(_cache["rules"])
+
+
+def render_learned_rules_block() -> str:
+    """Hebrew prompt fragment with the learned directives, ready to append.
+
+    Returns "" when nothing has been learned yet, so callers can no-op
+    concat. These are the rules the operator's rejections produced — the
+    generation path that skips them is, by definition, not learning.
+    """
+    rules = load_learned_rules()
+    if not rules:
+        return ""
+    from bot.utils.copy import load_copy
+    header = load_copy(
+        "planner", "learned_rules_header",
+        default="⚠ כללים שנלמדו מדחיות האופרטור — חובה לציית:",  # noqa: hardcoded-content (Hebrew header, fallback only)
+    )
+    return header + "\n" + "\n".join(rules)
 
 
 def render_anchor_block() -> str:
@@ -116,5 +152,6 @@ def reset_cache() -> None:
     """Test hook — clears the loader cache so reloads pick up edits."""
     _cache["mtime"] = 0.0
     _cache["loaded_at"] = 0.0
+    _cache["rules"] = []
     _cache["good"] = []
     _cache["bad"] = []

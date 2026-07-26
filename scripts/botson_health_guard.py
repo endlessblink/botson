@@ -24,8 +24,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from bot.utils.redaction import redact_sensitive
+
+
 IL_TZ = ZoneInfo("Asia/Jerusalem")
 GAME_TYPES = {"trivia_round", "emoji_puzzle"}
 WARMUP_TYPE = "trivia_warmup_rsvp"
@@ -120,8 +125,9 @@ def _run(
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired as exc:
-        return Check(name, "fail", f"timed out after {timeout_s}s", {"cmd": cmd, "output": (exc.stdout or "")[-2000:]}, time.monotonic() - start)
-    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        output = redact_sensitive(exc.stdout or "")[-2000:]
+        return Check(name, "fail", f"timed out after {timeout_s}s", {"cmd": cmd, "output": output}, time.monotonic() - start)
+    output = redact_sensitive((proc.stdout or "") + (proc.stderr or "")).strip()
     warn_codes = warn_codes or set()
     if proc.returncode == 0:
         return Check(name, "ok", output[-2000:], {"cmd": cmd, "exit_code": proc.returncode}, time.monotonic() - start)
@@ -590,15 +596,17 @@ def check_logs(args: argparse.Namespace) -> Check:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
+        current_stamp: datetime | None = None
         for line in lines:
+            try:
+                current_stamp = datetime.strptime(line[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=IL_TZ)
+            except ValueError:
+                pass
             if not RECENT_BAD_LOG.search(line):
                 continue
-            try:
-                stamp = datetime.strptime(line[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=IL_TZ)
-            except ValueError:
-                stamp = _now()
+            stamp = current_stamp or _now()
             if stamp >= cutoff:
-                hits.append(line[:500])
+                hits.append(redact_sensitive(line)[:500])
     if hits:
         return Check("logs", "fail", f"{len(hits)} recent bad log line(s)", {"hits": hits[-20:]})
     return Check("logs", "ok", f"no bad log lines in last {args.since_hours}h")
@@ -756,7 +764,7 @@ def _send_telegram(text: str, *, timeout_s: int) -> list[str]:
                 if resp.status >= 400:
                     errors.append(f"{chat_id}: HTTP {resp.status}")
         except Exception as exc:
-            errors.append(f"{chat_id}: {exc}")
+            errors.append(redact_sensitive(f"{chat_id}: {exc}"))
     return errors
 
 

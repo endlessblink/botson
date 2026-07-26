@@ -237,6 +237,26 @@ class BotsonHealthGuardTests(unittest.TestCase):
         self.assertFalse(alert["sent"])
         send.assert_not_called()
 
+    def test_telegram_alert_error_redacts_bot_token(self):
+        token = "1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+        args = _args()
+        with patch.dict(
+            guard.os.environ,
+            {"BOT_TOKEN": token, "BOTSON_HEALTH_ALERT_CHAT_IDS": "123"},
+            clear=False,
+        ), patch.object(
+            guard.urllib.request,
+            "urlopen",
+            side_effect=RuntimeError(
+                f"request failed: https://api.telegram.org/bot{token}/sendMessage"
+            ),
+        ):
+            errors = guard._send_telegram("health", timeout_s=args.alert_timeout_seconds)
+
+        self.assertEqual(len(errors), 1)
+        self.assertNotIn(token, errors[0])
+        self.assertIn("[REDACTED_TELEGRAM_TOKEN]", errors[0])
+
     def test_alerts_send_on_new_issue_and_persist_fingerprint(self):
         with tempfile.TemporaryDirectory() as td, \
              patch.object(guard, "_send_telegram", return_value=[]) as send:
@@ -521,6 +541,44 @@ class BotsonHealthGuardTests(unittest.TestCase):
 
         self.assertEqual(result.status, "fail")
         self.assertIn("recent bad log", result.detail)
+
+    def test_logs_attribute_multiline_error_to_its_old_timestamp(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "bot.log"
+            log.write_text(
+                "2098-12-20 08:00:00,000 - bot - INFO - request failed\n"
+                "Traceback (most recent call last):\n"
+                "  RuntimeError: stale failure\n",
+                encoding="utf-8",
+            )
+            original_now = guard._now
+            guard._now = lambda: guard.datetime(2099, 1, 1, 9, 0, tzinfo=guard.IL_TZ)
+            try:
+                result = guard.check_logs(_args(log=str(log), since_hours=24))
+            finally:
+                guard._now = original_now
+
+        self.assertEqual(result.status, "ok", result)
+
+    def test_logs_attribute_multiline_error_to_its_recent_timestamp(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "bot.log"
+            log.write_text(
+                "2099-01-01 08:00:00,000 - bot - INFO - request failed\n"
+                "Traceback (most recent call last):\n"
+                "  RuntimeError: recent failure\n",
+                encoding="utf-8",
+            )
+            original_now = guard._now
+            guard._now = lambda: guard.datetime(2099, 1, 1, 9, 0, tzinfo=guard.IL_TZ)
+            try:
+                result = guard.check_logs(_args(log=str(log), since_hours=24))
+            finally:
+                guard._now = original_now
+
+        self.assertEqual(result.status, "fail", result)
+        self.assertIn("Traceback (most recent call last):", result.data["hits"])
+        self.assertIn("  RuntimeError: recent failure", result.data["hits"])
 
     def test_coverage_passes_with_digest_game_routing_and_topics(self):
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:

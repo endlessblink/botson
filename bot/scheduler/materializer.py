@@ -309,7 +309,16 @@ async def _generate_fresh_text(
     # canonical block so the bulk-fill path (the one that actually feeds
     # the next-day group sends) sees ⭐/🚫 canonized drafts alongside the
     # hard rules. No-op when both sections are empty.
-    from bot.utils.operator_anchors import render_anchor_block
+    from bot.utils.operator_anchors import render_anchor_block, render_learned_rules_block
+    # 2026-07-25: the learned rules were missing from THIS path entirely.
+    # The materializer writes the daily morning/evening/discussion rows —
+    # most of what the group sees — so every rule extracted from an
+    # operator rejection was being applied to the planner's one-off
+    # generations and nowhere else. Rules first: they are directives, and
+    # the anchors below are only illustrations of them.
+    learned_rules = render_learned_rules_block()
+    if learned_rules:
+        canonical_block += "\n\n" + learned_rules
     anchors = render_anchor_block()
     if anchors:
         canonical_block += "\n\n" + anchors

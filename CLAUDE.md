@@ -10,19 +10,21 @@
 
 A guardian test (`tests/test_no_verbatim_quotes_in_rules.py`) makes the wrong pattern undeployable: any auto-learned rule containing >40 consecutive characters from an input draft fails CI.
 
-**Source:** Operator pushback 2026-05-16, on commit `30b563c`: *"this is the 100th time we went in the same loophole. how do we avoid it? this shouldn't ever happen if you would have followed the direction we already established."* My default reach was "deterministic = safe, LLM = risky." For a learning system that is **backwards**. Mechanical = wrong. LLM synthesis = correct.
+**Source:** Operator pushback 2026-05-16, on commit `30b563c`: _"this is the 100th time we went in the same loophole. how do we avoid it? this shouldn't ever happen if you would have followed the direction we already established."_ My default reach was "deterministic = safe, LLM = risky." For a learning system that is **backwards**. Mechanical = wrong. LLM synthesis = correct.
 
 ## ⚠ DESIGN PRINCIPLE — Autonomous learning, not operator-as-rule-author
 
-**The operator (Noam) wants the system to learn dynamically from feedback signals — NOT to manually propose rules one by one.** When you see an operator-action (rejection, score=1, deny+reason), the default behavior is: the system auto-extracts a rule and persists it. The operator's role is to *correct after the fact* (one-click undo), not to *approve before the fact*.
+**The operator (Noam) wants the system to learn dynamically from feedback signals — NOT to manually propose rules one by one.** When you see an operator-action (rejection, score=1, deny+reason), the default behavior is: the system auto-extracts a rule and persists it. The operator's role is to _correct after the fact_ (one-click undo), not to _approve before the fact_.
 
 **Anti-patterns — do NOT build these:**
+
 - "Promote-now" checkboxes that require explicit opt-in for each rule (Gap 2 v1, 2026-05-16 — reverted).
 - N=K silent-threshold banners that wait for K rejections before proposing.
 - Manual diff-review UIs the operator must click through.
 - Any flow whose default is "wait for the operator to formalize the rule."
 
 **Correct patterns:**
+
 - Auto-promote every substantive rejection (>15 chars of reason text, OR has corrected_text, OR English-mixed Hebrew commentary).
 - Show a visible toast/audit after the write — visibility ≠ approval.
 - Provide one-click undo on every auto-learned rule.
@@ -42,6 +44,22 @@ If you find yourself adding a "should the operator click to confirm?" gate to an
 - `config/question_quality.md` remains the immutable hard-rule spec. `config/operator_prefs.md` is the evolving soft-rule layer learned from feedback.
 - Plan & research sources: `~/.claude/plans/i-need-to-understand-elegant-goblet.md`.
 
+### ⚠ The live prefs file is `data/operator_prefs.md`, not the git-tracked one (2026-07-25)
+
+`deploy.sh` runs `git reset --hard origin/main`. Anything the runtime writes into a **tracked** file is discarded on the next deploy — which is exactly what happened to the learning loop between 2026-05-18 and 2026-07-25: rules were extracted, written, and silently wiped, so ~2 months of rejections taught the bot nothing.
+
+- **Live store:** `data/operator_prefs.md` (gitignored). All reads and writes go through `bot/utils/prefs_store.py:runtime_prefs_path()`.
+- **Baseline:** `config/operator_prefs.md` stays tracked — it is the hand-authored seed and the cross-tool skill symlink target. On startup, baseline bullets missing from the live file are appended (additive merge), so a committed hand-edit still reaches production.
+- **Removals** via `untrain` are tombstoned in `data/operator_prefs_removed.json` so the merge can't resurrect them.
+- **Never** point a runtime writer at a path under `config/`. Guardian: `tests/test_prefs_deploy_durability.py`.
+
+### ⚠ Every generation path must inject the learned rules
+
+The materializer (`bot/scheduler/materializer.py`) writes the daily morning / evening / discussion rows — most of what the group actually reads. Until 2026-07-25 it injected `question_quality.md` and the ⭐/🚫 anchors but **not** the learned `### Hebrew content rules`, so operator rejections only steered the planner's one-off generations.
+
+- Use `bot/utils/operator_anchors.py:render_learned_rules_block()` — the one bot-side reader — in every prompt builder. Rules go **before** the anchor examples.
+- Rule lists are capped by `settings.learning.max_hebrew_rules` (default 40). Over the cap, an LLM consolidation pass merges overlapping directives down to ~60%. If that call fails, the full list is kept — **never truncate rules mechanically** (same reasoning as the "abstraction over enumeration" principle above).
+- Guardian: `tests/test_learned_rules_in_bulk_fill.py`, `tests/test_rule_consolidation.py`.
 
 ## Dashboard Parity Rule
 
@@ -55,24 +73,24 @@ The dashboard is the primary control interface. Users should never need to use T
 
 ### Command → Dashboard Mapping
 
-| Command | Dashboard Location | Status |
-|---------|-------------------|--------|
-| `/level` | Levels page — leaderboard table | Done |
-| `/leaderboard` | Levels page — full leaderboard | Done |
-| `/resetlevels` | Levels page — reset button | Done |
-| `/streak` | Levels/Members page — streak column | TODO (T-069) |
-| `/stats` | Overview/Health page — stats cards | TODO (T-071) |
-| `/whitelist` | Spam page — whitelist textarea | Partial (T-070) |
-| `/event` | Events page — create form | Partial (T-072) |
-| `/events` | Events page — events table | Done |
-| `/trivia` | Trivia page — start button | TODO (T-067) |
-| `/triviascore` | Trivia page — leaderboard | Done |
-| `/triviatop` | Trivia page — leaderboard | Done |
-| Send message | Health page — send test | TODO (T-064) |
-| Morning prompt | Prompts page — send now | TODO (T-065) |
-| Discussion prompt | Prompts page — send now | TODO (T-066) |
-| Weekly roundup | Prompts page — send now | TODO (T-073) |
-| Topic routing | Moderation page — observation stats + rules | Phase 0 (observe-only) |
+| Command           | Dashboard Location                          | Status                 |
+| ----------------- | ------------------------------------------- | ---------------------- |
+| `/level`          | Levels page — leaderboard table             | Done                   |
+| `/leaderboard`    | Levels page — full leaderboard              | Done                   |
+| `/resetlevels`    | Levels page — reset button                  | Done                   |
+| `/streak`         | Levels/Members page — streak column         | TODO (T-069)           |
+| `/stats`          | Overview/Health page — stats cards          | TODO (T-071)           |
+| `/whitelist`      | Spam page — whitelist textarea              | Partial (T-070)        |
+| `/event`          | Events page — create form                   | Partial (T-072)        |
+| `/events`         | Events page — events table                  | Done                   |
+| `/trivia`         | Trivia page — start button                  | TODO (T-067)           |
+| `/triviascore`    | Trivia page — leaderboard                   | Done                   |
+| `/triviatop`      | Trivia page — leaderboard                   | Done                   |
+| Send message      | Health page — send test                     | TODO (T-064)           |
+| Morning prompt    | Prompts page — send now                     | TODO (T-065)           |
+| Discussion prompt | Prompts page — send now                     | TODO (T-066)           |
+| Weekly roundup    | Prompts page — send now                     | TODO (T-073)           |
+| Topic routing     | Moderation page — observation stats + rules | Phase 0 (observe-only) |
 
 ### Dashboard-Only Features (no Telegram equivalent needed)
 
@@ -134,6 +152,7 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 Every Hebrew string a user sees, every magic number that shapes UX, every fallback must be sourced from a config file the operator can edit. Code carries no user-visible Hebrew except as an explicit `[copy missing]`-style placeholder for graceful degradation when the config key is absent.
 
 **Forbidden in production code (`bot/handlers/**`, `bot/utils/**`, `bot/scheduler/**`, `dashboard/app.py`, `dashboard/templates/**`):**
+
 - Hebrew string literals not passed through a config-read helper or `# noqa: hardcoded-content (reason)`'d.
 - Hardcoded `chat_id=-100…` or `message_thread_id=<int>` literals (route through `bot_message_routing` or env).
 - Hardcoded LLM-prompt thresholds (`עד 140 תווים`, `1-3 שורות`, `5-8` generation counts) — must come from `config/settings.yaml:llm.prompt_rules.*`.
@@ -143,6 +162,7 @@ Every Hebrew string a user sees, every magic number that shapes UX, every fallba
 - `selected` attribute on `<option>` defaults that bias content choice without an `{% if %}` operator-state gate.
 
 **Where things live:**
+
 - `config/settings.yaml` — UX thresholds, gamification, schedule, LLM prompt rules, `bot.community_context`, `copy.*` namespace.
 - `config/copy/*.yaml` — long-form templates (welcome, events, etc.) when settings.yaml gets too dense.
 - `config/freshness.yaml` — content-validation rejection fragments (canonical ban list shared with the guardian test).
@@ -150,6 +170,7 @@ Every Hebrew string a user sees, every magic number that shapes UX, every fallba
 - Env vars — secrets, model versions, API endpoints.
 
 **Enforcement:**
+
 - `tests/test_no_hardcoded_content.py` — guardian test runs the full pattern set. Failures list every offending file:line. The test is the live spec.
 - `scripts/deploy.sh` — runs the guardian as a pre-deploy step. Regressions block deploy unless explicitly bypassed (`SKIP_HARDCODED_GUARDIAN=1 ./deploy.sh`, audit-logged).
 - `scripts/pre-commit.sample` — optional pre-commit hook (advisory until guardian fully green, then blocking).
@@ -174,6 +195,7 @@ Every Hebrew string a user sees, every magic number that shapes UX, every fallba
 5. If legacy rows already exist with non-canonical values, add a one-shot `normalize_<game>_categories()` DB method (idempotent UPDATE) and expose it via `POST /api/<game>s/normalize-categories`. Re-runnable; no-op once clean.
 
 **Forbidden:**
+
 - Hardcoded category-specific Hebrew in any `bot/handlers/<game>*.py` (`איזה סרט`, `איזו סדרה`, `איזה שיר/אמן/ספר/משחק` …). The guardian test fails CI on these.
 - Per-handler duplicate alias dicts. There is exactly one alias map per game type, in `game_categories.py`.
 - Branching on raw category strings (`if media_type == "music":`) — always pipe through `canonical_<game>_*()` first.
@@ -235,12 +257,14 @@ botson-hermes chat -q "Check Botson status. Do not deploy."
 ```
 
 Alias behavior:
+
 - Executes from the Botson repo: `/media/endlessblink/data/my-projects/ai-development/bots+automation/botson`
 - Preloads Hermes skill: `botson-operator-playbook`
 - Wrapper path: `~/.local/bin/botson-hermes`
 - Skill path: `~/.hermes/skills/software-development/botson-operator-playbook/SKILL.md`
 
 Operating plan:
+
 - Use Hermes for local repo inspection, local tests, read-only diagnostics, draft code changes, and suggested verification steps.
 - Require explicit approval before deploys, pushes, Telegram sends, production game starts, prod row cancellation/deletion, prod SQLite edits, secrets changes, or broad content-validator changes.
 - Prefer production read-only diagnostics over SSH+SQL for verification.
@@ -249,6 +273,7 @@ Operating plan:
 - For planner Populate work, Hermes must preserve the suggest+confirm modal invariant and run the focused Populate tests before claiming the flow works.
 
 VPS service users:
+
 - `botson.service` runs as `botson` (calls `run_bot.sh` → `python -m bot.main`)
 - `botson-dashboard.service` runs as `botson` (calls `python -m dashboard.server` on port 8080)
 - `WorkingDirectory=/opt/robotnik` for both — must be readable by `botson`
@@ -291,20 +316,20 @@ After any file change on VPS (manual edit, deploy, etc.), always: `chown -R bots
 
 #### Dot-verified (safe to use)
 
-| Topic ID | Channel Name | Category Key | Verified |
-|----------|-------------|-------------|----------|
-| 7 | אל הוריים טבעונים וצמחונים | vegan | 2026-04-22 via dot |
-| 54 | סרטים סדרות וכו | movies | 2026-04-22 via dot |
-| 59 | אל הוריים/יות פנויים פנויות | singles | 2026-04-22 via dot |
-| 153 | מצחיק / מגניב | funny | 2026-04-22 via dot |
-| 335 | כל מה שחמוד | cute | 2026-04-22 via dot |
-| 341 | מצטרפים חדשים + עדכונים | welcome | 2026-04-22 via dot |
-| 347 | ערוץ אומנות ויצירה | art | 2026-04-22 via dot |
-| 1431 | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics | 2026-04-22 via dot |
-| 1517 | גיימינג + משחקי לוח | gaming | 2026-04-22 via dot |
-| 2184 | יום יום | goals | 2026-04-22 via dot |
-| 3113 | Ai וטכנולוגיה | ai_en | 2026-04-22 via dot (renamed from "AI & Tech") |
-| 4037 | הפינה של בוטסון | botson_corner | 2026-04-22 via dot (new — central home for bot-generated content) |
+| Topic ID | Channel Name                      | Category Key  | Verified                                                          |
+| -------- | --------------------------------- | ------------- | ----------------------------------------------------------------- |
+| 7        | אל הוריים טבעונים וצמחונים        | vegan         | 2026-04-22 via dot                                                |
+| 54       | סרטים סדרות וכו                   | movies        | 2026-04-22 via dot                                                |
+| 59       | אל הוריים/יות פנויים פנויות       | singles       | 2026-04-22 via dot                                                |
+| 153      | מצחיק / מגניב                     | funny         | 2026-04-22 via dot                                                |
+| 335      | כל מה שחמוד                       | cute          | 2026-04-22 via dot                                                |
+| 341      | מצטרפים חדשים + עדכונים           | welcome       | 2026-04-22 via dot                                                |
+| 347      | ערוץ אומנות ויצירה                | art           | 2026-04-22 via dot                                                |
+| 1431     | פוליטיקה / גיאו-פוליטיקה וכל היתר | politics      | 2026-04-22 via dot                                                |
+| 1517     | גיימינג + משחקי לוח               | gaming        | 2026-04-22 via dot                                                |
+| 2184     | יום יום                           | goals         | 2026-04-22 via dot                                                |
+| 3113     | Ai וטכנולוגיה                     | ai_en         | 2026-04-22 via dot (renamed from "AI & Tech")                     |
+| 4037     | הפינה של בוטסון                   | botson_corner | 2026-04-22 via dot (new — central home for bot-generated content) |
 
 All 13 main-group topics were dot-verified on 2026-04-22 in a single session. The `כל מה שאין לו ערוץ` (Telegram "General") topic exists but is deliberately **not** used by the bot — there is no trusted way to target it via Bot API, and trying to use it was the root of the incident. No handler writes to General.
 
@@ -312,18 +337,19 @@ All 13 main-group topics were dot-verified on 2026-04-22 in a single session. Th
 
 Which handler posts to which topic is owned by the `bot_message_routing` table (one row per handler), editable live via the dashboard Settings page → "ניתוב פיצ'רים לערוצים". The DB, not code, decides where each feature lands. Seeded defaults:
 
-| Handler | Default play_topic_id |
-|---|---|
-| `trivia_round` / `trivia_scheduled` | `4037` botson_corner |
-| `emoji_puzzle` / `free_games` | `4037` botson_corner |
-| `weekly_roundup` / `weekly_leaderboard` | `4037` botson_corner |
-| `events_publish` / `events_reminder` | `341` welcome |
+| Handler                                 | Default play_topic_id |
+| --------------------------------------- | --------------------- |
+| `trivia_round` / `trivia_scheduled`     | `4037` botson_corner  |
+| `emoji_puzzle` / `free_games`           | `4037` botson_corner  |
+| `weekly_roundup` / `weekly_leaderboard` | `4037` botson_corner  |
+| `events_publish` / `events_reminder`    | `341` welcome         |
 
 `trivia_round` also supports `teaser_topic_ids` — optional short announcements in theme-matched topics (e.g., movie trivia → teaser in `movies` / 54) set per-launch from the dashboard.
 
 #### Send guard (bot/utils/topic_guard.py)
 
 Every outbound Telegram send goes through `safe_send`. Rules:
+
 - DM (positive `chat_id`) → pass through.
 - Test group (`TEST_GROUP_ID`) → pass through.
 - Main group with `message_thread_id=None` → `UnverifiedTopicError` (no root sends).
@@ -334,21 +360,21 @@ Historical note: topic `7` was wrongly treated as the `general` / `כל מה ש�
 
 ### Level System
 
-| Level | Points | Tag | Emoji |
-|-------|--------|-----|-------|
-| 1 | 0 | חדש/ה | 🌱 |
-| 2 | 20 | פעיל/ה | ⭐ |
-| 3 | 50 | כוכב/ת | 🌟 |
-| 4 | 100 | סופרסטאר | 💫 |
-| 5 | 250 | אגדה | 🔥 |
-| 6 | 500 | אלוף/ה | 👑 |
+| Level | Points | Tag      | Emoji |
+| ----- | ------ | -------- | ----- |
+| 1     | 0      | חדש/ה    | 🌱    |
+| 2     | 20     | פעיל/ה   | ⭐    |
+| 3     | 50     | כוכב/ת   | 🌟    |
+| 4     | 100    | סופרסטאר | 💫    |
+| 5     | 250    | אגדה     | 🔥    |
+| 6     | 500    | אלוף/ה   | 👑    |
 
 ### Point Values
 
-| Action | Points |
-|--------|--------|
-| Message in group | 1 (max 10/day) |
-| Goals channel post | 2 |
-| Reply to bot prompt | 3 |
-| Event RSVP | 3 |
-| Correct trivia answer | 5 |
+| Action                | Points         |
+| --------------------- | -------------- |
+| Message in group      | 1 (max 10/day) |
+| Goals channel post    | 2              |
+| Reply to bot prompt   | 3              |
+| Event RSVP            | 3              |
+| Correct trivia answer | 5              |
