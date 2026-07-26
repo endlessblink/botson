@@ -36,8 +36,10 @@ from bot.utils.config import ADMIN_IDS, DB_PATH, get_holiday_blackout, get_setti
 from bot.utils.freshness import freshness_rejection
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
+from bot.utils.prefs_store import record_removed_bullets, runtime_prefs_path
 from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
 from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
+from bot.utils.redaction import redact_sensitive
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
     VerifiedTopicError,
@@ -67,10 +69,26 @@ _PROVIDER_AUTH_FRAGMENTS = (
     "401 unauthorized",
 )
 
+_PROVIDER_TRANSPORT_FRAGMENTS = (
+    "connection refused",
+    "connection reset",
+    "network is unreachable",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "remote disconnected",
+    "timed out",
+    "timeout",
+)
+
 
 def _is_provider_auth_error(exc: Exception | str | None) -> bool:
     text = str(exc or "").lower()
     return any(fragment in text for fragment in _PROVIDER_AUTH_FRAGMENTS)
+
+
+def _is_provider_transport_error(exc: Exception | str | None) -> bool:
+    text = str(exc or "").lower()
+    return any(fragment in text for fragment in _PROVIDER_TRANSPORT_FRAGMENTS)
 
 
 def _provider_auth_error_message() -> str:
@@ -183,8 +201,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
-# Dashboard password from env
-DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "botson-admin")
+# No built-in production credential: an unset password keeps login closed.
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "").strip()
 
 # DB instance (initialized on startup)
 _db: Database | None = None
@@ -344,7 +362,9 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
-    if password == DASHBOARD_PASSWORD:
+    if not DASHBOARD_PASSWORD:
+        raise HTTPException(status_code=503, detail="Dashboard login is not configured")
+    if secrets.compare_digest(password, DASHBOARD_PASSWORD):
         request.session["authenticated"] = True
         return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(request, name="login.html", context={"error": "סיסמה שגויה"})
@@ -3517,11 +3537,17 @@ def _planner_pattern_directive(patterns: list[str], field: str, cat: str, d_iso:
 _STYLE_PROFILE_CACHE: dict[str, str | None] = {"planner_hebrew_default": None}
 
 
-# T-181: canonical operator preferences source — `config/operator_prefs.md`.
-# Read on demand, 60s mtime-based cache. The legacy
-# _SEED_GUIDANCE_HE constant and _ensure_seed_style_profile DB seeder
-# were removed because the file is now the seed (and stays the source).
-_OPERATOR_PREFS_PATH = Path(__file__).resolve().parent.parent / "config" / "operator_prefs.md"
+# T-181: canonical operator preferences source. Read on demand, 60s
+# mtime-based cache. The legacy _SEED_GUIDANCE_HE constant and
+# _ensure_seed_style_profile DB seeder were removed because the file is
+# now the seed (and stays the source).
+#
+# 2026-07-25: the live file moved to `data/operator_prefs.md`. The
+# git-tracked `config/operator_prefs.md` is the baseline seed only —
+# `deploy.sh` does `git reset --hard`, which was silently discarding
+# every auto-learned rule and canonized anchor on each deploy. See
+# `bot/utils/prefs_store.py` for the seed/reconcile contract.
+_OPERATOR_PREFS_PATH = runtime_prefs_path()
 # Per-section cache. Each heading gets its own slot so the anchor sections
 # don't invalidate when only the rules section changes (rare, but cheap).
 _OPERATOR_PREFS_CACHE: dict = {
@@ -4277,6 +4303,8 @@ async def _generate_via_codex_cli(prompt: str) -> str:
         stdout_text = stdout.decode(errors="replace").strip()
         stderr_text = stderr.decode(errors="replace").strip()
         if proc.returncode != 0:
+            stdout_text = redact_sensitive(stdout_text)
+            stderr_text = redact_sensitive(stderr_text)
             raise RuntimeError(
                 f"Codex CLI error (rc={proc.returncode}): "
                 f"stdout={stdout_text[:400]!r} stderr={stderr_text[:400]!r}"
@@ -4285,7 +4313,9 @@ async def _generate_via_codex_cli(prompt: str) -> str:
         if not out:
             out = stdout_text
         if not out:
-            raise RuntimeError(f"Codex CLI returned empty output (stderr={stderr_text[:400]!r})")
+            raise RuntimeError(
+                f"Codex CLI returned empty output (stderr={redact_sensitive(stderr_text)[:400]!r})"
+            )
         return out
     finally:
         try:
@@ -4307,20 +4337,24 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
         return await _generate_via_cli(prompt), []
     except Exception as claude_cli_err:
         claude_cli_error = claude_cli_err
-        logger.warning("%s: Claude CLI failed, trying Codex CLI: %s", context, claude_cli_err)
+        logger.warning(
+            "%s: Claude CLI failed, trying Codex CLI: %s",
+            context,
+            redact_sensitive(claude_cli_err),
+        )
 
     try:
         content = await _generate_via_codex_cli(prompt)
         return content, [
             f"{context}: Claude generation failed; Codex CLI fallback was used "
-            f"(Claude CLI={claude_cli_error})"
+            f"(Claude CLI={redact_sensitive(claude_cli_error)})"
         ]
     except Exception as codex_err:
         if _is_provider_auth_error(codex_err):
             raise GenerationProviderUnavailable(_provider_auth_error_message()) from codex_err
         raise RuntimeError(
             f"Claude generation failed and Codex fallback failed "
-            f"(Claude CLI={claude_cli_error}; Codex={codex_err})"
+            f"(Claude CLI={redact_sensitive(claude_cli_error)}; Codex={redact_sensitive(codex_err)})"
         ) from codex_err
 
 
@@ -4343,11 +4377,19 @@ async def _run_codex_fallback_health_probe() -> dict:
                 "clean_output": False,
                 "error": _provider_auth_error_message(),
             }
+        if _is_provider_transport_error(e):
+            return {
+                "status": "degraded",
+                "provider": "codex_cli",
+                "clean_output": False,
+                "reason": "transport_unavailable",
+                "error": redact_sensitive(e),
+            }
         return {
             "status": "failed",
             "provider": "codex_cli",
             "clean_output": False,
-            "error": str(e),
+            "error": redact_sensitive(e),
         }
     clean = (content or "").strip()
     return {
@@ -4418,7 +4460,9 @@ async def run_generation_health_check(
         else:
             codex_check = await _run_codex_fallback_health_probe()
             checks["codex_fallback"] = codex_check
-            if codex_check.get("status") != "ok":
+            if codex_check.get("status") == "degraded":
+                status = "degraded"
+            elif codex_check.get("status") != "ok":
                 status = "failed"
 
     if include_planner and status != "failed":
@@ -8885,12 +8929,16 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
     )
 
     if proc.returncode != 0:
+        safe_stdout = redact_sensitive(stdout)
+        safe_stderr = redact_sensitive(stderr)
         raise RuntimeError(
             f"codex CLI rc={proc.returncode} "
-            f"stdout={stdout[:400]!r} stderr={stderr[:400]!r}"
+            f"stdout={safe_stdout[:400]!r} stderr={safe_stderr[:400]!r}"
         )
     if not stdout:
-        raise RuntimeError(f"codex CLI empty stdout, stderr={stderr[:400]!r}")
+        raise RuntimeError(
+            f"codex CLI empty stdout, stderr={redact_sensitive(stderr)[:400]!r}"
+        )
 
     # Codex transcript wraps the JSON with session/user/codex blocks; grab the
     # last standalone JSON object (which is duplicated after "tokens used").
@@ -8905,7 +8953,10 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
     # Pick the largest parseable dict — that's the real payload, not a
     # fragment from some session header.
     if not candidates:
-        raise RuntimeError(f"codex CLI: no parseable JSON in output (first 400 chars): {stdout[:400]}")
+        raise RuntimeError(
+            "codex CLI: no parseable JSON in output (first 400 chars): "
+            f"{redact_sensitive(stdout)[:400]}"
+        )
     candidates.sort(key=lambda d: len(json.dumps(d)), reverse=True)
     return candidates[0], {"transport": "codex-cli"}
 
@@ -8973,8 +9024,9 @@ async def _generate_today_plan(bundle: dict) -> tuple[dict, dict]:
             logger.info("[ai-fill-today] digest OK via %s", transport_name)
             return plan, usage
         except Exception as e:
-            errors.append(f"{transport_name}: {e}")
-            logger.warning("[ai-fill-today] %s failed: %s", transport_name, e)
+            safe_error = redact_sensitive(e)
+            errors.append(f"{transport_name}: {safe_error}")
+            logger.warning("[ai-fill-today] %s failed: %s", transport_name, safe_error)
 
     logger.error("[ai-fill-today] all transports failed: %s", " | ".join(errors))
     raise RuntimeError("digest failed on all transports: " + " | ".join(errors))
@@ -9285,6 +9337,13 @@ async def _run_debounced_abstraction(db: Database) -> None:
         )
     except Exception as e:
         logger.warning("[debounced-abstraction] audit insert failed: %s", e)
+    # Rule lists compound; prompts don't. Fold the list back under the
+    # cap once it outgrows it, so learning stays applicable instead of
+    # becoming a wall of directives the model averages over.
+    try:
+        await _maybe_consolidate_hebrew_rules(db)
+    except Exception as e:
+        logger.warning("[debounced-abstraction] consolidation failed: %s", e)
     logger.info(
         "[debounced-abstraction] wrote %d-line rule from %d rejections (ids=%s)",
         len(guidance.splitlines()), len(rows), ids,
@@ -9392,6 +9451,133 @@ async def _llm_abstract_rules(feedback_rows: list[dict]) -> str:
     if len(lines) > 5:
         lines = lines[:5]
     return "\n".join(lines)
+
+
+def _hebrew_rules_cap() -> int:
+    """Max rule bullets kept in the Hebrew section before consolidation.
+
+    Few-shot/directive lists stop compounding well past a few dozen
+    lines — the model starts averaging them instead of applying them,
+    and every extra line is prompt cost on every single generation.
+    Operator-tunable via `settings.learning.max_hebrew_rules`.
+    """
+    try:
+        learning = (get_settings().get("learning") or {})
+        return max(10, int(learning.get("max_hebrew_rules") or 40))
+    except Exception:
+        return 40
+
+
+async def _llm_consolidate_hebrew_rules(rules: list[str], target: int) -> str:
+    """Merge an over-long rule list into `target` cohesive directives.
+
+    Same design contract as `_llm_abstract_rules`: synthesis only, no
+    mechanical fallback. Returns "" on any LLM failure, in which case
+    the caller leaves the existing rules untouched — an over-long rule
+    list is strictly better than a silently truncated one.
+    """
+    if not rules:
+        return ""
+    inventory = "\n".join(rules)
+    prompt = (
+        "אתה עוזר שמתחזק את מאגר הכללים של בוט טלגרם עברי בקהילת בוגרים-בלי-ילדים.\n\n"
+        f"להלן {len(rules)} כללים שנלמדו לאורך זמן מדחיות של האופרטור. "
+        "הרשימה התארכה מדי — כללים חופפים, כללים שהם מקרה פרטי של כלל אחר, "
+        "וכללים שמנוסחים פעמיים אחרת.\n\n"
+        f"תפקידך: לאחד את הרשימה ל-{target} כללים לכל היותר, בלי לאבד אף הנחיה.\n\n"
+        "חוקים קשיחים:\n"
+        "1. אסור לאבד תוכן. כלל שמופיע פעם אחת בלבד חייב לשרוד — אולי בניסוח מאוחד.\n"
+        "2. כללים חופפים מתאחדים לשורה אחת חזקה יותר, לא נמחקים.\n"
+        '3. כל כלל = שורה אחת קצרה בעברית בצורת הוראה ("אסור..." / "דרוש..." / "תמיד...").\n'
+        "4. אל תצטט טקסט של הצעות שנדחו. אבסטרקציה בלבד.\n"
+        "5. אל תוסיף כללים חדשים שלא נובעים מהרשימה.\n"
+        "6. אל תכלול הקדמה או סיכום — רק הכללים.\n\n"
+        "הכללים הקיימים:\n" + inventory + "\n\n"
+        f'פלט: עד {target} שורות בעברית, כל אחת מתחילה ב-"- ".'
+    )
+    raw = ""
+    try:
+        raw = await _generate_via_cli(prompt)
+    except Exception as cli_err:
+        logger.info("[consolidate-rules] CLI unavailable, trying API: %s", cli_err)
+        try:
+            raw = await _generate_via_api(prompt)
+        except Exception as api_err:
+            logger.warning(
+                "[consolidate-rules] both CLI and API failed (cli=%s api=%s) — "
+                "leaving the rule list as-is",
+                cli_err, api_err,
+            )
+            return ""
+    lines = [
+        ("- " + ln.lstrip().lstrip("-•").strip())
+        for ln in (raw or "").splitlines()
+        if ln.lstrip().startswith("- ") or ln.lstrip().startswith("• ")
+    ]
+    if len(lines) < 2:
+        # A one-line "consolidation" of dozens of rules is a failed call,
+        # not a result. Refuse it.
+        return ""
+    return "\n".join(lines[:target])
+
+
+async def _maybe_consolidate_hebrew_rules(db: Database) -> int:
+    """Consolidate the Hebrew rules section when it outgrows the cap.
+
+    Returns the number of rules removed (0 when no consolidation ran).
+    Safe to call after every rule write — it no-ops below the cap.
+    """
+    cap = _hebrew_rules_cap()
+    try:
+        text = _OPERATOR_PREFS_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("[consolidate-rules] cannot read prefs file: %s", e)
+        return 0
+    parts = _split_at_hebrew_heading(text)
+    if parts is None:
+        return 0
+    before, section_body, rest = parts
+    rules = [ln.strip() for ln in section_body.splitlines() if ln.strip().startswith("- ")]
+    if len(rules) <= cap:
+        return 0
+    target = max(10, int(cap * 0.6))
+    consolidated = await _llm_consolidate_hebrew_rules(rules, target)
+    if not consolidated.strip():
+        logger.warning(
+            "[consolidate-rules] %d rules over cap %d but LLM returned empty — "
+            "keeping the full list rather than truncating mechanically",
+            len(rules), cap,
+        )
+        return 0
+    # Keep the non-bullet prose (section intro, source blocks) and swap
+    # the bullet list for the consolidated one.
+    prose = [ln for ln in section_body.splitlines() if not ln.strip().startswith("- ")]
+    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+    note = (
+        f"\n  _**Source:** consolidated {len(rules)} rules → "
+        f"{len(consolidated.splitlines())} on {today} (cap {cap})._\n"
+    )
+    new_body = "\n".join(prose).rstrip() + "\n\n" + consolidated + note
+    try:
+        _OPERATOR_PREFS_PATH.write_text(before + new_body + rest, encoding="utf-8")
+    except Exception as e:
+        logger.warning("[consolidate-rules] write failed: %s", e)
+        return 0
+    _OPERATOR_PREFS_CACHE["mtime"] = 0.0
+    _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    removed = len(rules) - len(consolidated.splitlines())
+    try:
+        await db.record_prefs_change(
+            source="consolidation", section="Hebrew content rules",
+            change_kind="consolidate",
+            before_excerpt=f"{len(rules)} rules",
+            after_excerpt=consolidated[:500],
+            source_feedback_ids=None,
+        )
+    except Exception as e:
+        logger.warning("[consolidate-rules] audit insert failed: %s", e)
+    logger.info("[consolidate-rules] %d → %d rules", len(rules), len(consolidated.splitlines()))
+    return max(0, removed)
 
 
 async def _llm_pill_followup_chips(
@@ -10003,6 +10189,9 @@ async def operator_prefs_untrain(request: Request, db: Database = Depends(get_db
     _OPERATOR_PREFS_PATH.write_text(new_text, encoding="utf-8")
     _OPERATOR_PREFS_CACHE["mtime"] = 0.0
     _OPERATOR_PREFS_CACHE["loaded_at"] = 0.0
+    # Tombstone the removals so the baseline-reconcile step in
+    # `prefs_store` doesn't resurrect them on the next restart.
+    record_removed_bullets([ln.strip() for ln in removed], _OPERATOR_PREFS_PATH)
     # T-184 (Gap 4): audit each removed line for the session report.
     for removed_line in removed:
         try:

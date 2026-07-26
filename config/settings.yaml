@@ -238,6 +238,15 @@ llm:
   cli_model: haiku
   prompt_rules: {}  # Phase B.6 populates from dashboard/app.py:1080+, 3000+
 
+learning:
+  # Ceiling on the auto-learned Hebrew rule list. Past a few dozen
+  # directives the model averages over them instead of applying them,
+  # and every line is prompt cost on every generation. When the list
+  # crosses this, an LLM consolidation pass merges overlapping rules
+  # back down to ~60% of the cap. Nothing is ever dropped mechanically:
+  # if the consolidation call fails, the full list is kept as-is.
+  max_hebrew_rules: 40
+
 # T-169: knobs for the daily auto-refill (bot/scheduler/materializer.py).
 # The materializer is the bulk surface for community-facing text quality;
 # these defaults exist to be tuned in production without code changes.
@@ -246,7 +255,9 @@ materializer:
   # repeat" list. Previously the materializer truncated to the first 25
   # set entries (non-deterministic) and older repeats silently slipped
   # through, causing the 7-day cycling we saw in May 2026.
-  used_texts_window_days: 45
+  # Raised 45 → 180 on 2026-07-25: operator reported questions repeating.
+  # A 45-day window let anything older than ~6 weeks come back verbatim.
+  used_texts_window_days: 180
   # Number of pool examples shown as style references in each generation
   # prompt. Fewer anchors = less verbatim echo. Default 2 (was 5).
   examples_per_prompt: 2

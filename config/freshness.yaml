@@ -38,6 +38,7 @@ misleading_ready_fragments:
 # Generic filler phrases the LLM gravitates toward when it has nothing
 # specific to say. Reject so prompts stay substantive.
 generic_fragments:
+  - "מה הדבר שהשבוע הזה חייב להיות"
   - "היום הזה עוד לא הוחלט"
   - "מה הדבר הכי שווה שאתם מכניסים אליו"
   - "יצור (ממשי או מהדמיון)"
