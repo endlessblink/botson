@@ -367,11 +367,12 @@ PY
   echo "  credential locations; they must match."
   echo
   echo "--- Resolution the app will use ---"
-  sudo -u "$svc_user" HOME="${svc_home:-/opt/robotnik}" /opt/robotnik/.venv/bin/python -c '
+  ( cd /opt/robotnik && sudo -u "$svc_user" HOME="${svc_home:-/opt/robotnik}" \
+      PYTHONPATH=/opt/robotnik /opt/robotnik/.venv/bin/python -c '
 from bot.utils.cli_home import resolve_claude_home, resolve_codex_home
 print("  claude HOME ->", resolve_claude_home())
 print("  CODEX_HOME  ->", resolve_codex_home() or "<unset, CLI default>")
-' 2>&1 | tail -5 || echo "  (resolution probe unavailable)"
+' 2>&1 | tail -5 ) || echo "  (resolution probe unavailable)"
 }
 
 cmd_health() {
