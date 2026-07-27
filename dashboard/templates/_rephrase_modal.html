@@ -1,0 +1,196 @@
+<!-- Shared "נסח מחדש" modal — keep the idea, change the wording.
+
+     Used by the planner AI-Populate cards, the prompt drawer and the review
+     page. Included once from base.html so all three surfaces share one
+     modal, one chip set and one code path.
+
+     Every Hebrew string here comes from GET /api/rephrase-anchors, which
+     reads config/settings.yaml:copy.rephrase_anchors + copy.rephrase_ui.
+     Nothing user-facing is inlined in this file (CLAUDE.md → "No Hardcoded
+     User-Facing Content").
+
+     This is a ONE-OFF edit: it never writes a learned rule. Durable rules
+     still come only from reject + reason. -->
+<div id="rephrase-modal" class="hidden fixed inset-0 z-[130] flex items-center justify-center p-4" dir="rtl">
+    <div class="absolute inset-0 bg-black/70" id="rephrase-backdrop"></div>
+    <div class="relative bg-[#0a0a0a] border border-[#272727] rounded-lg shadow-2xl w-full max-w-md overflow-hidden">
+        <div class="px-5 py-4 border-b border-[#1f1f1f]">
+            <h3 id="rephrase-title" class="text-sm font-medium text-[#fafafa]"></h3>
+            <p id="rephrase-subtitle" class="text-xs text-[#71717a] mt-1"></p>
+        </div>
+        <div class="px-5 py-4">
+            <div id="rephrase-original" class="mb-3 rounded border border-[#1f1f1f] bg-[#111318] px-3 py-2 text-xs text-[#a1a1aa] max-h-24 overflow-y-auto whitespace-pre-wrap"></div>
+            <div id="rephrase-anchors-label" class="text-[11px] text-[#71717a] mb-1.5"></div>
+            <div id="rephrase-anchors" class="flex flex-wrap gap-2 mb-3"></div>
+            <div id="rephrase-free-label" class="text-[11px] text-[#71717a] mb-1.5"></div>
+            <textarea id="rephrase-notes" rows="2" class="w-full bg-[#0a0a0a] border border-[#272727] rounded-md px-3 py-2 text-sm text-[#fafafa] resize-none focus:outline-none focus:border-sky-500/60" dir="rtl"></textarea>
+        </div>
+        <div class="px-5 py-3 border-t border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between">
+            <button id="rephrase-cancel" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-4 py-1.5 rounded-md"></button>
+            <button id="rephrase-ok" class="text-xs text-sky-300 hover:text-sky-200 border border-sky-500/40 hover:border-sky-500/70 bg-sky-500/10 hover:bg-sky-500/20 px-5 py-1.5 rounded-md font-medium"></button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var _cfg = null;          // {anchors: [{key,label}], ui: {...}}
+    var _selected = {};       // anchor key -> true, remembered between opens
+
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Missing copy renders as an empty string rather than an inline Hebrew
+    // fallback — an operator who empties a key sees a blank label, not a
+    // stale hardcoded one.
+    function _ui(key) {
+        return (_cfg && _cfg.ui && _cfg.ui[key]) || '';
+    }
+
+    async function _loadConfig() {
+        if (_cfg) return _cfg;
+        var resp = await fetch('/api/rephrase-anchors');
+        if (!resp.ok) throw new Error('rephrase config unavailable');
+        _cfg = await resp.json();
+        return _cfg;
+    }
+
+    function _renderAnchors(container) {
+        container.innerHTML = '';
+        (_cfg.anchors || []).forEach(function (a) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.anchorKey = a.key;
+            btn.textContent = a.label;
+            var paint = function () {
+                btn.className = _selected[a.key]
+                    ? 'text-[11px] text-sky-200 border border-sky-500/60 bg-sky-500/20 rounded-full px-2.5 py-1'
+                    : 'text-[11px] text-[#a1a1aa] border border-[#272727] hover:border-[#3f3f46] rounded-full px-2.5 py-1';
+            };
+            paint();
+            btn.addEventListener('click', function () {
+                _selected[a.key] = !_selected[a.key];
+                paint();
+            });
+            container.appendChild(btn);
+        });
+    }
+
+    // Opens the modal. Resolves {anchors: [key], notes: str} or null on cancel.
+    async function openRephraseModal(opts) {
+        opts = opts || {};
+        await _loadConfig();
+        var modal = document.getElementById('rephrase-modal');
+        var okBtn = document.getElementById('rephrase-ok');
+        var cancelBtn = document.getElementById('rephrase-cancel');
+        var notes = document.getElementById('rephrase-notes');
+        var backdrop = document.getElementById('rephrase-backdrop');
+
+        document.getElementById('rephrase-title').textContent = _ui('modal_title');
+        document.getElementById('rephrase-subtitle').textContent = _ui('modal_subtitle');
+        document.getElementById('rephrase-anchors-label').textContent = _ui('anchors_label');
+        document.getElementById('rephrase-free-label').textContent = _ui('free_text_label');
+        notes.placeholder = _ui('free_text_placeholder');
+        okBtn.textContent = _ui('apply_label');
+        cancelBtn.textContent = _ui('cancel_label');
+        document.getElementById('rephrase-original').innerHTML = _esc(opts.text || '');
+        notes.value = '';
+        _renderAnchors(document.getElementById('rephrase-anchors'));
+        modal.classList.remove('hidden');
+        notes.focus();
+
+        return new Promise(function (resolve) {
+            function cleanup(result) {
+                modal.classList.add('hidden');
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+                backdrop.onclick = null;
+                document.removeEventListener('keydown', onKey);
+                resolve(result);
+            }
+            function onKey(e) {
+                if (e.key === 'Escape') cleanup(null);
+            }
+            okBtn.onclick = function () {
+                var keys = Object.keys(_selected).filter(function (k) { return _selected[k]; });
+                cleanup({anchors: keys, notes: (notes.value || '').trim()});
+            };
+            cancelBtn.onclick = function () { cleanup(null); };
+            backdrop.onclick = function () { cleanup(null); };
+            document.addEventListener('keydown', onKey);
+        });
+    }
+
+    // Modal + request in one call. Resolves the new text, or null when the
+    // operator cancelled or the model failed (original text is left alone).
+    // opts: {field, category, topicId, text, scheduledDate}
+    async function rephraseWithModal(opts) {
+        opts = opts || {};
+        var original = opts.text || '';
+        if (!original.trim()) return null;
+        var choice = await openRephraseModal({text: original});
+        if (!choice) return null;
+        if (!choice.anchors.length && !choice.notes) return null;
+        try {
+            var resp = await fetch('/api/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    field: opts.field || 'custom',
+                    mode: 'rewrite',
+                    existing: original,
+                    category: opts.category || '',
+                    topic_id: opts.topicId || null,
+                    scheduled_date: opts.scheduledDate || null,
+                    anchors: choice.anchors,
+                    instructions: choice.notes,
+                }),
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            var data = await resp.json();
+            var text = (data.content || '').trim();
+            if (!text) throw new Error('empty');
+            return {
+                text: text,
+                original: original,
+                quality_failures: data.quality_failures || [],
+            };
+        } catch (e) {
+            if (typeof showToast === 'function') showToast(_ui('error_label'), 'error');
+            return null;
+        }
+    }
+
+    function rephraseCopy(key) { return _ui(key); }
+
+    // Fill labels from config. Surfaces mark elements with
+    // `data-rephrase-label="<copy key>"` and leave them empty in the HTML —
+    // that keeps the Hebrew out of the templates and lets an operator
+    // rename the button from settings.yaml alone. Call again after
+    // rendering dynamic cards.
+    function applyRephraseLabels(root) {
+        var scope = root || document;
+        _loadConfig().then(function () {
+            scope.querySelectorAll('[data-rephrase-label]').forEach(function (el) {
+                var text = _ui(el.dataset.rephraseLabel || 'button_label');
+                if (text) el.textContent = text;
+            });
+        }).catch(function () {});
+    }
+
+    // Warm the config cache so the first click doesn't wait on a round trip.
+    function rephrasePreload() { _loadConfig().catch(function () {}); }
+
+    window.openRephraseModal = openRephraseModal;
+    window.rephraseWithModal = rephraseWithModal;
+    window.rephraseCopy = rephraseCopy;
+    window.applyRephraseLabels = applyRephraseLabels;
+    window.rephrasePreload = rephrasePreload;
+
+    document.addEventListener('DOMContentLoaded', function () {
+        applyRephraseLabels(document);
+    });
+})();
+</script>

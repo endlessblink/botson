@@ -612,6 +612,120 @@ def check_logs(args: argparse.Namespace) -> Check:
     return Check("logs", "ok", f"no bad log lines in last {args.since_hours}h")
 
 
+CLI_TIMING_LINE = re.compile(
+    r"\[cli-timing\] (\w+) (\w+) (?:in|after) ([\d.]+)s \(ctx=([\w-]+)\)"
+)
+
+
+def _cli_timing_samples(hours: int) -> list[tuple[str, str, float, str]]:
+    """Pull [cli-timing] lines from journald for both services.
+
+    Returns (cli, outcome, seconds, context) tuples. Empty list when
+    journald isn't available (dev machines) — the caller degrades to a
+    'skipped' check rather than a false alarm.
+    """
+    if not shutil.which("journalctl"):
+        return []
+    cmd = [
+        "journalctl", "-u", "botson-dashboard.service", "-u", "botson.service",
+        "--since", f"{int(hours)} hours ago", "--no-pager",
+    ]
+    try:
+        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=90)
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    out: list[tuple[str, str, float, str]] = []
+    for match in CLI_TIMING_LINE.finditer(proc.stdout or ""):
+        try:
+            out.append((match.group(1), match.group(2), float(match.group(3)), match.group(4)))
+        except ValueError:
+            continue
+    return out
+
+
+def check_cli_health(args: argparse.Namespace) -> Check:
+    """Classify the generation CLIs as healthy / slow / hanging.
+
+    Exists because the operator should never have to read a verdict off a
+    terminal. The 2026-07-27 planner stall (Populate rendering "Aborted"
+    after ten minutes) was a per-call timeout problem that took a manual
+    investigation to even characterise. This check does that
+    characterisation on every guard run and alerts through the existing
+    Telegram path when it degrades.
+
+    Reading:
+      * timeouts, but successful calls are fast  -> calls are HANGING;
+        the budget should drop so the fallback runs sooner.
+      * successful calls creeping up to the budget -> calls are SLOW;
+        the budget should rise, or the prompts should shrink.
+    """
+    hours = _env_int("BOTSON_CLI_HEALTH_WINDOW_HOURS", 24)
+    samples = _cli_timing_samples(hours)
+    if not samples:
+        return Check(
+            "cli_health", "ok",
+            f"no CLI calls recorded in the last {hours}h (idle window or journald unavailable)",
+        )
+
+    try:
+        from bot.utils.cli_home import cli_timeout_seconds
+    except Exception:
+        def cli_timeout_seconds(cli: str, default: int) -> int:  # type: ignore[misc]
+            return default
+
+    by_cli: dict[str, dict] = {}
+    for cli, outcome, seconds, _ctx in samples:
+        slot = by_cli.setdefault(cli, {"ok": [], "timeout": 0, "error": 0})
+        if outcome == "ok":
+            slot["ok"].append(seconds)
+        elif outcome == "TIMEOUT":
+            slot["timeout"] += 1
+        else:
+            slot["error"] += 1
+
+    verdicts: list[str] = []
+    data: dict = {"window_hours": hours, "clis": {}}
+    worst = "ok"
+    for cli, slot in sorted(by_cli.items()):
+        budget = cli_timeout_seconds(cli, 90)
+        oks = sorted(slot["ok"])
+        total = len(oks) + slot["timeout"] + slot["error"]
+        timeout_rate = slot["timeout"] / total if total else 0.0
+        median = oks[len(oks) // 2] if oks else None
+        data["clis"][cli] = {
+            "calls": total, "ok": len(oks), "timeouts": slot["timeout"],
+            "errors": slot["error"], "median_s": median,
+            "max_s": oks[-1] if oks else None, "budget_s": budget,
+            "timeout_rate": round(timeout_rate, 3),
+        }
+        if timeout_rate >= 0.25 and median is not None and median < budget * 0.5:
+            worst = "fail"
+            verdicts.append(
+                f"{cli}: HANGING — {slot['timeout']}/{total} calls hit the {budget}s ceiling "
+                f"while successful ones finish in ~{median:.0f}s. "
+                f"Lower llm.cli_timeouts.{cli}_seconds so the fallback runs sooner."
+            )
+        elif median is not None and median >= budget * 0.7:
+            worst = "fail" if worst == "fail" else "warn"
+            verdicts.append(
+                f"{cli}: SLOW — median {median:.0f}s against a {budget}s budget. "
+                f"Raise llm.cli_timeouts.{cli}_seconds or shrink the prompts."
+            )
+        elif timeout_rate >= 0.25:
+            worst = "fail" if worst == "fail" else "warn"
+            verdicts.append(
+                f"{cli}: {slot['timeout']}/{total} calls timed out at {budget}s "
+                f"(too few successes to tell slow from hanging)."
+            )
+        else:
+            verdicts.append(
+                f"{cli}: ok — {total} calls"
+                + (f", median {median:.0f}s / budget {budget}s" if median is not None else "")
+            )
+
+    return Check("cli_health", worst, " · ".join(verdicts), data)
+
+
 def _load_state(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -852,6 +966,7 @@ def run_guard(args: argparse.Namespace) -> dict:
         check_schedule(args),
         check_coverage(args),
         check_weekly_smoke_freshness(args),
+        check_cli_health(args),
         check_logs(args),
     ]
     if args.mode == "weekly-full":

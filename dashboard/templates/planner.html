@@ -3953,6 +3953,17 @@ function _aiSuggestRenderRow(s) {
     var denyBtn = s._denied
         ? ''
         : '<button type="button" data-deny-key="' + escapeHtml(s.key) + '" class="text-[10px] text-rose-300 border border-rose-500/30 hover:border-rose-500/60 rounded px-2 py-0.5">דחה + סיבה</button>';
+    // Rephrase — the "I like the idea, fix the wording" middle path between
+    // approve and reject. Label text comes from config via
+    // data-rephrase-label (see _rephrase_modal.html); nothing is written
+    // until the operator approves the card, and no rule is ever learned.
+    var rephraseBtn = (s._denied || !(s.text || '').trim())
+        ? ''
+        : '<button type="button" data-rephrase-key="' + escapeHtml(s.key) + '" data-rephrase-label="button_label" class="text-[10px] text-sky-300 border border-sky-500/30 hover:border-sky-500/60 rounded px-2 py-0.5"></button>';
+    var rephrasedTag = s._rephrased
+        ? '<span class="text-[10px] text-sky-300 border border-sky-500/40 rounded px-1.5 py-0.5" data-rephrase-label="replaced_badge"></span>' +
+          '<button type="button" data-rephrase-undo-key="' + escapeHtml(s.key) + '" data-rephrase-label="undo_label" class="text-[10px] text-[#a1a1aa] border border-[#272727] hover:border-[#3f3f46] rounded px-2 py-0.5"></button>'
+        : '';
     card.innerHTML = (
         '<input type="checkbox" data-suggest-key="' + s.key + '" ' +
         (checked ? 'checked' : '') +
@@ -3969,7 +3980,9 @@ function _aiSuggestRenderRow(s) {
                 qualityTag +
                 failTag +
                 deniedTag +
+                rephrasedTag +
                 previewLink +
+                rephraseBtn +
                 denyBtn +
             '</div>' +
             '<div class="text-sm text-[#e4e4e7] whitespace-pre-wrap ai-suggest-card-text">' + safeText + '</div>' +
@@ -3999,7 +4012,57 @@ function _aiSuggestRenderRow(s) {
             _aiSuggestDenyOne(s.key, {});
         });
     }
+    var rephraseButton = card.querySelector('button[data-rephrase-key]');
+    if (rephraseButton) {
+        rephraseButton.addEventListener('click', function() {
+            _aiSuggestRephraseOne(s.key, rephraseButton);
+        });
+    }
+    var undoButton = card.querySelector('button[data-rephrase-undo-key]');
+    if (undoButton) {
+        undoButton.addEventListener('click', function() {
+            _aiSuggestRephraseUndo(s.key);
+        });
+    }
+    if (typeof applyRephraseLabels === 'function') applyRephraseLabels(card);
     return card;
+}
+
+// Rephrase one suggestion in place. Board state only — the row is still a
+// suggestion, so nothing reaches scheduled_messages until commit, and no
+// feedback/rule is recorded (that stays exclusive to deny + reason).
+async function _aiSuggestRephraseOne(suggestKey, btn) {
+    var s = _aiSuggestState.suggestions.find(function(x) { return x.key === suggestKey; });
+    if (!s || typeof rephraseWithModal !== 'function') return;
+    var busyLabel = (typeof rephraseCopy === 'function') ? rephraseCopy('working_label') : '';
+    var restore = btn ? btn.textContent : '';
+    var result = await rephraseWithModal({
+        field: s.message_type,
+        category: s.category || '',
+        topicId: s.topic_id || null,
+        scheduledDate: s.date || null,
+        text: s.text || '',
+        onStart: function() {
+            if (btn && busyLabel) { btn.textContent = busyLabel; btn.disabled = true; }
+        },
+    });
+    if (btn) { btn.textContent = restore; btn.disabled = false; }
+    if (!result) return;
+    s._text_before_rephrase = result.original;
+    s.text = result.text;
+    s.quality_failures = result.quality_failures;
+    s._rephrased = true;
+    _aiSuggestRenderList();
+}
+
+function _aiSuggestRephraseUndo(suggestKey) {
+    var s = _aiSuggestState.suggestions.find(function(x) { return x.key === suggestKey; });
+    if (!s || !s._text_before_rephrase) return;
+    s.text = s._text_before_rephrase;
+    s._text_before_rephrase = null;
+    s._rephrased = false;
+    s.quality_failures = [];
+    _aiSuggestRenderList();
 }
 
 // Start an ai-suggest job and poll it to completion. Shared by the full

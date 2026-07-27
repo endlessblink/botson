@@ -289,6 +289,9 @@
             if (backdrop) backdrop.addEventListener('click', closeSidebar);
         })();
     </script>
+    <!-- Shared rephrase modal — available on every page so the planner
+         cards, the prompt drawer and the review page use one implementation. -->
+    {% include "_rephrase_modal.html" %}
     {% block scripts %}{% endblock %}
 </body>
 </html>

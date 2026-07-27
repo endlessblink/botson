@@ -4625,6 +4625,13 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     category = data.get("category", "")
     topic_id = data.get("topic_id", data.get("channel_topic_id"))
     instructions = (data.get("instructions") or "").strip()
+    # Wording anchors from the "נסח מחדש" chips (config/settings.yaml:
+    # copy.rephrase_anchors). They resolve to Hebrew directives that ride
+    # along as extra instructions — no separate prompt template, and no
+    # learning side effect: rephrasing never writes a rule.
+    anchors = data.get("anchors") or []
+    if isinstance(anchors, list) and anchors:
+        instructions = _rephrase_instructions([str(a) for a in anchors], instructions)
     category, discussion_topic_id = _resolve_discussion_generation_context(field, category, topic_id)
     category_name = await _topic_display_name(db, discussion_topic_id) if field == "discussion" else None
 
@@ -4679,7 +4686,15 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
         except TriviaVerificationError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    return {"content": content, "review": review}
+    # Same quality signal the planner card badge uses, so a rephrase that
+    # degrades the draft is visible instead of silently replacing good text.
+    quality_failures: list[str] = []
+    if field in ("morning", "evening", "discussion"):
+        quality_failures = _quality_failures_for_planner_text(
+            content, scheduled_date=data.get("scheduled_date")
+        )
+
+    return {"content": content, "review": review, "quality_failures": quality_failures}
 
 
 # ── Analytics API ────────────────────────────────────────
@@ -12347,6 +12362,34 @@ async def review_clear_all(request: Request):
     _clear_all_pending_reviews()
     logger.info("[review] cleared all pending items (count=%d)", cleared)
     return {"ok": True, "cleared": cleared}
+
+
+@app.post("/api/review/{item_id}/update-text")
+async def review_update_text(request: Request, item_id: str):
+    """Persist an edited/rephrased preview back onto a pending review item.
+
+    Pending reviews live in a JSON store, not in `scheduled_messages` —
+    `review_approve` copies `item["preview"]` into the new draft row. Without
+    this endpoint a rephrase on /review would be lost the moment the operator
+    approved. Text only; nothing else about the item changes.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    items = _load_pending_reviews()
+    item = next((m for m in items if m.get("id") == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="pending item not found")
+
+    item["preview"] = text
+    _save_pending_reviews(items)
+    logger.info("[review] updated text for id=%s (%d chars)", item_id, len(text))
+    return {"ok": True, "text": text}
 
 
 @app.post("/api/review/{item_id}/dismiss")
