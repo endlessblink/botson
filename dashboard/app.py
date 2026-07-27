@@ -36,6 +36,7 @@ from bot.utils.config import ADMIN_IDS, DB_PATH, get_holiday_blackout, get_setti
 from bot.utils.freshness import freshness_rejection
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
+from bot.utils.cli_home import claude_cli_env, codex_cli_env, resolve_claude_home
 from bot.utils.prefs_store import record_removed_bullets, runtime_prefs_path
 from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
 from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
@@ -4173,16 +4174,12 @@ def build_generation_prompt(
 async def _generate_via_cli(prompt: str) -> str:
     """Try generating content via Claude Code CLI.
 
-    systemd services run with HOME pointing at WorkingDirectory, not the
-    user's real home — which means `claude` can't find ~/.claude/.
-    Look up the real home from /etc/passwd and override HOME in env.
+    HOME is resolved by probing for real credentials (see
+    `bot/utils/cli_home.py`). Hardcoding the /etc/passwd home sent every
+    call to an empty, root-owned directory and burned the full 90s
+    timeout per generated row — the 2026-07-27 Populate stall.
     """
-    import pwd as _pwd
-    try:
-        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
-    except Exception:
-        real_home = os.path.expanduser("~")
-    env = {**os.environ, "HOME": real_home}
+    env = claude_cli_env()
     proc = await asyncio.create_subprocess_exec(
         "claude", "-p", prompt, "--model", "sonnet",
         stdout=asyncio.subprocess.PIPE,
@@ -4216,6 +4213,14 @@ def _ensure_codex_home_dir(real_home: str, *, context: str) -> None:
     on the intended CLI-auth path.
     """
     codex_dir = os.path.join(real_home, ".codex")
+    # 2026-07-27: this used to raise when the home was not writable —
+    # `/home/botson` is root-owned, so the mkdir below hit PermissionError
+    # and killed the Codex fallback before it ever ran. A missing default
+    # dir is only fatal when we have no resolved CODEX_HOME, and that case
+    # is handled by the caller. Nothing to do here if we can't write.
+    if not os.access(real_home, os.W_OK):
+        logger.debug("[%s] home %s not writable; skipping .codex guard", context, real_home)
+        return
     if os.path.exists(codex_dir) and not os.path.isdir(codex_dir):
         try:
             size = os.path.getsize(codex_dir)
@@ -4244,25 +4249,13 @@ async def _generate_via_codex_cli(prompt: str) -> str:
     the invocation non-interactive and read-only so dashboard generation cannot
     mutate the repo.
     """
-    import pwd as _pwd
-
-    try:
-        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
-    except Exception:
-        real_home = os.path.expanduser("~")
-
+    # HOME + CODEX_HOME both come from credential probing now; the old
+    # /etc/passwd lookup pointed at an unwritable, empty home and took
+    # the fallback down with it.
+    env = codex_cli_env()
+    real_home = env.get("HOME") or resolve_claude_home()
     _ensure_codex_home_dir(real_home, context="planner-codex")
-
-    env = {**os.environ, "HOME": real_home}
     repo_root = BASE_DIR.parent
-    local_codex_home = repo_root / ".codex-home"
-    codex_home = (
-        os.getenv("BOTSON_CODEX_HOME")
-        or os.getenv("CODEX_HOME")
-        or (str(local_codex_home) if local_codex_home.is_dir() else "")
-    )
-    if codex_home:
-        env["CODEX_HOME"] = codex_home
 
     import tempfile
 
@@ -8791,10 +8784,7 @@ async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]
     import pwd as _pwd
 
     claude_bin = shutil.which("claude") or "/usr/bin/claude"
-    try:
-        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
-    except Exception:
-        real_home = os.path.expanduser("~")
+    real_home = resolve_claude_home()
 
     prompt = _build_cli_digest_prompt(bundle)
     logger.info(
@@ -8802,7 +8792,7 @@ async def _generate_today_plan_via_claude_cli(bundle: dict) -> tuple[dict, dict]
         claude_bin, os.geteuid(), real_home, len(prompt),
     )
 
-    env = {**os.environ, "HOME": real_home}
+    env = claude_cli_env()
     proc = await asyncio.create_subprocess_exec(
         claude_bin, "-p", prompt, "--model", "sonnet",
         stdout=asyncio.subprocess.PIPE,
@@ -8871,10 +8861,8 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
         raise RuntimeError("codex CLI not installed on this host")
 
     prompt = _build_cli_digest_prompt(bundle)
-    try:
-        real_home = _pwd.getpwuid(os.geteuid()).pw_dir
-    except Exception:
-        real_home = os.path.expanduser("~")
+    codex_env = codex_cli_env()
+    real_home = codex_env.get("HOME") or resolve_claude_home()
 
     _ensure_codex_home_dir(real_home, context="ai-fill-today")
     # Note: this does NOT restore auth.json. If auth was lost the digest will
@@ -8892,7 +8880,7 @@ async def _generate_today_plan_via_codex_cli(bundle: dict) -> tuple[dict, dict]:
         with os.fdopen(schema_fd, "w", encoding="utf-8") as f:
             json.dump(_today_plan_tool_schema()["input_schema"], f, ensure_ascii=False)
 
-        env = {**os.environ, "HOME": real_home}
+        env = codex_env
         # Pass long Hebrew prompts via stdin (`-`) to avoid ARG_MAX issues;
         # codex reads stdin when the prompt arg is `-` or missing.
         proc = await asyncio.create_subprocess_exec(

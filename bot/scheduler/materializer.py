@@ -218,16 +218,13 @@ def _extract_generated_text(raw: str) -> str | None:
 
 async def _generate_with_claude(prompt: str) -> str | None:
     import asyncio
-    import pwd
+
+    from bot.utils.cli_home import claude_cli_env
 
     claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
     if claude_bin and os.path.exists(claude_bin):
         try:
-            try:
-                real_home = pwd.getpwuid(os.geteuid()).pw_dir
-            except Exception:
-                real_home = os.path.expanduser("~")
-            env = {**os.environ, "HOME": real_home}
+            env = claude_cli_env()
             proc = await asyncio.create_subprocess_exec(
                 claude_bin,
                 "-p",

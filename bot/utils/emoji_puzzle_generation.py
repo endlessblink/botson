@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import os
-import pwd
 import shutil
 
 from ..database.db import Database
@@ -33,10 +32,8 @@ async def _generate_via_claude(prompt: str) -> str | None:
     if not claude_bin or not os.path.exists(claude_bin):
         return None
     try:
-        try:
-            real_home = pwd.getpwuid(os.geteuid()).pw_dir
-        except Exception:
-            real_home = os.path.expanduser("~")
+        from bot.utils.cli_home import claude_cli_env
+
         proc = await asyncio.create_subprocess_exec(
             claude_bin,
             "-p",
@@ -45,7 +42,7 @@ async def _generate_via_claude(prompt: str) -> str | None:
             os.getenv("BOTSON_EMOJI_REFILL_CLI_MODEL", "haiku"),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "HOME": real_home},
+            env=claude_cli_env(),
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:

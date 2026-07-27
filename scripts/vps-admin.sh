@@ -28,6 +28,15 @@
 #                         lines default 200. Optional pat = grep -E filter, e.g.
 #                         'warmup_rsvp_gate|trivia_round'. Use to read dispatch
 #                         decisions and skip/fail reasons.
+#   llm-doctor            Read-only diagnosis of the generation CLIs (Claude + Codex):
+#                         which HOME the service actually runs with, where each
+#                         CLI's credentials live, whether they are readable and
+#                         unexpired, CLI versions, and how often calls have been
+#                         timing out. Prints NO secrets — only paths, expiry
+#                         timestamps, and counts. Run this FIRST whenever the
+#                         planner reports "Aborted" or generation is slow; a
+#                         90s-timeout-per-row pattern is almost always a
+#                         credentials-location problem, not a model problem.
 #   health                Read-only dump of Botson health guard timer state,
 #                         last persisted result, and recent health service logs.
 #   activity [n] [filter] Read-only dump of the activity_log table (most recent n,
@@ -271,6 +280,100 @@ cmd_applog() {
   fi
 }
 
+cmd_llm_doctor() {
+  echo "=== vps-admin.sh llm-doctor @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo
+  echo "--- Service identity ---"
+  local svc_home svc_user pid
+  svc_user="$(systemctl show -p User --value "$DASH_SVC" 2>/dev/null || echo '?')"
+  pid="$(systemctl show -p MainPID --value "$DASH_SVC" 2>/dev/null || echo 0)"
+  svc_home=""
+  if [ "${pid:-0}" -gt 0 ] && [ -r "/proc/$pid/environ" ]; then
+    svc_home="$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^HOME=//p' | head -1)"
+  fi
+  echo "user=${svc_user:-?}  pid=${pid:-0}  HOME=${svc_home:-<unreadable>}"
+  echo "passwd home for ${svc_user}: $(getent passwd "$svc_user" | cut -d: -f6 2>/dev/null || echo '?')"
+  echo
+
+  echo "--- Credential locations (no secrets printed) ---"
+  local found_claude=0 found_codex=0 d
+  for d in "$svc_home" "$(getent passwd "$svc_user" | cut -d: -f6 2>/dev/null)" /opt/robotnik; do
+    [ -n "$d" ] || continue
+    if [ -f "$d/.claude/.credentials.json" ]; then
+      echo "claude creds: $d/.claude/.credentials.json ($(stat -c '%U:%G %a %y' "$d/.claude/.credentials.json" | cut -d. -f1))"
+      found_claude=1
+    fi
+    if [ -f "$d/.codex/auth.json" ]; then
+      echo "codex  auth : $d/.codex/auth.json"
+      found_codex=1
+    fi
+  done
+  if [ -f /opt/robotnik/.codex-home/auth.json ]; then
+    echo "codex  auth : /opt/robotnik/.codex-home/auth.json"
+    found_codex=1
+  fi
+  [ "$found_claude" -eq 1 ] || echo "claude creds: NONE FOUND — every call will hang until timeout"
+  [ "$found_codex" -eq 1 ] || echo "codex  auth : NONE FOUND — fallback cannot run"
+  echo
+
+  echo "--- Claude token expiry ---"
+  local creds
+  creds="$(ls -1 /opt/robotnik/.claude/.credentials.json "$svc_home/.claude/.credentials.json" 2>/dev/null | head -1 || true)"
+  if [ -n "$creds" ]; then
+    python3 - "$creds" <<'PY' || echo "  (could not parse)"
+import datetime, json, sys
+with open(sys.argv[1]) as fh:
+    oauth = (json.load(fh) or {}).get("claudeAiOauth") or {}
+exp = oauth.get("expiresAt")
+print("  plan:", oauth.get("subscriptionType", "?"))
+if exp:
+    when = datetime.datetime.fromtimestamp(exp / 1000, datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    mins = (when - now).total_seconds() / 60
+    state = "VALID" if mins > 0 else "EXPIRED"
+    print(f"  token: {state}, {abs(mins):.0f} min {'left' if mins > 0 else 'ago'} (expires {when:%Y-%m-%d %H:%M} UTC)")
+else:
+    print("  token: no expiry field")
+PY
+  else
+    echo "  no readable credentials file"
+  fi
+  echo
+
+  echo "--- Home writability (a non-writable home breaks the codex guard) ---"
+  for d in "$svc_home" "$(getent passwd "$svc_user" | cut -d: -f6 2>/dev/null)"; do
+    [ -n "$d" ] || continue
+    if sudo -u "$svc_user" test -w "$d" 2>/dev/null; then
+      echo "  $d: writable by $svc_user"
+    else
+      echo "  $d: NOT writable by $svc_user  (owner: $(stat -c '%U' "$d" 2>/dev/null || echo '?'))"
+    fi
+  done
+  echo
+
+  echo "--- CLI binaries ---"
+  echo "  claude: $(command -v claude || echo 'not on PATH')"
+  echo "  codex : $(command -v codex || echo 'not on PATH')"
+  echo
+
+  echo "--- Timeout / fallback frequency (last 7 days) ---"
+  echo "  claude CLI timeouts : $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'CLI timed out after 90s' || true)"
+  echo "  codex  CLI timeouts : $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'Codex CLI timed out' || true)"
+  echo "  codex  fallback used: $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'Codex CLI fallback was used' || true)"
+  echo "  non-zero CLI exits  : $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'CLI error (rc=' || true)"
+  echo
+  echo "  Reading: many timeouts + zero non-zero exits = the CLI is hanging, which"
+  echo "  means it is not finding credentials. Compare the HOME line above with the"
+  echo "  credential locations; they must match."
+  echo
+  echo "--- Resolution the app will use ---"
+  sudo -u "$svc_user" HOME="${svc_home:-/opt/robotnik}" /opt/robotnik/.venv/bin/python -c '
+from bot.utils.cli_home import resolve_claude_home, resolve_codex_home
+print("  claude HOME ->", resolve_claude_home())
+print("  CODEX_HOME  ->", resolve_codex_home() or "<unset, CLI default>")
+' 2>&1 | tail -5 || echo "  (resolution probe unavailable)"
+}
+
 cmd_health() {
   echo "=== vps-admin.sh health @ $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
   echo
@@ -421,6 +524,7 @@ main() {
     rows)          cmd_rows "$@" ;;
     applog)        cmd_applog "$@" ;;
     health)        cmd_health "$@" ;;
+    llm-doctor)    cmd_llm_doctor "$@" ;;
     activity)      cmd_activity "$@" ;;
     verify-topic)  cmd_verify_topic "$@" ;;
     -h|--help|help|"") usage 0 ;;
