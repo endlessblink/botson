@@ -3954,6 +3954,63 @@ async def _render_group_stats_context(db: Database, since_days: int = 7) -> str:
     return "\n".join(lines)
 
 
+def _load_rephrase_anchors() -> list[dict]:
+    """Operator-editable wording anchors for the 'נסח מחדש' action.
+
+    Source of truth is `config/settings.yaml:copy.rephrase_anchors` — a list
+    of {key, label, directive}. Front-ends render `label`; only `directive`
+    reaches the model. Returns [] when unset (the UI then offers free text
+    only) — never a hardcoded Hebrew fallback.
+    """
+    from bot.utils.copy import load_copy_block
+
+    raw = load_copy_block("rephrase_anchors", default=[]) or []
+    if not isinstance(raw, list):
+        return []
+    anchors: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("key") or "").strip()
+        label = str(entry.get("label") or "").strip()
+        directive = str(entry.get("directive") or "").strip()
+        if key and label and directive:
+            anchors.append({"key": key, "label": label, "directive": directive})
+    return anchors
+
+
+def _rephrase_instructions(anchor_keys: list[str] | None, notes: str = "") -> str:
+    """Turn selected anchor keys + free text into the `instructions` string
+    that `build_generation_prompt(..., mode='rewrite')` appends to the prompt.
+
+    Unknown keys are dropped silently (config edits must not 500 a stale tab).
+    Order follows the config list, not the click order, so the prompt is
+    stable across operators.
+    """
+    selected = set(anchor_keys or [])
+    parts = [a["directive"] for a in _load_rephrase_anchors() if a["key"] in selected]
+    notes = (notes or "").strip()
+    if notes:
+        parts.append(notes)
+    return " ".join(parts)
+
+
+@app.get("/api/rephrase-anchors")
+async def get_rephrase_anchors(request: Request):
+    """Chips + modal copy for the rephrase UI, shared by the planner cards,
+    the prompt drawer and the review page so all three stay in sync."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+
+    from bot.utils.copy import load_copy_block
+
+    ui = load_copy_block("rephrase_ui", default={}) or {}
+    return {
+        "anchors": [{"key": a["key"], "label": a["label"]} for a in _load_rephrase_anchors()],
+        "ui": ui if isinstance(ui, dict) else {},
+    }
+
+
 def build_generation_prompt(
     field: str,
     mode: str,

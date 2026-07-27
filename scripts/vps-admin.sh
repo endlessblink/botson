@@ -364,7 +364,7 @@ PY
   echo
   echo "--- Call durations (last 7 days, from [cli-timing] lines) ---"
   journalctl -u "$DASH_SVC" -u "$BOT_SVC" --since '7 days ago' --no-pager 2>/dev/null \
-    | grep -oE '\[cli-timing\] [a-z]+ (ok|TIMEOUT|error) (in|after) [0-9.]+s \(ctx=[a-z-]+\)' \
+    | { grep -oE '\[cli-timing\] [a-z]+ (ok|TIMEOUT|error) (in|after) [0-9.]+s \(ctx=[a-z-]+\)' || true; } \
     | python3 -c '
 import re, sys
 from collections import defaultdict
