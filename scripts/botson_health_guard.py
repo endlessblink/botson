@@ -617,15 +617,21 @@ CLI_TIMING_LINE = re.compile(
 )
 
 
-def _cli_timing_samples(hours: int) -> list[tuple[str, str, float, str]]:
+def _cli_timing_samples(hours: int) -> tuple[list[tuple[str, str, float, str]], str]:
     """Pull [cli-timing] lines from journald for both services.
 
-    Returns (cli, outcome, seconds, context) tuples. Empty list when
-    journald isn't available (dev machines) — the caller degrades to a
-    'skipped' check rather than a false alarm.
+    Returns ((cli, outcome, seconds, context) tuples, reason) where reason
+    is "ok" | "no-journalctl" | "unreadable".
+
+    The reason matters more than it looks. When the service user isn't in
+    the `systemd-journal` group, journalctl exits 0 and prints "No journal
+    files were opened due to insufficient permissions" — so a naive reader
+    sees zero timing lines and concludes "no calls, all healthy", forever.
+    A monitor that cannot fail is worse than no monitor, so the caller
+    turns that case into a warning instead of an all-clear.
     """
     if not shutil.which("journalctl"):
-        return []
+        return [], "no-journalctl"
     cmd = [
         "journalctl", "-u", "botson-dashboard.service", "-u", "botson.service",
         "--since", f"{int(hours)} hours ago", "--no-pager",
@@ -633,14 +639,17 @@ def _cli_timing_samples(hours: int) -> list[tuple[str, str, float, str]]:
     try:
         proc = subprocess.run(cmd, text=True, capture_output=True, timeout=90)
     except (subprocess.TimeoutExpired, OSError):
-        return []
+        return [], "unreadable"
+    blob = (proc.stdout or "") + (proc.stderr or "")
+    if "insufficient permissions" in blob or proc.returncode not in (0, 1):
+        return [], "unreadable"
     out: list[tuple[str, str, float, str]] = []
     for match in CLI_TIMING_LINE.finditer(proc.stdout or ""):
         try:
             out.append((match.group(1), match.group(2), float(match.group(3)), match.group(4)))
         except ValueError:
             continue
-    return out
+    return out, "ok"
 
 
 def check_cli_health(args: argparse.Namespace) -> Check:
@@ -660,11 +669,26 @@ def check_cli_health(args: argparse.Namespace) -> Check:
         the budget should rise, or the prompts should shrink.
     """
     hours = _env_int("BOTSON_CLI_HEALTH_WINDOW_HOURS", 24)
-    samples = _cli_timing_samples(hours)
+    samples, reason = _cli_timing_samples(hours)
+    if reason == "unreadable":
+        # Never report all-clear from a monitor that cannot see. Fix:
+        # usermod -aG systemd-journal <service user> && restart.
+        return Check(
+            "cli_health", "warn",
+            "cannot read journald — the CLI health verdict is BLIND, not clear. "
+            "Add the service user to the systemd-journal group.",
+            {"window_hours": hours, "reason": reason},
+        )
+    if reason == "no-journalctl":
+        return Check(
+            "cli_health", "ok", "journalctl unavailable on this host (dev machine); skipped",
+            {"reason": reason},
+        )
     if not samples:
         return Check(
             "cli_health", "ok",
-            f"no CLI calls recorded in the last {hours}h (idle window or journald unavailable)",
+            f"no CLI calls recorded in the last {hours}h (idle window)",
+            {"window_hours": hours},
         )
 
     try:

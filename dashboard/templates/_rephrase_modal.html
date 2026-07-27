@@ -133,6 +133,9 @@
         var choice = await openRephraseModal({text: original});
         if (!choice) return null;
         if (!choice.anchors.length && !choice.notes) return null;
+        // Caller-supplied busy state (button label swap etc.) — fires only
+        // after the operator actually confirmed, not on open.
+        if (typeof opts.onStart === 'function') opts.onStart();
         try {
             var resp = await fetch('/api/generate', {
                 method: 'POST',

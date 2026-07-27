@@ -4049,20 +4049,22 @@ async function _aiSuggestRephraseOne(suggestKey, btn) {
     if (btn) { btn.textContent = restore; btn.disabled = false; }
     if (!result) return;
     s._text_before_rephrase = result.original;
+    s._quality_before_rephrase = s.quality_failures || [];
     s.text = result.text;
     s.quality_failures = result.quality_failures;
     s._rephrased = true;
-    _aiSuggestRenderList();
+    _aiSuggestRenderCurrent();
 }
 
 function _aiSuggestRephraseUndo(suggestKey) {
     var s = _aiSuggestState.suggestions.find(function(x) { return x.key === suggestKey; });
     if (!s || !s._text_before_rephrase) return;
     s.text = s._text_before_rephrase;
+    s.quality_failures = s._quality_before_rephrase || [];
     s._text_before_rephrase = null;
+    s._quality_before_rephrase = null;
     s._rephrased = false;
-    s.quality_failures = [];
-    _aiSuggestRenderList();
+    _aiSuggestRenderCurrent();
 }
 
 // Start an ai-suggest job and poll it to completion. Shared by the full

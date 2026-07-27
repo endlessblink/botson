@@ -22,8 +22,8 @@ def args():
     return argparse.Namespace(mode="daily")
 
 
-def _samples(monkeypatch, rows):
-    monkeypatch.setattr(guard, "_cli_timing_samples", lambda hours: rows)
+def _samples(monkeypatch, rows, reason="ok"):
+    monkeypatch.setattr(guard, "_cli_timing_samples", lambda hours: (rows, reason))
 
 
 def _budget(monkeypatch, seconds=90):
@@ -71,6 +71,54 @@ def test_idle_window_is_not_an_alarm(args, monkeypatch):
     _samples(monkeypatch, [])
     check = guard.check_cli_health(args)
     assert check.status == "ok"
+    assert "idle" in check.detail
+
+
+def test_unreadable_logs_never_report_all_clear(args, monkeypatch):
+    """The service user not being in the systemd-journal group makes
+    journalctl exit 0 with no output — a monitor that reads that as
+    'no calls, all healthy' is silently blind forever."""
+    _samples(monkeypatch, [], reason="unreadable")
+    check = guard.check_cli_health(args)
+    assert check.status == "warn", "blind monitoring must not pass as healthy"
+    assert "BLIND" in check.detail
+    assert "systemd-journal" in check.detail
+
+
+def test_permission_denied_output_is_detected_as_unreadable(monkeypatch):
+    """Pin the real-world shape: exit 0, empty stdout, notice on stderr."""
+    import subprocess as sp
+
+    class _Proc:
+        returncode = 0
+        stdout = ""
+        stderr = "No journal files were opened due to insufficient permissions."
+
+    monkeypatch.setattr(guard.shutil, "which", lambda name: "/usr/bin/journalctl")
+    monkeypatch.setattr(sp, "run", lambda *a, **kw: _Proc())
+    monkeypatch.setattr(guard.subprocess, "run", lambda *a, **kw: _Proc())
+    samples, reason = guard._cli_timing_samples(24)
+    assert samples == []
+    assert reason == "unreadable"
+
+
+def test_readable_journal_with_timing_lines_parses(monkeypatch):
+    class _Proc:
+        returncode = 0
+        stdout = (
+            "Jul 28 10:00:00 host python[1]: [cli-timing] claude ok in 8.2s (ctx=planner)\n"
+            "Jul 28 10:02:00 host python[1]: [cli-timing] claude TIMEOUT after 90.0s (ctx=planner)\n"
+        )
+        stderr = ""
+
+    monkeypatch.setattr(guard.shutil, "which", lambda name: "/usr/bin/journalctl")
+    monkeypatch.setattr(guard.subprocess, "run", lambda *a, **kw: _Proc())
+    samples, reason = guard._cli_timing_samples(24)
+    assert reason == "ok"
+    assert samples == [
+        ("claude", "ok", 8.2, "planner"),
+        ("claude", "TIMEOUT", 90.0, "planner"),
+    ]
 
 
 def test_each_cli_is_judged_separately(args, monkeypatch):
