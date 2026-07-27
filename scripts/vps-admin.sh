@@ -362,9 +362,12 @@ PY
   echo "  codex  fallback used: $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'Codex CLI fallback was used' || true)"
   echo "  non-zero CLI exits  : $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'CLI error (rc=' || true)"
   echo
-  echo "  Reading: many timeouts + zero non-zero exits = the CLI is hanging, which"
-  echo "  means it is not finding credentials. Compare the HOME line above with the"
-  echo "  credential locations; they must match."
+  echo "  Reading: timeouts with zero non-zero exits mean the CLI never returns —"
+  echo "  either it is hanging or the call genuinely exceeds the 90s budget. Rule"
+  echo "  out credentials first (the resolved HOME below must contain the creds"
+  echo "  listed above, and the token must be VALID). If credentials are fine, the"
+  echo "  next measurement is a timed call on this host — the budget may just be"
+  echo "  too small for the prompt size."
   echo
   echo "--- Resolution the app will use ---"
   ( cd /opt/robotnik && sudo -u "$svc_user" HOME="${svc_home:-/opt/robotnik}" \
