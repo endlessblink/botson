@@ -1187,7 +1187,14 @@ var selectedDraftText = {};
 // click (~22 jobs) at 30–60s/job ≈ 3–6 minutes wall time. 10 minutes
 // gives a comfortable margin without leaving a stuck button hanging
 // indefinitely. Bump if BOTSON_AI_FILL_CONCURRENCY is lowered on VPS.
+// Soft limit: after this the modal stops promising a quick answer and
+// says the job is still running server-side. It does NOT abort — the job
+// keeps generating and every row completed so far would be thrown away.
+// (2026-07-27: aborting here is what rendered a still-healthy Populate
+// run as "Aborted ❌" after ten minutes.)
 const AI_FILL_CLIENT_TIMEOUT_MS = 600000;
+// Hard ceiling: give up for real, so a wedged job can't poll forever.
+const AI_FILL_HARD_LIMIT_MS = 2400000;
 
 // ─── Wizard State ───
 var wizardState = {
@@ -2848,6 +2855,8 @@ var _aiSuggestState = {
     controller: null,
     jobId: null,
     timeoutHandle: null,
+    hardLimitHandle: null,
+    startedAt: 0,
     timedOut: false,
     triggerLabel: '',
     boardMode: false,
@@ -2876,6 +2885,10 @@ function closeAiSuggestModal() {
     if (_aiSuggestState.timeoutHandle) {
         clearTimeout(_aiSuggestState.timeoutHandle);
         _aiSuggestState.timeoutHandle = null;
+    }
+    if (_aiSuggestState.hardLimitHandle) {
+        clearTimeout(_aiSuggestState.hardLimitHandle);
+        _aiSuggestState.hardLimitHandle = null;
     }
     _aiSuggestState.suggestions = [];
     _aiSuggestState.checked = {};
@@ -3839,9 +3852,14 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     _aiSuggestState.jobId = null;
     var controller = new AbortController();
     _aiSuggestState.controller = controller;
+    _aiSuggestState.startedAt = Date.now();
     _aiSuggestState.timeoutHandle = setTimeout(function() {
         _aiSuggestState.timedOut = true;
-        if (!controller.signal.aborted) controller.abort('client_timeout');
+        var waitEl = document.getElementById('ai-suggest-subtitle');
+        if (waitEl) waitEl.textContent = 'עדיין רץ בשרת — ההצעות ממשיכות להיווצר. אפשר להמתין או ללחוץ ביטול.';
+        _aiSuggestState.hardLimitHandle = setTimeout(function() {
+            if (!controller.signal.aborted) controller.abort('client_timeout');
+        }, Math.max(0, AI_FILL_HARD_LIMIT_MS - AI_FILL_CLIENT_TIMEOUT_MS));
     }, AI_FILL_CLIENT_TIMEOUT_MS);
 
     var subtitle = document.getElementById('ai-suggest-subtitle');
@@ -3904,6 +3922,16 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
                 throw new Error(_formatApiError(statusData, 'HTTP ' + statusResp.status));
             }
             consecutivePollErrors = 0;
+            // Show elapsed minutes once the job outlives the "1-3 דקות"
+            // promise, so a slow run reads as progress and not a freeze.
+            var elapsedMs = Date.now() - (_aiSuggestState.startedAt || Date.now());
+            if (elapsedMs > 120000 && statusData.status !== 'completed') {
+                var sub = document.getElementById('ai-suggest-subtitle');
+                if (sub) {
+                    sub.textContent = loadingScope + ' — מייצר הצעות... (' +
+                        Math.floor(elapsedMs / 60000) + ' דקות, עדיין רץ)';
+                }
+            }
             if (statusData.status === 'completed') return statusData.result || {};
             if (statusData.status === 'cancelled') throw new Error('AI suggest cancelled');
             if (statusData.status === 'failed') throw new Error(statusData.error || 'AI suggest failed');
@@ -3965,6 +3993,10 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
         if (_aiSuggestState.timeoutHandle) {
             clearTimeout(_aiSuggestState.timeoutHandle);
             _aiSuggestState.timeoutHandle = null;
+        }
+        if (_aiSuggestState.hardLimitHandle) {
+            clearTimeout(_aiSuggestState.hardLimitHandle);
+            _aiSuggestState.hardLimitHandle = null;
         }
         if (_aiSuggestState.controller === controller) {
             _aiSuggestState.controller = null;
