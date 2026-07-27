@@ -78,6 +78,28 @@ def default_activity_label() -> str:
     return str((settings.get("copy") or {}).get("default_activity_label") or "").strip()
 
 
+def load_copy_block(namespace: str, *, default: Any = None) -> Any:
+    """Load a whole `copy.<namespace>` node as-is (list or dict).
+
+    `load_copy` is for single string templates. Some copy is structured —
+    e.g. `copy.rephrase_anchors` is a list of {key,label,directive} — and
+    the caller needs the container, not one formatted string. Same lookup
+    order (settings.yaml first, then `config/copy/<namespace>.yaml`), same
+    once-per-namespace missing warning.
+    """
+    settings = get_settings() or {}
+    node = (settings.get("copy") or {}).get(namespace)
+    if node is None:
+        external = _load_external(namespace)
+        node = external or None
+    if node is None:
+        if namespace not in _warned_keys:
+            logger.warning("copy: missing block %s — falling back to default", namespace)
+            _warned_keys.add(namespace)
+        return default
+    return node
+
+
 def load_copy(namespace: str, key: str, *, default: str | None = None, **fmt: Any) -> str:
     """Load a user-facing template and format with `fmt` kwargs.
 

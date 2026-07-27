@@ -451,6 +451,84 @@
         overflow-wrap: anywhere;
         word-break: break-word;
     }
+    /* Per-day "+ עוד" generation: the job takes 1-3 minutes, so the lane itself
+       has to show that something is running, not just the modal subtitle. */
+    .ai-suggest-day-lane.is-loading {
+        border-color: rgba(245, 158, 11, 0.45);
+    }
+    .ai-suggest-lane-progress {
+        position: relative;
+        height: 2px;
+        background: rgba(245, 158, 11, 0.14);
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    .ai-suggest-lane-progress::before {
+        content: ''; display: block; height: 100%; width: 45%;
+        background: linear-gradient(90deg, transparent, #f59e0b, transparent);
+        animation: aiProgressSlide 1.4s ease-in-out infinite;
+    }
+    .ai-suggest-skeleton {
+        border: 1px dashed rgba(245, 158, 11, 0.28);
+        border-radius: 7px;
+        background: #13151a;
+        padding: 9px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+    }
+    .ai-suggest-skeleton-line {
+        height: 8px;
+        border-radius: 4px;
+        background: linear-gradient(90deg, #1c1f26 0%, #2a2f3a 50%, #1c1f26 100%);
+        background-size: 220% 100%;
+        animation: aiSkeletonShimmer 1.6s ease-in-out infinite;
+    }
+    @keyframes aiSkeletonShimmer {
+        0%   { background-position: 220% 0; }
+        100% { background-position: -120% 0; }
+    }
+    .ai-suggest-card.is-new {
+        border-color: rgba(245, 158, 11, 0.65);
+        box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.22);
+        animation: aiSuggestCardIn 420ms ease-out;
+    }
+    @keyframes aiSuggestCardIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    .ai-suggest-new-badge {
+        font-size: 9px;
+        line-height: 1;
+        padding: 2px 4px;
+        border-radius: 4px;
+        color: #fcd34d;
+        background: rgba(245, 158, 11, 0.16);
+        border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+    .ai-suggest-lane-note {
+        border-radius: 6px;
+        font-size: 11px;
+        line-height: 1.5;
+        padding: 6px 8px;
+    }
+    .ai-suggest-lane-note.is-info {
+        color: #fcd34d;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: rgba(245, 158, 11, 0.08);
+    }
+    .ai-suggest-lane-note.is-error {
+        color: #fda4af;
+        border: 1px solid rgba(244, 63, 94, 0.35);
+        background: rgba(244, 63, 94, 0.08);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .ai-suggest-lane-progress::before,
+        .ai-suggest-skeleton-line { animation: none; }
+        .ai-suggest-lane-progress::before { width: 100%; background: rgba(245, 158, 11, 0.5); }
+        .ai-suggest-skeleton-line { background: #22262f; }
+        .ai-suggest-card.is-new { animation: none; }
+    }
     @media (max-width: 900px) {
         .ai-suggest-board {
             grid-template-columns: repeat(7, minmax(230px, 76vw));
@@ -2863,6 +2941,16 @@ var _aiSuggestState = {
     boardWindow: null,
     skipReasons: [],
     draggingKey: null,
+    // Per-day "+ עוד" jobs. Keyed by ISO date so several days can generate in
+    // parallel — the single controller/jobId slot above stays owned by the
+    // initial week/day fetch.
+    dayJobs: {},
+    // Per-day inline notice (no-new-suggestions, error, cancelled).
+    dayNotes: {},
+    // Keys of suggestions that just arrived, so the board can highlight them.
+    newKeys: {},
+    newKeysHandle: null,
+    tickHandle: null,
 };
 
 function openAiSuggestModal() {
@@ -2890,6 +2978,17 @@ function closeAiSuggestModal() {
         clearTimeout(_aiSuggestState.hardLimitHandle);
         _aiSuggestState.hardLimitHandle = null;
     }
+    Object.keys(_aiSuggestState.dayJobs).forEach(function(iso) {
+        _aiSuggestCancelDayJob(iso, {silent: true});
+    });
+    _aiSuggestState.dayJobs = {};
+    _aiSuggestState.dayNotes = {};
+    _aiSuggestStopTicker();
+    if (_aiSuggestState.newKeysHandle) {
+        clearTimeout(_aiSuggestState.newKeysHandle);
+        _aiSuggestState.newKeysHandle = null;
+    }
+    _aiSuggestState.newKeys = {};
     _aiSuggestState.suggestions = [];
     _aiSuggestState.checked = {};
     _aiSuggestState.jobId = null;
@@ -3583,10 +3682,11 @@ function _aiSuggestSignature(s) {
     ].join('|');
 }
 
+// Returns {added, keys} — the keys let the board highlight what just arrived.
 function _aiSuggestMergeSuggestions(nextSuggestions) {
     _aiSuggestSyncCheckedFromDom();
     var seen = {};
-    var added = 0;
+    var addedKeys = [];
     _aiSuggestState.suggestions.forEach(function(s) { seen[_aiSuggestSignature(s)] = true; });
     (nextSuggestions || []).forEach(function(s) {
         if (!s || !s.key) return;
@@ -3594,12 +3694,26 @@ function _aiSuggestMergeSuggestions(nextSuggestions) {
         if (seen[sig]) return;
         seen[sig] = true;
         _aiSuggestState.suggestions.push(s);
-        added += 1;
+        addedKeys.push(s.key);
         if (_aiSuggestState.checked[s.key] === undefined) {
             _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
         }
     });
-    return added;
+    return {added: addedKeys.length, keys: addedKeys};
+}
+
+// Flag the freshly-added cards, then clear the flag after a few seconds with a
+// single re-render so the highlight does not linger on the board forever.
+function _aiSuggestMarkNew(keys) {
+    if (!keys || !keys.length) return;
+    keys.forEach(function(k) { _aiSuggestState.newKeys[k] = true; });
+    if (_aiSuggestState.newKeysHandle) clearTimeout(_aiSuggestState.newKeysHandle);
+    _aiSuggestState.newKeysHandle = setTimeout(function() {
+        _aiSuggestState.newKeysHandle = null;
+        _aiSuggestState.newKeys = {};
+        var modal = document.getElementById('ai-suggest-modal');
+        if (modal && !modal.classList.contains('hidden')) _aiSuggestRenderCurrent();
+    }, 6000);
 }
 
 // When the operator unchecks (rejects) a day's suggestion and then asks for
@@ -3692,9 +3806,19 @@ function _aiSuggestRenderBoard(listEl) {
         var qualityIssues = laneSuggestions.filter(function(s) {
             return (s.quality_failures || []).length > 0 || (s.validation_failures || []).length > 0;
         }).length;
+        var job = _aiSuggestState.dayJobs[iso] || null;
         var lane = document.createElement('section');
-        lane.className = 'ai-suggest-day-lane';
+        lane.className = 'ai-suggest-day-lane' + (job ? ' is-loading' : '');
         lane.setAttribute('data-ai-suggest-date', iso);
+        var headerAction = job
+            ? ('<div class="flex flex-col items-end gap-1 flex-shrink-0">' +
+                   '<span class="text-[11px] text-amber-300 whitespace-nowrap">' +
+                       (job.status === 'pending' ? 'ממתין בתור' : 'מייצר') +
+                       ' <span data-day-timer="' + escapeHtml(iso) + '" dir="ltr">' + _aiSuggestElapsedLabel(job) + '</span>' +
+                   '</span>' +
+                   '<button type="button" data-cancel-more-date="' + escapeHtml(iso) + '" class="text-[10px] text-[#71717a] hover:text-rose-300 underline decoration-dotted">בטל</button>' +
+               '</div>')
+            : ('<button type="button" data-generate-more-date="' + escapeHtml(iso) + '" class="text-[11px] text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 rounded px-2 py-1 whitespace-nowrap">+ עוד</button>');
         lane.innerHTML = (
             '<div class="ai-suggest-day-header">' +
                 '<div class="min-w-0">' +
@@ -3702,12 +3826,13 @@ function _aiSuggestRenderBoard(listEl) {
                     '<div class="text-[11px] text-[#71717a]" dir="ltr">' + escapeHtml(iso) + '</div>' +
                     '<div class="text-[10px] text-[#52525b] mt-1">' + checked + '/' + laneSuggestions.length + ' מסומנות' + (qualityIssues ? ' · ' + qualityIssues + ' בעיות' : '') + '</div>' +
                 '</div>' +
-                '<button type="button" data-generate-more-date="' + escapeHtml(iso) + '" class="text-[11px] text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 rounded px-2 py-1 whitespace-nowrap">+ עוד</button>' +
+                headerAction +
             '</div>' +
+            (job ? '<div class="ai-suggest-lane-progress"></div>' : '') +
             '<div class="ai-suggest-day-body"></div>'
         );
         var body = lane.querySelector('.ai-suggest-day-body');
-        if (!laneSuggestions.length) {
+        if (!laneSuggestions.length && !job) {
             var empty = document.createElement('div');
             empty.className = 'ai-suggest-day-empty';
             empty.textContent = dayReasonLabels.length
@@ -3718,6 +3843,33 @@ function _aiSuggestRenderBoard(listEl) {
             laneSuggestions.forEach(function(s) {
                 body.appendChild(_aiSuggestRenderRow(s));
             });
+        }
+        var note = _aiSuggestState.dayNotes ? _aiSuggestState.dayNotes[iso] : null;
+        if (note && !job) {
+            var noteEl = document.createElement('div');
+            noteEl.className = 'ai-suggest-lane-note ' + (note.kind === 'error' ? 'is-error' : 'is-info');
+            noteEl.setAttribute('data-lane-note', iso);
+            noteEl.textContent = note.text;
+            body.appendChild(noteEl);
+            if (note.kind === 'error') {
+                var retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'text-[11px] text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 rounded px-2 py-1 self-start';
+                retry.textContent = 'נסה שוב';
+                retry.addEventListener('click', function() { _aiSuggestFetchMoreForDate(iso); });
+                body.appendChild(retry);
+            }
+        }
+        if (job) {
+            for (var sk = 0; sk < 3; sk++) {
+                var skel = document.createElement('div');
+                skel.className = 'ai-suggest-skeleton';
+                skel.setAttribute('data-ai-suggest-skeleton', iso);
+                skel.innerHTML = '<div class="ai-suggest-skeleton-line" style="width:45%"></div>' +
+                                 '<div class="ai-suggest-skeleton-line" style="width:92%"></div>' +
+                                 '<div class="ai-suggest-skeleton-line" style="width:74%"></div>';
+                body.appendChild(skel);
+            }
         }
         lane.addEventListener('dragover', function(e) {
             if (!_aiSuggestState.draggingKey) return;
@@ -3735,9 +3887,17 @@ function _aiSuggestRenderBoard(listEl) {
             _aiSuggestMoveSuggestionToDate(key, iso);
         });
         var moreBtn = lane.querySelector('button[data-generate-more-date]');
-        moreBtn.addEventListener('click', function() {
-            _aiSuggestFetch(iso, 'day', {appendToBoard: true});
-        });
+        if (moreBtn) {
+            moreBtn.addEventListener('click', function() {
+                _aiSuggestFetchMoreForDate(iso);
+            });
+        }
+        var cancelBtn = lane.querySelector('button[data-cancel-more-date]');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', function() {
+                _aiSuggestCancelDayJob(iso);
+            });
+        }
         board.appendChild(lane);
     });
     listEl.appendChild(board);
@@ -3767,8 +3927,12 @@ function _aiSuggestRenderRow(s) {
     var previewLink = s.preview_url
         ? '<a href="' + s.preview_url + '" target="_blank" rel="noopener" class="text-[11px] text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 rounded px-2 py-0.5">פתח תצוגה מקדימה</a>'
         : '';
+    var isNew = !!_aiSuggestState.newKeys[s.key];
+    var newTag = isNew
+        ? '<span class="ai-suggest-new-badge">חדש</span>'
+        : '';
     var card = document.createElement('div');
-    card.className = (_aiSuggestState.boardMode ? 'ai-suggest-card' : 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3') + (s._denied ? ' is-denied opacity-50' : '');
+    card.className = (_aiSuggestState.boardMode ? 'ai-suggest-card' : 'border border-[#272727] rounded-md bg-[#111318] hover:bg-[#15171c] p-3 flex items-start gap-3') + (s._denied ? ' is-denied opacity-50' : '') + (isNew ? ' is-new' : '');
     card.setAttribute('data-suggest-card', s.key);
     if (!s._denied) {
         card.draggable = !!_aiSuggestState.boardMode;
@@ -3796,6 +3960,7 @@ function _aiSuggestRenderRow(s) {
         ' class="mt-1 cursor-pointer accent-emerald-500" />' +
         '<div class="flex-1 min-w-0">' +
             '<div class="flex items-center gap-2 text-xs text-[#a1a1aa] mb-1.5 flex-wrap">' +
+                newTag +
                 timeControl +
                 '<span class="text-[#71717a]">→</span>' +
                 '<span class="text-sky-300">' + escapeHtml(topicLabel) + '</span>' +
@@ -3837,15 +4002,177 @@ function _aiSuggestRenderRow(s) {
     return card;
 }
 
+// Start an ai-suggest job and poll it to completion. Shared by the full
+// week/day fetch and by the per-day "+ עוד" jobs, which each own their own
+// AbortController so several can run at the same time.
+async function _aiSuggestRunJob(requestBody, controller, hooks) {
+    hooks = hooks || {};
+    var startResp = await fetch('/api/weekplan/ai-suggest', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {'Content-Type': 'application/json'},
+        body: requestBody,
+    });
+    var startData = await startResp.json().catch(function(){return {};});
+    if (!startResp.ok) {
+        throw new Error(_formatApiError(startData, 'HTTP ' + startResp.status));
+    }
+    if (!startData.job_id) throw new Error('Missing AI suggest job id');
+    if (hooks.onJobId) hooks.onJobId(startData.job_id);
+
+    var consecutivePollErrors = 0;
+    while (true) {
+        await new Promise(function(resolve, reject) {
+            var delay = setTimeout(resolve, 2000);
+            controller.signal.addEventListener('abort', function() {
+                clearTimeout(delay);
+                reject(new DOMException('Aborted', 'AbortError'));
+            }, {once: true});
+        });
+        var statusResp;
+        try {
+            statusResp = await fetch('/api/weekplan/ai-suggest/' + encodeURIComponent(startData.job_id), {
+                method: 'GET',
+                signal: controller.signal,
+            });
+        } catch (pollErr) {
+            consecutivePollErrors += 1;
+            if (consecutivePollErrors <= 3) continue;
+            throw pollErr;
+        }
+        var statusData = await statusResp.json().catch(function(){return {};});
+        if (!statusResp.ok) {
+            consecutivePollErrors += 1;
+            if (consecutivePollErrors <= 3 && statusResp.status >= 500) continue;
+            throw new Error(_formatApiError(statusData, 'HTTP ' + statusResp.status));
+        }
+        consecutivePollErrors = 0;
+        if (hooks.onStatus) hooks.onStatus(statusData.status);
+        if (statusData.status === 'completed') return statusData.result || {};
+        if (statusData.status === 'cancelled') throw new Error('AI suggest cancelled');
+        if (statusData.status === 'failed') throw new Error(statusData.error || 'AI suggest failed');
+    }
+}
+
+function _aiSuggestElapsedLabel(job) {
+    var secs = Math.max(0, Math.floor((Date.now() - (job.startedAt || Date.now())) / 1000));
+    var mm = Math.floor(secs / 60);
+    var ss = secs % 60;
+    return mm + ':' + (ss < 10 ? '0' : '') + ss;
+}
+
+// One shared 1s ticker updates only the elapsed-time nodes, so the board is
+// never re-rendered mid-flight (which would replay animations and reset scroll).
+function _aiSuggestStartTicker() {
+    if (_aiSuggestState.tickHandle) return;
+    _aiSuggestState.tickHandle = setInterval(function() {
+        var isos = Object.keys(_aiSuggestState.dayJobs);
+        if (!isos.length) { _aiSuggestStopTicker(); return; }
+        isos.forEach(function(iso) {
+            var el = document.querySelector('[data-day-timer="' + iso + '"]');
+            if (el) el.textContent = _aiSuggestElapsedLabel(_aiSuggestState.dayJobs[iso]);
+        });
+    }, 1000);
+}
+
+function _aiSuggestStopTicker() {
+    if (_aiSuggestState.tickHandle) {
+        clearInterval(_aiSuggestState.tickHandle);
+        _aiSuggestState.tickHandle = null;
+    }
+}
+
+function _aiSuggestCancelDayJob(iso, opts) {
+    opts = opts || {};
+    var job = _aiSuggestState.dayJobs[iso];
+    if (!job) return;
+    job.cancelled = true;
+    if (job.jobId) {
+        fetch('/api/weekplan/ai-suggest/' + encodeURIComponent(job.jobId) + '/cancel', {
+            method: 'POST',
+        }).catch(function() {});
+    }
+    if (job.controller && !job.controller.signal.aborted) job.controller.abort('user_cancel');
+    if (opts.silent) return;
+    _aiSuggestState.dayNotes[iso] = {kind: 'info', text: 'הבקשה בוטלה'};
+}
+
+function _aiSuggestFinishDayJob(iso, job) {
+    if (_aiSuggestState.dayJobs[iso] !== job) return;
+    if (job.timeoutHandle) clearTimeout(job.timeoutHandle);
+    delete _aiSuggestState.dayJobs[iso];
+    if (!Object.keys(_aiSuggestState.dayJobs).length) _aiSuggestStopTicker();
+}
+
+// "+ עוד" on a day column. Runs independently of other days and of the main
+// week fetch, and never replaces the board on failure — the operator keeps the
+// suggestions they already have.
+async function _aiSuggestFetchMoreForDate(iso) {
+    if (!iso || _aiSuggestState.dayJobs[iso]) return;
+    _aiSuggestSyncCheckedFromDom();
+    _aiSuggestDropUncheckedForDate(iso);
+    delete _aiSuggestState.dayNotes[iso];
+
+    var controller = new AbortController();
+    var job = {
+        controller: controller,
+        jobId: null,
+        status: 'pending',
+        startedAt: Date.now(),
+        timeoutHandle: null,
+        cancelled: false,
+    };
+    job.timeoutHandle = setTimeout(function() {
+        if (!controller.signal.aborted) controller.abort('client_timeout');
+    }, AI_FILL_HARD_LIMIT_MS);
+    _aiSuggestState.dayJobs[iso] = job;
+    _aiSuggestStartTicker();
+    _aiSuggestRenderCurrent();
+
+    var requestBody = JSON.stringify({
+        week_offset: 0,
+        target_date: iso,
+        client_occupied: _aiSuggestClientOccupiedForDate(iso),
+    });
+
+    try {
+        var data = await _aiSuggestRunJob(requestBody, controller, {
+            onJobId: function(id) { job.jobId = id; },
+            onStatus: function(status) {
+                if (status && status !== job.status) {
+                    job.status = status;
+                    if (_aiSuggestState.dayJobs[iso] === job) _aiSuggestRenderCurrent();
+                }
+            },
+        });
+        var merged = _aiSuggestMergeSuggestions(data.suggestions || []);
+        _aiSuggestState.skipReasons = _aiSuggestState.skipReasons.concat(data.skip_reasons || []);
+        _aiSuggestMarkNew(merged.keys);
+        if (!merged.added) {
+            _aiSuggestState.dayNotes[iso] = {kind: 'info', text: 'לא נמצאו הצעות חדשות ליום הזה'};
+        }
+        _aiSuggestFinishDayJob(iso, job);
+        _aiSuggestRenderCurrent();
+        _aiSuggestUpdateCount();
+        var lane = document.querySelector('[data-ai-suggest-date="' + iso + '"]');
+        if (lane) lane.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    } catch (e) {
+        var wasCancelled = job.cancelled || (e && e.name === 'AbortError' && job.cancelled);
+        _aiSuggestFinishDayJob(iso, job);
+        if (!wasCancelled) {
+            _aiSuggestState.dayNotes[iso] = {
+                kind: 'error',
+                text: 'שגיאה: ' + ((e && e.message) || e),
+            };
+        }
+        _aiSuggestRenderCurrent();
+    }
+}
+
 async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     opts = opts || {};
-    var appendToBoard = !!opts.appendToBoard;
-    if (!appendToBoard && (_aiSuggestState.controller || _aiSuggestState.jobId)) {
+    if (_aiSuggestState.controller || _aiSuggestState.jobId) {
         closeAiSuggestModal();
-    }
-    if (appendToBoard) {
-        _aiSuggestSyncCheckedFromDom();
-        if (targetDate) _aiSuggestDropUncheckedForDate(targetDate);
     }
     _aiSuggestState.triggerLabel = triggerLabel || '';
     _aiSuggestState.timedOut = false;
@@ -3868,93 +4195,40 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
     var loadingScope = targetDate ? ('יום ' + targetDate)
         : (opts.weekOf ? ('שבוע ' + opts.weekOf) : 'השבוע הקרוב');
     if (subtitle) subtitle.textContent = loadingScope + ' — מייצר הצעות (יכול לקחת 1-3 דקות)...';
-    if (listEl && !appendToBoard) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">⏳ טוען הצעות מה-AI...</div>';
-    if (appendToBoard && subtitle) subtitle.textContent = 'מוסיף הצעות ליום ' + targetDate + '...';
+    if (listEl) listEl.innerHTML = '<div class="text-center text-[#71717a] py-8">⏳ טוען הצעות מה-AI...</div>';
     openAiSuggestModal();
 
     var body = {week_offset: (typeof opts.weekOffset === 'number' ? opts.weekOffset : 0)};
     if (targetDate) body.target_date = targetDate;
     if (opts.windowMode) body.window_mode = opts.windowMode;
     if (opts.weekOf) body.week_of = opts.weekOf;
-    if (appendToBoard && targetDate) {
-        body.client_occupied = _aiSuggestClientOccupiedForDate(targetDate);
-    }
     var requestBody = JSON.stringify(body);
 
-    async function requestSuggestions() {
-        var startResp = await fetch('/api/weekplan/ai-suggest', {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {'Content-Type': 'application/json'},
-            body: requestBody,
-        });
-        var startData = await startResp.json().catch(function(){return {};});
-        if (!startResp.ok) {
-            throw new Error(_formatApiError(startData, 'HTTP ' + startResp.status));
-        }
-        if (!startData.job_id) throw new Error('Missing AI suggest job id');
-        _aiSuggestState.jobId = startData.job_id;
-
-        var consecutivePollErrors = 0;
-        while (true) {
-            await new Promise(function(resolve, reject) {
-                var delay = setTimeout(resolve, 2000);
-                controller.signal.addEventListener('abort', function() {
-                    clearTimeout(delay);
-                    reject(new DOMException('Aborted', 'AbortError'));
-                }, {once: true});
-            });
-            var statusResp;
-            try {
-                statusResp = await fetch('/api/weekplan/ai-suggest/' + encodeURIComponent(startData.job_id), {
-                    method: 'GET',
-                    signal: controller.signal,
-                });
-            } catch (pollErr) {
-                consecutivePollErrors += 1;
-                if (consecutivePollErrors <= 3) continue;
-                throw pollErr;
-            }
-            var statusData = await statusResp.json().catch(function(){return {};});
-            if (!statusResp.ok) {
-                consecutivePollErrors += 1;
-                if (consecutivePollErrors <= 3 && statusResp.status >= 500) continue;
-                throw new Error(_formatApiError(statusData, 'HTTP ' + statusResp.status));
-            }
-            consecutivePollErrors = 0;
-            // Show elapsed minutes once the job outlives the "1-3 דקות"
-            // promise, so a slow run reads as progress and not a freeze.
-            var elapsedMs = Date.now() - (_aiSuggestState.startedAt || Date.now());
-            if (elapsedMs > 120000 && statusData.status !== 'completed') {
-                var sub = document.getElementById('ai-suggest-subtitle');
-                if (sub) {
-                    sub.textContent = loadingScope + ' — מייצר הצעות... (' +
-                        Math.floor(elapsedMs / 60000) + ' דקות, עדיין רץ)';
-                }
-            }
-            if (statusData.status === 'completed') return statusData.result || {};
-            if (statusData.status === 'cancelled') throw new Error('AI suggest cancelled');
-            if (statusData.status === 'failed') throw new Error(statusData.error || 'AI suggest failed');
-        }
-    }
-
     try {
-        var data = await requestSuggestions();
+        var data = await _aiSuggestRunJob(requestBody, controller, {
+            onJobId: function(id) { _aiSuggestState.jobId = id; },
+            onStatus: function(status) {
+                // Show elapsed minutes once the job outlives the "1-3 דקות"
+                // promise, so a slow run reads as progress and not a freeze.
+                var elapsedMs = Date.now() - (_aiSuggestState.startedAt || Date.now());
+                if (elapsedMs > 120000 && status !== 'completed') {
+                    var sub = document.getElementById('ai-suggest-subtitle');
+                    if (sub) {
+                        sub.textContent = loadingScope + ' — מייצר הצעות... (' +
+                            Math.floor(elapsedMs / 60000) + ' דקות, עדיין רץ)';
+                    }
+                }
+            },
+        });
         var w = data.window || {};
-        var added = null;
-        if (appendToBoard) {
-            added = _aiSuggestMergeSuggestions(data.suggestions || []);
-            _aiSuggestState.skipReasons = _aiSuggestState.skipReasons.concat(data.skip_reasons || []);
-        } else {
-            _aiSuggestState.suggestions = data.suggestions || [];
-            _aiSuggestState.skipReasons = data.skip_reasons || [];
-            _aiSuggestState.checked = {};
-            _aiSuggestState.suggestions.forEach(function(s) {
-                _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
-            });
-            _aiSuggestState.boardMode = _aiSuggestShouldUseBoard(targetDate, triggerLabel, opts, w);
-            _aiSuggestState.boardWindow = _aiSuggestState.boardMode ? w : null;
-        }
+        _aiSuggestState.suggestions = data.suggestions || [];
+        _aiSuggestState.skipReasons = data.skip_reasons || [];
+        _aiSuggestState.checked = {};
+        _aiSuggestState.suggestions.forEach(function(s) {
+            _aiSuggestState.checked[s.key] = !((s.quality_failures || []).length || (s.validation_failures || []).length);
+        });
+        _aiSuggestState.boardMode = _aiSuggestShouldUseBoard(targetDate, triggerLabel, opts, w);
+        _aiSuggestState.boardWindow = _aiSuggestState.boardMode ? w : null;
 
         if (listEl) {
             listEl.innerHTML = '';
@@ -3982,8 +4256,7 @@ async function _aiSuggestFetch(targetDate, triggerLabel, opts) {
             var scopeText = _aiSuggestState.boardMode
                 ? ('שבוע ' + activeWindow.start + ' — ' + activeWindow.end)
                 : ('יום ' + (activeWindow.start || targetDate || ''));
-            var appendText = appendToBoard && added === 0 ? ' · לא נמצאו הצעות חדשות ליום הזה' : '';
-            subtitle.textContent = scopeText + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + appendText + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן, גרור בין ימים, ואז אשר.';
+            subtitle.textContent = scopeText + ' · ' + _aiSuggestState.suggestions.length + ' הצעות' + (rejected ? ' · ' + rejected + ' בעיות איכות לא סומנו' : '') + '. סמן, גרור בין ימים, ואז אשר.';
         }
         _aiSuggestUpdateCount();
     } catch (e) {

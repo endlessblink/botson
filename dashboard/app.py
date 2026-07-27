@@ -36,7 +36,13 @@ from bot.utils.config import ADMIN_IDS, DB_PATH, get_holiday_blackout, get_setti
 from bot.utils.freshness import freshness_rejection
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
-from bot.utils.cli_home import claude_cli_env, codex_cli_env, resolve_claude_home
+from bot.utils.cli_home import (
+    claude_cli_env,
+    cli_timeout_seconds,
+    codex_cli_env,
+    log_cli_timing,
+    resolve_claude_home,
+)
 from bot.utils.prefs_store import record_removed_bullets, runtime_prefs_path
 from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
 from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
@@ -4180,6 +4186,8 @@ async def _generate_via_cli(prompt: str) -> str:
     timeout per generated row — the 2026-07-27 Populate stall.
     """
     env = claude_cli_env()
+    budget = cli_timeout_seconds("claude", 90)
+    started = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
         "claude", "-p", prompt, "--model", "sonnet",
         stdout=asyncio.subprocess.PIPE,
@@ -4187,11 +4195,13 @@ async def _generate_via_cli(prompt: str) -> str:
         env=env,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=budget)
     except TimeoutError as e:
         proc.kill()
         await proc.wait()
-        raise RuntimeError("CLI timed out after 90s") from e
+        log_cli_timing("claude", "TIMEOUT", time.monotonic() - started, "planner")
+        raise RuntimeError(f"CLI timed out after {budget}s") from e
+    log_cli_timing("claude", "ok", time.monotonic() - started, "planner")
     stdout_text = stdout.decode(errors="replace").strip()
     stderr_text = stderr.decode(errors="replace").strip()
     if proc.returncode != 0:
@@ -4287,12 +4297,18 @@ async def _generate_via_codex_cli(prompt: str) -> str:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
+        codex_budget = cli_timeout_seconds("codex", 120)
+        codex_started = time.monotonic()
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode("utf-8")), timeout=120)
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(prompt.encode("utf-8")), timeout=codex_budget
+            )
         except TimeoutError as e:
             proc.kill()
             await proc.wait()
-            raise RuntimeError("Codex CLI timed out after 120s") from e
+            log_cli_timing("codex", "TIMEOUT", time.monotonic() - codex_started, "planner")
+            raise RuntimeError(f"Codex CLI timed out after {codex_budget}s") from e
+        log_cli_timing("codex", "ok", time.monotonic() - codex_started, "planner")
         stdout_text = stdout.decode(errors="replace").strip()
         stderr_text = stderr.decode(errors="replace").strip()
         if proc.returncode != 0:

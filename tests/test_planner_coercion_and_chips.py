@@ -3741,9 +3741,27 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
     def test_ai_suggest_board_more_sends_visible_rows_as_occupied(self):
         self.assertIn('data-generate-more-date', self.html)
         self.assertIn("function _aiSuggestClientOccupiedForDate", self.html)
-        self.assertIn("body.client_occupied = _aiSuggestClientOccupiedForDate(targetDate);", self.html)
-        self.assertIn("_aiSuggestFetch(iso, 'day', {appendToBoard: true});", self.html)
+        self.assertIn("client_occupied: _aiSuggestClientOccupiedForDate(iso),", self.html)
+        self.assertIn("_aiSuggestFetchMoreForDate(iso);", self.html)
         self.assertIn("לא נמצאו הצעות חדשות ליום הזה", self.html)
+
+    def test_ai_suggest_board_more_shows_per_day_progress(self):
+        """The per-day job runs 1-3 minutes, so the lane itself must show it."""
+        for fragment in (
+            "function _aiSuggestFetchMoreForDate",
+            "function _aiSuggestCancelDayJob",
+            "function _aiSuggestStartTicker",
+            "function _aiSuggestElapsedLabel",
+            "ai-suggest-skeleton",
+            "data-day-timer",
+            "data-cancel-more-date",
+            "ai-suggest-card.is-new",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.html)
+        # Days run in parallel: each job owns its own controller in a map keyed
+        # by date rather than the single global slot.
+        self.assertIn("_aiSuggestState.dayJobs[iso]", self.html)
 
     def test_ai_suggest_game_time_editor_updates_linked_rows(self):
         for fn in (

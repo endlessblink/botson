@@ -219,12 +219,16 @@ def _extract_generated_text(raw: str) -> str | None:
 async def _generate_with_claude(prompt: str) -> str | None:
     import asyncio
 
-    from bot.utils.cli_home import claude_cli_env
+    import time as _time
+
+    from bot.utils.cli_home import claude_cli_env, cli_timeout_seconds, log_cli_timing
 
     claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
     if claude_bin and os.path.exists(claude_bin):
         try:
             env = claude_cli_env()
+            budget = cli_timeout_seconds("claude", _CLAUDE_CLI_TIMEOUT)
+            started = _time.monotonic()
             proc = await asyncio.create_subprocess_exec(
                 claude_bin,
                 "-p",
@@ -236,12 +240,19 @@ async def _generate_with_claude(prompt: str) -> str | None:
                 env=env,
             )
             try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_CLAUDE_CLI_TIMEOUT)
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=budget)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
+                log_cli_timing("claude", "TIMEOUT", _time.monotonic() - started, "materializer")
                 logger.warning("[materializer] claude CLI timed out; trying API fallback")
             else:
+                log_cli_timing(
+                    "claude",
+                    "ok" if proc.returncode == 0 else "error",
+                    _time.monotonic() - started,
+                    "materializer",
+                )
                 if proc.returncode == 0 and stdout.decode(errors="ignore").strip():
                     return stdout.decode(errors="ignore")
                 logger.warning("[materializer] claude CLI failed: %s", stderr.decode(errors="ignore")[:200])

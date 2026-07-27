@@ -31,6 +31,46 @@ copy:
   # Activity label used in the cancel notice when neither activity_label
   # nor theme_label is present. Set to "" to disable.
   default_activity_label: "המשחק"
+  # "נסח מחדש" — one-off wording rewrite of a draft the operator likes.
+  # Each anchor is a chip in the dashboard; `directive` is appended to the
+  # rewrite prompt as extra instructions. Editing this list changes the
+  # chips everywhere (planner cards, prompt drawer, review page) — the
+  # front-ends read them from GET /api/rephrase-anchors, never inline.
+  # This is a one-off edit only: picking an anchor never writes a learned
+  # rule. Durable rules still come exclusively from reject + reason.
+  rephrase_anchors:
+    - key: less_translated
+      label: "פחות תרגומית"
+      directive: "כתוב עברית טבעית ומדוברת. אל תשמור על מבנה משפט אנגלי, אל תשתמש בתרגום מילולי של ביטויים לועזיים, ואל תכתוב משפט שנשמע כאילו תורגם מאנגלית."
+    - key: shorter
+      label: "קצר יותר"
+      directive: "קצר משמעותית את הניסוח בלי לאבד את הרעיון המרכזי. הורד תיאורים, תנאים והקדמות."
+    - key: more_spoken
+      label: "יותר מדוברת"
+      directive: "השתמש בשפה יומיומית שאנשים באמת מדברים בה בקבוצה, בלי מליצות ובלי עברית ספרותית."
+    - key: less_generic
+      label: "פחות גנרית"
+      directive: "הפוך את השאלה לספציפית יותר — עוגן קונקרטי אחד שאי אפשר להעביר לקטגוריה אחרת."
+    - key: more_concrete
+      label: "דוגמה קונקרטית"
+      directive: "בקש פרט אחד ממשי — שם, רגע, החלטה — ולא תחושה כללית או פסקת תיאור."
+    - key: warmer
+      label: "יותר חמה"
+      directive: "שמור על טון מזמין וחברי, בלי להישמע כמו שאלון או משימה."
+  # UI strings for the rephrase modal. Shared by all three surfaces.
+  rephrase_ui:
+    button_label: "✍️ נסח מחדש"
+    modal_title: "ניסוח מחדש"
+    modal_subtitle: "הרעיון נשאר — רק הניסוח משתנה. לא נשמר ככלל."
+    anchors_label: "עוגני ניסוח"
+    free_text_label: "הערה חופשית (רשות)"
+    free_text_placeholder: "לדוגמה: בלי אמוג'י בהתחלה"
+    apply_label: "נסח מחדש"
+    cancel_label: "ביטול"
+    working_label: "מנסח…"
+    undo_label: "↩ החזר ניסוח קודם"
+    replaced_badge: "נוסח מחדש"
+    error_label: "הניסוח מחדש נכשל — הטקסט המקורי נשמר"
   # Private DM menu (bot/handlers/dm_menu.py). Users open it via the
   # t.me/<bot>?start=menu deep link or /menu in a private chat with the bot.
   dm_menu:
@@ -236,6 +276,14 @@ llm:
     api_url: https://api.anthropic.com/v1/messages
     model: claude-sonnet-4-20250514
   cli_model: haiku
+  # Per-call time budget for the generation CLIs. Raise these when
+  # `vps-admin.sh llm-doctor` shows calls succeeding just under the
+  # limit; lower them to fail over to the fallback faster when calls are
+  # hanging rather than working slowly. A planner run makes many calls in
+  # sequence, so each wasted budget is multiplied.
+  cli_timeouts:
+    claude_seconds: 90
+    codex_seconds: 120
   prompt_rules: {}  # Phase B.6 populates from dashboard/app.py:1080+, 3000+
 
 learning:

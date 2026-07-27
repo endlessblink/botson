@@ -362,6 +362,38 @@ PY
   echo "  codex  fallback used: $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'Codex CLI fallback was used' || true)"
   echo "  non-zero CLI exits  : $(journalctl -u "$DASH_SVC" --since '7 days ago' --no-pager 2>/dev/null | grep -c 'CLI error (rc=' || true)"
   echo
+  echo "--- Call durations (last 7 days, from [cli-timing] lines) ---"
+  journalctl -u "$DASH_SVC" -u "$BOT_SVC" --since '7 days ago' --no-pager 2>/dev/null \
+    | grep -oE '\[cli-timing\] [a-z]+ (ok|TIMEOUT|error) (in|after) [0-9.]+s \(ctx=[a-z-]+\)' \
+    | python3 -c '
+import re, sys
+from collections import defaultdict
+buckets = defaultdict(list)
+for line in sys.stdin:
+    m = re.search(r"\[cli-timing\] (\w+) (\w+) (?:in|after) ([\d.]+)s \(ctx=([\w-]+)\)", line)
+    if m:
+        buckets[(m.group(1), m.group(4))].append((m.group(2), float(m.group(3))))
+if not buckets:
+    print("  no timing data yet — instrumentation ships 2026-07-27, needs one run")
+for (cli, ctx), rows in sorted(buckets.items()):
+    ok = sorted(d for s, d in rows if s == "ok")
+    to = [d for s, d in rows if s == "TIMEOUT"]
+    err = [d for s, d in rows if s == "error"]
+    parts = [f"  {cli}/{ctx}: {len(rows)} calls"]
+    if ok:
+        mid = ok[len(ok) // 2]
+        parts.append(f"ok={len(ok)} median={mid:.1f}s max={ok[-1]:.1f}s")
+    if to:
+        parts.append(f"TIMEOUT={len(to)}")
+    if err:
+        parts.append(f"error={len(err)}")
+    print(" · ".join(parts))
+print()
+print("  If median is close to the budget, the calls are slow — raise the budget in")
+print("  settings (llm.cli_timeouts). If there are timeouts but successful calls are")
+print("  fast, those calls are hanging — lower the budget so the fallback runs sooner.")
+' 2>/dev/null || echo "  (timing summary unavailable)"
+  echo
   echo "  Reading: timeouts with zero non-zero exits mean the CLI never returns —"
   echo "  either it is hanging or the call genuinely exceeds the 90s budget. Rule"
   echo "  out credentials first (the resolved HOME below must contain the creds"

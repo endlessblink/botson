@@ -154,3 +154,50 @@ def codex_cli_env(base: dict[str, str] | None = None) -> dict[str, str]:
 def reset_cache() -> None:
     """Test hook — re-enables the one-shot resolution logging."""
     _logged.clear()
+
+
+# ── call timing ──────────────────────────────────────────────────────
+#
+# The open question on 2026-07-27 was whether `claude -p` calls that hit
+# the timeout were *hanging* or merely *slow* — 16 timeouts against zero
+# non-zero exits couldn't distinguish the two, and answering it by hand
+# would mean spending the operator's account on a probe. Instead every
+# call now logs its duration on both paths, so the next occurrence
+# answers the question from real traffic. `vps-admin.sh llm-doctor`
+# summarises these lines.
+#
+# Format is fixed and greppable — do not reword without updating the
+# doctor's parser:
+#   [cli-timing] <cli> ok in 12.3s (ctx=planner)
+#   [cli-timing] <cli> TIMEOUT after 90.0s (ctx=planner)
+#   [cli-timing] <cli> error in 3.1s (ctx=planner)
+
+TIMING_PREFIX = "[cli-timing]"
+
+
+def log_cli_timing(cli: str, outcome: str, seconds: float, context: str = "-") -> None:
+    """Emit one greppable timing line. `outcome` is ok | TIMEOUT | error."""
+    logger.info(
+        "%s %s %s in %.1fs (ctx=%s)"
+        if outcome != "TIMEOUT"
+        else "%s %s %s after %.1fs (ctx=%s)",
+        TIMING_PREFIX, cli, outcome, seconds, context,
+    )
+
+
+def cli_timeout_seconds(cli: str, default: int) -> int:
+    """Per-CLI time budget, operator-tunable without a code change.
+
+    `settings.llm.cli_timeouts.{claude_seconds,codex_seconds}`. Kept here
+    rather than in the callers so every generation path shares one knob.
+    """
+    try:
+        from bot.utils.config import get_settings
+
+        timeouts = ((get_settings().get("llm") or {}).get("cli_timeouts") or {})
+        value = timeouts.get(f"{cli}_seconds")
+        if value:
+            return max(10, int(value))
+    except Exception:
+        pass
+    return default
