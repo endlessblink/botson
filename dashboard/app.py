@@ -4614,7 +4614,14 @@ async def _generate_via_api(prompt: str, *, temperature: float | None = None) ->
 
 
 @app.post("/api/generate")
-async def generate_content(request: Request, db: Database = Depends(get_db)):
+async def generate_text_content(request: Request, db: Database = Depends(get_db)):
+    """Generate / rewrite one draft for the prompt drawer, planner cards and
+    review page.
+
+    Named distinctly from the `/api/generate-content` handler below — both
+    used to be `generate_content`, so the module-level name silently pointed
+    at the later one and anything importing it by name got the wrong route.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
@@ -4661,7 +4668,7 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
         content = await _generate_via_cli(prompt)
     except Exception as e:
         cli_err = e
-        logger.warning("generate_content: CLI failed, falling back to API: %s", e)
+        logger.warning("generate_text_content: CLI failed, falling back to API: %s", e)
         try:
             content = await _generate_via_api(prompt)
         except Exception as api_err:
