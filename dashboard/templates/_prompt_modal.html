@@ -36,6 +36,10 @@
                     <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                     שכתב את הטקסט הנוכחי
                 </button>
+                <!-- Rephrase with anchors — keeps the current text's idea and
+                     only changes the wording. Label from config (see
+                     _rephrase_modal.html). -->
+                <button onclick="rephrasePromptText(this)" data-rephrase-label="button_label" class="ai-btn px-3 py-1.5 text-xs font-medium bg-[#171717] border border-sky-500/30 rounded-md text-sky-300 hover:text-sky-200 hover:border-sky-500/60 transition-colors inline-flex items-center gap-1.5"></button>
                 <button onclick="toggleInstructions()" class="px-3 py-1.5 text-xs font-medium bg-[#171717] border border-[#272727] rounded-md text-[#a1a1aa] hover:text-[#fafafa] hover:border-[#3f3f46] transition-colors inline-flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                     הוראות מותאמות
@@ -298,6 +302,39 @@ async function regeneratePrompt(which) {
         alert('שגיאה ביצירה');
     } finally {
         _setBtnsDisabled(false);
+    }
+}
+
+// Rephrase the text currently in the drawer. Unlike "רענן", this keeps the
+// idea and only reworks the wording under the chosen anchors. The result is
+// not saved — the operator still presses the usual save/schedule button.
+async function rephrasePromptText() {
+    if (typeof rephraseWithModal !== 'function') return;
+    var textarea = document.getElementById('modalText');
+    var current = (textarea.value || '').trim();
+    if (!current) return;
+    var body = {
+        field: _modalState.type || 'custom',
+        category: _modalState.category || '',
+        text: current,
+        scheduledDate: _modalState.date || null,
+        onStart: function() {
+            _setBtnsDisabled(true);
+            textarea.value = rephraseCopy('working_label') || current;
+        },
+    };
+    if (body.field === 'discussion' && _modalState.topicId) {
+        body.topicId = parseInt(_modalState.topicId, 10);
+    }
+    var result = await rephraseWithModal(body);
+    _setBtnsDisabled(false);
+    if (!result) {
+        textarea.value = current;
+        return;
+    }
+    textarea.value = result.text;
+    if ((result.quality_failures || []).length && typeof showToast === 'function') {
+        showToast(result.quality_failures.join(', '), 'error');
     }
 }
 

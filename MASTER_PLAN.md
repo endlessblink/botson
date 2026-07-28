@@ -178,6 +178,11 @@
 | T-173 | 30 | Regression corpus + per-channel rubrics injected into prompts | TODO | P1 | T-172 |
 | T-174 | 30 | Style-profile learning loop — operator-approved generation guidance updates | TODO | P1 | T-172, T-173 |
 | T-175 | 23 | Trivia 'never fired' diagnosis + pre-roll gate logging + vps-admin diagnostics | DONE | P1 | T-127 |
+| ~~T-176~~ | 30 | ✅ Learned rules survive deploys — durable prefs store + baseline reconcile | ✅ **DONE** (2026-07-27) | P0 | T-174 |
+| ~~T-177~~ | 30 | ✅ Learned rules injected into the bulk-fill path (materializer) | ✅ **DONE** (2026-07-27) | P0 | T-176 |
+| ~~T-178~~ | 30 | ✅ Rule-list consolidation under an operator-set cap | ✅ **DONE** (2026-07-27) | P1 | T-177 |
+| ~~T-179~~ | 23 | ✅ CLI call timing instrumentation + configurable budgets + llm-doctor | ✅ **DONE** (2026-07-28) | P1 | T-175 |
+| ~~T-180~~ | 23 | ✅ Watchdog classifies CLI health and alerts; blind-monitor guard | ✅ **DONE** (2026-07-28) | P1 | T-179 |
 
 ## Lanes (active queues)
 

@@ -76,6 +76,11 @@
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
             העתק
         </button>
+        {% if msg.preview %}
+        <!-- Keep the idea, redo the wording. Saves back onto the pending item
+             so approve carries the rephrased text. Label from config. -->
+        <button data-action="rephrase" data-rephrase-label="button_label" data-content-type="{{ msg.content_type or '' }}" data-category="{{ msg.category or '' }}" class="px-3 py-1.5 text-xs rounded-md bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors cursor-pointer inline-flex items-center gap-1.5"></button>
+        {% endif %}
         <button data-action="approve" class="px-3 py-1.5 text-xs rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer inline-flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             אישור
@@ -206,6 +211,35 @@
             }
             return payload;
         }
+
+        var rephraseBtn = card.querySelector('[data-action="rephrase"]');
+        if (rephraseBtn) rephraseBtn.addEventListener('click', async function () {
+            if (typeof rephraseWithModal !== 'function' || !previewEl) return;
+            var original = previewEl.innerText;
+            var label = rephraseBtn.textContent;
+            var result = await rephraseWithModal({
+                field: rephraseBtn.dataset.contentType || 'custom',
+                category: rephraseBtn.dataset.category || '',
+                text: original,
+                onStart: function () {
+                    rephraseBtn.disabled = true;
+                    rephraseBtn.textContent = rephraseCopy('working_label') || label;
+                },
+            });
+            rephraseBtn.disabled = false;
+            rephraseBtn.textContent = label;
+            if (!result) return;
+            try {
+                // Persist immediately — pending items live in a JSON store and
+                // approve copies the stored preview, so an un-saved rephrase
+                // would be lost.
+                await postJson('/api/review/' + encodeURIComponent(id) + '/update-text', {text: result.text});
+                previewEl.innerText = result.text;
+                showToast(rephraseCopy('replaced_badge'));
+            } catch (e) {
+                showToast('שגיאה: ' + e.message, 'error');
+            }
+        });
 
         var approveBtn = card.querySelector('[data-action="approve"]');
         if (approveBtn) approveBtn.addEventListener('click', function () {
