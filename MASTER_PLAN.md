@@ -183,6 +183,7 @@
 | ~~T-178~~ | 30 | ✅ Rule-list consolidation under an operator-set cap | ✅ **DONE** (2026-07-27) | P1 | T-177 |
 | ~~T-179~~ | 23 | ✅ CLI call timing instrumentation + configurable budgets + llm-doctor | ✅ **DONE** (2026-07-28) | P1 | T-175 |
 | ~~T-180~~ | 23 | ✅ Watchdog classifies CLI health and alerts; blind-monitor guard | ✅ **DONE** (2026-07-28) | P1 | T-179 |
+| ~~T-181~~ | 30 | ✅ Rephrase-with-anchors — keep the idea, redo the wording (planner cards, prompt drawer, review page); one-off edit that never writes a learned rule | ✅ **DONE** (2026-07-28) | P1 | T-172 |
 
 ## Lanes (active queues)
 
