@@ -5,14 +5,11 @@ from unittest.mock import AsyncMock
 from bot.handlers import tagall
 
 
-def test_announcement_mentions_preserve_members_with_spaces():
-    mentions = [tagall._mention(1, "First Person"), tagall._mention(2, "Second Person")]
-
-    messages = tagall._announcement_messages("Read this", mentions)
+def test_announcement_uses_compact_visual_label():
+    messages = tagall._announcement_messages("Read this", "@all")
 
     assert len(messages) == 1
-    assert "First Person" in messages[0]
-    assert "Second Person" in messages[0]
+    assert "@all" in messages[0]
 
 
 

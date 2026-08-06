@@ -30,6 +30,7 @@ bot:
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
   tagall:
+    all_label: "@all"
     group_only: "הפקודה זמינה רק בתוך קבוצה."
     not_authorized: "רק מנהלים יכולים לתייג את הקבוצה."
     missing_message: "צריך להוסיף הודעה אחרי /tagall."

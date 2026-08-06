@@ -35,50 +35,12 @@ def _settings() -> dict:
     return get_settings().get("tagall", {})
 
 
-def _mention(user_id: int, display_name: str) -> str:
-    label = html.escape(display_name or str(user_id))
-    return f'<a href="tg://user?id={user_id}">{label}</a>'
-
-
-def _chunks(items: list[str], limit: int) -> list[str]:
-    result: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for item in items:
-        extra = len(item) if not current else len(item) + 1
-        if current and current_len + extra > limit:
-            result.append(" ".join(current))
-            current = []
-            current_len = 0
-        current.append(item)
-        current_len += len(item) if len(current) == 1 else len(item) + 1
-    if current:
-        result.append(" ".join(current))
-    return result
-
-
-def _first_chunk(items: list[str], limit: int) -> tuple[str, int]:
-    if not items:
-        return "", 0
-    selected: list[str] = []
-    length = 0
-    for item in items:
-        extra = len(item) if not selected else len(item) + 1
-        if selected and length + extra > limit:
-            break
-        selected.append(item)
-        length += extra
-    return " ".join(selected), len(selected)
-
-
-def _announcement_messages(text: str, mentions: list[str]) -> list[str]:
+def _announcement_messages(text: str, label: str) -> list[str]:
     output_limit = int(_settings().get("output_chars", 3800))
-    announcement = html.escape(text.strip())
-    if not mentions:
-        return [announcement]
-    first_limit = max(1, output_limit - len(announcement) - 2)
-    first_chunk, used = _first_chunk(mentions, first_limit)
-    return [f"{announcement}\n\n{first_chunk}"] + _chunks(mentions[used:], output_limit)
+    message = f"{html.escape(text.strip())}\n\n{html.escape(label.strip())}"
+    if len(message) > output_limit:
+        return [message[:output_limit]]
+    return [message]
 
 
 async def _eligible_members(bot, chat_id: int, db: Database) -> tuple[list[dict], int]:
@@ -179,10 +141,10 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not eligible:
         await query.edit_message_text(load_copy("tagall", "no_members", skipped=skipped))
         return
-    mentions = [_mention(int(row["user_id"]), row.get("display_name") or row.get("username") or "") for row in eligible]
+    label = load_copy("tagall", "all_label")
     sent = 0
     try:
-        for message in _announcement_messages(pending.text, mentions):
+        for message in _announcement_messages(pending.text, label):
             await context.bot.send_message(
                 chat_id=pending.chat_id,
                 message_thread_id=pending.message_thread_id,
