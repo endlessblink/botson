@@ -9,6 +9,11 @@ antispam:
   # Members in the group longer than this are never auto-deleted/banned/muted.
   # Admins still get notified, but the message stays. Set to 0 to disable.
   trusted_member_days: 4
+tagall:
+  message_chars: 2000
+  output_chars: 3800
+  cooldown_seconds: 300
+  preview_ttl_seconds: 600
 bot:
   name: Botson
   # Identity context injected into every LLM-generated message. Was a
@@ -24,6 +29,20 @@ bot:
 # This namespace is seeded by Phase F; Phase A.2 populates it as handlers
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
+  tagall:
+    group_only: "הפקודה זמינה רק בתוך קבוצה."
+    not_authorized: "רק מנהלים יכולים לתייג את הקבוצה."
+    missing_message: "צריך להוסיף הודעה אחרי /tagall."
+    message_too_long: "ההודעה ארוכה מדי לתג הקבוצתי."
+    preview: "אפשר לתייג {eligible} חברים. {skipped} לא נכללו אחרי בדיקת חברות. לפרסם?"
+    confirm_button: "✅ פרסום ותיוג"
+    cancel_button: "ביטול"
+    expired: "התצוגה המקדימה פגה או שאינה שייכת לך."
+    cancelled: "התיוג בוטל."
+    cooldown: "תיוג קבוצתי נוסף עדיין חסום לזמן קצר."
+    no_members: "לא נמצאו חברים זמינים לתג. {skipped} חברים לא נכללו."
+    sent: "פורסם: {tagged} חברים תויגו ב־{messages} הודעות; {skipped} לא נכללו."
+    send_failed: "השליחה נעצרה אחרי {sent} הודעות. בדקו את הקבוצה לפני ניסיון נוסף."
   # Theme label used when poll_options doesn't carry an explicit
   # theme_label. Set to "" to disable the fallback (rows without a theme
   # will be skipped or rendered without a label).

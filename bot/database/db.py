@@ -262,6 +262,13 @@ class Database:
             row = await cursor.fetchone()
             return dict(row) if row else None
 
+    async def get_members_for_tagging(self) -> list[dict]:
+        """Return the known member roster used by the Telegram tag command."""
+        async with self._db.execute(
+            "SELECT user_id, username, display_name FROM members ORDER BY user_id"
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
     async def get_member_count_since(self, since: datetime) -> int:
         """Count members who joined since a given datetime."""
         async with self._db.execute(

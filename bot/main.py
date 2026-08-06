@@ -13,7 +13,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts
@@ -341,6 +341,7 @@ def main():
     calendar_pop.register(app)   # Calendar popup demo (option-3 prototype)
     trivia_interest.register(app)  # Trivia warm-up RSVP interest check
     dm_menu.register(app)          # Private DM menu — sign-up + notification prefs
+    tagall.register(app)            # Admin announcement with known-member mentions
     reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 
