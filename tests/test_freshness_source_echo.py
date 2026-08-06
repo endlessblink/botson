@@ -69,6 +69,10 @@ class NearDuplicateCatchesParaphrase(unittest.TestCase):
 
 
 class FreshnessRejectsSourceExampleEcho(unittest.TestCase):
+    def test_known_bad_series_list_wording_rejected(self):
+        reason = freshness_rejection("📺 סדרה שהתקתם בקצה הרשימה — ביום שני בערב היא כל מה שרציתם?")
+        self.assertEqual(reason, "forbidden fragment: בקצה הרשימה")
+
     def test_verbatim_echo_of_pool_example_rejected(self):
         example = "דעה לא פופולרית על סרט שכולם אוהבים?"
         reason = freshness_rejection(example, source_examples={example})
