@@ -58,6 +58,13 @@ async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db: Database = context.bot_data["db"]
 
+    await db.upsert_chat_member(
+        update.effective_chat.id,
+        user.id,
+        user.username,
+        get_display_name(user),
+    )
+
     # Engagement capture: a reply to one of the bot's scheduled posts is the
     # highest-signal outcome for prompts (discussion/morning/evening). Recorded
     # independently of the levels feature toggle so the signal is never lost.

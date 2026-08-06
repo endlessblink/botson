@@ -30,7 +30,8 @@ class TagAllCommandTests(IsolatedAsyncioTestCase):
             send_message=AsyncMock(),
         )
         db = SimpleNamespace(
-            get_members_for_tagging=AsyncMock(return_value=[
+            upsert_chat_member=AsyncMock(),
+            get_chat_members_for_tagging=AsyncMock(return_value=[
                 {"user_id": 7, "username": "u", "display_name": "A Person"},
             ])
         )

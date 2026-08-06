@@ -63,6 +63,8 @@ class Database:
             "CREATE TABLE IF NOT EXISTS message_engagement (scheduled_msg_id INTEGER PRIMARY KEY, telegram_message_id INTEGER NOT NULL, channel_topic_id INTEGER, reactions INTEGER NOT NULL DEFAULT 0, distinct_reactors INTEGER NOT NULL DEFAULT 0, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_message_engagement_tg_id ON message_engagement(telegram_message_id, channel_topic_id)",
             "CREATE TABLE IF NOT EXISTS message_reactors (scheduled_msg_id INTEGER NOT NULL, user_id INTEGER NOT NULL, reaction_type TEXT, reacted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (scheduled_msg_id, user_id))",
+            "CREATE TABLE IF NOT EXISTS chat_members (chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, username TEXT, display_name TEXT, first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (chat_id, user_id))",
+            "CREATE INDEX IF NOT EXISTS idx_chat_members_chat ON chat_members(chat_id, last_seen_at DESC)",
             # T-172: operator feedback capture. Every rejection/edit of an
             # AI suggestion is stored so future generation can learn from it
             # (T-174). Data-capture only at this phase — no consumer yet.
@@ -266,6 +268,28 @@ class Database:
         """Return the known member roster used by the Telegram tag command."""
         async with self._db.execute(
             "SELECT user_id, username, display_name FROM members ORDER BY user_id"
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def upsert_chat_member(self, chat_id: int, user_id: int, username: str | None, display_name: str):
+        """Record a member as observed in one specific Telegram chat."""
+        await self._db.execute(
+            """INSERT INTO chat_members (chat_id, user_id, username, display_name)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                   username = excluded.username,
+                   display_name = excluded.display_name,
+                   last_seen_at = CURRENT_TIMESTAMP""",
+            (chat_id, user_id, username, display_name),
+        )
+        await self._db.commit()
+
+    async def get_chat_members_for_tagging(self, chat_id: int) -> list[dict]:
+        """Return the known member roster for one Telegram chat."""
+        async with self._db.execute(
+            """SELECT user_id, username, display_name
+               FROM chat_members WHERE chat_id = ? ORDER BY user_id""",
+            (chat_id,),
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
 

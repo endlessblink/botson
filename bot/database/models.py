@@ -9,6 +9,17 @@ CREATE TABLE IF NOT EXISTS members (
     karma_points INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT,
+    display_name TEXT,
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (chat_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_members_chat ON chat_members(chat_id, last_seen_at DESC);
+
 CREATE TABLE IF NOT EXISTS karma_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     giver_id INTEGER NOT NULL,

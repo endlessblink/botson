@@ -84,7 +84,7 @@ def _announcement_messages(text: str, mentions: list[str]) -> list[str]:
 async def _eligible_members(bot, chat_id: int, db: Database) -> tuple[list[dict], int]:
     eligible: list[dict] = []
     skipped = 0
-    for member in await db.get_members_for_tagging():
+    for member in await db.get_chat_members_for_tagging(chat_id):
         try:
             chat_member = await bot.get_chat_member(chat_id, int(member["user_id"]))
         except Exception as exc:  # noqa: BLE001 - stale users must not abort the batch
@@ -128,6 +128,12 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         created_at=time.monotonic(),
     )
     db: Database = context.bot_data["db"]
+    await db.upsert_chat_member(
+        update.effective_chat.id,
+        update.effective_user.id,
+        getattr(update.effective_user, "username", None),
+        getattr(update.effective_user, "full_name", str(update.effective_user.id)),
+    )
     eligible, skipped = await _eligible_members(context.bot, update.effective_chat.id, db)
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(load_copy("tagall", "confirm_button"), callback_data=f"tagall:confirm:{token}"),
