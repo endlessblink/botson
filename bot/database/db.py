@@ -284,6 +284,19 @@ class Database:
         )
         await self._db.commit()
 
+    async def upsert_chat_members(self, members: list[tuple[int, int, str | None, str]]):
+        """Record a refreshed member roster in one transaction."""
+        await self._db.executemany(
+            """INSERT INTO chat_members (chat_id, user_id, username, display_name)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                   username = excluded.username,
+                   display_name = excluded.display_name,
+                   last_seen_at = CURRENT_TIMESTAMP""",
+            members,
+        )
+        await self._db.commit()
+
     async def get_chat_members_for_tagging(self, chat_id: int) -> list[dict]:
         """Return the known member roster for one Telegram chat."""
         async with self._db.execute(

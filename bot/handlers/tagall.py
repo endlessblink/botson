@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import secrets
@@ -12,6 +13,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from ..database.db import Database
+from ..scheduler.member_sync import sync_chat_members
 from ..utils.config import get_settings
 from ..utils.copy import load_copy
 from ..utils.helpers import is_admin
@@ -90,6 +92,14 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         created_at=time.monotonic(),
     )
     db: Database = context.bot_data["db"]
+    if _settings().get("roster_sync_enabled", True):
+        try:
+            await asyncio.wait_for(
+                sync_chat_members(db, update.effective_chat.id),
+                timeout=int(_settings().get("roster_sync_timeout_seconds", 60)),
+            )
+        except Exception as exc:  # noqa: BLE001 - known roster remains a safe fallback
+            logger.warning("tagall: full roster sync failed: %s", exc)
     await db.upsert_chat_member(
         update.effective_chat.id,
         update.effective_user.id,
@@ -137,6 +147,14 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(load_copy("tagall", "cooldown"))
         return
     db: Database = context.bot_data["db"]
+    if _settings().get("roster_sync_enabled", True):
+        try:
+            await asyncio.wait_for(
+                sync_chat_members(db, pending.chat_id),
+                timeout=int(_settings().get("roster_sync_timeout_seconds", 60)),
+            )
+        except Exception as exc:  # noqa: BLE001 - known roster remains a safe fallback
+            logger.warning("tagall: refresh roster sync failed: %s", exc)
     eligible, skipped = await _eligible_members(context.bot, pending.chat_id, db)
     if not eligible:
         await query.edit_message_text(load_copy("tagall", "no_members", skipped=skipped))

@@ -14,6 +14,8 @@ tagall:
   output_chars: 3800
   cooldown_seconds: 300
   preview_ttl_seconds: 600
+  roster_sync_enabled: true
+  roster_sync_timeout_seconds: 60
 bot:
   name: Botson
   # Identity context injected into every LLM-generated message. Was a
