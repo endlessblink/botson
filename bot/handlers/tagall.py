@@ -9,7 +9,7 @@ import secrets
 import time
 from dataclasses import dataclass
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from ..database.db import Database
@@ -31,6 +31,8 @@ class PendingTag:
     message_thread_id: int | None
     text: str
     created_at: float
+    target_user_ids: tuple[int, ...] | None = None
+    test_only: bool = False
 
 
 def _settings() -> dict:
@@ -51,8 +53,11 @@ async def _eligible_members(
     db: Database,
     *,
     verify_live: bool = True,
+    target_user_ids: set[int] | None = None,
 ) -> tuple[list[dict], int]:
     members = await db.get_chat_members_for_tagging(chat_id)
+    if target_user_ids is not None:
+        members = [member for member in members if int(member["user_id"]) in target_user_ids]
     if not verify_live:
         return members, 0
     semaphore = asyncio.Semaphore(
@@ -79,7 +84,12 @@ async def _eligible_members(
     return eligible, skipped
 
 
-async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _run_tagall_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    test_only: bool = False,
+):
     """Preview an announcement and the known members it can tag."""
     if not update.message or not update.effective_user or not update.effective_chat:
         return
@@ -90,6 +100,8 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(load_copy("tagall", "not_authorized"))
         return
     text = " ".join(context.args).strip()
+    if not text and test_only:
+        text = load_copy("tagall", "test_message")
     if not text:
         await update.message.reply_text(load_copy("tagall", "missing_message"))
         return
@@ -103,11 +115,13 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_thread_id=getattr(update.message, "message_thread_id", None),
         text=text,
         created_at=time.monotonic(),
+        target_user_ids=(update.effective_user.id,) if test_only else None,
+        test_only=test_only,
     )
     db: Database = context.bot_data["db"]
     progress = await update.message.reply_text(load_copy("tagall", "syncing"))
     roster_synced = False
-    if _settings().get("roster_sync_enabled", True):
+    if not test_only and _settings().get("roster_sync_enabled", True):
         try:
             roster_synced = await asyncio.wait_for(
                 sync_chat_members(db, update.effective_chat.id),
@@ -127,6 +141,7 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.id,
         db,
         verify_live=not roster_synced,
+        target_user_ids={update.effective_user.id} if test_only else None,
     )
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(load_copy("tagall", "confirm_button"), callback_data=f"tagall:confirm:{token}"),
@@ -136,6 +151,14 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         load_copy("tagall", "preview", eligible=len(eligible), skipped=skipped),
         reply_markup=keyboard,
     )
+
+
+async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _run_tagall_command(update, context)
+
+
+async def tagall_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _run_tagall_command(update, context, test_only=True)
 
 
 async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,11 +201,13 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             roster_synced = roster_synced is not None
         except Exception as exc:  # noqa: BLE001 - known roster remains a safe fallback
             logger.warning("tagall: refresh roster sync failed: %s", exc)
+    target_user_ids = set(pending.target_user_ids) if pending.target_user_ids else None
     eligible, skipped = await _eligible_members(
         context.bot,
         pending.chat_id,
         db,
         verify_live=not roster_synced,
+        target_user_ids=target_user_ids,
     )
     if not eligible:
         await query.edit_message_text(load_copy("tagall", "no_members", skipped=skipped))
@@ -190,12 +215,23 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     label = load_copy("tagall", "all_label")
     sent = 0
     try:
-        for message in _announcement_messages(pending.text, label):
+        messages = _announcement_messages(pending.text, label)
+        if pending.test_only:
+            test_text = load_copy("tagall", "test_message")
+            test_entity = MessageEntity(
+                type=MessageEntity.TEXT_MENTION,
+                offset=0,
+                length=len(test_text.encode("utf-16-le")) // 2,
+                user=query.from_user,
+            )
+            messages = [test_text]
+        for message in messages:
             await context.bot.send_message(
                 chat_id=pending.chat_id,
                 message_thread_id=pending.message_thread_id,
                 text=message,
-                parse_mode="HTML",
+                parse_mode=None if pending.test_only else "HTML",
+                entities=[test_entity] if pending.test_only else None,
             )
             sent += 1
     except Exception as exc:  # noqa: BLE001 - report partial sends without a false success
@@ -209,4 +245,5 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def register(app):
     """Register the Telegram tag-all command."""
     app.add_handler(CommandHandler("tagall", tagall_command))
+    app.add_handler(CommandHandler("tagall_test", tagall_test_command))
     app.add_handler(CallbackQueryHandler(tagall_callback, pattern=r"^tagall:"))

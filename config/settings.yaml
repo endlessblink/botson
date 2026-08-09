@@ -35,6 +35,7 @@ copy:
   tagall:
     all_label: "@all"
     syncing: "בודק את חברי הקבוצה…"
+    test_message: "🔔"
     group_only: "הפקודה זמינה רק בתוך קבוצה."
     not_authorized: "רק מנהלים יכולים לתייג את הקבוצה."
     missing_message: "צריך להוסיף הודעה אחרי /tagall."
@@ -129,6 +130,7 @@ copy:
     cmd_menu_desc: "התפריט האישי שלי"
     cmd_help_desc: "עזרה ורשימת פקודות"
     cmd_tagall_desc: "תיוג כל חברי הקבוצה"
+    cmd_tagall_test_desc: "בדיקת תיוג אישי"
     # Label of the URL button appended to group posts that link into the DM.
     open_in_dm: "⚙️ פתחו תפריט אישי"
     open_game_in_dm: "🔔 תזכורת בפרטי"

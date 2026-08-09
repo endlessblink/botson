@@ -144,6 +144,7 @@ async def post_init(app: Application):
             [
                 *commands,
                 BotCommand("tagall", load_copy("dm_menu", "cmd_tagall_desc")),
+                BotCommand("tagall_test", load_copy("dm_menu", "cmd_tagall_test_desc")),
             ],
             scope=BotCommandScopeAllChatAdministrators(),
         )
