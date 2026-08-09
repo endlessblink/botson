@@ -192,7 +192,7 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     db: Database = context.bot_data["db"]
     roster_synced = False
-    if _settings().get("roster_sync_enabled", True):
+    if not pending.test_only and _settings().get("roster_sync_enabled", True):
         try:
             roster_synced = await asyncio.wait_for(
                 sync_chat_members(db, pending.chat_id),
