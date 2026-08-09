@@ -45,8 +45,16 @@ def _announcement_messages(text: str, label: str) -> list[str]:
     return [message]
 
 
-async def _eligible_members(bot, chat_id: int, db: Database) -> tuple[list[dict], int]:
+async def _eligible_members(
+    bot,
+    chat_id: int,
+    db: Database,
+    *,
+    verify_live: bool = True,
+) -> tuple[list[dict], int]:
     members = await db.get_chat_members_for_tagging(chat_id)
+    if not verify_live:
+        return members, 0
     semaphore = asyncio.Semaphore(
         max(1, int(_settings().get("membership_check_concurrency", 10)))
     )
@@ -97,12 +105,15 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         created_at=time.monotonic(),
     )
     db: Database = context.bot_data["db"]
+    progress = await update.message.reply_text(load_copy("tagall", "syncing"))
+    roster_synced = False
     if _settings().get("roster_sync_enabled", True):
         try:
-            await asyncio.wait_for(
+            roster_synced = await asyncio.wait_for(
                 sync_chat_members(db, update.effective_chat.id),
                 timeout=int(_settings().get("roster_sync_timeout_seconds", 60)),
             )
+            roster_synced = roster_synced is not None
         except Exception as exc:  # noqa: BLE001 - known roster remains a safe fallback
             logger.warning("tagall: full roster sync failed: %s", exc)
     await db.upsert_chat_member(
@@ -111,12 +122,17 @@ async def tagall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         getattr(update.effective_user, "username", None),
         getattr(update.effective_user, "full_name", str(update.effective_user.id)),
     )
-    eligible, skipped = await _eligible_members(context.bot, update.effective_chat.id, db)
+    eligible, skipped = await _eligible_members(
+        context.bot,
+        update.effective_chat.id,
+        db,
+        verify_live=not roster_synced,
+    )
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(load_copy("tagall", "confirm_button"), callback_data=f"tagall:confirm:{token}"),
         InlineKeyboardButton(load_copy("tagall", "cancel_button"), callback_data=f"tagall:cancel:{token}"),
     ]])
-    await update.message.reply_text(
+    await progress.edit_text(
         load_copy("tagall", "preview", eligible=len(eligible), skipped=skipped),
         reply_markup=keyboard,
     )
@@ -152,15 +168,22 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(load_copy("tagall", "cooldown"))
         return
     db: Database = context.bot_data["db"]
+    roster_synced = False
     if _settings().get("roster_sync_enabled", True):
         try:
-            await asyncio.wait_for(
+            roster_synced = await asyncio.wait_for(
                 sync_chat_members(db, pending.chat_id),
                 timeout=int(_settings().get("roster_sync_timeout_seconds", 60)),
             )
+            roster_synced = roster_synced is not None
         except Exception as exc:  # noqa: BLE001 - known roster remains a safe fallback
             logger.warning("tagall: refresh roster sync failed: %s", exc)
-    eligible, skipped = await _eligible_members(context.bot, pending.chat_id, db)
+    eligible, skipped = await _eligible_members(
+        context.bot,
+        pending.chat_id,
+        db,
+        verify_live=not roster_synced,
+    )
     if not eligible:
         await query.edit_message_text(load_copy("tagall", "no_members", skipped=skipped))
         return

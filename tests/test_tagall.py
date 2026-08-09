@@ -16,7 +16,8 @@ def test_announcement_uses_compact_visual_label():
 class TagAllCommandTests(IsolatedAsyncioTestCase):
     async def test_preview_checks_members_without_sending(self):
         user = SimpleNamespace(id=101)
-        message = SimpleNamespace(reply_text=AsyncMock(), message_thread_id=None)
+        progress = SimpleNamespace(edit_text=AsyncMock())
+        message = SimpleNamespace(reply_text=AsyncMock(return_value=progress), message_thread_id=None)
         update = SimpleNamespace(
             message=message,
             effective_user=user,
@@ -42,5 +43,6 @@ class TagAllCommandTests(IsolatedAsyncioTestCase):
             tagall.is_admin = original_is_admin
 
         message.reply_text.assert_awaited_once()
+        progress.edit_text.assert_awaited_once()
         bot.send_message.assert_not_awaited()
-        assert "1" in message.reply_text.await_args.args[0]
+        assert "1" in progress.edit_text.await_args.args[0]

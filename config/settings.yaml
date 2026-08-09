@@ -34,6 +34,7 @@ bot:
 copy:
   tagall:
     all_label: "@all"
+    syncing: "בודק את חברי הקבוצה…"
     group_only: "הפקודה זמינה רק בתוך קבוצה."
     not_authorized: "רק מנהלים יכולים לתייג את הקבוצה."
     missing_message: "צריך להוסיף הודעה אחרי /tagall."
