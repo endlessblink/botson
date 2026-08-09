@@ -124,6 +124,7 @@ copy:
     # Description shown next to /menu in Telegram's command (Menu) button.
     cmd_menu_desc: "התפריט האישי שלי"
     cmd_help_desc: "עזרה ורשימת פקודות"
+    cmd_tagall_desc: "תיוג כל חברי הקבוצה"
     # Label of the URL button appended to group posts that link into the DM.
     open_in_dm: "⚙️ פתחו תפריט אישי"
     open_game_in_dm: "🔔 תזכורת בפרטי"

@@ -130,6 +130,7 @@ async def post_init(app: Application):
         await app.bot.set_my_commands([
             BotCommand("menu", load_copy("dm_menu", "cmd_menu_desc")),
             BotCommand("help", load_copy("dm_menu", "cmd_help_desc")),
+            BotCommand("tagall", load_copy("dm_menu", "cmd_tagall_desc")),
         ])
     except Exception as e:
         logger.warning("set_my_commands failed: %s", e)
