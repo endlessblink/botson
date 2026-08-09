@@ -16,6 +16,7 @@ tagall:
   preview_ttl_seconds: 600
   roster_sync_enabled: true
   roster_sync_timeout_seconds: 60
+  membership_check_concurrency: 10
 bot:
   name: Botson
   # Identity context injected into every LLM-generated message. Was a

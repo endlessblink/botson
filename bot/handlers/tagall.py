@@ -46,23 +46,28 @@ def _announcement_messages(text: str, label: str) -> list[str]:
 
 
 async def _eligible_members(bot, chat_id: int, db: Database) -> tuple[list[dict], int]:
-    eligible: list[dict] = []
-    skipped = 0
-    for member in await db.get_chat_members_for_tagging(chat_id):
-        try:
-            chat_member = await bot.get_chat_member(chat_id, int(member["user_id"]))
-        except Exception as exc:  # noqa: BLE001 - stale users must not abort the batch
-            logger.info("tagall: membership check failed for %s: %s", member["user_id"], exc)
-            skipped += 1
-            continue
-        status = getattr(chat_member, "status", "")
-        if status == "restricted" and not getattr(chat_member, "is_member", False):
-            skipped += 1
-            continue
-        if status not in {"creator", "administrator", "member", "restricted"}:
-            skipped += 1
-            continue
-        eligible.append(member)
+    members = await db.get_chat_members_for_tagging(chat_id)
+    semaphore = asyncio.Semaphore(
+        max(1, int(_settings().get("membership_check_concurrency", 10)))
+    )
+
+    async def check_member(member: dict) -> tuple[dict | None, int]:
+        async with semaphore:
+            try:
+                chat_member = await bot.get_chat_member(chat_id, int(member["user_id"]))
+            except Exception as exc:  # noqa: BLE001 - stale users must not abort the batch
+                logger.info("tagall: membership check failed for %s: %s", member["user_id"], exc)
+                return None, 1
+            status = getattr(chat_member, "status", "")
+            if status == "restricted" and not getattr(chat_member, "is_member", False):
+                return None, 1
+            if status not in {"creator", "administrator", "member", "restricted"}:
+                return None, 1
+            return member, 0
+
+    results = await asyncio.gather(*(check_member(member) for member in members))
+    eligible = [member for member, _ in results if member is not None]
+    skipped = sum(skipped_count for _, skipped_count in results)
     return eligible, skipped
 
 
