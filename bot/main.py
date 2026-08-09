@@ -126,12 +126,27 @@ async def post_init(app: Application):
     # Register the bot's command list so Telegram shows a tappable "Menu"
     # button in DMs (a second discovery path alongside the persistent keyboard).
     try:
-        from telegram import BotCommand
-        await app.bot.set_my_commands([
+        from telegram import (
+            BotCommand,
+            BotCommandScopeAllChatAdministrators,
+            BotCommandScopeAllGroupChats,
+        )
+        commands = [
             BotCommand("menu", load_copy("dm_menu", "cmd_menu_desc")),
             BotCommand("help", load_copy("dm_menu", "cmd_help_desc")),
-            BotCommand("tagall", load_copy("dm_menu", "cmd_tagall_desc")),
-        ])
+        ]
+        await app.bot.set_my_commands(commands)
+        await app.bot.set_my_commands(
+            commands,
+            scope=BotCommandScopeAllGroupChats(),
+        )
+        await app.bot.set_my_commands(
+            [
+                *commands,
+                BotCommand("tagall", load_copy("dm_menu", "cmd_tagall_desc")),
+            ],
+            scope=BotCommandScopeAllChatAdministrators(),
+        )
     except Exception as e:
         logger.warning("set_my_commands failed: %s", e)
 
