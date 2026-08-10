@@ -178,6 +178,12 @@ class Database:
             # Index the bot's outbound Telegram message id so an incoming reply
             # (reply_to_message.message_id) can be mapped back to its scheduled row.
             "CREATE INDEX IF NOT EXISTS idx_scheduled_sent_message_id ON scheduled_messages(sent_message_id)",
+            "CREATE TABLE IF NOT EXISTS member_activity_events (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, activity_type TEXT NOT NULL, source_id TEXT NOT NULL, occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(chat_id, user_id, activity_type, source_id))",
+            "CREATE INDEX IF NOT EXISTS idx_member_activity_window ON member_activity_events(chat_id, occurred_at, user_id, activity_type)",
+            "CREATE TABLE IF NOT EXISTS member_cleanup_campaigns (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, deadline_at TIMESTAMP NOT NULL, activity_window_days INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open')",
+            "CREATE INDEX IF NOT EXISTS idx_cleanup_campaign_chat ON member_cleanup_campaigns(chat_id, status, deadline_at)",
+            "CREATE TABLE IF NOT EXISTS member_cleanup_optins (campaign_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, opted_in_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(campaign_id, user_id))",
+            "CREATE INDEX IF NOT EXISTS idx_cleanup_optins_chat ON member_cleanup_optins(chat_id, campaign_id, user_id)",
         ]
         for sql in migrations:
             try:
@@ -305,6 +311,69 @@ class Database:
             (chat_id,),
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
+
+    async def record_member_activity(self, chat_id: int, user_id: int, activity_type: str, source_id: str) -> None:
+        """Record one deduplicated member activity signal."""
+        await self._db.execute(
+            """INSERT OR IGNORE INTO member_activity_events
+               (chat_id, user_id, activity_type, source_id, occurred_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (chat_id, user_id, activity_type, str(source_id), _now_il()),
+        )
+        await self._db.commit()
+
+    async def create_member_cleanup_campaign(self, chat_id: int, *, deadline_at: str, activity_window_days: int) -> int:
+        cursor = await self._db.execute(
+            """INSERT INTO member_cleanup_campaigns
+               (chat_id, deadline_at, activity_window_days) VALUES (?, ?, ?)""",
+            (chat_id, deadline_at, activity_window_days),
+        )
+        await self._db.commit()
+        return int(cursor.lastrowid)
+
+    async def record_member_cleanup_optin(self, campaign_id: int, chat_id: int, user_id: int) -> None:
+        await self._db.execute(
+            """INSERT OR IGNORE INTO member_cleanup_optins
+               (campaign_id, chat_id, user_id) VALUES (?, ?, ?)""",
+            (campaign_id, chat_id, user_id),
+        )
+        await self._db.commit()
+
+    async def get_member_activity_report(self, chat_id: int, *, window_days: int, campaign_id: int | None = None, limit: int = 50) -> dict:
+        cutoff = (datetime.now(_IL_TZ) - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = await self._db.execute_fetchall(
+            """SELECT cm.user_id, cm.display_name, cm.username, cm.first_seen_at,
+                      COALESCE(SUM(CASE WHEN mae.activity_type='message' THEN 1 ELSE 0 END), 0) messages,
+                      COALESCE(SUM(CASE WHEN mae.activity_type='reaction' THEN 1 ELSE 0 END), 0) reactions,
+                      COALESCE(SUM(CASE WHEN mae.activity_type='poll_vote' THEN 1 ELSE 0 END), 0) poll_votes,
+                      COALESCE(SUM(CASE WHEN mae.activity_type='join' THEN 1 ELSE 0 END), 0) joins
+               FROM chat_members cm
+               LEFT JOIN member_activity_events mae
+                 ON mae.chat_id=cm.chat_id AND mae.user_id=cm.user_id AND mae.occurred_at >= ?
+               WHERE cm.chat_id=?
+               GROUP BY cm.user_id
+               ORDER BY (messages + reactions + poll_votes) DESC, cm.display_name COLLATE NOCASE""",
+            (cutoff, chat_id),
+        )
+        optins: set[int] = set()
+        if campaign_id is not None:
+            optin_rows = await self._db.execute_fetchall(
+                "SELECT user_id FROM member_cleanup_optins WHERE campaign_id=?", (campaign_id,)
+            )
+            optins = {int(row["user_id"]) for row in optin_rows}
+        members = [dict(row) for row in rows]
+        for member in members:
+            member["opted_in"] = int(member["user_id"]) in optins
+            member["active"] = bool(member["messages"] or member["reactions"] or member["poll_votes"])
+        candidates = [m for m in members if not m["active"] and not m["opted_in"]]
+        return {
+            "members": members,
+            "total": len(members),
+            "active": sum(1 for m in members if m["active"]),
+            "opted_in": sum(1 for m in members if m["opted_in"]),
+            "candidates": candidates[:limit],
+            "candidate_count": len(candidates),
+        }
 
     async def get_member_count_since(self, since: datetime) -> int:
         """Count members who joined since a given datetime."""

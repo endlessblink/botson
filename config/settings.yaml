@@ -17,6 +17,10 @@ tagall:
   roster_sync_enabled: true
   roster_sync_timeout_seconds: 60
   membership_check_concurrency: 10
+member_activity:
+  activity_window_days: 90
+  grace_period_days: 14
+  report_member_limit: 50
 bot:
   name: Botson
   # Identity context injected into every LLM-generated message. Was a
@@ -49,6 +53,25 @@ copy:
     no_members: "לא נמצאו חברים זמינים לתג. {skipped} חברים לא נכללו."
     sent: "פורסם: {tagged} חברים תויגו ב־{messages} הודעות; {skipped} לא נכללו."
     send_failed: "השליחה נעצרה אחרי {sent} הודעות. בדקו את הקבוצה לפני ניסיון נוסף."
+  member_activity:
+    group_only: "הפקודה זמינה רק בתוך קבוצה."
+    not_authorized: "רק מנהלים יכולים לצפות בדוח הזה."
+    report: |-
+      📊 דוח פעילות ל-{days} הימים האחרונים
+      חברים שנמדדו: {total}
+      עם פעילות שנצפתה: {active}
+      ללא פעילות שנצפתה: {inactive}
+      מועמדים לבדיקה אחרי opt-in ותקופת חסד: {candidates}
+      שמות מועמדים ראשונים: {candidate_names}
+
+      הדוח מודד הודעות, תגובות, הצבעות וסימני הצטרפות שנקלטו. הוא לא מוכיח אם מישהו קרא הודעה.
+    campaign_prompt: |-
+      🧭 מתחיל בדיקת פעילות עדינה.
+      נמדוד פעילות ב-{days} הימים האחרונים ונשאיר {grace_days} ימים לתגובה.
+      מי שרוצה להישאר גם אם הוא בעיקר קורא יכול ללחוץ על הכפתור. אין הסרה אוטומטית.
+    keep_button: "✅ אני רוצה להישאר"
+    optin_saved: "נשמר — החשבון יסומן להישאר בבדיקה הזו."
+    none: "אין"
   # Theme label used when poll_options doesn't carry an explicit
   # theme_label. Set to "" to disable the fallback (rows without a theme
   # will be skipped or rendered without a label).
@@ -131,6 +154,8 @@ copy:
     cmd_help_desc: "עזרה ורשימת פקודות"
     cmd_tagall_desc: "תיוג כל חברי הקבוצה"
     cmd_tagall_test_desc: "בדיקת תיוג אישי"
+    cmd_activity_report_desc: "דוח פעילות חברים"
+    cmd_member_cleanup_desc: "פתיחת בדיקת פעילות עדינה"
     # Label of the URL button appended to group posts that link into the DM.
     open_in_dm: "⚙️ פתחו תפריט אישי"
     open_game_in_dm: "🔔 תזכורת בפרטי"

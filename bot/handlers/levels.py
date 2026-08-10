@@ -64,6 +64,9 @@ async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.username,
         get_display_name(user),
     )
+    await db.record_member_activity(
+        update.effective_chat.id, user.id, "message", str(update.message.message_id)
+    )
 
     # Engagement capture: a reply to one of the bot's scheduled posts is the
     # highest-signal outcome for prompts (discussion/morning/evening). Recorded
@@ -211,6 +214,6 @@ def register(app):
     app.add_handler(CommandHandler("resetlevels", reset_levels_command))
     # Track members (no points for raw messages — validation-based scoring)
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, track_member),
+        MessageHandler(filters.ALL & ~filters.COMMAND, track_member),
         group=3,
     )

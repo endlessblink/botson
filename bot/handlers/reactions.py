@@ -87,6 +87,11 @@ async def handle_message_reaction(update: Update, context: ContextTypes.DEFAULT_
         return
 
     new_type = _first_reaction_type(payload.new_reaction)
+    if new_type is not None:
+        await db.upsert_chat_member(chat.id, int(user.id), user.username, user.full_name)
+        await db.record_member_activity(
+            chat.id, int(user.id), "reaction", f"{telegram_message_id}:{user.id}"
+        )
     try:
         result = await db.record_reaction_update(
             scheduled_id,

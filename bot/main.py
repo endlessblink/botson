@@ -13,7 +13,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts
@@ -145,6 +145,8 @@ async def post_init(app: Application):
                 *commands,
                 BotCommand("tagall", load_copy("dm_menu", "cmd_tagall_desc")),
                 BotCommand("tagall_test", load_copy("dm_menu", "cmd_tagall_test_desc")),
+                BotCommand("activity_report", load_copy("dm_menu", "cmd_activity_report_desc")),
+                BotCommand("member_cleanup", load_copy("dm_menu", "cmd_member_cleanup_desc")),
             ],
             scope=BotCommandScopeAllChatAdministrators(),
         )
@@ -359,6 +361,7 @@ def main():
     trivia_interest.register(app)  # Trivia warm-up RSVP interest check
     dm_menu.register(app)          # Private DM menu — sign-up + notification prefs
     tagall.register(app)            # Admin announcement with known-member mentions
+    member_activity.register(app)   # Activity measurement and reversible cleanup opt-in
     reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 

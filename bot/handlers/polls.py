@@ -106,6 +106,12 @@ async def handle_poll_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if db:
             try:
                 await db.set_poll_vote(msg_id, option_key, user.id, user_name)
+                await db.upsert_chat_member(
+                    query.message.chat_id, user.id, user.username, user_name
+                )
+                await db.record_member_activity(
+                    query.message.chat_id, user.id, "poll_vote", f"{msg_id}:{option_key}"
+                )
             except Exception as e:  # noqa: BLE001
                 logger.error("polls: failed to persist vote: %s", e)
         logger.info("User %s voted for %s on msg %d", user_name, option_key, msg_id)

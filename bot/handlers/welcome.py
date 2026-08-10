@@ -86,6 +86,7 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
     for join in joins:
         await db.upsert_member(join["user_id"], join["username"], join["name"])
         await db.upsert_chat_member(chat_id, join["user_id"], join["username"], join["name"])
+        await db.record_member_activity(chat_id, join["user_id"], "join", str(join["user_id"]))
 
     for join in joins:
         name = join["name"]

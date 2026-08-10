@@ -20,6 +20,35 @@ CREATE TABLE IF NOT EXISTS chat_members (
 );
 CREATE INDEX IF NOT EXISTS idx_chat_members_chat ON chat_members(chat_id, last_seen_at DESC);
 
+CREATE TABLE IF NOT EXISTS member_activity_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    activity_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(chat_id, user_id, activity_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_member_activity_window
+    ON member_activity_events(chat_id, occurred_at, user_id, activity_type);
+
+CREATE TABLE IF NOT EXISTS member_cleanup_campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deadline_at TIMESTAMP NOT NULL,
+    activity_window_days INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+);
+
+CREATE TABLE IF NOT EXISTS member_cleanup_optins (
+    campaign_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    opted_in_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(campaign_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS karma_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     giver_id INTEGER NOT NULL,
