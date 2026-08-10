@@ -216,14 +216,17 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = 0
     try:
         messages = _announcement_messages(pending.text, label)
+        entities = None
         if pending.test_only:
-            test_text = load_copy("tagall", "test_message")
-            test_entity = MessageEntity(
-                type=MessageEntity.TEXT_MENTION,
-                offset=0,
-                length=len(test_text.encode("utf-16-le")) // 2,
-                user=query.from_user,
-            )
+            username = (getattr(query.from_user, "username", None) or "").strip()
+            test_text = f"@{username}" if username else load_copy("tagall", "test_message")
+            if not username:
+                entities = [MessageEntity(
+                    type=MessageEntity.TEXT_MENTION,
+                    offset=0,
+                    length=len(test_text.encode("utf-16-le")) // 2,
+                    user=query.from_user,
+                )]
             messages = [test_text]
         for message in messages:
             await context.bot.send_message(
@@ -231,7 +234,7 @@ async def tagall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message_thread_id=pending.message_thread_id,
                 text=message,
                 parse_mode=None if pending.test_only else "HTML",
-                entities=[test_entity] if pending.test_only else None,
+                entities=entities,
             )
             sent += 1
     except Exception as exc:  # noqa: BLE001 - report partial sends without a false success
