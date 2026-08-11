@@ -3744,6 +3744,7 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
         self.assertIn("client_occupied: _aiSuggestClientOccupiedForDate(iso),", self.html)
         self.assertIn("_aiSuggestFetchMoreForDate(iso);", self.html)
         self.assertIn("לא נמצאו הצעות חדשות ליום הזה", self.html)
+        self.assertIn("append: true,", self.html)
 
     def test_ai_suggest_board_more_shows_per_day_progress(self):
         """The per-day job runs 1-3 minutes, so the lane itself must show it."""

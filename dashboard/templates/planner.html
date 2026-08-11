@@ -4197,6 +4197,7 @@ async function _aiSuggestFetchMoreForDate(iso) {
     var requestBody = JSON.stringify({
         week_offset: 0,
         target_date: iso,
+        append: true,
         client_occupied: _aiSuggestClientOccupiedForDate(iso),
     });
 

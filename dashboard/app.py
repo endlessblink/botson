@@ -6043,7 +6043,7 @@ async def _maybe_add_warmup_reminder_suggestion(
 async def _ai_suggest_calendar(
     db: Database, target_date: str | None = None, week_offset: int = 0,
     window_mode: str = "week", week_of: str | None = None,
-    client_occupied: list[dict] | None = None,
+    client_occupied: list[dict] | None = None, append_mode: bool = False,
 ) -> dict:
     """Build a list of suggested calendar rows for a window without
     writing to the DB. The shape is intentionally close to a draft row so
@@ -6344,6 +6344,17 @@ async def _ai_suggest_calendar(
     cap_per_window = _ai_populate_caps(settings, scope, slot_map)
     counts = {k: existing_type_counts.get(k, 0) for k in cap_per_window}
 
+    if append_mode:
+        # The per-day "+ עוד" action is an incremental content action, not a
+        # second full Populate run. Restrict it to one discussion generation so
+        # the operator gets a fast additional post instead of waiting through
+        # game, pool, and multiple copy-generation branches. Use the configured
+        # flexible discussion window so a day whose fixed discussion slots are
+        # already occupied can still receive one additional post.
+        cap_per_window = {k: 0 for k in cap_per_window}
+        counts = {k: existing_type_counts.get(k, 0) for k in cap_per_window}
+        flex_max = 1
+
     # Combined cross-type ceiling: at most this many executable games per day,
     # regardless of type. The existing per-type caps (trivia_round, emoji_puzzle)
     # still shape weekly distribution and which type is eligible; this only stops
@@ -6380,8 +6391,16 @@ async def _ai_suggest_calendar(
         """
         if provider_unavailable_error:
             return "", []
+        append_instructions = (
+            "צור לעצמך שלושה מועמדים שונים ובחר להחזרה רק את החזק ביותר. "
+            "המועמד הסופי חייב לכלול עוגן מוחשי אחד לפחות מהתחום, לבקש תשובה קצרה שאפשר לתת בשם/בחירה/פרט אחד, "
+            "ולהיות שאלה שחבר אמיתי בערוץ היה כותב — לא ניסוח של סקר, לא פילר רגשי, ולא שאלה שעובדת בכל ערוץ. "
+            "אם אף מועמד לא עומד בזה, נסח מחדש לפני הפלט. החזר שורה אחת בלבד."
+            if append_mode else ""
+        )  # noqa: hardcoded-content (internal LLM quality instruction)
         base_prompt = build_generation_prompt(
             field, "single", "", cat,
+            instructions=append_instructions,
             recent_sent=recent,
             scheduled_date=d_iso,
             scheduled_time=t,
@@ -7535,7 +7554,7 @@ async def _read_json_object_body(request: Request, log_prefix: str) -> dict:
     return data
 
 
-def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | None, list[dict]]:
+def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | None, list[dict], bool]:
     try:
         week_offset = int(data.get("week_offset", 0))
     except (TypeError, ValueError):
@@ -7584,13 +7603,14 @@ def _parse_ai_suggest_request(data: dict) -> tuple[str | None, int, str, str | N
             continue
         client_occupied.append({"date": d_iso, "time": t, "message_type": mtype})
 
-    return target_date, week_offset, window_mode, week_of, client_occupied
+    append_mode = bool(data.get("append"))
+    return target_date, week_offset, window_mode, week_of, client_occupied, append_mode
 
 
 async def _run_ai_suggest_job(
     job_id: str, db: Database, target_date: str | None, week_offset: int,
     window_mode: str = "week", week_of: str | None = None,
-    client_occupied: list[dict] | None = None,
+    client_occupied: list[dict] | None = None, append_mode: bool = False,
 ) -> None:
     try:
         await db.update_ai_suggest_job(job_id, status="running")
@@ -7601,6 +7621,7 @@ async def _run_ai_suggest_job(
             db, target_date=target_date, week_offset=week_offset,
             window_mode=window_mode, week_of=week_of,
             client_occupied=client_occupied,
+            append_mode=append_mode,
         )
         try:
             result_json = json.dumps(result, ensure_ascii=False)
@@ -7649,12 +7670,15 @@ async def ai_suggest(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     data = await _read_json_object_body(request, "weekplan.ai-suggest")
-    target_date, week_offset, window_mode, week_of, client_occupied = _parse_ai_suggest_request(data)
+    target_date, week_offset, window_mode, week_of, client_occupied, append_mode = _parse_ai_suggest_request(data)
     await _cleanup_ai_suggest_jobs(db)
     job_id = secrets.token_urlsafe(18)
     await db.create_ai_suggest_job(job_id, target_date=target_date, week_offset=week_offset)
     task = asyncio.create_task(
-        _run_ai_suggest_job(job_id, db, target_date, week_offset, window_mode, week_of, client_occupied)
+        _run_ai_suggest_job(
+            job_id, db, target_date, week_offset, window_mode, week_of,
+            client_occupied, append_mode,
+        )
     )
     _AI_SUGGEST_TASKS[job_id] = task
     return {"job_id": job_id, "status": "pending"}
