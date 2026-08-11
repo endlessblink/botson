@@ -72,6 +72,8 @@ copy:
     keep_button: "✅ אני רוצה להישאר"
     optin_saved: "נשמר — החשבון יסומן להישאר בבדיקה הזו."
     none: "אין"
+    report_sent: "שלחתי את דוח הפעילות אליך בפרטי."
+    report_dm_failed: "לא הצלחתי לשלוח לך את הדוח בפרטי. פתחו צ׳אט עם Botson ושלחו שוב את הפקודה."
   # Theme label used when poll_options doesn't carry an explicit
   # theme_label. Set to "" to disable the fallback (rows without a theme
   # will be skipped or rendered without a label).

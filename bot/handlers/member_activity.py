@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Forbidden
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from ..database.db import Database
@@ -36,8 +37,7 @@ async def activity_report_command(update: Update, context: ContextTypes.DEFAULT_
     candidate_names = ", ".join(
         member["display_name"] for member in report["candidates"]
     ) or load_copy("member_activity", "none")
-    await update.message.reply_text(
-        load_copy("member_activity", "report").format(
+    report_text = load_copy("member_activity", "report").format(
             days=days,
             total=report["total"],
             active=report["active"],
@@ -45,7 +45,11 @@ async def activity_report_command(update: Update, context: ContextTypes.DEFAULT_
             candidates=report["candidate_count"],
             candidate_names=candidate_names,
         )
-    )
+    try:
+        await context.bot.send_message(chat_id=update.effective_user.id, text=report_text)
+        await update.message.reply_text(load_copy("member_activity", "report_sent"))
+    except Forbidden:
+        await update.message.reply_text(load_copy("member_activity", "report_dm_failed"))
 
 
 async def member_cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
