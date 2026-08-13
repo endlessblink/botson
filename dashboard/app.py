@@ -4424,6 +4424,62 @@ async def _generate_with_fallbacks(prompt: str, *, temperature: float | None = N
         ) from codex_err
 
 
+def _hot_take_requested(*values: object) -> bool:
+    """Return whether the caller explicitly selected the hot-take pattern."""
+    return any(
+        "דעה לא פופולרית" in str(value or "")
+        or "hot take" in str(value or "").lower()
+        for value in values
+    )
+
+
+async def _review_hot_take(text: str) -> tuple[bool, str]:
+    """Backward-compatible semantic review for an explicitly named hot take."""
+    return await _review_discussion_quality(text)
+
+
+async def _review_discussion_quality(
+    text: str,
+    *,
+    category: str | None = None,
+    recent_texts: list[str] | None = None,
+) -> tuple[bool, str]:
+    """Review every generated discussion candidate; reject closed on failure."""
+    config = load_yaml("hot_take_review.yaml") or {}
+    reviewer_prompt = str(config.get("reviewer_prompt") or "").strip()
+    if not reviewer_prompt:
+        return False, "reviewer configuration missing"
+    recent_block = "\n".join(f"- {str(item).strip()}" for item in (recent_texts or []) if str(item).strip())
+    prompt = (
+        f"{reviewer_prompt}\n\nChannel: {category or '[unknown]'}\n"
+        f"Recent questions to avoid in idea, not only wording:\n{recent_block or '- none'}\n\n"
+        f"Candidate:\n{text.strip()}"
+    )
+    try:
+        raw, _ = await _generate_with_fallbacks(
+            prompt,
+            temperature=0.0,
+            context="quality.hot_take_review",
+        )
+        candidate = (raw or "").strip()
+        start = candidate.find("{")
+        end = candidate.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("reviewer returned no JSON object")
+        result = json.loads(candidate[start:end + 1])
+        required = ("pass", "specificity", "naturalness", "novelty", "channel_fit", "answerability", "payoff")
+        if not isinstance(result.get("pass"), bool):
+            raise ValueError("reviewer response missing pass boolean")
+        if any(not isinstance(result.get(key), int) or isinstance(result.get(key), bool) or not 1 <= result[key] <= 5 for key in required[1:]):
+            raise ValueError("reviewer response has invalid quality scores")
+        reason = str(result.get("reason") or "").strip() or "reviewer gave no reason"
+        passed = bool(result["pass"]) and all(result[key] >= 3 for key in required[1:])
+        return passed, reason
+    except Exception as e:
+        logger.warning("[quality.hot-take] semantic review failed closed: %s", redact_sensitive(e))
+        return False, f"semantic review unavailable: {redact_sensitive(e)}"
+
+
 def _generation_provider_from_notices(notices: list[str]) -> str:
     joined = "\n".join(notices)
     if "Codex CLI fallback was used" in joined:
@@ -4632,6 +4688,7 @@ async def generate_text_content(request: Request, db: Database = Depends(get_db)
     category = data.get("category", "")
     topic_id = data.get("topic_id", data.get("channel_topic_id"))
     instructions = (data.get("instructions") or "").strip()
+    quality_pattern = (data.get("quality_pattern") or data.get("pattern") or "").strip()
     # Wording anchors from the "נסח מחדש" chips (config/settings.yaml:
     # copy.rephrase_anchors). They resolve to Hebrew directives that ride
     # along as extra instructions — no separate prompt template, and no
@@ -4661,6 +4718,8 @@ async def generate_text_content(request: Request, db: Database = Depends(get_db)
         recent_sent=recent_sent,
         category_name=category_name,
     )
+    if quality_pattern:
+        prompt += f"\n\nExplicit generation pattern: {quality_pattern}"
 
     # Try Claude Code CLI first, fall back to Anthropic API
     cli_err = None
@@ -4700,6 +4759,12 @@ async def generate_text_content(request: Request, db: Database = Depends(get_db)
         quality_failures = _quality_failures_for_planner_text(
             content, scheduled_date=data.get("scheduled_date")
         )
+        if field == "discussion":
+            passed, reason = await _review_discussion_quality(
+                content, category=category_name or category, recent_texts=recent_sent,
+            )
+            if not passed:
+                quality_failures.append(f"discussion_semantic:{reason}")
 
     return {"content": content, "review": review, "quality_failures": quality_failures}
 
@@ -6461,6 +6526,12 @@ async def _ai_suggest_calendar(
             )
             if freshness_failure:
                 fails.append(freshness_failure)
+            if not fails and field == "discussion":
+                review_passed, review_reason = await _review_discussion_quality(
+                    text, category=category_name or cat, recent_texts=recent,
+                )
+                if not review_passed:
+                    fails.append(f"discussion_semantic:{review_reason}")
             if not fails:
                 if opener:
                     blocked_openers.add(opener)
@@ -10970,6 +11041,7 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     category = (data.get("category") or "").strip()
     topic_id = data.get("topic_id", data.get("channel_topic_id"))
     existing = (data.get("existing") or "").strip()
+    quality_pattern = (data.get("quality_pattern") or data.get("pattern") or "").strip()
     sched_date = (data.get("scheduled_date") or "").strip() or None
     sched_time = (data.get("scheduled_time") or "").strip() or None
 
@@ -10992,6 +11064,8 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
         scheduled_time=sched_time,
         category_name=category_name,
     )
+    if quality_pattern:
+        prompt += f"\n\nExplicit generation pattern: {quality_pattern}"
 
     try:
         content = await _generate_via_cli(prompt)
@@ -11032,6 +11106,15 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     text = lines[0] if lines else content
     if mtype in {"morning", "evening", "discussion"}:
         _reject_bad_planner_text(text)
+        if mtype == "discussion":
+            passed, reason = await _review_discussion_quality(
+                text, category=category_name or category, recent_texts=recent_sent,
+            )
+            if not passed:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": "quality_rejected", "failures": [f"discussion_semantic:{reason}" ]},
+                )
 
     logger.info("[generate-content] type=%s cat=%s mode=%s -> %r", mtype, category, mode, text[:60])
     return {"text": text}

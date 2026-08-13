@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>בדיקת איכות — שאלות קרובות</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1220; --panel:#111c2d; --line:#26364d; --text:#edf3fb; --muted:#9db0c8; --good:#4ade80; --bad:#fb7185; --accent:#7dd3fc; }
+    body { margin:0; background:linear-gradient(135deg,#0b1220,#101b2c); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; line-height:1.6; }
+    main { max-width:1050px; margin:0 auto; padding:36px 20px 60px; }
+    h1 { margin:0 0 6px; font-size:30px; } h2 { margin-top:34px; font-size:21px; }
+    .intro,.card { background:rgba(17,28,45,.92); border:1px solid var(--line); border-radius:16px; padding:20px; }
+    .intro { margin:18px 0 24px; } .muted { color:var(--muted); }
+    .grid { display:grid; gap:14px; }
+    .card { display:grid; gap:13px; }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
+    .pill { border:1px solid var(--line); border-radius:999px; padding:2px 9px; }
+    .pass { color:var(--good); } .fail { color:var(--bad); }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .question { font-size:18px; } .replacement { border-right:3px solid var(--accent); padding:10px 14px; background:#0c1a2b; border-radius:8px; font-size:18px; }
+    .reason { color:#ffd58a; } .checks { font-family:ui-monospace,SFMono-Regular,monospace; font-size:12px; color:var(--muted); direction:ltr; text-align:left; }
+    .summary { display:flex; gap:18px; flex-wrap:wrap; font-size:16px; } .summary strong { font-size:24px; display:block; }
+    footer { margin-top:26px; color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>בדיקת איכות לשאלות הקרובות</h1>
+  <p class="muted">בדיקה read-only של השאלות שנמצאו במערכת ל־13–16 באוגוסט 2026.</p>
+
+  <section class="intro">
+    <div class="summary">
+      <div><strong class="pass">6</strong>עברו את הבדיקה</div>
+      <div><strong class="fail">4</strong>דורשות החלפה</div>
+      <div><strong>10</strong>שאלות נבדקו</div>
+    </div>
+    <p class="muted">הבדיקה הסמנטית זיהתה חזרתיות וריקנות שלא נתפסו בבדיקות הדטרמיניסטיות. ההחלפות למטה הן הצעות מקומיות שנכתבו עבור הדוח; הן עדיין לא עברו אישור ספק סמנטי.</p>
+  </section>
+
+  <h2>כל השאלות</h2>
+  <div class="grid">
+    <article class="card"><div class="meta"><span class="pill">#727 · חדשות</span><span class="pass">✓ להשאיר</span></div><div class="label">שאלה</div><div class="question">איזו כתבה או ידיעה מהשבוע האחרון גרמה לכם לעצור ולחשוב רגע לפני שהמשכתם לגלול?</div><div class="reason">שאלה קונקרטית, טבעית, מתאימה לערוץ ושונה מהשאלות הקודמות.</div></article>
+    <article class="card"><div class="meta"><span class="pill">#728 · גיימינג</span><span class="fail">✕ להחליף</span></div><div class="label">שאלה</div><div class="question">מתוך כל המשחקים ששיחקתם השנה, איזה אחד הייתם שמים במקום הראשון בלי לחשוב פעמיים?</div><div class="reason">ממחזרת תבנית של “בחרו את המקום הראשון” שכבר הופיעה, רק עם משחקים.</div><div class="label">החלפה מוצעת — מקומית, טרם אומתה סמנטית</div><div class="replacement">איזה משחק גרם לכם לשכוח לבדוק מה השעה בפעם האחרונה ששיחקתם בו?</div></article>
+    <article class="card"><div class="meta"><span class="pill">#744 · כושר</span><span class="pass">✓ להשאיר</span></div><div class="label">שאלה</div><div class="question">🏋️ בחמישי בערב, אחרי ההודעה האחרונה בעבודה: הליכה קצרה בחוץ או אימון בית של עשר דקות?</div><div class="reason">בחירה ברורה, סצנה קונקרטית והתאמה טובה לערוץ.</div></article>
+    <article class="card"><div class="meta"><span class="pill">#743 · כללי</span><span class="fail">✕ להחליף</span></div><div class="label">שאלה</div><div class="question">חמישי בערב: איזו מטלה קטנה סיימתם כדי להרגיש שהבית לבד עובר למצב חופש?</div><div class="reason">“מצב חופש” הוא מסגור מעורפל, והשאלה חוזרת לרעיון של סגירת מטלה בערב.</div><div class="label">החלפה מוצעת — מקומית, טרם אומתה סמנטית</div><div class="replacement">איזה דבר קטן בבית אתם מעדיפים לסדר מיד, כדי לא לחשוב עליו שוב מחר?</div></article>
+    <article class="card"><div class="meta"><span class="pill">#731 · גיימינג</span><span class="pass">✓ להשאיר</span></div><div class="label">שאלה</div><div class="question">איזה משחק פתחתם השבוע רק בשביל חצי שעה ונשארתם בו עד מאוחר?</div><div class="reason">הרגל גיימינג ספציפי, תשובה קצרה וניסוח טבעי.</div></article>
+    <article class="card"><div class="meta"><span class="pill">#726 · גיימינג</span><span class="pass">✓ להשאיר</span></div><div class="label">שאלה</div><div class="question">השבוע התחלתם משחק חדש או חזרתם למשחק ישן — מה זה היה?</div><div class="reason">שאלה קונקרטית שאפשר לענות עליה בשם משחק אחד.</div></article>
+    <article class="card"><div class="meta"><span class="pill">#750 · כושר</span><span class="pass">✓ להשאיר</span></div><div class="label">שאלה</div><div class="question">🏃 בשבוע האחרון, איזה תרגיל או הליכה הרגישו לכם מספיק טוב כדי לשמור גם לשבוע הבא?</div><div class="reason">מעוגנת בפעולה אמיתית ומבקשת החלטה קטנה להמשך.</div></article>
+    <article class="card"><div class="meta"><span class="pill">#721 · פוליטיקה</span><span class="fail">✕ להחליף</span></div><div class="label">שאלה</div><div class="question">דעה לא פופולרית: לדבר על פוליטיקה בארוחה משפחתית זה תמיד רעיון רע?</div><div class="reason">אין נושא פוליטי או אירוע ספציפי; נשארת רק תווית פרובוקטיבית כללית.</div><div class="label">החלפה מוצעת — מקומית, טרם אומתה סמנטית</div><div class="replacement">איזו אמירה פוליטית שנאמרה לאחרונה ליד שולחן גרמה לכם לשנות נושא מיד?</div></article>
+    <article class="card"><div class="meta"><span class="pill">#722 · טבעונות</span><span class="pass">✓ להשאיר</span></div><div class="label">שאלה</div><div class="question">ירק אחד שהופך כל מנה טבעונית לטובה יותר, בלי יוצא מן הכלל — מה הוא אצלכם?</div><div class="reason">נושא ברור, תשובה קצרה והתאמה טובה לערוץ.</div></article>
+    <article class="card"><div class="meta"><span class="pill">#720 · בעלי חיים</span><span class="fail">✕ להחליף</span></div><div class="label">שאלה</div><div class="question">מתוך כל התמונות של בעלי חיים שצילמתם החודש, איזו אחת הייתם שמים במקום הראשון בלי לחשוב פעמיים?</div><div class="reason">ממחזרת את תבנית “בחרו את המקום הראשון בתקופה האחרונה” ומבקשת תוכן כללי מדי.</div><div class="label">החלפה מוצעת — מקומית, טרם אומתה סמנטית</div><div class="replacement">איזו התנהגות של בעל חיים שראיתם לאחרונה גרמה לכם לעצור ולצלם?</div></article>
+  </div>
+
+  <h2>מעבדת יצירה — חמישה מועמדים לפני אישור</h2>
+  <p class="muted">הדוגמאות כאן נכתבו מקומית כדי להמחיש את התהליך. כל מועמד מקבל ציון 1–5; רק מועמד שעובר את כל הספים נשאר. אף מועמד כאן לא נשלח או אושר אוטומטית.</p>
+  <div class="grid">
+    <article class="card"><div class="meta"><span class="pill">#728 · גיימינג</span></div><div class="label">המועמדים</div>
+      <div>✕ איזה משחק גרם לכם לשכוח לבדוק מה השעה בפעם האחרונה ששיחקתם בו? <span class="muted">4/4/4/5/5/4 — עובר</span></div>
+      <div>✕ איזה משחק גרם לכם להתעצבן על עצמכם, ואז לפתוח אותו שוב למחרת? <span class="muted">5/4/5/5/5/5 — עובר</span></div>
+      <div>✕ איזה משחק התחלתם לאחרונה בגלל המלצה אחת ולא ציפיתם להישאר בו? <span class="muted">4/4/4/5/5/4 — עובר</span></div>
+      <div>✕ איזה משחק הכי אהבתם השנה? <span class="fail">2/5/1/5/5/1 — נדחה: גנרי וחוזר על דירוג</span></div>
+      <div>✕ משחק חדש או ישן — מה אתם מעדיפים? <span class="fail">2/4/1/5/5/1 — נדחה: A/B בנאלי</span></div>
+    </article>
+    <article class="card"><div class="meta"><span class="pill">#743 · כללי</span></div><div class="label">המועמדים</div>
+      <div>✕ איזה דבר קטן בבית אתם מעדיפים לסדר מיד, כדי לא לחשוב עליו שוב מחר? <span class="muted">4/4/4/5/5/4 — עובר</span></div>
+      <div>✕ איזו מטלה אתם דוחים שוב ושוב למרות שהיא לוקחת פחות מעשר דקות? <span class="muted">5/5/4/5/5/5 — עובר</span></div>
+      <div>✕ מה בבית נהיה פתאום קל יותר כשמפסיקים לחכות ליום המושלם? <span class="muted">4/4/4/5/4/5 — עובר</span></div>
+      <div>✕ מה סיימתם היום? <span class="fail">1/5/1/5/5/1 — נדחה: check-in גנרי</span></div>
+      <div>✕ הלכתם או עשיתם אימון בבית הערב? <span class="fail">2/4/1/5/5/1 — נדחה: A/B בלי payoff</span></div>
+    </article>
+    <article class="card"><div class="meta"><span class="pill">#721 · פוליטיקה</span></div><div class="label">המועמדים</div>
+      <div>✕ איזו אמירה פוליטית שנאמרה לאחרונה ליד שולחן גרמה לכם לשנות נושא מיד? <span class="muted">5/4/4/5/5/5 — עובר</span></div>
+      <div>✕ איזו החלטה ציבורית נשמעת לכם הגיונית על הנייר אבל בלתי נסבלת בחיים עצמם? <span class="muted">5/4/4/5/4/5 — עובר</span></div>
+      <div>✕ איזה ויכוח פוליטי אתם מבינים יותר טוב אחרי שחוויתם אותו באופן אישי? <span class="muted">4/4/4/5/4/5 — עובר</span></div>
+      <div>✕ מה דעתכם על פוליטיקה? <span class="fail">1/5/1/5/5/1 — נדחה: אין נושא ואין tension</span></div>
+      <div>✕ דעה לא פופולרית: פוליטיקה טובה או רעה? <span class="fail">1/3/1/5/5/1 — נדחה: תווית בלי עמדה</span></div>
+    </article>
+    <article class="card"><div class="meta"><span class="pill">#720 · בעלי חיים</span></div><div class="label">המועמדים</div>
+      <div>✕ איזו התנהגות של בעל חיים שראיתם לאחרונה גרמה לכם לעצור ולצלם? <span class="muted">5/5/4/5/5/5 — עובר</span></div>
+      <div>✕ איזה בעל חיים מתגלה כחכם יותר דווקא ברגעים הכי יומיומיים? <span class="muted">4/4/4/5/4/4 — עובר</span></div>
+      <div>✕ איזו חיה מהשכונה שלכם כבר קיבלה אצלכם אישיות של דמות קבועה? <span class="muted">5/5/5/5/5/5 — עובר</span></div>
+      <div>✕ איזו תמונה של בעל חיים הכי אהבתם? <span class="fail">2/5/1/5/5/1 — נדחה: דירוג גנרי</span></div>
+      <div>✕ כלב או חתול — מה עדיף? <span class="fail">1/4/1/5/5/1 — נדחה: A/B שחוק</span></div>
+    </article>
+  </div>
+
+  <footer>הדוח אינו משנה הודעות, אינו מוחק שורות ואינו reschedule. לפני החלפה בפועל יש להריץ את ההחלפות דרך שער האיכות המלא.</footer>
+</main>
+</body>
+</html>

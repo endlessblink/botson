@@ -139,6 +139,60 @@ class ValidateDraftTextTests(unittest.TestCase):
         self.assertTrue(any(f.startswith("length>200") for f in failures))
 
 
+class HotTakeSemanticReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_accepts_reviewed_concrete_stance(self):
+        with patch.object(
+            dashboard_app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=(
+                '{"pass":true,"reason":"concrete stance","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}',
+                [],
+            )),
+        ):
+            passed, reason = await dashboard_app._review_hot_take("סרט שכולם אוהבים אבל לדעתכם מוערך מדי?")
+        self.assertTrue(passed)
+        self.assertEqual(reason, "concrete stance")
+
+    async def test_rejects_weak_review(self):
+        with patch.object(
+            dashboard_app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=(
+                '{"pass":false,"reason":"no concrete stance","specificity":2,"naturalness":3,"novelty":2,"channel_fit":3,"answerability":3,"payoff":2}',
+                [],
+            )),
+        ):
+            passed, reason = await dashboard_app._review_hot_take("דעה לא פופולרית?")
+        self.assertFalse(passed)
+        self.assertEqual(reason, "no concrete stance")
+
+    async def test_rejects_malformed_or_unavailable_review(self):
+        with patch.object(
+            dashboard_app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(side_effect=RuntimeError("provider unavailable")),
+        ):
+            passed, reason = await dashboard_app._review_hot_take("דעה לא פופולרית על סרט?")
+        self.assertFalse(passed)
+        self.assertIn("semantic review unavailable", reason)
+
+    async def test_rejects_routine_transition_prompt(self):
+        with patch.object(
+            dashboard_app,
+            "_generate_with_fallbacks",
+            new=AsyncMock(return_value=(
+                '{"pass":false,"reason":"routine chore transition with awkward Hebrew and no payoff","specificity":4,"naturalness":1,"novelty":2,"channel_fit":3,"answerability":4,"payoff":1}',
+                [],
+            )),
+        ):
+            passed, reason = await dashboard_app._review_discussion_quality(
+                "חמישי בערב: איזו מטלה קטנה סיימתם כדי להרגיש שהבית לבד עובר למצב חופש?",
+                category="general",
+            )
+        self.assertFalse(passed)
+        self.assertIn("no payoff", reason)
+
+
 class NoHardcodedContentDefaultsTests(unittest.TestCase):
     """Guard against hidden content/theme defaults in UI and runtime code."""
 

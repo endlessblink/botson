@@ -106,6 +106,7 @@ generic_fragments:
   - "קפה בידיים"
   - "הלפטופ עוד סגור"
   - "גיליתם שלבד עדיף"
+  - "להשאיר סגור"
 
 # Regex templates for day-of-week claims. `{day_alt}` is replaced at runtime
 # with the configured Hebrew day names from settings.yaml:copy.time_context.
