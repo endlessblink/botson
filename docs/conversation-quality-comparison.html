@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>השוואת שאלות שיחה — ישן מול חדש</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1220;--card:#111d2e;--line:#263951;--muted:#9eb0c8;--good:#68d391;--bad:#ff8f8f;--accent:#8ab4ff}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#edf4ff;font:16px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif;padding:28px}
+    main{max-width:1100px;margin:auto}h1{margin:0 0 6px;font-size:28px}h2{margin:28px 0 12px;font-size:20px}.lead,.meta{color:var(--muted)}
+    .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0}.stat,.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}.stat strong{display:block;font-size:30px;color:var(--accent)}
+    .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.label{font-size:12px;color:var(--muted);margin-bottom:5px}.old{border-right:3px solid var(--bad)}.new{border-right:3px solid var(--good)}.verdict{font-weight:700}.pass{color:var(--good)}.fail{color:var(--bad)}
+    table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}th,td{text-align:right;padding:12px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}tr:last-child td{border-bottom:0}
+    @media(max-width:760px){body{padding:16px}.summary,.pair{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>השוואת שאלות שיחה: ישן מול חדש</h1>
+  <p class="lead">בדיקה חיה של שלושה נושאים מקבילים. הדוגמאות החדשות נוצרו עכשיו דרך הפרודקשן ונבדקו בשער האיכות; הדוגמאות הישנות הן שאלות שכבר היו מתוזמנות ונבדקו קודם, בלי לשלוח אותן שוב לספק.</p>
+  <div class="summary">
+    <div class="stat"><strong>3/3</strong>חדשות עברו את השער</div>
+    <div class="stat"><strong>2.0/5</strong>ציון ישן ממוצע</div>
+    <div class="stat"><strong>4.3/5</strong>ציון חדש ממוצע</div>
+  </div>
+
+  <section class="card">
+    <h2>גיימינג</h2>
+    <div class="pair"><div class="old"><div class="label">ישן · 726</div>השבוע התחלתם משחק חדש או חזרתם למשחק ישן — מה זה היה?<br><span class="verdict fail">נדחה: צ'ק-אין דיווחי, בלי עמדה או פואנטה.</span></div><div class="new"><div class="label">חדש · ניסיון 3</div>אתם חושבים שגיימינג עם AI-Companions בסגנון Character.AI תחליף למשחקי RPG קלאסיים? למה?<br><span class="verdict pass">עבר: נושא ספציפי, עמדה ונימוק.</span></div></div>
+  </section>
+
+  <section class="card">
+    <h2>טבעונות</h2>
+    <div class="pair"><div class="old"><div class="label">ישן · 722</div>ירק אחד שהופך כל מנה טבעונית לטובה יותר, בלי יוצא מן הכלל — מה הוא אצלכם?<br><span class="verdict fail">חלש: המלצה גנרית שמזמינה תשובות חוזרות.</span></div><div class="new"><div class="label">חדש · ניסיון 2</div>גילית שהעוגיות הטבעוניות שאפית כל השבוע מכילות דבש בלי שידעת - זורקת את הכל או ממשיכה לאכול?<br><span class="verdict pass">עבר: דילמה קונקרטית עם מתח אמיתי.</span></div></div>
+  </section>
+
+  <section class="card">
+    <h2>יומיום</h2>
+    <div class="pair"><div class="old"><div class="label">ישן · 713</div>יום שני בערב - בחרתם משהו בשבוע בלי צורך לתיאום עם מישהו. מה זה?<br><span class="verdict fail">נדחה: ניסוח מעורפל ותשובה שלא מובילה לסיפור.</span></div><div class="new"><div class="label">חדש · ניסיון 2</div>למה בסופו של דבר החלטת לוותר על משהו שנראה &quot;הכרחי&quot; בשגרה שלך, ואיך זה השפיע עלייך?<br><span class="verdict pass">עבר: בחירה, טוויסט ותוצאה אישית.</span></div></div>
+  </section>
+
+  <h2>מה השתנה</h2>
+  <table><thead><tr><th>מדד</th><th>ישן</th><th>חדש</th></tr></thead><tbody>
+    <tr><td>נושא קונקרטי</td><td>לעיתים קרובות חסר</td><td>נדרש</td></tr>
+    <tr><td>פואנטה או מתח</td><td>לא נדרש</td><td>נדרש</td></tr>
+    <tr><td>עברית טבעית</td><td>לא נבדקה מספיק</td><td>שער נפרד</td></tr>
+    <tr><td>כשל ספק</td><td>עלול לעבור</td><td>נחסם, למשל הזיית &quot;GitHub&quot; כמשחק</td></tr>
+  </tbody></table>
+  <p class="meta">הבדיקה אינה משנה לוח זמנים. ציון 1–5 הוא הערכת השוואה לפי הקונקרטיות, פואנטה, טבעיות ויכולת לייצר תשובה; מעבר חדש הוא מעבר השער הסמנטי החי.</p>
+</main>
+</body>
+</html>
