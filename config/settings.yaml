@@ -336,8 +336,8 @@ llm:
   # hanging rather than working slowly. A planner run makes many calls in
   # sequence, so each wasted budget is multiplied.
   cli_timeouts:
-    claude_seconds: 90
-    codex_seconds: 120
+    claude_seconds: 180
+    codex_seconds: 240
   prompt_rules: {}  # Phase B.6 populates from dashboard/app.py:1080+, 3000+
 
 learning:
