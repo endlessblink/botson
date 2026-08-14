@@ -81,3 +81,13 @@ def test_no_hardcoded_timeout_literals_left_in_messages():
     text = (repo_root / "dashboard" / "app.py").read_text(encoding="utf-8")
     assert '"CLI timed out after 90s"' not in text
     assert '"Codex CLI timed out after 120s"' not in text
+
+
+def test_claude_generation_isolated_from_project_agent_instructions():
+    """Content generation must not inherit repository coding-agent context."""
+    import pathlib
+
+    repo_root = pathlib.Path(__file__).resolve().parent.parent
+    text = (repo_root / "dashboard" / "app.py").read_text(encoding="utf-8")
+    assert '"--safe-mode"' in text
+    assert '"--no-session-persistence"' in text

@@ -4247,6 +4247,7 @@ async def _generate_via_cli(prompt: str) -> str:
     started = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
         "claude", "-p", prompt, "--model", "sonnet",
+        "--safe-mode", "--no-session-persistence",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
