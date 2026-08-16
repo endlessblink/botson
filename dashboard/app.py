@@ -5788,16 +5788,19 @@ async def ai_fill_trivia(request: Request, db: Database = Depends(get_db)):
     return await _ai_fill_trivia_for_week(db, week_offset, target_date=target_date)
 
 
-# ── AI fill: pool-backed calendar rows (emoji + facts) ──────
+# ── Legacy AI fill: pool-backed calendar rows (facts only) ──
 
 async def _ai_fill_pool_rows_for_week(
     db: Database, week_offset: int, target_date: str | None = None
 ) -> dict:
-    """Schedule pool-backed activities as calendar rows for the week:
-    - Wed 22:00 emoji_puzzle row (botson_corner, draws from emoji_puzzles DB pool at fire time)
+    """Schedule legacy pool-backed fact rows for the week:
     - Tue 12:00 facts_tidbit row (botson_corner, picks from facts.yaml tidbit pool at fire time)
     - Thu 12:00 facts_tidbit row
     - Sat 22:00 facts_spooky row (after the 21:00 trivia round)
+
+    Emoji Night is intentionally absent here: it may be suggested and committed
+    through the weekly-plan approval flow, but this legacy direct-fill endpoint
+    must never create an unsolicited game row.
 
     When `target_date` is provided ('YYYY-MM-DD'), only the slots whose
     day matches that date are considered. Used by Day-level Populate.
@@ -5845,11 +5848,6 @@ async def _ai_fill_pool_rows_for_week(
     # Pool-availability checks: skip a slot when its source is empty so
     # the runtime handler isn't fed an unfireable row.
     try:
-        async with db._db.execute("SELECT COUNT(*) FROM emoji_puzzles") as cur:
-            emoji_pool_count = (await cur.fetchone())[0] or 0
-    except Exception:
-        emoji_pool_count = 0
-    try:
         facts_yaml = load_yaml("facts.yaml") or {}
         tidbit_count = len(facts_yaml.get("tidbit") or [])
         spooky_count = len(facts_yaml.get("spooky") or [])
@@ -5858,8 +5856,6 @@ async def _ai_fill_pool_rows_for_week(
         spooky_count = 0
 
     slots: list[tuple[int, str, str, str]] = []  # (day_idx, time, mtype, text)
-    if emoji_pool_count > 0:
-        slots.append((3, "22:00", "emoji_puzzle", ""))
     if tidbit_count > 0:
         slots.append((2, "12:00", "facts_tidbit", ""))
         slots.append((4, "12:00", "facts_tidbit", ""))
@@ -5895,8 +5891,6 @@ async def _ai_fill_pool_rows_for_week(
             errors.append(f"{mtype} {day_date.isoformat()}: {e}")
 
     skipped_empty: list[str] = []
-    if emoji_pool_count == 0:
-        skipped_empty.append("emoji_puzzles pool empty")
     if tidbit_count == 0:
         skipped_empty.append("facts.tidbit pool empty")
     if spooky_count == 0:
@@ -5912,7 +5906,7 @@ async def _ai_fill_pool_rows_for_week(
 
 @app.post("/api/weekplan/ai-fill-pool-rows")
 async def ai_fill_pool_rows(request: Request, db: Database = Depends(get_db)):
-    """Schedule emoji_puzzle + facts_tidbit + facts_spooky calendar rows for the week.
+    """Schedule legacy fact rows; Emoji Night uses weekly-plan approval.
 
     Body: {week_offset?, target_date?: 'YYYY-MM-DD'}
     target_date scopes Day-level Populate to slots that fall on that date.
