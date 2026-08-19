@@ -859,12 +859,20 @@ def _format_alert(result: dict, *, recovery: bool) -> str:
             "status: ok"
         )
     issues = _issue_checks(result)
+    issue_names = {str(check.get("name") or "") for check in issues}
     lines = [
-        "Botson health issue",
-        f"status: {result.get('status')}",
-        f"mode: {result.get('mode')}",
-        f"commit: {_short_commit()}",
+        "Botson needs attention",
     ]
+    if "coverage" in issue_names:
+        lines.extend([
+            "Cause: no approved digest/activity posts or games are scheduled for the next 2 days.",
+            "Fix: open the dashboard and approve the suggested posts and at least one upcoming game.",
+        ])
+    if "weekly_smoke_freshness" in issue_names:
+        lines.append("Also overdue: the weekly-full smoke check; run it after approving the schedule.")
+    lines.extend([
+        f"status: {result.get('status')} · commit: {_short_commit()}",
+    ])
     for check in issues[:5]:
         detail = str(check.get("detail") or "").replace("\n", " ")
         if len(detail) > 500:

@@ -227,6 +227,23 @@ class BotsonHealthGuardTests(unittest.TestCase):
             }],
         }
 
+    def test_alert_explains_schedule_cause_and_fix(self):
+        result = {
+            "status": "degraded",
+            "mode": "daily",
+            "checks": [
+                {"name": "coverage", "status": "warn", "detail": "no games scheduled"},
+                {"name": "weekly_smoke_freshness", "status": "warn", "detail": "old"},
+            ],
+        }
+
+        with patch.object(guard, "_short_commit", return_value="abc123"):
+            alert = guard._format_alert(result, recovery=False)
+
+        self.assertIn("Cause: no approved digest/activity posts or games are scheduled for the next 2 days.", alert)
+        self.assertIn("Fix: open the dashboard and approve the suggested posts and at least one upcoming game.", alert)
+        self.assertIn("Also overdue: the weekly-full smoke check", alert)
+
     def test_alerts_stay_quiet_on_first_ok(self):
         with tempfile.TemporaryDirectory() as td, \
              patch.object(guard, "_send_telegram", return_value=[]) as send:
