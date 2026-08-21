@@ -24,6 +24,18 @@ from bot.utils.freshness import (
 )
 
 
+class CapturedGenericReflectionTests(unittest.TestCase):
+    def test_captured_context_free_reflections_are_rejected(self):
+        for text in (
+            "מה אתם לוקחים מהשבוע שעבר?",
+            "איזה רגע היה שלכם?",
+            "מה אתם רוצים שיקרה בשבוע הבא?",
+        ):
+            with self.subTest(text=text):
+                reason = freshness_rejection(text)
+                self.assertIn("forbidden fragment", reason or "")
+
+
 class HebrewNormalizeStripsNoise(unittest.TestCase):
     def test_strips_nikud_and_punctuation(self):
         raw = "שָׁלוֹם! מה שלומך?"
