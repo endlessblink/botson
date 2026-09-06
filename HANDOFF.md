@@ -1,4 +1,4 @@
-# Dropoff — 2026-09-06 09:11 Sunday IDT
+# Dropoff — 2026-09-06 09:41 Sunday IDT
 
 You are continuing work in Botson at `/media/endlessblink/data/my-projects/ai-development/bots+automation/botson` on branch `main`.
 
@@ -6,9 +6,9 @@ You are continuing work in Botson at `/media/endlessblink/data/my-projects/ai-de
 Status: `in_progress`. User wants the repeated generic conversation starters removed everywhere and a complete list of hardcoded messages like them, including other hiding places. Latest instruction was `$dropoff`; no cleanup edits have been made. Next: write a scoped cleanup plan and regression tests covering automatic generation, static-pool sends, and queued messages before changing behavior.
 
 ## Files touched / in flight
-Only `HANDOFF.md` was added by this session. Preserve pre-existing dirty work: `AGENTS.md`, `bot/scheduler/jobs.py`, `config/settings.yaml`, `dashboard/app.py`, `dashboard/templates/prompts.html`; untracked `bot/handlers/weekly_state_review.py`, `tests/test_weekly_state_review.py`. These are unrelated weekly-review work and are not staged in the dropoff.
+Only `HANDOFF.md` was updated by this session. Preserve pre-existing dirty work: `AGENTS.md`, `bot/scheduler/jobs.py`, `config/settings.yaml`, `dashboard/app.py`, `dashboard/templates/prompts.html`; untracked `bot/handlers/weekly_state_review.py`, `tests/test_weekly_state_review.py`. These are unrelated weekly-review work and are not staged in the dropoff.
 
-Local `cf79e31` already added freshness/quality rules and tests before this session. It was one commit ahead of origin at dropoff. The dropoff push includes that existing commit; deployment is separate.
+Commit `cf79e31` already added freshness/quality rules and tests before this session. The previous handoff commit `7e83347` and `cf79e31` are already pushed: live `git ls-remote origin refs/heads/main` matched local HEAD `7e83347` before this update. Deployment is separate.
 
 ## Key decisions & gotchas
 - Exact reported text: `ראשון בבוקר - מה הדבר שאתם לוקחים איתכם מהשבוע שעבר?`. Production `scheduled_messages` row 780: `created_by=auto`, created `2026-08-22 21:06:50`, scheduled `2026-09-06 09:00`, recorded sent `2026-09-06 09:00:34`. No recurrence. No independent Telegram visual check was performed.
@@ -27,7 +27,7 @@ Local `cf79e31` already added freshness/quality rules and tests before this sess
 - lean-ctx ctx_compose/ctx_session were unavailable in exposed tools. ctx_search skips dashboard/app.py (>512 KB): use rg through ctx_shell; use ctx_read start_line/limit for precise reads. Remote host has no rg; use grep. The explore subagent failed on a Spark usage limit; no child completed work. Skill router returned no relevant cleanup skill; dropoff SKILL.md was read and followed. No tests during dropoff.
 
 ## Env / run state
-Branch: main | Pre-dropoff HEAD: cf79e31 fix: silence context-free Botson prompts.
-Remote: https://github.com/endlessblink/botson.git. Production: `ssh -i ~/.ssh/id_ed25519 root@84.46.253.137`, host vmi2922149, checkout `/opt/robotnik`, SQLite `/opt/robotnik/data/bot.db`. Both botson.service and botson-dashboard.service were active; production HEAD d99b555. Alias root@vps does not resolve. Read-only sqlite3 over SSH works; never read .env/auth files. No code, config, database, or deployment changes were made in the investigation.
+Branch: main | Pre-update HEAD: 7e83347 wip: dropoff handoff — remove static conversation starters.
+Remote: https://github.com/endlessblink/botson.git. Production: `ssh -i ~/.ssh/id_ed25519 root@84.46.253.137`, host vmi2922149, checkout `/opt/robotnik`, SQLite `/opt/robotnik/data/bot.db`. At the prior inspection both botson.service and botson-dashboard.service were active; production HEAD was d99b555. Production observations above were inherited from the supplied handoff and were not rechecked during this dropoff. Local Docker lists no Botson-named container. Alias root@vps did not resolve; read-only sqlite3 over SSH worked in the prior investigation. Never read .env/auth files. No code, config, database, deployment changes, or tests were performed during this dropoff.
 
 Start by: write the cleanup plan with the exact removal boundary and falsifiable regression cases, using the proven origins above.
