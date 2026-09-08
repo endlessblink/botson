@@ -19,7 +19,7 @@ diff --git a/bot-registry.yaml b/bot-registry.yaml
        - local Botson project exists
 -      - username strongly matches project name
 -    next_check: verify token with getMe and compare Botson service environment
-+      - September 7 read-only observation found both services active at revision d99b555
++      - September 8 deployment and read-back found both services active at revision 72edf31
 +      - Candidate username has not been verified against the service identity
 +    next_check: verify service identity and authenticated dashboard visually before marking active
 
@@ -28,18 +28,18 @@ diff --git a/bot-registry.yaml b/bot-registry.yaml
  runtime_surfaces:
 +  - key: botson
 +    bot: thebotstonbot (candidate identity, unverified)
-+    observed_at: 2026-09-07
++    observed_at: 2026-09-08
 +    confidence: supporting-service-evidence-only
 +    host: 84.46.253.137 (vmi2922149)
 +    checkout: /opt/robotnik
 +    service: botson.service and botson-dashboard.service
 +    container: not applicable; systemd services observed
-+    dashboard_url: UNVERIFIED
++    dashboard_url: http://127.0.0.1:18080 (local SSH tunnel to production port 8080; public URL unverified)
 +    health_url: UNVERIFIED
 +    session: authenticated dashboard session unavailable
-+    observed_status: both services active at revision d99b555; cleanup not deployed
++    observed_status: cleanup deployed at 72edf31; both services active; authenticated repairs pending
 +    evidence:
-+      - Dashboard MainPID 3359790 matched the port 8080 Python listener; local HEAD request returned HTTP 405
++      - All 34 release file hashes matched commit 72edf31; four deployment guardians passed; unauthenticated calendar returned HTTP 401
 +      - No authenticated visual proof and no Telegram send performed
-+    next_check: verify approved deployed revision, authenticated dashboard and reviewed queue repairs
++    next_check: authenticate dashboard, repair rows 786/787/813/814 and obsolete preference, and verify visually
    - key: worlds-greatest-bot

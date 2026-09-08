@@ -1,4 +1,26 @@
-# Dropoff — 2026-09-06 09:41 Sunday IDT
+# Current handoff — 2026-09-08
+
+Status: `manual_action_required`. The cleanup is implemented, committed, pushed and deployed at `72edf31d960d61cf9bf879e28784d5f1ceffc117`. **Next: obtain an authenticated browser session by having the operator sign in at http://127.0.0.1:18080/login, then finish the already-approved four queue repairs and exact preference retirement.** An SSH tunnel forwards local 18080 to the production dashboard at localhost:8080. Do not inspect credentials or bypass login.
+
+Deployment and repairs were explicitly approved with "go"; do not ask again. Both production services are active, all 34 release files match the commit, and four deployment guardians passed. Final isolated release tests: 409 passed, 1 skipped, 316 subtests passed; four existing deprecation warnings. Prior real-provider evaluation: 6/6 matched. No Telegram test sends or authenticated visual acceptance have been performed.
+
+Approved queue repairs: rows 786, 787, 813, 814 to draft using `POST /api/calendar/{id}/quarantine-conversation` with the unchanged full expected snapshots in `docs/conversation-queue-repair-manifest.json`. Fresh post-deploy read-only SQL found all four still scheduled and matching. First read the authenticated calendar; changed state requires reassessment, never silently revise expectations. Read back each mutation and repeat the original request for idempotence. Rows 780 and 785 are sent; preserve them. Rows 792 and newly observed 819 are outside the repair. All four protected rows match the pre-deploy backup.
+
+Preference repair: use the exact full old bullet and authenticated untrain request in `docs/conversation-preference-repair-manifest.json`. Post-deploy read-back found the new replacement present, all prior bullets preserved, and exactly one old bullet still present. It has not been removed. Preserve runtime-only learned rules and verify the removal tombstone. Eight retired daily_prompts rows remain archived; their send path is disabled.
+
+Private backup: `/opt/robotnik-backups/conversation-cleanup-20260908T200929Z`, directory 700 and files 600; database quick_check passed, live preferences copied. No tombstone file existed before deployment. Previous production revision: `d99b5552c4e3129e0f437e8c30f72c9e5ee5b89c`. Deployment log is private there; do not dump raw logs or credentials.
+
+Registry correction outside the workspace was explicitly approved and applied; YAML and exact Botson stanza were validated/read back. It records deployed 72edf31 and pending authenticated repairs without claiming identity/onboarding or visual proof. `docs/botson-registry-proposed.patch` is retained evidence of the already-applied patch; do not reapply.
+
+Preserve unrelated dirty weekly-review work in AGENTS.md, bot/scheduler/jobs.py, config/settings.yaml, dashboard/app.py, dashboard/templates/prompts.html and untracked bot/handlers/weekly_state_review.py, tests/test_weekly_state_review.py. None was included in the release. Read `docs/conversation-cleanup-release-checklist.md`, cleanup plan and exact inventory for implemented scope. Documentation-only follow-up commits do not require another service restart.
+
+Tools: extension browser connection timed out; standard Playwright opened only about:blank and no existing authenticated session. Disposable visual child `release_visual` is checking the tunnel login page. Parent must not view images. No test Telegram sends authorized. Local ctx_shell cwd outside project is rejected and silently runs project root; use explicit git -C for external read-only operations. Native lean-ctx wrapper caps jobs at 120 seconds; long tests use ctx_shell background inside project. One local bash syntax-check command was blocked by allowlist; do not retry it through a bypass.
+
+---
+
+# Historical dropoff — 2026-09-06 09:41 Sunday IDT
+
+The following is historical diagnosis, superseded by the current handoff above.
 
 You are continuing work in Botson at `/media/endlessblink/data/my-projects/ai-development/bots+automation/botson` on branch `main`.
 

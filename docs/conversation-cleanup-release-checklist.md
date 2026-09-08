@@ -1,12 +1,16 @@
 # Conversation cleanup release gate
 
-Status: in_progress. Deployment and the four queue repairs plus the exact preference retirement were explicitly approved on September 8. Release preparation is underway; no queue or preference mutations have been applied.
+Status: manual_action_required. Cleanup commit `72edf31d960d61cf9bf879e28784d5f1ceffc117` is pushed and deployed. The four queue repairs and exact preference retirement are authorized but remain unapplied pending an authenticated dashboard session and visual verification. Sign in at `http://127.0.0.1:18080/login` through the production SSH tunnel; do not share credentials in chat.
+
+September 8 release evidence: the isolated committed tree passed 409 tests and 316 subtests, with one skipped test and four existing FastAPI deprecation warnings. All four production deployment guardians passed (12, 7, 4 and 5 tests; 10 subtests). Both services restarted successfully. All 34 deployed release-file SHA-256 hashes match the commit. The unauthenticated calendar returns HTTP 401. No Telegram test message was sent.
+
+Post-deployment read-back: rows 786, 787, 813 and 814 remain scheduled and exactly match their approved snapshots. Rows 780, 785, 792 and 819 are unchanged from the private pre-deployment backup. All previous preference bullets are preserved; the replacement rule is present and exactly one obsolete bullet remains for authenticated untrain. Eight legacy daily prompts remain archived; the release disables their send path. The external Botson registry correction was approved, applied, YAML-validated and read back, with identity and visual proof explicitly unverified.
 
 September 8 preflight: production remains d99b5552c4e3129e0f437e8c30f72c9e5ee5b89c with no tracked changes and both services active. The four repair snapshots still match. Row 785 is now sent and must remain untouched; row 819 is a new concrete cooking discussion outside the four-row repair. Row 780 remains sent with its original text and timestamp. A private SQLite backup passed `quick_check`; live preferences were also backed up at `/opt/robotnik-backups/conversation-cleanup-20260908T200929Z`. No preference tombstone file existed at preflight.
 
 ## Exact pending repair
 
-The companion conversation-queue-repair-manifest.json records the September 7 read-only snapshot. Proposed action: move rows 786, 787, 813 and 814 to drafts using the authenticated `POST /api/calendar/{id}/quarantine-conversation` endpoint with the complete `expected` snapshot. Preserve text, schedule, author and history. Rows 785 and 792 remain pending separate semantic assessment; do not bulk-remove them.
+The companion conversation-queue-repair-manifest.json records the September 7 read-only snapshot. Approved action: move rows 786, 787, 813 and 814 to drafts using the authenticated `POST /api/calendar/{id}/quarantine-conversation` endpoint with the complete `expected` snapshot. Preserve text, schedule, author and history. Row 785 has since been sent and must remain untouched; preserve row 792 for separate semantic assessment.
 
 Before each action, read the current row through the authenticated calendar. Any changed field or dispatch claim requires a new assessment; do not rewrite the manifest automatically to make it pass. After each action, read the row back and verify status `draft`, marker `conversation_cleanup`, unchanged text and metadata. Repeat the same request to verify idempotence. Never mutate sent row 780.
 
@@ -27,11 +31,11 @@ Do not invent a public dashboard/health URL or mark identity verified. The servi
 
 ## Remaining proof gates
 
-- Local evidence complete: 408 combined tests passed (1 skipped), followed by 71 focused tests after removing new literal bans; 6/6 real-provider cases matched. Python compilation and diff whitespace checks passed. Ruff unavailable. Bounded independent review found both reported send blockers addressed.
+- Local evidence complete: final isolated release verification passed 409 tests and 316 subtests (1 skipped); earlier 6/6 real-provider cases matched. Python compilation and diff whitespace checks passed. Ruff unavailable. Bounded independent review found both reported send blockers addressed.
 - Live preference rule retirement through its supported authenticated write path, preserving runtime-only learned rules.
-- Registry write approval and authenticated dashboard access.
-- Deployment approval received; deployed revision/config read-back, pending-row repair and visual confirmation remain pending.
+- Authenticated dashboard access, pending-row repair and visual confirmation.
+- Deployment and registry correction completed; production message-generation and actual send behavior have no fresh end-to-end visual proof.
 
 Passing local tests or the six-case real-provider evaluation does not satisfy these production gates.
 
-Production-to-current-HEAD comparison contains only the prior freshness/quality guidance, regression tests and handoff (six files, 104 insertions). The cleanup working tree is still uncommitted; unrelated weekly-review edits must remain excluded from its release commit. `botson-registry-proposed.patch` is prepared and passes `git apply --check` against the external registry; it has not been applied. The registry's candidate identity remains unverified.
+The cleanup release excludes the unrelated weekly-review edits, which remain dirty locally. `botson-registry-proposed.patch` is the applied registry correction retained for review; do not reapply it. The registry's candidate identity remains unverified. Deployment approval persists; no second deployment approval is needed to finish the already-authorized authenticated repairs.
