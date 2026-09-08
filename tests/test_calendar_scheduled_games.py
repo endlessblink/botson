@@ -297,6 +297,8 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
              patch("telegram.Bot", return_value=object()), \
+             patch("bot.scheduler.materializer._used_texts_for_type", new=AsyncMock(return_value=[])), \
+             patch("bot.utils.conversation_quality.review_conversation", new=AsyncMock(return_value=(True, "accepted"))), \
              patch.object(calendar, "start_emoji_night", new=AsyncMock()) as start_emoji, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text:
             await calendar.check_and_send_due_messages(context)
@@ -491,6 +493,8 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
              patch("telegram.Bot", return_value=object()), \
+             patch("bot.scheduler.materializer._used_texts_for_type", new=AsyncMock(return_value=[])), \
+             patch("bot.utils.conversation_quality.review_conversation", new=AsyncMock(return_value=(True, "accepted"))), \
              patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock()) as start_trivia, \
              patch.object(calendar, "send_message_with_optional_cover", new=AsyncMock(return_value=sent)) as send_text:
             await calendar.check_and_send_due_messages(context)

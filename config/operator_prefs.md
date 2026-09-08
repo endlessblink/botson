@@ -81,7 +81,7 @@ If a correction doesn't fit any of these, add a new context category.
 - עברית של חבר בקבוצה, לא של קופירייטר. אם זה נשמע כמו תרגום מ-engagement prompt באנגלית — לפסול ולנסח שוב.
 - אל תשתמש ב-"נקודה" לבד כשהכוונה לאירוע, מועד, או נקודת ציון. השם המופשט "נקודה" נשמע כמו טקסט-מציין-מקום. נסח עם המילה הספציפית: "נקודת ציון", "אירוע", "מועד", "משהו ספציפי", או שם הדבר עצמו (פגישה, ארוחה, יציאה, סרט, התחלה).
   _**Source:** chat via /teach-bot, 2026-05-16 — operator flagged "יש כבר נקודה אחת שאתם מחכים לה" as wrong; "נקודה" reads as placeholder, not a real noun in this context._
-- אסור לייצר שאלות דיון לקטגוריית "funny" / מצחיק. הומור עובד כסיפור או כבדיחה מוכנה מראש, לא כשאלה. שאלת "תכננתם משהו ונגנב — מה היה?" איננה מצחיקה. אם הקטגוריה היא funny — או דלג, או הצע סטוריפרומפט קצר ("ספרו רגע מצחיק מהבוקר") במקום שאלה כללית. ערוץ funny מושבת מאוטו-יצירה ב-2026-05-16 עד שיש מאגר בדיחות מוכן.
+- אין לכפות הומור באמצעות שאלת דיון כללית או בקשה לשיתוף חוויה אישית. בקטגוריית "funny" יש להשתמש רק בתוכן הומוריסטי מוכן ומתאים לערוץ; בהיעדר תוכן כזה יש לדלג. אין להפעיל יצירה אוטומטית לקטגוריה לפני שקיים מאגר מתאים.
   _**Source:** chat via /teach-bot, 2026-05-16 — operator: "humor-as-discussion-question doesn't work; remove channel from rotation or generate jokes instead."_
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.

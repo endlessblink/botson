@@ -36,6 +36,9 @@ bot:
 # This namespace is seeded by Phase F; Phase A.2 populates it as handlers
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
+  conversation_quality:
+    generation_instruction: "כתבו שאלה חדשה לערוץ {category} בסוג {message_type}, עם נושא מוגדר וסיבה מעניינת לענות. שעת השליחה אינה מחייבת שאלה על תכנון או סיכום היום."
+    manual_sent: "נשלחה ידנית הודעה חדשה שעברה בדיקת איכות: {message_type}"
   tagall:
     all_label: "@all"
     syncing: "בודק את חברי הקבוצה…"
@@ -294,8 +297,8 @@ copy:
     context_suffix: ". התוכן צריך להרגיש מתאים ליום ולשעה האלה — לא טקסט גנרי שיכול להיות בכל זמן. אם הטקסט מציין יום בשבוע, חייב להיות בדיוק היום הזה ולא יום אחר."
     weekday_rubric_header: "\n\nניואנס היום (חובה לעגן בו):"
   materializer:
-    kind_morning: "פתיחת יום"
-    kind_evening: "סגירת יום"
+    kind_morning: "שאלה לשיחה בשעות הבוקר"
+    kind_evening: "שאלה לשיחה בשעות הערב"
     kind_discussion: "שאלה לערוץ {category}"
     discussion_default_category: "דיון"
     date_with_day: "תאריך: {date} (יום {day})"
@@ -308,9 +311,6 @@ copy:
       {date_line}
       שעה: {time}
       חובה: אם הטקסט מציין יום בשבוע, חייב להיות בדיוק "{day}" ולא יום אחר.
-
-      דוגמאות השראה בלבד - אסור להעתיק או לפרפרז קרוב:
-      {examples}
 
       כבר נשלח או תוזמן - אסור לחזור:
       {used_texts}
@@ -360,9 +360,6 @@ materializer:
   # Raised 45 → 180 on 2026-07-25: operator reported questions repeating.
   # A 45-day window let anything older than ~6 weeks come back verbatim.
   used_texts_window_days: 180
-  # Number of pool examples shown as style references in each generation
-  # prompt. Fewer anchors = less verbatim echo. Default 2 (was 5).
-  examples_per_prompt: 2
   # LLM candidates per slot before falling through to "skip". Each retry
   # adds the prior rejection reason so the model gets concrete guidance.
   retry_budget: 3

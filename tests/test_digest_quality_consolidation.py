@@ -101,9 +101,6 @@ class ValidateDraftTextTests(unittest.TestCase):
             ("ערב טוב 🌙 איך היה היום? ספרו דבר אחד טוב שקרה", "concrete_failure_generic_day_checkin"),
             ("ערב! ✨ מה הרגע הכי שווה מהיום?", "concrete_failure_generic_day_highlight"),
             ("🌙 מה עשיתם היום בשביל עצמכם?", "concrete_failure_generic_self_care"),
-            ("מה אתם לוקחים מהשבוע שעבר?", "concrete_failure_context_free_reflection"),
-            ("איזה רגע היה שלכם?", "concrete_failure_context_free_reflection"),
-            ("מה אתם רוצים שיקרה בשבוע הבא?", "concrete_failure_context_free_reflection"),
             ("אם הייתם יכולים לחיות בעולם של סדרה/משחק/ספר, איזה?", "concrete_failure_generic_fandom_fantasy"),
             ("סרט שראיתם יותר מ-3 פעמים?", "concrete_failure_generic_movie_rewatch"),
             ("שישי בילוי — מה אתם עושים בערב כשמתם לעצמכם משהו שרק עכשיו יש זמן בשבילו?", "concrete_failure_generic_evening_plan"),
@@ -143,6 +140,29 @@ class ValidateDraftTextTests(unittest.TestCase):
 
 
 class HotTakeSemanticReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_context_free_reflections_are_rejected_semantically_for_all_types(self):
+        # These are negative semantic fixtures, not lexical phrase-ban rules.
+        # Historical lexical-only expectations incorrectly required memorizing
+        # their wording instead of enforcing the review verdict at each boundary.
+        rejected = (
+            "מה אתם לוקחים מהשבוע שעבר?",
+            "איזה רגע היה שלכם?",
+            "מה אתם רוצים שיקרה בשבוע הבא?",
+        )
+        verdict = '{"pass":false,"reason":"context-free reflection without a concrete subject","specificity":1,"naturalness":4,"novelty":1,"channel_fit":3,"answerability":2,"payoff":1}'
+        for text in rejected:
+            for kind in ("morning", "evening", "discussion"):
+                with self.subTest(text=text, kind=kind):
+                    plan = {"regular_slots": [{"type": kind, "text": text, "scheduled_time": "09:00"}]}
+                    # Bypass existing lexical config to prove the semantic gate
+                    # alone rejects these fixtures and their retried copies.
+                    with patch.object(dashboard_app, "freshness_rejection", return_value=None), patch.object(dashboard_app, "_generate_with_fallbacks", AsyncMock(return_value=(verdict, []))) as provider, patch.object(dashboard_app, "_generate_via_cli", AsyncMock(return_value=text)), patch.object(dashboard_app, "_fetch_recent_sent_for_dedup", AsyncMock(return_value=[])), patch.object(dashboard_app, "build_generation_prompt", return_value="retry prompt"):
+                        result, notes = await dashboard_app._retry_failed_regular_slots(plan, object(), "2026-09-06")
+                    self.assertEqual(result["regular_slots"], [])
+                    self.assertIn("context-free reflection", notes[0])
+                    self.assertEqual(provider.await_count, 2, "both original and retry must undergo semantic review")
+                    self.assertIn(text, provider.call_args.args[0])
+
     async def test_accepts_reviewed_concrete_stance(self):
         with patch.object(
             dashboard_app,
@@ -315,6 +335,17 @@ class DigestPromptStaysUnderTimeoutBudgetTests(unittest.TestCase):
 
 
 class RetryFailedRegularSlotsTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # These cases exercise routing/retry mechanics; semantic rejection has
+        # independent coverage in test_conversation_dashboard.py.
+        reviewer = patch.object(dashboard_app, "_review_discussion_quality", AsyncMock(return_value=(True, "accepted fixture")))
+        reviewer.start()
+        self.addCleanup(reviewer.stop)
+        history = patch.object(dashboard_app, "_fetch_recent_sent_for_dedup", AsyncMock(return_value=[]))
+        history.start()
+        self.addCleanup(history.stop)
+
+
     """The retry loop is the consistency lever — it converts variable model
     output into either-good-or-honestly-empty. These tests pin the contract.
     """

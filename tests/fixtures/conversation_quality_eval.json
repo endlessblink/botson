@@ -1,0 +1,8 @@
+[
+  {"id": "row780", "expected": false, "category": "morning", "text": "ראשון בבוקר - מה הדבר שאתם לוקחים איתכם מהשבוע שעבר?"},
+  {"id": "row787", "expected": false, "category": "morning", "text": "☀️ ראשון בבוקר — איזה דבר אתם משאירים למחצית השבוע?"},
+  {"id": "unseen_diary", "expected": false, "category": "evening", "text": "לפני שהיום נגמר, מה תרצו לשמור ממנו למחר?"},
+  {"id": "unseen_reflection", "expected": false, "category": "morning", "text": "איזו תחושה מהימים האחרונים תלווה אתכם בתחילת השבוע?"},
+  {"id": "valid_game_tradeoff", "expected": true, "category": "gaming", "text": "במשחקי תפקידים, שמירה בכל רגע הורסת את המתח או פשוט מכבדת את הזמן של השחקן?"},
+  {"id": "valid_film_tradeoff", "expected": true, "category": "movies", "text": "כשסרט עיבוד משנה את הסוף של הספר, מה חשוב לכם יותר: הנאמנות למקור או שהסוף יעבוד בקולנוע?"}
+]

@@ -174,6 +174,11 @@ def _post_endpoint(path: str):
 
 class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        # These cases exercise routing/retry mechanics; semantic rejection has
+        # independent coverage in test_conversation_dashboard.py.
+        reviewer = patch.object(dashboard_app, "_review_discussion_quality", AsyncMock(return_value=(True, "accepted fixture")))
+        reviewer.start()
+        self.addCleanup(reviewer.stop)
         self.settings = {
             "topics": {"discussions": {"art": 111, "movies": 222}},
         }
@@ -351,12 +356,27 @@ class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
                 )
 
             self.assertIn(f'בקטגוריה "{name}"', prompt)
-            self.assertIn("דוגמאות לאיכות וסגנון", prompt)
-            self.assertIn(pool_text, prompt)
+            self.assertNotIn("דוגמאות לאיכות וסגנון", prompt)
+            self.assertNotIn(pool_text, prompt)
             self.assertIn(rubric_text, prompt)
 
 
 class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # These cases exercise routing/retry mechanics; semantic rejection has
+        # independent coverage in test_conversation_dashboard.py.
+        reviewer = patch.object(dashboard_app, "_review_discussion_quality", AsyncMock(return_value=(True, "accepted fixture")))
+        reviewer.start()
+        self.addCleanup(reviewer.stop)
+        shared_reviewer = patch("bot.utils.conversation_quality.review_conversation", AsyncMock(return_value=(True, "accepted fixture")))
+        shared_reviewer.start()
+        self.addCleanup(shared_reviewer.stop)
+        materializer_reviewer = patch.object(materializer, "review_conversation", AsyncMock(return_value=(True, "accepted fixture")))
+        materializer_reviewer.start()
+        self.addCleanup(materializer_reviewer.stop)
+
+
+
     async def test_ai_suggest_discussion_surfaces_validation_failures(self):
         db = Database(":memory:")
         await db.init()
@@ -414,6 +434,13 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
     async def test_ai_suggest_rolling_week_batches_flex_discussion_generation(self):
         from collections import Counter
+        import random
+
+        # Fix scheduling choices so this batching budget is independent of
+        # random selections made by earlier tests, while restoring their state.
+        random_state = random.getstate()
+        random.seed(0)
+        self.addCleanup(random.setstate, random_state)
 
         db = Database(":memory:")
         await db.init()
@@ -442,6 +469,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
         try:
             with patch.object(dashboard_app, "_generate_with_fallbacks", new=AsyncMock(side_effect=generated)), \
+                 patch.object(dashboard_app, "_draft_opener_key", return_value=""), \
                  patch.object(dashboard_app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
                  patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
                 result = await dashboard_app._ai_suggest_calendar(

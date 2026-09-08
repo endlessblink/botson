@@ -1,0 +1,45 @@
+diff --git a/bot-registry.yaml b/bot-registry.yaml
+--- a/bot-registry.yaml
++++ b/bot-registry.yaml
+@@ -130,12 +130,17 @@
+     purpose: Community automation including topic routing, anti-spam, events, trivia, polls, activities, and scheduled content.
+     project: bots+automation/botson
+     runtime: standalone
+-    service: systemd files under bots+automation/botson
+-  status: active
+-  onboarding_gate: {status: verified, owner: verified, boundary: verified, isolation: verified, runtime_smoke: verified}
++    service: botson.service and botson-dashboard.service on vmi2922149
++    owner: UNVERIFIED
++    channel_identity: UNVERIFIED
++    boundary: Community bot; no Telegram test sends authorized during cleanup
++    secret_reference: UNVERIFIED; do not copy secret values
++    status: unverified
++    onboarding_gate: {status: pending, owner: UNVERIFIED, boundary: UNVERIFIED, isolation: UNVERIFIED, runtime_smoke: UNVERIFIED}
+     evidence:
+       - local Botson project exists
+-      - username strongly matches project name
+-    next_check: verify token with getMe and compare Botson service environment
++      - September 7 read-only observation found both services active at revision d99b555
++      - Candidate username has not been verified against the service identity
++    next_check: verify service identity and authenticated dashboard visually before marking active
+
+   - username: claude_and_conquer_bot
+@@ -314,2 +319,18 @@
+ runtime_surfaces:
++  - key: botson
++    bot: thebotstonbot (candidate identity, unverified)
++    observed_at: 2026-09-07
++    confidence: supporting-service-evidence-only
++    host: 84.46.253.137 (vmi2922149)
++    checkout: /opt/robotnik
++    service: botson.service and botson-dashboard.service
++    container: not applicable; systemd services observed
++    dashboard_url: UNVERIFIED
++    health_url: UNVERIFIED
++    session: authenticated dashboard session unavailable
++    observed_status: both services active at revision d99b555; cleanup not deployed
++    evidence:
++      - Dashboard MainPID 3359790 matched the port 8080 Python listener; local HEAD request returned HTTP 405
++      - No authenticated visual proof and no Telegram send performed
++    next_check: verify approved deployed revision, authenticated dashboard and reviewed queue repairs
+   - key: worlds-greatest-bot

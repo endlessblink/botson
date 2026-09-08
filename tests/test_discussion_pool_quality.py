@@ -1,8 +1,8 @@
 """T-171 guardian: `config/discussions.yaml` must pass the deterministic
 discussion-pool validator (modulo `config/discussion_pool_baseline.yaml`).
 
-Pool quality matters because the materializer feeds these entries to the
-LLM as few-shot anchors. A weak entry = a weak anchor = more weak output.
+Reusable pool entries are retired; preserve category keys and the validator
+primitives that still protect imported candidate content.
 """
 
 from __future__ import annotations
@@ -44,18 +44,16 @@ class DiscussionPoolGuardian(unittest.TestCase):
             msg="discussion pool has new validation failures:\n" + "\n".join(msg_lines),
         )
 
-    def test_pool_size_is_meaningful(self):
-        """Sanity: every category has at least 5 entries. Smaller pools
-        starve the materializer's few-shot prompt and force repeats."""
+    def test_reusable_entries_are_retired_without_losing_categories(self):
+        """Empty category lists preserve routing without stock questions."""
         discussions = load_yaml("discussions.yaml") or {}
-        underfilled = [
-            (cat, len(items))
-            for cat, items in discussions.items()
-            if isinstance(items, list) and len(items) < 5
-        ]
+        self.assertEqual(set(discussions), {
+            "art", "support", "cute", "funny", "gaming", "fitness",
+            "general", "movies", "music", "politics", "singles", "vegan",
+        })
         self.assertEqual(
-            underfilled, [],
-            msg=f"underfilled categories (need ≥5 entries): {underfilled}",
+            discussions, {category: [] for category in discussions},
+            msg="retired starter content must not return to the active pool",
         )
 
 

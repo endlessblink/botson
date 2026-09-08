@@ -897,6 +897,24 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                         cover_path=msg.get("cover_path"),
                     )
                 else:
+                    if msg.get("message_type") in {"morning", "evening", "discussion"}:
+                        from ..scheduler.materializer import _generate_with_claude, _used_texts_for_type
+                        from ..utils.conversation_quality import review_conversation
+                        from ..utils.freshness import freshness_rejection
+
+                        recent_texts = await _used_texts_for_type(db, msg["message_type"], sent_only=True)
+                        freshness_failure = freshness_rejection(
+                            msg["text"], avoid_texts=recent_texts,
+                            scheduled_date=msg.get("scheduled_date"),
+                        )
+                        if freshness_failure:
+                            raise SkippedActivity(f"conversation_freshness:{freshness_failure}")
+                        review_passed, review_reason = await review_conversation(
+                            msg["text"], category=msg["message_type"],
+                            recent_texts=recent_texts, generate=_generate_with_claude,
+                        )
+                        if not review_passed:
+                            raise SkippedActivity(f"conversation_semantic:{review_reason}")
                     if msg.get("message_type") == "poll":
                         logger.warning(
                             "Scheduled poll %d has no valid options — sending as text",

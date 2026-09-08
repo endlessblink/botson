@@ -12,10 +12,20 @@ steered the planner's one-off generations and nothing else.
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
 RULE_TOKEN = "LEARNED_RULE_BULK_TEST"
+
+
+@pytest.fixture(autouse=True)
+def accepted_semantic_review(monkeypatch):
+    """Prompt-capture tests inspect generation, not the separate reviewer."""
+    from bot.scheduler import materializer
+    monkeypatch.setattr(
+        materializer, "review_conversation", AsyncMock(return_value=(True, "accepted")),
+    )
 
 
 @pytest.fixture()

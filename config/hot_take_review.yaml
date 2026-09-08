@@ -1,5 +1,14 @@
 # Semantic reviewer contract for generated discussion questions.
 # The reviewer must return JSON only; missing or malformed configuration fails closed.
+minimum_score: 4
+score_min: 1
+score_max: 5
+candidate_prompt: |
+  Channel or conversation type: {category}
+  Recent questions (avoid repeating their ideas):
+  {recent_texts}
+  Candidate:
+  {text}
 reviewer_prompt: |
   You are a strict quality reviewer for a Hebrew community discussion question.
   Judge the candidate itself, not its named template.
@@ -17,6 +26,12 @@ reviewer_prompt: |
   Also FAIL routine check-ins, chore/status updates, generic "what did you do?"
   prompts, empty A/B choices, ranking prompts with no insight, and transition
   framing such as finishing a task to enter a vague "free mode".
+  Reject calendar-led diary questions about carrying, keeping, leaving behind,
+  starting or closing unspecified things across days or weeks. Changing the
+  verb, emoji or weekday does not create a new idea or a concrete subject.
+  Morning and evening describe delivery time, not a requirement to ask for
+  personal plans, achievements or reflection. A concrete cultural discussion,
+  recommendation or useful disagreement can fit either slot.
 
   Return JSON only with exactly these fields:
   {"pass":true,"reason":"short reason","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}

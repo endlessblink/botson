@@ -854,67 +854,47 @@ async def send_prompt_now(request: Request, db: Database = Depends(get_db)):
     if prompt_type not in ("morning", "evening", "discussion"):
         raise HTTPException(status_code=400, detail="Invalid type")
 
-    # Get the prompt
-    if prompt_type in ("morning", "evening"):
-        prompt = await db.get_random_prompt(prompt_type)
-        if not prompt:
-            raise HTTPException(status_code=404, detail="No prompts in pool")
+    from bot.scheduler.materializer import _generate_fresh_text, _used_texts_for_type
+    from bot.utils.copy import load_copy
+    from telegram import Bot
 
-        # Send via bot
-        from telegram import Bot
-        bot = Bot(os.getenv("BOT_TOKEN", ""))
-        group_id = int(os.getenv("GROUP_ID", "0"))
-        goals_topic = os.getenv("GOALS_TOPIC_ID", "")
-
-        kwargs = {"chat_id": group_id, "text": prompt}
-        if goals_topic:
-            kwargs["message_thread_id"] = int(goals_topic)
-
-        try:
-            await bot.send_message(**kwargs)
-            await db.log_activity("goals", f"שלח הודעת {prompt_type} (ידני)", target_channel="goals")
-            return {"status": "ok", "prompt": prompt}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    elif prompt_type == "discussion":
-        # Pick random category with topic ID
-        settings = get_settings()
-        topic_ids = settings.get("topics", {}).get("discussions", {})
-        discussions_data = {}
-        try:
-            discussions_data = load_yaml("discussions.yaml")
-        except Exception:
-            pass
-
-        available = [
-            cat for cat in discussions_data
-            if cat in topic_ids and topic_ids[cat] and discussions_data[cat]
-        ]
-
+    category = None
+    topic_id = os.getenv("GOALS_TOPIC_ID", "")
+    if prompt_type == "discussion":
+        topic_ids = get_settings().get("topics", {}).get("discussions", {})
+        available = [key for key, value in topic_ids.items() if value]
         if not available:
-            raise HTTPException(status_code=404, detail="No categories with topic IDs and prompts")
-
-        import random
+            raise HTTPException(status_code=404, detail="No configured discussion topics")
         category = random.choice(available)
-        prompt = random.choice(discussions_data[category])
         topic_id = topic_ids[category]
-
-        from telegram import Bot
-        bot = Bot(os.getenv("BOT_TOKEN", ""))
-        group_id = int(os.getenv("GROUP_ID", "0"))
-
-        try:
-            await bot.send_message(
-                chat_id=group_id,
-                text=f"💬 {prompt}",
-                message_thread_id=topic_id,
-            )
-            await db.log_activity("discussion", f"שלח שאלה לדיון ({category}) (ידני)", target_channel=category)
-            return {"status": "ok", "prompt": prompt, "category": category}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
+    recent = await _used_texts_for_type(db, prompt_type, sent_only=True)
+    now = datetime.now(ZoneInfo("Asia/Jerusalem"))
+    prompt = await _generate_fresh_text(
+        prompt_type, category=category, examples=[], used_texts=recent,
+        scheduled_date=now.date().isoformat(), scheduled_time=now.strftime("%H:%M"),
+    )
+    if not prompt:
+        raise HTTPException(status_code=503, detail="Fresh reviewed content unavailable")
+    kwargs = {"chat_id": int(os.getenv("GROUP_ID", "0")), "text": prompt}
+    if topic_id:
+        kwargs["message_thread_id"] = int(topic_id)
+    row_id = await db.create_scheduled_message(
+        message_type=prompt_type, text=prompt,
+        channel_topic_id=int(topic_id) if topic_id else None, target_group="main",
+        scheduled_date=now.date().isoformat(), scheduled_time=now.strftime("%H:%M"),
+        created_by="manual-prompt", status="draft",
+    )
+    try:
+        sent = await Bot(os.getenv("BOT_TOKEN", "")).send_message(**kwargs)
+    except Exception as error:
+        await db.update_scheduled_message(row_id, status="failed")
+        raise HTTPException(status_code=500, detail=str(error))
+    await db.mark_message_sent(row_id, sent.message_id)
+    try:
+        await db.log_activity(prompt_type, load_copy("conversation_quality", "manual_sent", message_type=prompt_type), target_channel=category or "goals")
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+    return {"status": "ok", "prompt": prompt, "category": category}
 
 @app.post("/api/bot/send-message")
 async def send_message_to_topic(request: Request, db: Database = Depends(get_db)):
@@ -955,6 +935,30 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
     if not group_id:
         raise HTTPException(status_code=400, detail=f"No {target} group ID configured")
 
+    conversation_row_id = None
+    conversation_sent = False
+    conversation_type, _ = _coerce_game_message_fields(
+        str(message_type or ""), text, poll_options, topic_id,
+    )
+    if conversation_type in {"morning", "evening", "discussion"}:
+        from bot.scheduler.materializer import _used_texts_for_type
+
+        recent = await _used_texts_for_type(db, conversation_type, sent_only=True)
+        now = datetime.now(ZoneInfo("Asia/Jerusalem"))
+        failure = freshness_rejection(text, avoid_texts=recent, scheduled_date=now.date().isoformat())
+        if failure:
+            raise HTTPException(status_code=422, detail=f"Conversation quality rejected: {failure}")
+        passed, reason = await _review_discussion_quality(text, category=conversation_type, recent_texts=recent)
+        if not passed:
+            raise HTTPException(status_code=422, detail=f"Conversation quality rejected: {reason}")
+        if target != "test":
+            conversation_row_id = await db.create_scheduled_message(
+                message_type=conversation_type, text=text,
+                channel_topic_id=int(topic_id) if topic_id else None, target_group="main",
+                scheduled_date=now.date().isoformat(), scheduled_time=now.strftime("%H:%M"),
+                created_by="manual-drawer", status="draft", cover_path=cover_path,
+            )
+
     try:
         opts = _parse_poll_options(poll_options)
         if message_type == "poll" and len(opts) >= 2:
@@ -994,6 +998,9 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
                     cover_path=cover_path,
                     bypass_verification=is_topic_discovery,
                 )
+            if conversation_row_id is not None:
+                await db.mark_message_sent(conversation_row_id, msg.message_id)
+                conversation_sent = True
             for extra_cover in normalized_covers:
                 full = MEDIA_DIR / extra_cover
                 if not full.exists():
@@ -1012,8 +1019,12 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         await db.log_activity("manual_send", f"שלח הודעה ידנית ({'טסט' if target == 'test' else 'ראשית'})", target_channel=str(topic_id or "general"))
         return {"status": "ok", "message_id": msg.message_id}
     except UnverifiedTopicError as e:
+        if conversation_row_id is not None and not conversation_sent:
+            await db.update_scheduled_message(conversation_row_id, status="failed")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        if conversation_row_id is not None and not conversation_sent:
+            await db.update_scheduled_message(conversation_row_id, status="failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3280,42 +3291,8 @@ from bot.utils.time_context import format_time_context as _format_time_context  
 
 
 def _sample_pool_examples(field: str, category: str, n: int = 3) -> str:
-    """Pull a few random examples from the matching YAML pool as a few-shot anchor.
-
-    Anchors the model on the existing voice without giving it canned text to
-    copy. Returns '' if the pool can't be loaded or is empty. Used by both
-    single-mode and multi-mode generation.
-    """
-    try:
-        pool: list[str] = []
-        cat = (category or "").strip()
-        if field == "discussion" and cat:
-            data = load_yaml("discussions.yaml") or {}
-            raw = data.get(cat) or []
-            pool = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
-        elif field == "morning":
-            data = load_yaml("prompts.yaml") or {}
-            raw = data.get("morning") or []
-            pool = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
-        elif field == "evening":
-            data = load_yaml("prompts.yaml") or {}
-            raw = data.get("evening") or []
-            pool = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
-        else:
-            return ""
-        if not pool:
-            return ""
-        k = min(n, len(pool))
-        sample = random.sample(pool, k)
-        body = "\n".join(f"- {s}" for s in sample)
-        return (
-            "\n\nדוגמאות לאיכות וסגנון (אל תחזור עליהן מילה במילה — תפוס רק את הטון והאורך):\n"
-            f"{body}\n"
-            "צור משהו חדש לגמרי — לא וריאציה של הדוגמאות. אם הרעיון שלך נשמע כמו אחת מהדוגמאות, חשוב על משהו אחר."
-        )
-    except Exception as e:
-        logger.warning("[generate] few-shot pool sample failed: %s", e)
-        return ""
+    """Retired pools are never positive generation examples."""
+    return ""
 
 
 def _load_channel_rubric(category: str) -> str:
@@ -4445,40 +4422,18 @@ async def _review_discussion_quality(
     category: str | None = None,
     recent_texts: list[str] | None = None,
 ) -> tuple[bool, str]:
-    """Review every generated discussion candidate; reject closed on failure."""
-    config = load_yaml("hot_take_review.yaml") or {}
-    reviewer_prompt = str(config.get("reviewer_prompt") or "").strip()
-    if not reviewer_prompt:
-        return False, "reviewer configuration missing"
-    recent_block = "\n".join(f"- {str(item).strip()}" for item in (recent_texts or []) if str(item).strip())
-    prompt = (
-        f"{reviewer_prompt}\n\nChannel: {category or '[unknown]'}\n"
-        f"Recent questions to avoid in idea, not only wording:\n{recent_block or '- none'}\n\n"
-        f"Candidate:\n{text.strip()}"
-    )
-    try:
+    """Use the shared fail-closed conversation review contract."""
+    from bot.utils.conversation_quality import review_conversation
+
+    async def generate(prompt):
         raw, _ = await _generate_with_fallbacks(
-            prompt,
-            temperature=0.0,
-            context="quality.hot_take_review",
+            prompt, temperature=0.0, context="quality.hot_take_review",
         )
-        candidate = (raw or "").strip()
-        start = candidate.find("{")
-        end = candidate.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("reviewer returned no JSON object")
-        result = json.loads(candidate[start:end + 1])
-        required = ("pass", "specificity", "naturalness", "novelty", "channel_fit", "answerability", "payoff")
-        if not isinstance(result.get("pass"), bool):
-            raise ValueError("reviewer response missing pass boolean")
-        if any(not isinstance(result.get(key), int) or isinstance(result.get(key), bool) or not 1 <= result[key] <= 5 for key in required[1:]):
-            raise ValueError("reviewer response has invalid quality scores")
-        reason = str(result.get("reason") or "").strip() or "reviewer gave no reason"
-        passed = bool(result["pass"]) and all(result[key] >= 3 for key in required[1:])
-        return passed, reason
-    except Exception as e:
-        logger.warning("[quality.hot-take] semantic review failed closed: %s", redact_sensitive(e))
-        return False, f"semantic review unavailable: {redact_sensitive(e)}"
+        return raw
+
+    return await review_conversation(
+        text, category=category, recent_texts=recent_texts, generate=generate,
+    )
 
 
 def _generation_provider_from_notices(notices: list[str]) -> str:
@@ -4760,7 +4715,7 @@ async def generate_text_content(request: Request, db: Database = Depends(get_db)
         quality_failures = _quality_failures_for_planner_text(
             content, scheduled_date=data.get("scheduled_date")
         )
-        if field == "discussion":
+        if field in ("morning", "evening", "discussion"):
             passed, reason = await _review_discussion_quality(
                 content, category=category_name or category, recent_texts=recent_sent,
             )
@@ -5137,21 +5092,11 @@ async def activities_page(request: Request, db: Database = Depends(get_db)):
 
 @app.get("/api/weekplan/discussion-sample")
 async def get_discussion_sample(request: Request, category: str):
-    """Return the first question from a discussion category pool."""
+    """Keep retired pool previews empty; fresh generation is explicit."""
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
 
-    try:
-        pool = load_yaml("discussions.yaml") or {}
-    except Exception as e:
-        logger.error("[sample] failed to load discussions.yaml: %s", e)
-        pool = {}
-
-    questions = pool.get(category, [])
-    logger.info("[sample] category=%s → %d questions, first=%r", category, len(questions), (questions[0][:60] if questions else None))
-    if not questions:
-        return {"text": "", "idx": -1}
-    return {"text": questions[0], "idx": 0}
+    return {"text": "", "idx": -1}
 
 
 @app.post("/api/weekplan/save-day")
@@ -5418,9 +5363,7 @@ async def _ai_fill_weekplan_inner(
             # Quality gate: lint against config/question_quality.md rules.
             # On failure, retry once with a stricter suffix so the model
             # gets a chance to self-correct without re-running the whole
-            # job. If it still fails: discussion gets a curated-pool
-            # fallback (config/discussions.yaml has 8-10 examples per
-            # category); morning/evening surface the failure.
+            # job. Any remaining failure is surfaced without a pool fallback.
             failures = _validate_draft_text(content)
             source = "ai-fill"
             if failures:
@@ -5433,18 +5376,16 @@ async def _ai_fill_weekplan_inner(
                 except Exception as e:
                     failures = [f"retry generation failed: {e}"]
 
+            if not failures:
+                recent = await _fetch_recent_sent_for_dedup(db, mtype, category_topic_id=topic)
+                failure = freshness_rejection(content, avoid_texts=recent, scheduled_date=day_date.isoformat())
+                if failure:
+                    return {"ok": False, "error": f"day {day_index} {mtype}: validation failed ({failure})"}
+                passed, reason = await _review_discussion_quality(content, category=cat or mtype, recent_texts=recent)
+                if not passed:
+                    failures = [f"conversation_semantic:{reason}"]
             if failures:
-                if mtype == "discussion":
-                    pool = discussions_pool.get(cat) or []
-                    if pool:
-                        content = _clean(random.choice(pool))
-                        source = "ai-fill-pool"
-                        logger.info("[weekplan.ai-fill] pool fallback cat=%r reasons=%s",
-                                    cat, failures)
-                    else:
-                        return {"ok": False, "error": f"day {day_index} cat={cat}: validation failed ({failures[0]}) and no pool available"}
-                else:
-                    return {"ok": False, "error": f"day {day_index} {mtype}: validation failed ({failures[0]})"}
+                return {"ok": False, "error": f"day {day_index} {mtype}: validation failed ({failures[0]})"}
 
         # Topic-routing invariant: a discussion row's stored
         # channel_topic_id MUST match topic_ids[cat]. Without this guard
@@ -6521,7 +6462,7 @@ async def _ai_suggest_calendar(
             )
             if freshness_failure:
                 fails.append(freshness_failure)
-            if not fails and field == "discussion":
+            if not fails and field in ("morning", "evening", "discussion"):
                 review_passed, review_reason = await _review_discussion_quality(
                     text, category=category_name or cat, recent_texts=recent,
                 )
@@ -6578,7 +6519,7 @@ async def _ai_suggest_calendar(
                     "time": item["time"],
                     "category": item["category_name"],
                     "recent": list(item["recent"][:8]),
-                    "source_examples": list(item["sources"][:5]),
+                    "source_examples": [],
                     "pattern": pattern_directive,
                 }
                 if item["id"] in last_by_id:
@@ -6631,6 +6572,12 @@ async def _ai_suggest_calendar(
                 )
                 if freshness_failure:
                     fails.append(freshness_failure)
+                if not fails:
+                    passed, reason = await _review_discussion_quality(
+                        text, category=item["category_name"], recent_texts=item["recent"],
+                    )
+                    if not passed:
+                        fails.append(f"conversation_semantic:{reason}")
                 if fails and attempt + 1 < _planner_retry_budget:
                     last_by_id[item["id"]] = (text, fails)
                     next_pending.append(item)
@@ -7916,6 +7863,12 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             freshness_failure = freshness_rejection(text, scheduled_date=d)
             if freshness_failure:
                 failures.append(freshness_failure)
+            prose_type, _ = _coerce_game_message_fields(mtype, text, item.get("poll_options_json"), topic)
+            if not failures and prose_type in {"morning", "evening", "discussion"}:
+                recent = await _fetch_recent_sent_for_dedup(db, mtype, category_topic_id=topic)
+                passed, reason = await _review_discussion_quality(text, category=mtype, recent_texts=recent)
+                if not passed:
+                    failures.append(f"conversation_semantic:{reason}")
             if failures:
                 errors.append(f"#{i}: quality rejected ({', '.join(failures)})")
                 continue
@@ -8051,11 +8004,12 @@ def _render_today_context(today, holiday, events_today, week_committed, id_to_na
 
 
 def _build_today_regular_prompt(mtype: str, category: str | None, context_block: str) -> str:
-    type_instruction = {
-        "morning": "צור הודעת בוקר אחת מעוררת השראה בעברית. שורה או שתיים, פותחת באמוג'י רלוונטי, הטון: חם, מעודד, קליל.",
-        "evening": "צור הודעת ערב אחת רפלקטיבית בעברית. שורה או שתיים, פותחת באמוג'י רלוונטי, הטון: רגוע, מחבק, מעודד רפלקציה.",
-        "discussion": f'צור שאלה אחת לדיון בקטגוריה "{category or ""}" בעברית. שורה אחת, מעוררת שיחה ומעניינת, הטון: סקרני, פתוח, מזמין.',
-    }.get(mtype, "צור הודעה אחת בעברית.")
+    from bot.utils.copy import load_copy
+
+    type_instruction = load_copy(
+        "conversation_quality", "generation_instruction",
+        message_type=mtype, category=category or "",
+    )
     return (
         f"{COMMUNITY_CONTEXT}\n\n"
         f"{context_block}\n\n"
@@ -8211,11 +8165,6 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
    - ❌ "מה היה הרגע הכי טוב מהשבוע/סוף השבוע"
    - ❌ "השבוע שעבר"
    - ❌ כל ניסוח שמתייחס לסוף שבוע בעבר
-   רק מותר: "מה עושים הערב?", "מה רואים הלילה?", "איך היום מתקדם?", "מה עוד מתכננים?". סוף שבוע = פעיל ונמשך.
-
-2. **אם hebrew_day_name = "שישי" אחרי 18:00** — סוף השבוע התחיל. אסור "מה היה?" — רק "מה מתכננים?", "מה עכשיו?".
-
-3. **אם hebrew_day_name = "ראשון" בבוקר** — *זה* הזמן הנכון לסיכום סוף שבוע. רק כאן מותר "איך היה?".
 
 עבירה על הכלל הזה = פלט לא תקין. בדוק כל text שאתה כותב מול הכלל הזה לפני שאתה שולח.
 ═════════════════════════════════════════════════════════════
@@ -8257,20 +8206,6 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
 
 7a. **איכות תוכן — לא generic. חובה.** הקהילה היא "אלהוריים וזה" — מבוגרים צ'יילדפרי בעברית, בני 30-50, עם ערוצים על gaming, סרטים, אומנות, פוליטיקה, גיקים, בישול וכד'. הימנע מתבניות חלולות כמו "מה היה היום?" או "ספרו דבר טוב". במקום זאת:
 
-   - **שלב את היום בשבוע — ובאופן מדויק לפי השעה. הקפד: בישראל שישי+שבת = סוף שבוע. שבוע עבודה מתחיל ראשון בבוקר.**
-     - ראשון בוקר = חזרה לשגרה, אחרי סוף שבוע, מה התכניות?
-     - שני-חמישי = אמצע שבוע, יום עבודה רגיל
-     - שישי בוקר = סוף שבוע מתחיל היום, מה תכניות לסוף שבוע?
-     - שישי ערב = הסוף שבוע כבר בעיצומו, איך זה הולך?
-     - **שבת בוקר/צהריים = עדיין סוף שבוע, האווירה רגועה ופנויה. אסור לדבר על "סוף השבוע שעבר"!**
-     - **שבת ערב (עד 22:00) = סוף שבוע עדיין נמשך, בסיום קל. הימנע מ"איך עבר סוף השבוע?" כי הוא לא עבר. אפשר "מה עוד עושים הערב?", "מה רואים הלילה?".**
-     - שבת מאוחר (22:00+) או ראשון מוקדם = סיום סוף שבוע, מותר להזכיר "סיכום סוף השבוע".
-
-   - **התמקד בעתיד, לא בעבר. חובה לפחות סלוט אחד הצעת פעולה אקטיבית, לא רק שאלה רפלקטיבית:**
-     - אסור לתלות הכל בסשן/אירוע של "אמש" (זה משעמם וצופה אחורה).
-     - חייב להציע משהו לעשות עכשיו/הערב/השבוע: "מי בעניין של משחק רוקטליג ב-22:00?", "ערב סדרה ביחד? מה רואים?", "פיצ'ר את ה-3 משחקי קופסה האהובים עליכם — נבחר משחק להפעיל".
-     - שאלות רפלקטיביות מותרות רק לסלוט morning, ובלבד שהן פותחות את היום ולא סוגרות אותו.
-
    - **שאלות discussion חייבות להיות חדות וחיביתיות** — אסור שאלות-תבנית ("איזה X אהבתם?", "מה הY האהוב?"). אם אפשר להחליף את שם הערוץ ולא להפסיד דבר — זה generic, תקן.
 
      **מבחן ה"swap":** קח את השאלה. החלף את שם הערוץ במשהו אחר (gaming → cooking, movies → politics, art → vegan). אם השאלה עדיין הגיונית והאיכות לא נפגעה — היא generic. תכתוב מחדש.
@@ -8280,8 +8215,6 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
         — multi-medium chain (ציור/תצלום/מוזיקה/כתיבה = 4 sub-categories), framing מעורפל ("מי הנפש"), swap-test fail (עובד גם ב-vegan/geek/movies), לחץ קבוצתי ("כל אחד מביא").
      ❌ "מה הסרט/הסדרה/הספר/הפודקאסט האחרון..." — listing N media categories ב-slot אחד = multi-ask.
      ❌ "ספרו על משהו שהשפיע עליכם" — generic invite, אפשר לשאול אותו דבר בכל ערוץ.
-     ✅ "צילום אחד שצילמתם בסבב האחרון בעיר — שלפו." (ערוץ אומנות, single medium, action verb, specific time anchor)
-     ✅ "פיצ'ר את שלושת האלבומים שאתם מאזינים להם הכי הרבה לאחרונה — נראה דפוס?" (collective list, specific count, observable result)
 
      **חוק יחיד-מדיה:** שאלה שמזכירה יותר ממדיה אחת או יותר מתת-קטגוריה אחת באותו ערוץ — שגויה. תפצל אותה לשאלות נפרדות, או בחר אחת ותתחייב.
 
@@ -8291,7 +8224,6 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
      - **שישי+שבת** = סוף שבוע (לא ראשון).
      - אסור להגיד "שבוע חדש התחיל" אם היום שני, שלישי, רביעי, חמישי. רק ראשון או שישי-לפני-יום ראשון.
      - ❌ "🌙 שני בלילה — שבוע חדש התחיל." — שגוי. שני זה אמצע שבוע.
-     - ✅ "🌙 ראשון בערב — היום הראשון של השבוע נסגר. מה המשימה הכי חשובה השבוע?"
 
      **חוק dedup סמנטי — חובה לפני submit:**
      1. בדוק את recent_sent_samples_by_type ואת this_week_previews. אם השאלה שלך היא **פרפראזה** (אותה משמעות במילים אחרות) של משהו שכבר נשלח/תוזמן — תזרוק אותה ותבחר זווית אחרת לחלוטין.
@@ -8300,28 +8232,6 @@ DIGEST_SYSTEM_PROMPT = """אתה העוזר האוטומטי של מנהלי ק�
         - "סדרה שראיתם 5 פעמים" ≈ "סדרה שאתם מריצים שוב" ≈ "Comfort show שלכם"
         - "שיר שלא יוצא לכם מהראש" ≈ "שיר שאתם שומעים בלולאה"
      3. אם הקטגוריה כולה (gaming/movies/etc) קיבלה ≥2 שאלות החודש בנושא דומה — חפש זווית מנוגדת. אם דובר על "משחקים שאכלו זמן", תשאל על "משחקים שהפסקתם באמצע", "משחקים ש-DNF". זווית מנוגדת = איכות.
-
-     **15 פורמטים מומלצים** (בחר אחד שמתאים לערוץ ולשעה — אל תחזור על אותו פורמט פעמיים באותו יום):
-
-     a. **Hot take / דעה לא פופולרית** — "סרט שכולם אוהבים — ולא מבינים מה הם רואים?", "סדרה הכי overrated של 2025?"
-     b. **Forced choice / scenario עם אילוץ** — "אם אתם יכולים לשחק רק משחק אחד עד סוף החיים — מי?", "סדרה אחת לעולם בודד?"
-     c. **Mini-list (top 3 / ranking)** — "פיצ'ר 3 משחקי קופסה האהובים", "דרגו: Yellowstone/Suits/Friends — האהוב, הכי 'ברקע', הכי בינג'."
-     d. **Recommendation request** — "מחפש פודקאסט על קולנוע — ממליצים?", "סוף שבוע גשום, סדרה חדשה לבינג', מה כדאי?"
-     e. **Comparison / binary A-vs-B** — "PC או קונסולה ולמה?", "DC או Marvel?"
-     f. **Specific memory / nostalgia anchor** — "הסרט הראשון שראיתם בקולנוע — זוכרים?", "אנימה ראשונה שהשתקעתם בה — איזו?"
-     g. **Show-and-tell (image cue)** — "התמונה האחרונה במצלמה.", "צלם את הספר שעל השולחן עכשיו."
-     h. **Insider knowledge / hack** — "טיפ של 5 שנים בגיימינג שכל מתחיל היה צריך לדעת?"
-     i. **Fill-in-the-blank** — "ערב סוף שבוע מושלם = ___ + ___ + ___."
-     j. **Web rabbit-hole** — "ירדתם השבוע ל-rabbit hole? איזה?", "wikipedia article אחת ששלחתם לחבר השבוע?"
-     k. **Niche self-expression** — "על איזה נושא תוכלו להעביר הרצאת TED של 20 דקות בלי הכנה?"
-     l. **Would-you-rather (dilemma)** — "תעדיפו לקרוא את כל הספרים שלא קראתם או לראות את כל הסרטים — בלי לישון?"
-     m. **Pool the group (collective list)** — "בואו נכתוב יחד את 10 הסדרות שכל גיק חייב לראות — תכתבו אחת + שורה."
-     n. **Frame-your-own-question (meta)** — "אם הייתם המנחים הערב — איזו שאלה הייתם שואלים?"
-     o. **Childfree-specific** — "הדבר שאתם עושים עכשיו שלא הייתם עושים אם היו לכם ילדים?" (השתמש במידה — חשוב לקהילה אבל לא בכל פוסט)
-
-     דוגמה: ❌ "סדרה שאתם מריצים שוב ושוב" → ✅ "Yellowstone/Suits/Friends — איזו הכי 'background friendly' ולמה?"
-
-   - **למד מ-recent_sent_samples_by_type**: זה הסגנון של הקהילה. שכפל את הקצב, את האמוג'ים שעובדים, את אורך המשפט. אל תיצור משהו שלא יושב על הטון הזה.
 
    - **הצעות פעילות — חובה לפחות אחת ביום, לא רק שאלות.** שאלה רפלקטיבית = passive. הקהילה זקוקה גם לליווי אקטיבי:
      **כללי תוכן אקטיבי:**
@@ -8406,6 +8316,16 @@ async def _retry_failed_regular_slots(
             continue
         text = (slot.get("text") or "").strip()
         failures = _validate_draft_text(text)
+        prose_type, _ = _coerce_game_message_fields(str(slot.get("type") or ""), text, slot.get("poll_options"))
+        if not failures and prose_type in {"morning", "evening", "discussion"}:
+            recent = await _fetch_recent_sent_for_dedup(db, prose_type)
+            failure = freshness_rejection(text, avoid_texts=recent, scheduled_date=today_iso)
+            if failure:
+                failures.append(failure)
+            else:
+                passed, reason = await _review_discussion_quality(text, category=slot.get("category") or prose_type, recent_texts=recent)
+                if not passed:
+                    failures.append(f"conversation_semantic:{reason}")
         if not failures:
             surviving_slots.append(slot)
             continue
@@ -8448,6 +8368,13 @@ async def _retry_failed_regular_slots(
             continue
 
         retry_failures = _validate_draft_text(replacement)
+        retry_freshness = freshness_rejection(replacement, avoid_texts=recent, scheduled_date=today_iso)
+        if retry_freshness:
+            retry_failures.append(retry_freshness)
+        if not retry_failures:
+            passed, reason = await _review_discussion_quality(replacement, category=category or slot_type, recent_texts=recent)
+            if not passed:
+                retry_failures.append(f"conversation_semantic:{reason}")
         if retry_failures:
             notes.append(
                 f"slot {slot_type} @ {scheduled_time} dropped: original={failures}; "
@@ -8484,12 +8411,12 @@ def _build_digest_cli_prompt() -> str:
         + rules_section
         + """חוקים מבצעיים:
 - כבד now_time_il: אל תיצור סלוט שעבר או קרוב מ-5 דקות.
-- כבד verified_topic_ids בלבד. אל תנחש topic_id.
+- topic_id: רק verified_topic_ids.
 - אל תכפיל מול existing_drafts_today או scheduled_messages_today.
 - מזג אירועים כפולים; reminder_scheduled_time הוא זמן האירוע פחות event_reminder_lead_minutes.
-- אם היום שבת או שישי בערב: סוף השבוע עדיין קורה; אל תכתוב "איך היה"/"סיכום"/עבר. ראשון בבוקר הוא זמן סיכום סוף שבוע.
-- פעילויות מותרות רק אם הבוט מפעיל אותן או שהן שאלה/פול קל. אסור להציע מפגש/משחק שדורש תיאום אדמין.
-- טריוויה/אמוג'י: אם יוצרים סיבוב, ספק גם שאלות/חידות מתאימות ולא כפולות; קטגוריה חייבת להתחבר ליום/ערוץ.
+- שבת/שישי בערב: סוף השבוע בהווה, לא בסיכום.
+- רק פעילות בוט או שאלה/פול קל; ללא מפגש/משחק בתיאום אדמין.
+- סיבוב טריוויה/אמוג'י: כלול שאלות/חידות חדשות; קטגוריה מתאימה ליום/ערוץ.
 - חובה לטפל בכל activity_coverage_requirements עם relevance="required": regular_slots או coverage_decisions עם action+סיבה. אין השמטה שקטה.
 - notes_for_admin: Markdown קצר, עד 300 מילים."""
     )
@@ -8875,7 +8802,7 @@ async def _build_today_bundle(db: Database, today, sunday, saturday, settings: d
         discussions_pool = {}
     active_discussion_categories = [
         {"key": c, "topic_id": topics_discussions.get(c)}
-        for c in discussions_pool if c in topics_discussions and topics_discussions[c]
+        for c in topics_discussions if topics_discussions[c]
     ]
 
     # Holiday context (even non-blocking holidays are informative)
@@ -11101,7 +11028,7 @@ async def generate_content(request: Request, db: Database = Depends(get_db)):
     text = lines[0] if lines else content
     if mtype in {"morning", "evening", "discussion"}:
         _reject_bad_planner_text(text)
-        if mtype == "discussion":
+        if mtype in ("morning", "evening", "discussion"):
             passed, reason = await _review_discussion_quality(
                 text, category=category_name or category, recent_texts=recent_sent,
             )
@@ -11640,8 +11567,8 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
 
     from bot.handlers.discussions import CATEGORY_NAMES
 
-    morning_queue = list(prompts_pool.get("morning", []))
-    evening_queue = list(prompts_pool.get("evening", []))
+    morning_queue = []
+    evening_queue = []
 
     # Discussion categories: settings decides enabled channels; pools are optional previews.
     topic_ids = settings.get("topics", {}).get("discussions", {})
@@ -11804,7 +11731,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     if active_categories:
                         cat_info = active_categories[discussion_idx % len(active_categories)]
                         cat = cat_info["category_key"]
-                        cat_questions = discussions_pool.get(cat, [])
+                        cat_questions = []
                         if cat_questions:
                             q_idx = (discussion_idx // len(active_categories)) % len(cat_questions)
                             full_text = cat_questions[q_idx]
@@ -13416,6 +13343,27 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     from bot.handlers.levels import send_weekly_leaderboard
     from bot.handlers.roundup import send_weekly_roundup
     from bot.handlers.trivia_round import start_scheduled_trivia_round
+    original_snapshot = dict(msg)
+    msg = dict(msg)
+    msg["message_type"], msg["poll_options"] = _coerce_game_message_fields(
+        str(msg.get("message_type") or ""), str(msg.get("text") or ""),
+        msg.get("poll_options"), msg.get("channel_topic_id"),
+    )
+    if msg["message_type"] in {"morning", "evening", "discussion"}:
+        from bot.scheduler.materializer import _used_texts_for_type
+
+        recent = await _used_texts_for_type(db, msg["message_type"], sent_only=True)
+        failure = freshness_rejection(
+            msg["text"], avoid_texts=recent,
+            scheduled_date=datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat(),
+        )
+        if failure:
+            raise ValueError(f"conversation quality rejected: {failure}")
+        passed, reason = await _review_discussion_quality(
+            msg["text"], category=msg["message_type"], recent_texts=recent,
+        )
+        if not passed:
+            raise ValueError(f"conversation quality rejected: {reason}")
     bot = Bot(os.getenv("BOT_TOKEN", ""))
     if target == "test":
         group_id = int(os.getenv("TEST_GROUP_ID", "0"))
@@ -13569,29 +13517,56 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         await _finalize(sent.message_id)
         return sent.message_id
 
-    opts = _parse_poll_options(msg.get("poll_options"))
-    if msg.get("message_type") == "poll" and len(opts) >= 2:
-        sent = await send_poll_message(
-            bot,
-            db=db,
-            chat_id=group_id,
-            question=msg["text"],
-            options=opts,
-            message_thread_id=msg.get("channel_topic_id"),
-            duration_hours=msg.get("poll_duration"),
-            cover_path=msg.get("cover_path"),
+    conversation_claimed = False
+    if target == "main" and msg.get("message_type") in {"morning", "evening", "discussion"}:
+        conversation_claimed = await db.claim_conversation_message_snapshot(
+            msg["id"], expected=original_snapshot,
         )
-    else:
-        sent = await send_message_with_optional_cover(
-            bot,
-            db=db,
-            chat_id=group_id,
-            text=msg["text"],
-            message_thread_id=msg.get("channel_topic_id"),
-            cover_path=msg.get("cover_path"),
-        )
+        if not conversation_claimed:
+            raise ValueError("Conversation changed, already claimed, or no longer eligible")
+
+    try:
+        opts = _parse_poll_options(msg.get("poll_options"))
+        if msg.get("message_type") == "poll" and len(opts) >= 2:
+            sent = await send_poll_message(
+                bot,
+                db=db,
+                chat_id=group_id,
+                question=msg["text"],
+                options=opts,
+                message_thread_id=msg.get("channel_topic_id"),
+                duration_hours=msg.get("poll_duration"),
+                cover_path=msg.get("cover_path"),
+            )
+        else:
+            sent = await send_message_with_optional_cover(
+                bot,
+                db=db,
+                chat_id=group_id,
+                text=msg["text"],
+                message_thread_id=msg.get("channel_topic_id"),
+                cover_path=msg.get("cover_path"),
+            )
+    except Exception:
+        if conversation_claimed:
+            await db.release_scheduled_message_claim(msg["id"])
+        raise
     await _finalize(sent.message_id)
     return sent.message_id
+
+
+@app.post("/api/calendar/{msg_id}/quarantine-conversation")
+async def quarantine_calendar_conversation(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Quarantine one unchanged pending conversation using its reviewed snapshot."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    if not isinstance(data, dict) or not isinstance(data.get("expected"), dict):
+        raise HTTPException(status_code=400, detail="Expected snapshot required")
+    result = await db.quarantine_conversation_message(msg_id, expected=data["expected"])
+    if result not in {"changed", "already_quarantined"}:
+        raise HTTPException(status_code=409, detail="Conversation snapshot changed or is not eligible")
+    return {"status": result}
 
 
 @app.post("/api/calendar/{msg_id}/send-now")

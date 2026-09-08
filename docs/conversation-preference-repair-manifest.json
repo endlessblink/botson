@@ -1,0 +1,22 @@
+{
+  "status": "prepared_not_applied",
+  "store": "data/operator_prefs.md",
+  "section": "Hebrew content rules",
+  "old_bullet": "- אסור לייצר שאלות דיון לקטגוריית \"funny\" / מצחיק. הומור עובד כסיפור או כבדיחה מוכנה מראש, לא כשאלה. שאלת \"תכננתם משהו ונגנב — מה היה?\" איננה מצחיקה. אם הקטגוריה היא funny — או דלג, או הצע סטוריפרומפט קצר (\"ספרו רגע מצחיק מהבוקר\") במקום שאלה כללית. ערוץ funny מושבת מאוטו-יצירה ב-2026-05-16 עד שיש מאגר בדיחות מוכן.",
+  "request": {
+    "method": "POST",
+    "endpoint": "/api/operator-prefs/untrain",
+    "requires_authenticated_session": true,
+    "body": {
+      "substring": "- אסור לייצר שאלות דיון לקטגוריית \"funny\" / מצחיק. הומור עובד כסיפור או כבדיחה מוכנה מראש, לא כשאלה. שאלת \"תכננתם משהו ונגנב — מה היה?\" איננה מצחיקה. אם הקטגוריה היא funny — או דלג, או הצע סטוריפרומפט קצר (\"ספרו רגע מצחיק מהבוקר\") במקום שאלה כללית. ערוץ funny מושבת מאוטו-יצירה ב-2026-05-16 עד שיש מאגר בדיחות מוכן."
+    }
+  },
+  "expected_removed_count": 1,
+  "replacement_bullet": "- אין לכפות הומור באמצעות שאלת דיון כללית או בקשה לשיתוף חוויה אישית. בקטגוריית \"funny\" יש להשתמש רק בתוכן הומוריסטי מוכן ומתאים לערוץ; בהיעדר תוכן כזה יש לדלג. אין להפעיל יצירה אוטומטית לקטגוריה לפני שקיים מאגר מתאים.",
+  "rationale": "Baseline reconciliation is append-only: deployment adds the replacement but leaves the old runtime bullet intact. Authenticated untrain removes and tombstones the exact old bullet without removing other learned rules.",
+  "verification": [
+    "Before applying, verify exactly one current Hebrew-rule bullet equals old_bullet.",
+    "Verify the response removed_count is 1 and matches contains only old_bullet.",
+    "After baseline deployment and reconciliation, verify replacement_bullet is present and old_bullet is absent."
+  ]
+}

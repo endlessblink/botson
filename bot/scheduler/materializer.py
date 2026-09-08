@@ -1,8 +1,7 @@
 """Fresh text materializer for recurring content slots.
 
-The schedule still auto-fills morning/evening/discussion rows, but it never
-copies static YAML pool entries directly. YAML pools are few-shot inspiration;
-the row text must be newly generated, or the slot is skipped.
+The schedule auto-fills morning/evening/discussion rows with freshly generated,
+semantically reviewed text; otherwise the slot is skipped.
 """
 
 from __future__ import annotations
@@ -10,13 +9,13 @@ from __future__ import annotations
 import logging
 import json
 import os
-import random
 import shutil
 from datetime import date, timedelta
 
 from ..database.db import Database
 from ..utils.config import get_settings, is_auto_blocked_on, is_feature_enabled, load_yaml
 from ..utils.copy import load_copy
+from ..utils.conversation_quality import review_conversation
 from ..utils.freshness import freshness_rejection
 from ..utils.quality_rules import load_quality_rules_short
 from ..utils.time_context import hebrew_day_name
@@ -45,11 +44,6 @@ def _used_texts_window_days() -> int:
     # "do not repeat" list it can actually reason about, instead of the
     # legacy `list(set)[:25]` slice that dropped older repeats silently.
     return int(_materializer_setting("used_texts_window_days", 45))
-
-
-def _examples_per_prompt() -> int:
-    # T-169: fewer in-prompt examples = less verbatim echo. Default 2.
-    return int(_materializer_setting("examples_per_prompt", 2))
 
 
 def compute_week_previews(
@@ -154,7 +148,8 @@ async def _build_committed_index(
 
 
 async def _used_texts_for_type(
-    db: Database, message_type: str, *, window_days: int | None = None
+    db: Database, message_type: str, *, window_days: int | None = None,
+    sent_only: bool = False,
 ) -> list[str]:
     """Return distinct texts for `message_type`, most-recent-first.
 
@@ -183,6 +178,8 @@ async def _used_texts_for_type(
             "GROUP BY text ORDER BY last_at DESC"
         )
         params = (message_type, cutoff)
+    if sent_only:
+        query = query.replace("GROUP BY text", "AND status = 'sent' GROUP BY text")
     async with db._db.execute(query, params) as cursor:
         rows = await cursor.fetchall()
     seen: set[str] = set()
@@ -307,10 +304,7 @@ async def _generate_fresh_text(
             category=category or default_category,
         ),
     }.get(message_type, message_type)
-    # T-169: fewer in-prompt examples (default 2, was 5). Each shot is an
-    # anchor the model gravitates toward; cap the bias surface.
-    shots = _examples_per_prompt()
-    sample = random.sample(examples, min(shots, len(examples))) if examples else []
+    # Legacy examples are only exclusion evidence, never positive inspiration.
     canonical_rules = load_quality_rules_short()
     canonical_block = f"\n\n{canonical_rules}" if canonical_rules else ""
     # Gap 3b: inject operator-curated anchor examples into the same
@@ -341,7 +335,6 @@ async def _generate_fresh_text(
         "materializer", "date_without_day", default="date: {date}", date=scheduled_date,
     )
     no_examples = load_copy("materializer", "no_examples", default="none")
-    examples_block = chr(10).join(f"- {x}" for x in sample) if sample else f"- {no_examples}"
     # T-169: the previous `list(set)[:25]` slice was the proximate cause of
     # 7-day cycling — set iteration order silently dropped older repeats so
     # the LLM never saw them in the "do not repeat" block. Pass the full
@@ -355,7 +348,7 @@ async def _generate_fresh_text(
         date_line=date_line,
         time=scheduled_time,
         day=day_he,
-        examples=examples_block,
+        examples="",
         used_texts=used_block,
         canonical_block=canonical_block,
     )
@@ -378,6 +371,13 @@ async def _generate_fresh_text(
         )
         if rejection:
             rejections.append(f"attempt {attempt + 1}: {rejection} (text={normalized[:80]!r})")
+            continue
+        accepted, reason = await review_conversation(
+            normalized, category=category or message_type,
+            recent_texts=used_iter, generate=_generate_with_claude,
+        )
+        if not accepted:
+            rejections.append(f"attempt {attempt + 1}: semantic: {reason}")
             continue
         if attempt > 0:
             logger.info("[materializer] quality gate accepted candidate %d/%d", attempt + 1, gate_candidates)
@@ -419,10 +419,6 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
     goals_topic = topics.get("goals")
     topic_ids = topics.get("discussions", {}) or {}
     try:
-        prompts_pool = load_yaml("prompts.yaml") or {}
-    except Exception:
-        prompts_pool = {}
-    try:
         discussions_pool = load_yaml("discussions.yaml") or {}
     except Exception:
         discussions_pool = {}
@@ -447,7 +443,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
                 "type": "morning",
                 "time": str((schedule.get("morning_prompt") or {}).get("time") or "09:00")[:5],
                 "topic": goals_topic,
-                "examples": list(prompts_pool.get("morning") or []),
+                "examples": [],
                 "category": None,
             })
         if day_idx in (schedule.get("evening_prompt") or {}).get("days", []):
@@ -455,7 +451,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
                 "type": "evening",
                 "time": str((schedule.get("evening_prompt") or {}).get("time") or "21:00")[:5],
                 "topic": goals_topic,
-                "examples": list(prompts_pool.get("evening") or []),
+                "examples": [],
                 "category": None,
             })
         if day_idx in (schedule.get("discussion_prompt") or {}).get("days", []):
@@ -475,7 +471,7 @@ async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
                     "type": "discussion",
                     "time": str(time_s)[:5],
                     "topic": cat_info.get("topic_id"),
-                    "examples": list(discussions_pool.get(cat) or []),
+                    "examples": [],
                     "category": category_label,
                 })
 

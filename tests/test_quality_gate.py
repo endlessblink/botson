@@ -17,9 +17,18 @@ better behavior to pin in tests.
 from __future__ import annotations
 
 import unittest
+import pytest
 from unittest.mock import patch, AsyncMock
 
 from bot.scheduler import materializer
+
+
+@pytest.fixture(autouse=True)
+def accepted_semantic_review(monkeypatch):
+    """Isolate existing generation/dedup tests from the semantic provider."""
+    monkeypatch.setattr(
+        materializer, "review_conversation", AsyncMock(return_value=(True, "accepted")),
+    )
 from bot.utils.freshness import freshness_rejection
 
 

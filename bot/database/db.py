@@ -425,21 +425,12 @@ class Database:
     # ── Daily Prompts ────────────────────────────────────────
 
     async def seed_prompts(self, prompts: dict[str, list[str]]):
-        """Seed prompts from YAML config if not already in DB."""
-        async with self._db.execute("SELECT COUNT(*) FROM daily_prompts") as cursor:
-            count = (await cursor.fetchone())[0]
+        """Compatibility no-op: reusable conversation pools are retired.
 
-        if count > 0:
-            return  # Already seeded
-
-        for prompt_type, texts in prompts.items():
-            for text in texts:
-                await self._db.execute(
-                    "INSERT INTO daily_prompts (type, text) VALUES (?, ?)",
-                    (prompt_type, text),
-                )
-        await self._db.commit()
-        logger.info("Seeded %d prompts", sum(len(v) for v in prompts.values()))
+        Keep existing rows and usage history intact; startup must not restore
+        static starters from an older configuration.
+        """
+        return None
 
     async def seed_emoji_puzzles(self, puzzles: list[dict]):
         """Seed emoji puzzles from YAML if the pool is still empty."""
@@ -471,34 +462,7 @@ class Database:
         logger.info("Seeded %d emoji puzzles", len(puzzles))
 
     async def get_random_prompt(self, prompt_type: str) -> str:
-        """Get a random unused prompt. Reset if all used."""
-        async with self._db.execute(
-            "SELECT id, text FROM daily_prompts WHERE type = ? AND last_used_at IS NULL ORDER BY RANDOM() LIMIT 1",
-            (prompt_type,),
-        ) as cursor:
-            row = await cursor.fetchone()
-
-        if not row:
-            # All prompts used, reset
-            await self._db.execute(
-                "UPDATE daily_prompts SET last_used_at = NULL WHERE type = ?",
-                (prompt_type,),
-            )
-            await self._db.commit()
-            async with self._db.execute(
-                "SELECT id, text FROM daily_prompts WHERE type = ? ORDER BY RANDOM() LIMIT 1",
-                (prompt_type,),
-            ) as cursor:
-                row = await cursor.fetchone()
-
-        if row:
-            await self._db.execute(
-                "UPDATE daily_prompts SET last_used_at = ? WHERE id = ?",
-                (_now_il(), row[0]),
-            )
-            await self._db.commit()
-            return row[1]
-
+        """Return no sendable starter; preserve archived rows and usage flags."""
         return ""
 
     # ── Spam Log ─────────────────────────────────────────────
@@ -1345,6 +1309,84 @@ class Database:
         )
         await self._db.commit()
 
+    async def quarantine_conversation_message(self, msg_id: int, expected: dict) -> str:
+        """Hold one reviewed queue snapshot without overwriting edits or dispatch claims.
+
+        Pass the original full row from get_scheduled_message. Only the status
+        and cleanup marker change; the row remains available for review/restore.
+        Repeating that original snapshot is idempotent while the held row is intact.
+        """
+        fields = (
+            "text", "message_type", "channel_topic_id", "target_group",
+            "scheduled_date", "scheduled_time", "recurrence", "recurrence_days",
+            "created_by", "auto_pin", "draft_options", "cover_path",
+            "poll_options", "poll_duration", "sent_at", "sent_message_id",
+        )
+        required = (*fields, "status", "error_message")
+        if not isinstance(expected, dict) or any(key not in expected for key in required):
+            return "conflict"
+        if (
+            expected.get("id", msg_id) != msg_id
+            or expected["status"] != "scheduled"
+            or expected["message_type"] not in ("morning", "evening", "discussion")
+            or any(expected[key] not in (None, "") for key in (
+                "poll_options", "recurrence", "recurrence_days", "sent_at", "sent_message_id",
+            ))
+            or str(expected["error_message"] or "").startswith("dispatch_claim:")
+        ):
+            return "conflict"
+        matches = " AND ".join(f"{key} IS ?" for key in fields)
+        values = [expected[key] for key in fields]
+        cursor = await self._db.execute(
+            f"""UPDATE scheduled_messages
+                SET status = 'draft', error_message = 'conversation_cleanup'
+                WHERE id = ? AND status = 'scheduled' AND error_message IS ?
+                  AND {matches}""",
+            [msg_id, expected["error_message"], *values],
+        )
+        await self._db.commit()
+        if cursor.rowcount == 1:
+            return "changed"
+        async with self._db.execute(
+            f"""SELECT id FROM scheduled_messages
+                WHERE id = ? AND status = 'draft' AND error_message = 'conversation_cleanup'
+                  AND {matches}""",
+            [msg_id, *values],
+        ) as cursor:
+            return "already_quarantined" if await cursor.fetchone() else "conflict"
+
+    async def claim_conversation_message_snapshot(self, msg_id: int, expected: dict) -> bool:
+        """Claim the exact reviewed row, including legitimate operator drafts.
+
+        A quarantine or edit between review and claim must prevent dispatch.
+        Unlike scheduler stale-claim recovery, this manual path never steals a claim.
+        """
+        fields = (
+            "text", "message_type", "channel_topic_id", "target_group",
+            "scheduled_date", "scheduled_time", "recurrence", "recurrence_days",
+            "created_by", "auto_pin", "draft_options", "cover_path",
+            "poll_options", "poll_duration", "sent_at", "sent_message_id",
+            "status", "error_message",
+        )
+        if not isinstance(expected, dict) or any(key not in expected for key in fields):
+            return False
+        if (
+            expected.get("id", msg_id) != msg_id
+            or expected["status"] not in ("scheduled", "draft")
+            or expected["message_type"] not in ("morning", "evening", "discussion")
+            or expected["sent_at"] or expected["sent_message_id"]
+            or expected["error_message"] == "conversation_cleanup"
+            or str(expected["error_message"] or "").startswith("dispatch_claim:")
+        ):
+            return False
+        matches = " AND ".join(f"{key} IS ?" for key in fields)
+        cursor = await self._db.execute(
+            f"UPDATE scheduled_messages SET error_message = ? WHERE id = ? AND {matches}",
+            [f"dispatch_claim:{_now_il()}", msg_id, *(expected[key] for key in fields)],
+        )
+        await self._db.commit()
+        return cursor.rowcount == 1
+
     async def claim_scheduled_message(self, msg_id: int, *, stale_after_minutes: int = 15) -> bool:
         """Atomically claim a scheduled row for one dispatcher tick.
 
@@ -1377,7 +1419,7 @@ class Database:
             """UPDATE scheduled_messages
                SET error_message = NULL
                WHERE id = ?
-                 AND status = 'scheduled'
+                 AND status IN ('scheduled', 'draft')
                  AND error_message LIKE 'dispatch_claim:%'""",
             (msg_id,),
         )

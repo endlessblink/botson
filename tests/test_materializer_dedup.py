@@ -10,8 +10,7 @@ substring repeats.
 
 This test pins:
 - The full windowed history is rendered into the prompt (not a 25-item slice).
-- The number of in-prompt example shots is bounded by
-  `settings.materializer.examples_per_prompt` (default 2).
+- Retired pool examples never enter the positive generation prompt.
 - A model that echoes a prior text verbatim gets rejected and the gate retries.
 - A near-duplicate paraphrase is also rejected (Jaccard ≥ 0.55).
 - The retry budget comes from `settings.materializer.retry_budget`.
@@ -20,11 +19,20 @@ This test pins:
 from __future__ import annotations
 
 import unittest
+import pytest
 import tempfile
 from unittest.mock import patch, AsyncMock
 
 from bot.database.db import Database
 from bot.scheduler import materializer
+
+
+@pytest.fixture(autouse=True)
+def accepted_semantic_review(monkeypatch):
+    """Isolate existing generation/dedup tests from the semantic provider."""
+    monkeypatch.setattr(
+        materializer, "review_conversation", AsyncMock(return_value=(True, "accepted")),
+    )
 
 
 class MaterializerPromptRendersFullDedupWindow(unittest.IsolatedAsyncioTestCase):
@@ -83,8 +91,8 @@ class MaterializerSlotClashIndex(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(("2099-01-01", "22:00"), skipped_times)
 
 
-class MaterializerLimitsExampleShots(unittest.IsolatedAsyncioTestCase):
-    async def test_example_block_bounded_by_setting(self):
+class MaterializerRetiresExampleShots(unittest.IsolatedAsyncioTestCase):
+    async def test_legacy_examples_are_not_positive_prompt_inspiration(self):
         captured: dict = {}
 
         async def fake(prompt: str) -> str:
@@ -103,9 +111,9 @@ class MaterializerLimitsExampleShots(unittest.IsolatedAsyncioTestCase):
             )
 
         prompt = captured["prompt"]
-        # Default is 2 shots. Count which examples landed in the prompt.
+        # Older callers may still supply pools; none may steer generation.
         hits = sum(1 for i in range(10) if f"דוגמה מספר {i}" in prompt)
-        self.assertLessEqual(hits, 2, msg=f"expected ≤2 example shots, got {hits}")
+        self.assertEqual(hits, 0, msg=f"retired examples leaked into prompt: {hits}")
 
 
 class MaterializerRejectsVerbatimRepeatAndRetries(unittest.IsolatedAsyncioTestCase):
