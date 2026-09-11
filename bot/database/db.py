@@ -3038,7 +3038,9 @@ class Database:
     async def cleanup_ai_suggest_jobs(self, ttl_seconds: int = 900) -> int:
         async with self._db.execute(
             f"DELETE FROM ai_suggest_jobs "
-            f"WHERE created_at < datetime('now', '-{int(ttl_seconds)} seconds')"
+            f"WHERE status IN ('completed', 'failed', 'cancelled') "
+            f"AND COALESCE(completed_at, created_at) "
+            f"< datetime('now', '-{int(ttl_seconds)} seconds')"
         ) as cur:
             deleted = cur.rowcount
         await self._db.commit()

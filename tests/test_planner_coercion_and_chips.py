@@ -1892,6 +1892,37 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("restart", (row1["error"] or "").lower())
         self.assertEqual(row2["status"], "failed")
 
+    async def test_ai_suggest_cleanup_keeps_active_jobs_past_result_ttl(self):
+        """A slow live generation must not disappear while the client polls it."""
+        db = Database(":memory:")
+        await db.init()
+        try:
+            await db.create_ai_suggest_job("pending-old", target_date=None, week_offset=0)
+            await db.create_ai_suggest_job("running-old", target_date=None, week_offset=0)
+            await db.update_ai_suggest_job("running-old", status="running")
+            await db.create_ai_suggest_job("completed-old", target_date=None, week_offset=0)
+            await db.update_ai_suggest_job("completed-old", status="completed", mark_completed=True)
+            await db._db.execute(
+                "UPDATE ai_suggest_jobs "
+                "SET created_at = datetime('now', '-1 hour'), "
+                "    completed_at = CASE WHEN status = 'completed' "
+                "                        THEN datetime('now', '-1 hour') "
+                "                        ELSE completed_at END"
+            )
+            await db._db.commit()
+
+            deleted = await db.cleanup_ai_suggest_jobs(ttl_seconds=900)
+            pending = await db.get_ai_suggest_job("pending-old")
+            running = await db.get_ai_suggest_job("running-old")
+            completed = await db.get_ai_suggest_job("completed-old")
+        finally:
+            await db.close()
+
+        self.assertEqual(deleted, 1)
+        self.assertIsNotNone(pending)
+        self.assertIsNotNone(running)
+        self.assertIsNone(completed)
+
     async def test_calendar_api_does_not_render_static_pool_preview_events(self):
         db = Database(":memory:")
         await db.init()
