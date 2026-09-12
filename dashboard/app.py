@@ -11940,16 +11940,20 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
     except Exception:
         calendar_events = []
 
-    # Add NON-schedule calendar rows (custom one-offs) to the right days.
-    # Skip cancelled rows entirely, and skip morning/evening/discussion rows
-    # because those are already rendered as committed activities in the main
-    # schedule loop — rendering them again here would produce ghost copies.
-    scheduled_slot_types = {"morning", "evening", "discussion"}
+    # Add calendar rows that were not already placed into a configured slot.
+    # AI fill can schedule morning/evening/discussion rows at flexible times;
+    # suppressing those types wholesale made approved posts disappear here.
+    rendered_scheduled_ids = {
+        str(activity["scheduled_id"])
+        for day in week_days
+        for activity in day.get("activities", [])
+        if activity.get("scheduled_id") is not None
+    }
     for evt in calendar_events:
         try:
             if evt.get("status") == "cancelled":
                 continue
-            if evt.get("message_type") in scheduled_slot_types:
+            if str(evt.get("id")) in rendered_scheduled_ids:
                 continue
             evt_date_str = evt.get("scheduled_date", "")
             evt_time_str = evt.get("scheduled_time", "00:00")
@@ -11965,7 +11969,8 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "desc": (evt.get("text", "") or "")[:60],
                     "full_text": "", "pool": "", "pool_idx": -1,
                     "channel": "", "enabled": True,
-                    "status": evt.get("status", "")
+                    "status": evt.get("status", ""),
+                    "scheduled_id": evt.get("id"),
                 })
                 week_days[day_idx]["activities"].sort(key=lambda a: a["time"])
         except (ValueError, TypeError, IndexError):

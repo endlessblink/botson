@@ -153,6 +153,69 @@ class FakeQueryRequest:
         self.query_params = query_params
 
 
+class TestWeekplanCommittedVisibility(unittest.IsolatedAsyncioTestCase):
+    async def test_flexible_discussion_rows_are_not_hidden_by_static_schedule(self):
+        rows = [
+            {
+                "id": 1,
+                "scheduled_date": "2026-09-14",
+                "scheduled_time": "18:00",
+                "message_type": "discussion",
+                "status": "scheduled",
+                "text": "static discussion",
+                "channel_topic_id": 4502,
+            },
+            {
+                "id": 2,
+                "scheduled_date": "2026-09-15",
+                "scheduled_time": "17:00",
+                "message_type": "discussion",
+                "status": "scheduled",
+                "text": "flex discussion",
+                "channel_topic_id": 4502,
+            },
+        ]
+
+        class Db:
+            async def get_scheduled_messages(self, *_args, **_kwargs):
+                return rows
+
+            async def list_message_engagement(self, _ids):
+                return {}
+
+        settings = {
+            "schedule": {"discussion_prompt": {"days": [1], "times": ["18:00"]}},
+            "features": {"discussions": True},
+            "topics": {"discussions": {"gaming": 4502}},
+        }
+        request = FakeQueryRequest({})
+
+        with (
+            patch.object(dashboard_app, "get_settings", return_value=settings),
+            patch.object(dashboard_app, "load_yaml", return_value={}),
+            patch.object(
+                dashboard_app,
+                "_load_active_discussion_categories",
+                AsyncMock(return_value=[]),
+            ),
+            patch.object(
+                dashboard_app.templates,
+                "TemplateResponse",
+                side_effect=lambda _request, *, name, context: context,
+            ),
+        ):
+            context = await dashboard_app.weekplan_page(request, week_offset=1, db=Db())
+
+        activities = [
+            activity
+            for day in context["week_days"]
+            for activity in day["activities"]
+            if activity.get("scheduled_id")
+        ]
+        self.assertEqual([activity["scheduled_id"] for activity in activities], [1, 2])
+        self.assertEqual(sum(activity["scheduled_id"] == 1 for activity in activities), 1)
+
+
 class FakeCalendarDb:
     def __init__(self):
         self.created = []
@@ -3719,7 +3782,7 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             'id="ai-suggest-approve-btn"', self.html,
             "approve button missing — user can't commit suggestions",
         )
-        for label in ("אשר וצור טיוטות", "סמן הכל", "נקה הכל", "ביטול"):
+        for label in ("אשר ותזמן פוסטים", "סמן הכל", "נקה הכל", "ביטול"):
             self.assertIn(
                 label, self.html,
                 f"modal control label '{label}' missing",
@@ -3757,6 +3820,20 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
             "_aiSuggestState.controller.signal",
             self.html,
             "suggest fetch must not dereference shared controller state after await",
+        )
+
+    def test_approval_opens_the_week_containing_scheduled_posts(self):
+        approve_start = self.html.index("async function aiSuggestApprove()")
+        block = self.html[approve_start:approve_start + 1800]
+        self.assertIn(
+            "calendar.changeView('timeGridWeek', approvedDates[approvedDates.length - 1])",
+            block,
+            "approval must reveal the week containing the approved scheduled posts",
+        )
+        self.assertIn(
+            "פוסטים תוזמנו",
+            block,
+            "approval toast must describe scheduled posts rather than drafts",
         )
 
     def test_prompt_modal_regenerate_sends_topic_id(self):

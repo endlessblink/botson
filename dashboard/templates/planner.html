@@ -1147,7 +1147,7 @@
             <div class="flex items-center gap-3">
                 <button onclick="closeAiSuggestModal()" class="text-xs text-[#71717a] hover:text-[#fafafa] border border-[#272727] px-3 py-1.5 rounded-md cursor-pointer transition-colors">ביטול</button>
                 <button id="ai-suggest-approve-btn" onclick="aiSuggestApprove()" class="text-xs text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 hover:border-emerald-500/70 bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-1.5 rounded-md cursor-pointer transition-colors">
-                    אשר וצור טיוטות
+                    אשר ותזמן פוסטים
                 </button>
             </div>
         </div>
@@ -4353,7 +4353,7 @@ async function aiSuggestApprove() {
         return;
     }
     var btn = document.getElementById('ai-suggest-approve-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ יוצר טיוטות...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ מתזמן פוסטים...'; }
     try {
         var resp = await fetch('/api/weekplan/ai-suggest-commit', {
             method: 'POST',
@@ -4364,16 +4364,24 @@ async function aiSuggestApprove() {
         if (!resp.ok) throw new Error(_formatApiError(data, 'HTTP ' + resp.status));
         var n = data.inserted || 0;
         var errs = (data.errors && data.errors.length) || 0;
-        showToast(n + ' טיוטות נוצרו' + (errs > 0 ? ' (' + errs + ' שגיאות)' : ''),
+        showToast(n + ' פוסטים תוזמנו' + (errs > 0 ? ' (' + errs + ' שגיאות)' : ''),
                   errs > 0 ? 'error' : 'success');
         if (errs > 0) console.error('[ai-suggest-commit] errors:', data.errors);
         closeAiSuggestModal();
-        if (typeof calendar !== 'undefined' && calendar) calendar.refetchEvents();
+        if (typeof calendar !== 'undefined' && calendar) {
+            var approvedDates = approved.map(function(s) { return s.date; })
+                .filter(function(date) { return /^\d{4}-\d{2}-\d{2}$/.test(date || ''); })
+                .sort();
+            if (approvedDates.length > 0) {
+                calendar.changeView('timeGridWeek', approvedDates[approvedDates.length - 1]);
+            }
+            calendar.refetchEvents();
+        }
         if (typeof refreshTodaySummary === 'function') refreshTodaySummary();
     } catch (e) {
         showToast('שגיאה: ' + (e && e.message || e), 'error');
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'אשר וצור טיוטות'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'אשר ותזמן פוסטים'; }
     }
 }
 

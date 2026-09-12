@@ -228,3 +228,30 @@ test('a day with nothing new says so in the lane', async ({ page }) => {
   await expect(target.locator('[data-lane-note]')).toContainText('לא נמצאו הצעות חדשות');
   await expect(target.locator('[data-suggest-card]')).toHaveCount(1);
 });
+
+test('approving suggestions reveals their scheduled week', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/weekplan/ai-suggest-commit', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ inserted: 2, errors: [] }),
+    });
+  });
+  await seedBoard(page, [
+    suggestion('a1', '2099-01-04', '13:00', 'שאלה קיימת'),
+    suggestion('a2', '2099-01-10', '17:00', 'שאלה מאוחרת'),
+  ]);
+
+  await page.locator('#ai-suggest-approve-btn').click();
+
+  await expect(page.locator('#ai-suggest-modal')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.calendar.view.type))
+    .toBe('timeGridWeek');
+  await expect.poll(() => page.evaluate(() => {
+    const target = new Date('2099-01-10T12:00:00');
+    return window.calendar.view.activeStart <= target
+      && target < window.calendar.view.activeEnd;
+  })).toBe(true);
+  await expect(page.getByText('2 פוסטים תוזמנו', { exact: true })).toBeVisible();
+});
