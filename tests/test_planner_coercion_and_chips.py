@@ -445,6 +445,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         db = Database(":memory:")
         await db.init()
         calls = Counter()
+        review_state = {"active": 0, "max_active": 0}
 
         async def generated(prompt, **kwargs):
             calls["generate"] += 1
@@ -467,10 +468,22 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             calls["activity"] += 1
             return "מי בפנים לערב קצר?"
 
+        async def delayed_review(*args, **kwargs):
+            review_state["active"] += 1
+            review_state["max_active"] = max(
+                review_state["max_active"], review_state["active"]
+            )
+            try:
+                await asyncio.sleep(0.01)
+                return True, "accepted fixture"
+            finally:
+                review_state["active"] -= 1
+
         try:
             with patch.object(dashboard_app, "_generate_with_fallbacks", new=AsyncMock(side_effect=generated)), \
                  patch.object(dashboard_app, "_draft_opener_key", return_value=""), \
                  patch.object(dashboard_app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
+                 patch.object(dashboard_app, "_review_discussion_quality", new=AsyncMock(side_effect=delayed_review)), \
                  patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
                 result = await dashboard_app._ai_suggest_calendar(
                     db, target_date=None, window_mode="rolling",
@@ -484,7 +497,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             if s["message_type"] == "discussion" and str(s.get("source") or "").startswith("ai-fill-flex")
         ]
         self.assertGreaterEqual(len(flex_rows), 7, result)
-        self.assertLessEqual(calls["generate"], 6, dict(calls))
+        # Sibling dedup may spend the two configured batch retries replacing
+        # same-topic collisions, but must not fall back to one call per row.
+        self.assertLessEqual(calls["generate"], 9, dict(calls))
+        self.assertGreaterEqual(review_state["max_active"], 2, review_state)
 
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
@@ -1038,10 +1054,15 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                  dashboard_app.random,
                  "sample",
                  side_effect=lambda population, k: list(population)[:k],
-             ), \
-             patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
-             patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
-             patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
+              ), \
+              patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
+              patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+              patch.object(
+                  dashboard_app,
+                  "_deduplicate_ai_suggestion_batch",
+                  side_effect=lambda suggestions: (suggestions, []),
+              ), \
+              patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
             result = await dashboard_app._ai_suggest_calendar(
                 db, target_date=None, window_mode="rolling",
             )

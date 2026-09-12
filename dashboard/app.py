@@ -33,7 +33,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
 from bot.utils.config import ADMIN_IDS, DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
-from bot.utils.freshness import freshness_rejection
+from bot.utils.freshness import freshness_rejection, near_duplicate
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
 from bot.utils.cli_home import (
@@ -3479,6 +3479,34 @@ def _draft_opener_key(text: str, *, words: int = 2) -> str:
     return " ".join(tokens[:max(1, int(words))])
 
 
+def _deduplicate_ai_suggestion_batch(suggestions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Keep the first text-shaped suggestion for each near-duplicate cluster."""
+    kept: list[dict] = []
+    omitted: list[dict] = []
+    accepted_texts_by_surface: dict[tuple[str, object], list[str]] = {}
+    text_types = {"morning", "evening", "discussion", "custom"}
+
+    for suggestion in suggestions:
+        message_type = str(suggestion.get("message_type") or "")
+        text = str(suggestion.get("text") or "").strip()
+        channel_key = suggestion.get("topic_id") or suggestion.get("category") or ""
+        accepted_texts = accepted_texts_by_surface.setdefault(
+            (message_type, channel_key), []
+        )
+        if (
+            message_type in text_types
+            and text
+            and near_duplicate(text, accepted_texts)
+        ):
+            omitted.append(suggestion)
+            continue
+        kept.append(suggestion)
+        if message_type in text_types and text:
+            accepted_texts.append(text)
+
+    return kept, omitted
+
+
 def _planner_generation_config(settings: dict) -> dict:
     block = ((settings.get("ai_populate") or {}).get("generation") or {})
     try:
@@ -6559,25 +6587,82 @@ async def _ai_suggest_calendar(
             if not returned:
                 break
             next_pending: list[dict] = []
+            candidate_results: dict[int, tuple[str, list[str]]] = {}
+            review_candidates: list[tuple[dict, str, list[str], list[str]]] = []
+            accepted_batch_texts_by_topic: dict[int, list[str]] = {}
+            for accepted_item in items:
+                accepted_result = results.get(accepted_item["id"])
+                if not accepted_result:
+                    continue
+                accepted_text, accepted_failures = accepted_result
+                if accepted_text and not accepted_failures:
+                    accepted_batch_texts_by_topic.setdefault(
+                        int(accepted_item["topic"]), []
+                    ).append(accepted_text)
             for item in pending:
+                accepted_batch_texts = accepted_batch_texts_by_topic.setdefault(
+                    int(item["topic"]), []
+                )
                 text = returned.get(item["id"], "").replace('"', '').replace("'", "")
                 lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
                 text = lines[0] if lines else text
                 fails = _validate_draft_text(text)
+                sibling_duplicate = near_duplicate(text, accepted_batch_texts)
+                if sibling_duplicate:
+                    fails.append(f"batch near-duplicate: {sibling_duplicate[:60]!r}")
                 freshness_failure = freshness_rejection(
                     text,
-                    avoid_texts=set(item["recent"]),
+                    avoid_texts=set(item["recent"]) | set(accepted_batch_texts),
                     source_examples=set(item["sources"]),
                     scheduled_date=item["date"],
                 )
                 if freshness_failure:
                     fails.append(freshness_failure)
+                candidate_results[item["id"]] = (text, fails)
                 if not fails:
-                    passed, reason = await _review_discussion_quality(
-                        text, category=item["category_name"], recent_texts=item["recent"],
+                    review_candidates.append(
+                        (
+                            item,
+                            text,
+                            fails,
+                            list(item["recent"]) + list(accepted_batch_texts),
+                        )
                     )
-                    if not passed:
-                        fails.append(f"conversation_semantic:{reason}")
+                    # Reserve this wording before reviewing the rest of the
+                    # batch so sibling candidates cannot both pass the cheap
+                    # deterministic gate. The reservation is rebuilt from
+                    # successful results on the next retry.
+                    accepted_batch_texts.append(text)
+
+            review_concurrency = max(
+                1, int(os.environ.get("BOTSON_AI_FILL_CONCURRENCY", "4"))
+            )
+            review_semaphore = asyncio.Semaphore(review_concurrency)
+
+            async def _review_candidate(
+                candidate: tuple[dict, str, list[str], list[str]],
+            ) -> tuple[dict, str, list[str]]:
+                item, text, fails, recent_texts = candidate
+                async with review_semaphore:
+                    passed, reason = await _review_discussion_quality(
+                        text,
+                        category=item["category_name"],
+                        recent_texts=recent_texts,
+                    )
+                if not passed:
+                    fails.append(f"conversation_semantic:{reason}")
+                return item, text, fails
+
+            reviewed = await asyncio.gather(
+                *(_review_candidate(candidate) for candidate in review_candidates)
+            )
+            reviewed_by_id = {
+                item["id"]: (text, fails) for item, text, fails in reviewed
+            }
+            candidate_results.update(reviewed_by_id)
+
+            for item in pending:
+                text, fails = candidate_results[item["id"]]
                 if fails and attempt + 1 < _planner_retry_budget:
                     last_by_id[item["id"]] = (text, fails)
                     next_pending.append(item)
@@ -7541,6 +7626,16 @@ async def _ai_suggest_calendar(
                 validation_failures=fails,
                 count_as=None,
             )
+
+    suggestions, omitted_duplicates = _deduplicate_ai_suggestion_batch(suggestions)
+    if omitted_duplicates:
+        logger.warning(
+            "[ai-fill] omitted %d near-duplicate suggestions from the generated batch",
+            len(omitted_duplicates),
+        )
+        errors.append(
+            f"Omitted {len(omitted_duplicates)} near-duplicate suggestion(s) from this generation batch."
+        )
 
     return {
         "window": {"start": win_start, "end": win_end, "scope": scope},

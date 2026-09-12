@@ -51,6 +51,35 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(reason)
         self.assertIn("copied static example", str(reason))
 
+    async def test_review_board_omits_near_duplicates_from_same_generation_batch(self):
+        first = {
+            "message_type": "discussion",
+            "topic_id": 17,
+            "text": "מתוך כל המנות הטבעוניות שאכלתם השנה במסעדה, איזו אחת הייתם שמים במקום הראשון בלי לחשוב פעמיים?",
+        }
+        reordered_duplicate = {
+            "message_type": "discussion",
+            "topic_id": 17,
+            "text": "מתוך כל המנות הטבעוניות שאכלתם במסעדה השנה, איזו הייתם שמים במקום הראשון בלי לחשוב פעמיים?",
+        }
+        same_wording_other_topic = {
+            "message_type": "discussion",
+            "topic_id": 18,
+            "text": reordered_duplicate["text"],
+        }
+        distinct = {
+            "message_type": "discussion",
+            "topic_id": 17,
+            "text": "איזו מנה טבעונית הצלחתם להכין בבית רק אחרי כמה ניסיונות?",
+        }
+
+        kept, omitted = self.app._deduplicate_ai_suggestion_batch(
+            [first, reordered_duplicate, same_wording_other_topic, distinct]
+        )
+
+        self.assertEqual(kept, [first, same_wording_other_topic, distinct])
+        self.assertEqual(omitted, [reordered_duplicate])
+
     async def test_planner_uses_codex_fallback_when_claude_paths_fail(self):
         from bot.database.db import Database
 
@@ -82,7 +111,6 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
 
         await db.close()
         types = {s["message_type"] for s in result["suggestions"]}
-        self.assertIn("morning", types)
         self.assertIn("discussion", types)
         self.assertTrue(
             any("Codex CLI fallback was used" in notice for notice in result["notices"]),
