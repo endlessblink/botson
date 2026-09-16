@@ -596,6 +596,35 @@ async def _alert_admin_on_dead_emoji_pool(bot, payload: dict, reason: str) -> bo
     return True
 
 
+async def _conversation_gate(
+    db, message_type: str, text: str, scheduled_date: str,
+) -> str | None:
+    """Send-time quality gate for morning/evening/discussion rows.
+
+    Returns a rejection string ('conversation_freshness:…' or
+    'conversation_semantic:…') when `text` must not be published, else None.
+    Kept as a helper so the dispatcher can re-run the identical gate against
+    a freshly generated replacement.
+    """
+    from ..scheduler.materializer import _generate_with_claude, _used_texts_for_type
+    from ..utils.conversation_quality import review_conversation
+    from ..utils.freshness import freshness_rejection
+
+    recent_texts = await _used_texts_for_type(db, message_type, sent_only=True)
+    freshness_failure = freshness_rejection(
+        text, avoid_texts=recent_texts, scheduled_date=scheduled_date,
+    )
+    if freshness_failure:
+        return f"conversation_freshness:{freshness_failure}"
+    review_passed, review_reason = await review_conversation(
+        text, category=message_type, recent_texts=recent_texts,
+        generate=_generate_with_claude,
+    )
+    if not review_passed:
+        return f"conversation_semantic:{review_reason}"
+    return None
+
+
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     """Runs every minute. Checks for due messages and sends them."""
     now = datetime.now(_IL_TZ)
@@ -898,23 +927,51 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     )
                 else:
                     if msg.get("message_type") in {"morning", "evening", "discussion"}:
-                        from ..scheduler.materializer import _generate_with_claude, _used_texts_for_type
-                        from ..utils.conversation_quality import review_conversation
-                        from ..utils.freshness import freshness_rejection
-
-                        recent_texts = await _used_texts_for_type(db, msg["message_type"], sent_only=True)
-                        freshness_failure = freshness_rejection(
-                            msg["text"], avoid_texts=recent_texts,
-                            scheduled_date=msg.get("scheduled_date"),
+                        rejection = await _conversation_gate(
+                            db, msg["message_type"], msg["text"],
+                            msg.get("scheduled_date"),
                         )
-                        if freshness_failure:
-                            raise SkippedActivity(f"conversation_freshness:{freshness_failure}")
-                        review_passed, review_reason = await review_conversation(
-                            msg["text"], category=msg["message_type"],
-                            recent_texts=recent_texts, generate=_generate_with_claude,
-                        )
-                        if not review_passed:
-                            raise SkippedActivity(f"conversation_semantic:{review_reason}")
+                        if rejection:
+                            # A stored row can fail the send-time gate even
+                            # though it passed at generation time (content
+                            # drifts, near-duplicates appear). Previously that
+                            # marked the row 'skipped' and the slot posted
+                            # nothing — no replacement, no alert. Regenerate
+                            # once against what actually went out; escalate
+                            # only when that fails too.
+                            from ..scheduler.materializer import regenerate_slot_text
+                            logger.info(
+                                "send_gate: regenerating %s msg=%s after %s",
+                                msg.get("message_type"), msg.get("id"), rejection,
+                            )
+                            try:
+                                replacement = await regenerate_slot_text(
+                                    db, msg["message_type"],
+                                    channel_topic_id=msg.get("channel_topic_id"),
+                                    scheduled_date=msg.get("scheduled_date"),
+                                    scheduled_time=msg.get("scheduled_time"),
+                                )
+                            except Exception as regen_error:  # noqa: BLE001
+                                logger.warning(
+                                    "send_gate: regeneration raised for msg=%s: %s",
+                                    msg.get("id"), regen_error,
+                                )
+                                replacement = None
+                            if not replacement:
+                                await notify_admins(bot, load_copy(
+                                    "calendar", "regeneration_failed_alert",
+                                    slot=f"{msg.get('scheduled_date')} {msg.get('scheduled_time')}",
+                                    reason=rejection,
+                                ))
+                                raise SkippedActivity(
+                                    f"conversation_regeneration_failed:{rejection}"
+                                )
+                            logger.info(
+                                "send_gate: msg=%s sending regenerated replacement",
+                                msg.get("id"),
+                            )
+                            msg["text"] = replacement
+                            await db.update_scheduled_message(msg["id"], text=replacement)
                     if msg.get("message_type") == "poll":
                         logger.warning(
                             "Scheduled poll %d has no valid options — sending as text",

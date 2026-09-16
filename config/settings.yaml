@@ -84,6 +84,12 @@ copy:
   # Activity label used in the cancel notice when neither activity_label
   # nor theme_label is present. Set to "" to disable.
   default_activity_label: "המשחק"
+  # Alert DM'd to admins when a scheduled morning/evening/discussion post is
+  # rejected by the send-time quality gate AND the automatic fresh replacement
+  # was also rejected — i.e. the slot posted nothing. {slot} and {reason} are
+  # filled by the dispatcher.
+  calendar:
+    regeneration_failed_alert: "⚠️ הודעה מתוזמנת לא פורסמה בקבוצה.\n\nהתוכן שאושר נפסל בשער האיכות בזמן השליחה, וגם ניסיון לייצר תוכן חלופי נכשל. הסלוט נשאר ריק — אף הודעה לא נשלחה.\n\nסלוט: {slot}\nסיבה: {reason}\n\nכדי לפרסם בכל זאת: ייצרו/אשרו תוכן ידנית מהדשבורד וקבעו אותו לאותו סלוט."
   # "נסח מחדש" — one-off wording rewrite of a draft the operator likes.
   # Each anchor is a chip in the dashboard; `directive` is appended to the
   # rewrite prompt as extra instructions. Editing this list changes the
@@ -363,6 +369,10 @@ materializer:
   # LLM candidates per slot before falling through to "skip". Each retry
   # adds the prior rejection reason so the model gets concrete guidance.
   retry_budget: 3
+  # Candidates when regenerating a slot at SEND time (stored row failed the
+  # quality gate). Kept at 1 because this runs inside the per-minute dispatch
+  # loop and must not stall other due sends.
+  send_gate_retry_budget: 1
 
 ai_populate:
   weekly_target: 10

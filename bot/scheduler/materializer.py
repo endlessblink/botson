@@ -294,6 +294,7 @@ async def _generate_fresh_text(
     used_texts: list[str] | set[str],
     scheduled_date: str,
     scheduled_time: str,
+    attempts: int | None = None,
 ) -> str | None:
     default_category = load_copy("materializer", "discussion_default_category", default="discussion")
     kind_he = {
@@ -355,7 +356,7 @@ async def _generate_fresh_text(
     avoid = {str(x).strip() for x in used_texts}
     sources = {str(x).strip() for x in examples}
     rejections: list[str] = []
-    gate_candidates = _quality_gate_candidates()
+    gate_candidates = attempts if attempts is not None else _quality_gate_candidates()
     for attempt in range(gate_candidates):
         raw = await _generate_with_claude(prompt)
         text = _extract_generated_text(raw or "")
@@ -391,6 +392,51 @@ async def _generate_fresh_text(
         " | ".join(rejections),
     )
     return None
+
+
+async def regenerate_slot_text(
+    db: Database,
+    message_type: str,
+    *,
+    channel_topic_id: int | None = None,
+    scheduled_date: str,
+    scheduled_time: str,
+) -> str | None:
+    """Generate one fresh, gate-passing replacement for a single slot.
+
+    Called by the calendar dispatcher when a stored row fails the send-time
+    quality gate. Before this existed the row was marked ``skipped`` and the
+    slot posted nothing — the operator saw eight consecutive morning/evening/
+    discussion slots vanish (2026-09-16). Returns None only when every
+    generated candidate is rejected, so the caller can escalate.
+    """
+    category: str | None = None
+    if message_type == "discussion":
+        try:
+            discussions_pool = load_yaml("discussions.yaml") or {}
+        except Exception:
+            discussions_pool = {}
+        categories = await _active_discussion_categories(db, get_settings(), discussions_pool)
+        match = next(
+            (c for c in categories if c.get("topic_id") == channel_topic_id), None
+        )
+        if match:
+            key = str(match.get("category_key") or "")
+            name = str(match.get("name") or "")
+            category = f"{key} / {name}" if name and name != key else key or None
+    used_texts = await _used_texts_for_type(db, message_type, sent_only=True)
+    return await _generate_fresh_text(
+        message_type,
+        category=category,
+        examples=[],
+        used_texts=used_texts,
+        scheduled_date=scheduled_date,
+        scheduled_time=scheduled_time,
+        # Send-time regeneration runs inside the per-minute dispatch loop, so
+        # its work is bounded (default one candidate) instead of the 3-attempt
+        # generation budget. A slow provider must not stall other due sends.
+        attempts=int(_materializer_setting("send_gate_retry_budget", 1)),
+    )
 
 
 async def materialize_forward(db: Database, days_ahead: int = 14) -> int:

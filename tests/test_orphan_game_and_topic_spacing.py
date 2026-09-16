@@ -199,7 +199,8 @@ class TopicSpacingTests(unittest.IsolatedAsyncioTestCase):
     async def test_static_content_sends_when_topic_quiet(self):
         # No prior send to the topic → no spacing deferral.
         only = await self._sched("discussion", text="solo")
-        with patch.object(cfg, "get_settings", return_value={"min_topic_spacing_minutes": 5}):
+        with patch.object(cfg, "get_settings", return_value={"min_topic_spacing_minutes": 5}), \
+             patch.object(calendar_handler, "_conversation_gate", new=AsyncMock(return_value=None)):
             await calendar_handler.check_and_send_due_messages(self._ctx())
         self.assertEqual(await self._status(only), "sent")
         self._bot.send_message.assert_called()
@@ -208,7 +209,8 @@ class TopicSpacingTests(unittest.IsolatedAsyncioTestCase):
         prior = await self._sched("discussion", text="prior")
         await self.db.mark_message_sent(prior, 700030)
         late = await self._sched("discussion", text="late")
-        with patch.object(cfg, "get_settings", return_value={"min_topic_spacing_minutes": 0}):
+        with patch.object(cfg, "get_settings", return_value={"min_topic_spacing_minutes": 0}), \
+             patch.object(calendar_handler, "_conversation_gate", new=AsyncMock(return_value=None)):
             await calendar_handler.check_and_send_due_messages(self._ctx())
         self.assertEqual(await self._status(late), "sent")
 
