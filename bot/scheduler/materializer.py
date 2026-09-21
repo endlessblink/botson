@@ -410,6 +410,10 @@ async def regenerate_slot_text(
     discussion slots vanish (2026-09-16). Returns None only when every
     generated candidate is rejected, so the caller can escalate.
     """
+    # Conversation questions are operator-authored only. A failed stored row
+    # must be skipped, never replaced by another generated question.
+    return None
+
     category: str | None = None
     if message_type == "discussion":
         try:
@@ -440,7 +444,11 @@ async def regenerate_slot_text(
 
 
 async def materialize_forward(db: Database, days_ahead: int = 14) -> int:
-    """Generate fresh morning/evening/discussion rows for the next N days."""
+    """Keep recurring conversation slots empty until the operator schedules text."""
+    return 0
+
+    # Retained below for reference while migrating older callers; unreachable
+    # by design because no generated conversation question is sendable.
     from datetime import datetime as _datetime
     from zoneinfo import ZoneInfo
 

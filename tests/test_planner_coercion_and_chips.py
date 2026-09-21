@@ -242,6 +242,18 @@ class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
         reviewer = patch.object(dashboard_app, "_review_discussion_quality", AsyncMock(return_value=(True, "accepted fixture")))
         reviewer.start()
         self.addCleanup(reviewer.stop)
+        async def accept_batch(candidates):
+            return {
+                int(candidate["id"]): (True, "accepted fixture")
+                for candidate in candidates
+            }
+        batch_reviewer = patch.object(
+            dashboard_app,
+            "_review_discussion_quality_batch",
+            side_effect=accept_batch,
+        )
+        batch_reviewer.start()
+        self.addCleanup(batch_reviewer.stop)
         self.settings = {
             "topics": {"discussions": {"art": 111, "movies": 222}},
         }
@@ -440,7 +452,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
 
 
-    async def test_ai_suggest_discussion_surfaces_validation_failures(self):
+    async def test_ai_suggest_discussion_omits_exhausted_validation_failures(self):
         db = Database(":memory:")
         await db.init()
 
@@ -460,10 +472,10 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             s for s in result["suggestions"]
             if s["message_type"] == "discussion"
         ]
-        self.assertTrue(discussion_rows, result)
+        self.assertFalse(discussion_rows, result)
         self.assertTrue(
-            any("fill_in_blank_scaffold" in (s.get("validation_failures") or []) for s in discussion_rows),
-            discussion_rows,
+            any("fill_in_blank_scaffold" in error for error in result["errors"]),
+            result,
         )
 
     async def test_ai_suggest_retries_fill_in_blank_until_clean_draft(self):
@@ -508,7 +520,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         db = Database(":memory:")
         await db.init()
         calls = Counter()
-        review_state = {"active": 0, "max_active": 0}
+        review_state = {"calls": 0, "batches": []}
 
         async def generated(prompt, **kwargs):
             calls["generate"] += 1
@@ -531,22 +543,23 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             calls["activity"] += 1
             return "מי בפנים לערב קצר?"
 
-        async def delayed_review(*args, **kwargs):
-            review_state["active"] += 1
-            review_state["max_active"] = max(
-                review_state["max_active"], review_state["active"]
-            )
-            try:
-                await asyncio.sleep(0.01)
-                return True, "accepted fixture"
-            finally:
-                review_state["active"] -= 1
+        async def batch_review(candidates):
+            review_state["calls"] += 1
+            ids = [int(candidate["id"]) for candidate in candidates]
+            review_state["batches"].append(ids)
+            return {
+                int(candidate["id"]): (
+                    review_state["calls"] > 1 or int(candidate["id"]) != ids[0],
+                    "accepted fixture" if review_state["calls"] > 1 or int(candidate["id"]) != ids[0] else "retry fixture",
+                )
+                for candidate in candidates
+            }
 
         try:
             with patch.object(dashboard_app, "_generate_with_fallbacks", new=AsyncMock(side_effect=generated)), \
                  patch.object(dashboard_app, "_draft_opener_key", return_value=""), \
                  patch.object(dashboard_app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
-                 patch.object(dashboard_app, "_review_discussion_quality", new=AsyncMock(side_effect=delayed_review)), \
+                 patch.object(dashboard_app, "_review_discussion_quality_batch", new=AsyncMock(side_effect=batch_review)), \
                  patch.object(dashboard_app, "_render_group_stats_context", new=AsyncMock(return_value="")):
                 result = await dashboard_app._ai_suggest_calendar(
                     db, target_date=None, window_mode="rolling",
@@ -563,7 +576,18 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         # Sibling dedup may spend the two configured batch retries replacing
         # same-topic collisions, but must not fall back to one call per row.
         self.assertLessEqual(calls["generate"], 9, dict(calls))
-        self.assertGreaterEqual(review_state["max_active"], 2, review_state)
+        self.assertLessEqual(review_state["calls"], 5, review_state)
+        self.assertGreaterEqual(len(review_state["batches"][0]), 7, review_state)
+        retried_id = review_state["batches"][0][0]
+        self.assertTrue(
+            any(retried_id in batch for batch in review_state["batches"][1:]),
+            review_state,
+        )
+        accepted_ids = set(review_state["batches"][0][1:])
+        self.assertTrue(
+            all(not accepted_ids.intersection(batch) for batch in review_state["batches"][1:]),
+            review_state,
+        )
 
     async def test_ai_suggest_calendar_returns_mixed_types_without_writes(self):
         db = Database(":memory:")
@@ -1120,6 +1144,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
               ), \
               patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=distinct_canned)), \
               patch.object(dashboard_app, "_generate_via_api", new=AsyncMock(side_effect=distinct_canned)), \
+              patch.object(dashboard_app, "_draft_opener_key", return_value=""), \
               patch.object(
                   dashboard_app,
                   "_deduplicate_ai_suggestion_batch",

@@ -39,6 +39,18 @@ copy:
   conversation_quality:
     generation_instruction: "כתבו שאלה חדשה לערוץ {category} בסוג {message_type}, עם נושא מוגדר וסיבה מעניינת לענות. שעת השליחה אינה מחייבת שאלה על תכנון או סיכום היום."
     manual_sent: "נשלחה ידנית הודעה חדשה שעברה בדיקת איכות: {message_type}"
+    qa_placeholder: "הדביקו כאן טקסט לבדיקה — שורה לכל מועמד"
+  weekly_state_review:
+    dashboard_title: "Weekly state review"
+    dashboard_help: "One configurable Saturday question; it is sent only when enabled."
+    enabled_label: "Enabled"
+    time_label: "Time"
+    topic_label: "Topic"
+    question_label: "Question"
+    tags_label: "Usernames to tag"
+    tags_help: "Comma-separated Telegram usernames without @"
+    save_label: "Save weekly review"
+    question: ""
   tagall:
     all_label: "@all"
     syncing: "בודק את חברי הקבוצה…"
@@ -505,7 +517,7 @@ features:
     groups:
     - main
   evening_prompt:
-    enabled: true
+    enabled: false
     groups:
     - main
   events:
@@ -526,7 +538,7 @@ features:
     - main
     - test
   morning_prompt:
-    enabled: true
+    enabled: false
     groups:
     - main
   roundup:
@@ -641,8 +653,7 @@ schedule:
     # Slow-chat shift (2026-05-10): trimmed Sun/Tue/Thu → Thu-only.
     # Pre-weekend reflection slot. Pairs with Sun morning + Mon discussion
     # for ~3 prompts/week well-spaced through the week.
-    days:
-    - 4
+    days: []
     time: '21:00'
   free_games:
     days:
@@ -665,8 +676,7 @@ schedule:
     # Slow-chat shift (2026-05-10): trimmed Sun/Tue/Thu → Sun-only.
     # Kicks off the week with one soft prompt instead of three midweek
     # repeats that diluted each other.
-    days:
-    - 0
+    days: []
     time: 09:00
   trivia:
     days: []
@@ -679,6 +689,14 @@ schedule:
     days:
     - 6
     time: '18:00'
+weekly_state_review:
+  enabled: false
+  days:
+  - 6
+  time: '19:00'
+  topic_id: 3113
+  question: ""
+  tag_usernames: []
 topic_routing:
   enabled: true
   mode: observe

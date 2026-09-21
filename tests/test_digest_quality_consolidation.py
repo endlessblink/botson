@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from dashboard import app as dashboard_app
+from bot.utils.conversation_quality import review_conversations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,6 +141,50 @@ class ValidateDraftTextTests(unittest.TestCase):
 
 
 class HotTakeSemanticReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_batch_review_preserves_per_candidate_context_and_mixed_verdicts(self):
+        async def generate(prompt):
+            self.assertIn("movies", prompt)
+            self.assertIn("vegan", prompt)
+            self.assertIn("סרט קודם", prompt)
+            self.assertIn("מתכון קודם", prompt)
+            return '''{"items":[
+                {"id":1,"pass":true,"reason":"specific","specificity":4,"naturalness":5,"novelty":4,"channel_fit":5,"answerability":4,"payoff":4},
+                {"id":2,"pass":false,"reason":"generic","specificity":2,"naturalness":4,"novelty":2,"channel_fit":3,"answerability":4,"payoff":2}
+            ]}'''
+
+        results = await review_conversations([
+            {"id": 1, "text": "איזה סרט הפתיע אתכם?", "category": "movies", "recent_texts": ["סרט קודם"]},
+            {"id": 2, "text": "מה אוכלים?", "category": "vegan", "recent_texts": ["מתכון קודם"]},
+        ], generate=generate)
+
+        self.assertEqual(results[1], (True, "specific"))
+        self.assertEqual(results[2], (False, "generic"))
+
+    async def test_batch_review_fails_closed_for_invalid_or_incomplete_payloads(self):
+        candidates = [
+            {"id": 1, "text": "שאלה אחת?", "category": "one", "recent_texts": []},
+            {"id": 2, "text": "שאלה שתיים?", "category": "two", "recent_texts": []},
+        ]
+        invalid_payloads = (
+            "not json",
+            '{"items":[]}',
+            '{"items":[{"id":1,"pass":true,"reason":"ok","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}]}',
+            '{"items":[{"id":1,"pass":true,"reason":"ok","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4},{"id":1,"pass":true,"reason":"duplicate","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}]}',
+            '{"items":[{"id":1,"pass":true,"reason":"ok","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4},{"id":3,"pass":true,"reason":"unknown","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}]}',
+            '{"items":[{"id":1,"pass":"yes","reason":"bad type","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4},{"id":2,"pass":true,"reason":"ok","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}]}',
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                results = await review_conversations(
+                    candidates, generate=AsyncMock(return_value=payload),
+                )
+                self.assertEqual(set(results), {1, 2})
+                self.assertTrue(all(not passed for passed, _ in results.values()), results)
+                self.assertTrue(
+                    all("semantic review unavailable" in reason for _, reason in results.values()),
+                    results,
+                )
+
     async def test_context_free_reflections_are_rejected_semantically_for_all_types(self):
         # These are negative semantic fixtures, not lexical phrase-ban rules.
         # Historical lexical-only expectations incorrectly required memorizing

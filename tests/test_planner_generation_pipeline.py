@@ -103,9 +103,17 @@ class PlannerGenTextBehavior(unittest.IsolatedAsyncioTestCase):
         async def activity_copy(*args, **kwargs):
             return "מתחילים עוד מעט פעילות קלילה; מי בפנים?"
 
+        async def accept_batch(candidates):
+            return {
+                int(candidate["id"]): (True, "accepted fixture")
+                for candidate in candidates
+            }
+
         with patch.object(self.app, "_generate_via_cli", new=AsyncMock(side_effect=RuntimeError("claude down"))), \
              patch.object(self.app, "_generate_via_codex_cli", new=AsyncMock(side_effect=codex_canned)), \
              patch.object(self.app, "_generate_activity_copy", new=AsyncMock(side_effect=activity_copy)), \
+             patch.object(self.app, "_review_discussion_quality", new=AsyncMock(return_value=(True, "accepted fixture"))), \
+             patch.object(self.app, "_review_discussion_quality_batch", new=AsyncMock(side_effect=accept_batch)), \
              patch.object(self.app, "_render_group_stats_context", new=AsyncMock(return_value="")):
             result = await self.app._ai_suggest_calendar(db, target_date=None, week_offset=1)
 

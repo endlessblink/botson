@@ -10,8 +10,7 @@ from bot.handlers import calendar as calendar_handler
 
 
 @pytest.mark.parametrize("kind", ["morning", "evening", "discussion"])
-@pytest.mark.parametrize("generated", ["fresh concrete question", None])
-def test_send_now_requires_fresh_generation(kind, generated):
+def test_send_now_cannot_generate_conversation_questions(kind):
     request = MagicMock(session={"authenticated": True})
     request.json = AsyncMock(return_value={"type": kind})
     db = MagicMock()
@@ -21,22 +20,15 @@ def test_send_now_requires_fresh_generation(kind, generated):
     db.mark_message_sent = AsyncMock()
     db.update_scheduled_message = AsyncMock()
     bot = MagicMock(send_message=AsyncMock(return_value=MagicMock(message_id=99)))
-    with patch.object(dashboard, "get_settings", return_value={"topics": {"discussions": {"gaming": 123}}}), patch.object(dashboard, "load_yaml", return_value={"gaming": ["retired question"]}), patch("bot.scheduler.materializer._used_texts_for_type", AsyncMock(return_value=["previous question"])), patch("bot.scheduler.materializer._generate_fresh_text", AsyncMock(return_value=generated)) as generate, patch("telegram.Bot", return_value=bot):
-        if generated:
-            result = asyncio.run(dashboard.send_prompt_now(request, db))
-            assert result["prompt"] == generated
-            db.mark_message_sent.assert_awaited_once_with(41, 99)
-            assert db.create_scheduled_message.call_args.kwargs["text"] == generated
-            assert bot.send_message.call_args.kwargs["text"] == generated
-            assert generate.call_args.kwargs["examples"] == []
-            assert generate.call_args.kwargs["used_texts"] == ["previous question"]
-        else:
-            with pytest.raises(HTTPException) as error:
-                asyncio.run(dashboard.send_prompt_now(request, db))
-            assert error.value.status_code == 503
-            bot.send_message.assert_not_called()
-            db.mark_message_sent.assert_not_called()
-        db.get_random_prompt.assert_not_called()
+    with patch("bot.scheduler.materializer._generate_fresh_text", AsyncMock()) as generate, patch("telegram.Bot", return_value=bot):
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(dashboard.send_prompt_now(request, db))
+    assert error.value.status_code == 422
+    bot.send_message.assert_not_called()
+    db.mark_message_sent.assert_not_called()
+    db.create_scheduled_message.assert_not_called()
+    generate.assert_not_awaited()
+    db.get_random_prompt.assert_not_called()
 
 
 def test_retired_pools_cannot_influence_generation():
@@ -75,7 +67,7 @@ def test_checked_suggestion_still_requires_semantic_acceptance(kind):
 @pytest.mark.parametrize("kind", ["morning", "evening", "discussion"])
 def test_calendar_send_now_rejects_semantic_failure(kind):
     db = MagicMock(mark_message_sent=AsyncMock())
-    msg = {"id": 42, "message_type": kind, "text": "generic paraphrase", "channel_topic_id": 123}
+    msg = {"id": 42, "message_type": kind, "text": "generic paraphrase", "channel_topic_id": 123, "created_by": "dashboard"}
     with patch.object(dashboard, "freshness_rejection", return_value=None), patch("telegram.Bot"), patch("bot.scheduler.materializer._used_texts_for_type", AsyncMock(return_value=[])) as history, patch.object(dashboard, "_review_discussion_quality", AsyncMock(return_value=(False, "generic"))), patch("bot.handlers.calendar.send_message_with_optional_cover", AsyncMock()) as send:
         with pytest.raises(ValueError, match="generic"):
             asyncio.run(dashboard._send_scheduled_row(db, msg, "main"))
@@ -109,7 +101,7 @@ def test_calendar_send_now_fails_closed_before_send(failure):
     history = AsyncMock(return_value=["sent text"])
     if failure == "history unavailable":
         history.side_effect = RuntimeError(failure)
-    msg = {"id": 42, "message_type": "morning", "text": "candidate"}
+    msg = {"id": 42, "message_type": "morning", "text": "candidate", "created_by": "dashboard"}
     with patch("telegram.Bot"), patch("bot.scheduler.materializer._used_texts_for_type", history), patch.object(dashboard, "freshness_rejection", return_value=failure), patch("bot.handlers.calendar.send_message_with_optional_cover", AsyncMock()) as send:
         with pytest.raises((ValueError, RuntimeError), match=failure):
             asyncio.run(dashboard._send_scheduled_row(db, msg, "main"))
@@ -117,16 +109,19 @@ def test_calendar_send_now_fails_closed_before_send(failure):
         db.mark_message_sent.assert_not_called()
 
 
-def test_prompt_send_failure_does_not_record_sent_history():
+def test_prompt_send_is_rejected_before_any_send_attempt():
     request = MagicMock(session={"authenticated": True})
     request.json = AsyncMock(return_value={"type": "morning"})
     db = MagicMock(create_scheduled_message=AsyncMock(return_value=41), update_scheduled_message=AsyncMock(), mark_message_sent=AsyncMock())
     bot = MagicMock(send_message=AsyncMock(side_effect=RuntimeError("send unavailable")))
-    with patch("bot.scheduler.materializer._used_texts_for_type", AsyncMock(return_value=[])), patch("bot.scheduler.materializer._generate_fresh_text", AsyncMock(return_value="accepted")), patch("telegram.Bot", return_value=bot):
+    with patch("bot.scheduler.materializer._generate_fresh_text", AsyncMock()) as generate, patch("telegram.Bot", return_value=bot):
         with pytest.raises(HTTPException):
             asyncio.run(dashboard.send_prompt_now(request, db))
-    db.update_scheduled_message.assert_awaited_once_with(41, status="failed")
+    db.update_scheduled_message.assert_not_awaited()
     db.mark_message_sent.assert_not_called()
+    db.create_scheduled_message.assert_not_called()
+    generate.assert_not_awaited()
+    bot.send_message.assert_not_called()
 
 
 @pytest.mark.parametrize("mutation", ["quarantine", "edit", "unchanged_draft"])
@@ -140,7 +135,7 @@ def test_calendar_send_now_claim_rejects_change_during_review(mutation):
             row_id = await db.create_scheduled_message(
                 message_type="morning", text="reviewed candidate", channel_topic_id=123,
                 target_group="main", scheduled_date="2099-01-01", scheduled_time="09:00",
-                status="draft" if mutation == "unchanged_draft" else "scheduled", created_by="auto",
+                status="draft" if mutation == "unchanged_draft" else "scheduled", created_by="dashboard",
             )
             snapshot = await db.get_scheduled_message(row_id)
 
@@ -173,22 +168,15 @@ def test_calendar_send_now_claim_rejects_change_during_review(mutation):
 
 
 @pytest.mark.parametrize("kind", ["morning", "evening", "discussion"])
-@pytest.mark.parametrize("outcome", ["rejected", "sent", "failed"])
-def test_drawer_conversation_send_is_reviewed_and_records_history(outcome, kind):
+def test_drawer_conversation_send_is_blocked_outside_scheduler(kind):
     request = MagicMock(session={"authenticated": True})
     request.json = AsyncMock(return_value={"text": "legacy candidate", "message_type": kind, "target": "main", "topic_id": 123})
     db = MagicMock(create_scheduled_message=AsyncMock(return_value=41), mark_message_sent=AsyncMock(), update_scheduled_message=AsyncMock(), log_activity=AsyncMock())
     send = AsyncMock(return_value=MagicMock(message_id=99))
-    if outcome == "failed":
-        send.side_effect = RuntimeError("send failed")
-    with patch.dict("os.environ", {"GROUP_ID": "123"}), patch("telegram.Bot"), patch("bot.scheduler.materializer._used_texts_for_type", AsyncMock(return_value=[])), patch.object(dashboard, "freshness_rejection", return_value=None), patch.object(dashboard, "_review_discussion_quality", AsyncMock(return_value=(outcome != "rejected", "generic"))), patch("bot.handlers.calendar.send_message_with_optional_cover", send):
-        if outcome == "sent":
+    with patch.dict("os.environ", {"GROUP_ID": "123"}), patch("telegram.Bot"), patch("bot.handlers.calendar.send_message_with_optional_cover", send):
+        with pytest.raises(HTTPException) as error:
             asyncio.run(dashboard.send_message_to_topic(request, db))
-            db.mark_message_sent.assert_awaited_once_with(41, 99)
-            assert db.create_scheduled_message.call_args.kwargs["text"] == send.call_args.kwargs["text"]
-        else:
-            with pytest.raises(HTTPException):
-                asyncio.run(dashboard.send_message_to_topic(request, db))
-            db.mark_message_sent.assert_not_called()
-            if outcome == "rejected":
-                send.assert_not_called()
+    assert error.value.status_code == 422
+    send.assert_not_called()
+    db.create_scheduled_message.assert_not_called()
+    db.mark_message_sent.assert_not_called()

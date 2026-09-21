@@ -57,6 +57,7 @@ def setup_jobs(app: Application) -> None:
     """
     from ..handlers.levels import send_weekly_leaderboard
     from ..handlers.roundup import send_weekly_roundup
+    from ..handlers.weekly_state_review import send_weekly_state_review
     from ..handlers.events import send_event_reminder
     from ..handlers.emoji_puzzle import reveal_unsolved_rounds_job, send_scheduled_emoji_night
     from ..handlers.free_games import send_free_games
@@ -93,6 +94,19 @@ def setup_jobs(app: Application) -> None:
             days=roundup_days,
             name="weekly_roundup",
         )
+
+    # ── Configurable weekly state review ──
+    state_review = _parse_schedule(settings.get("weekly_state_review", {}))
+    if state_review.get("enabled", False):
+        review_time = _parse_time(state_review.get("time", "19:00"))
+        review_days = _hebrew_to_python_days(state_review.get("days", []))
+        if review_days:
+            jq.run_daily(
+                send_weekly_state_review,
+                time=review_time,
+                days=review_days,
+                name="weekly_state_review",
+            )
 
     # ── Free games RSS — daily check ──
     fg = _parse_schedule(schedule.get("free_games", {"time": "10:00", "days": [0, 1, 2, 3, 4, 5, 6]}))

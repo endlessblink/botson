@@ -95,6 +95,10 @@
             ביטול שורות auto עתידיות
         </button>
     </div>
+    <div id="clear-selected-bar" class="hidden items-center gap-2 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2">
+        <span id="clear-selected-count" class="text-xs text-red-300"></span>
+        <button onclick="clearSelectedWeekplanItems()" id="clear-selected-btn" class="px-3 py-1.5 text-xs font-medium rounded-md bg-red-500/15 text-red-300 hover:bg-red-500/25 transition-colors">Clear selected</button>
+    </div>
 
     <!-- Week grid: workdays -->
     <div>
@@ -157,6 +161,9 @@
                            class="block text-xs group {% if not act.enabled %}opacity-40 pointer-events-none{% endif %} hover:bg-[#171717]/40 -mx-1.5 px-1.5 py-1 rounded transition-colors">
                         {% endif %}
                             <div class="flex items-center gap-1.5">
+                                {% if act.get('clearable', False) and act.get('scheduled_id') %}
+                                <input type="checkbox" class="weekplan-clear-checkbox accent-red-500" data-scheduled-id="{{ act.scheduled_id }}" aria-label="Select scheduled post to clear" onclick="event.stopPropagation()" onchange="updateClearSelectedBar()">
+                                {% endif %}
                                 <span class="text-[#52525b] font-mono whitespace-nowrap tabular-nums" dir="ltr">{{ act.time }}</span>
                                 {% if act.type == 'morning' %}
                                     <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">{{ act.label }}</span>
@@ -258,6 +265,9 @@
                                class="block text-xs group {% if not act.enabled %}opacity-40 pointer-events-none{% endif %} hover:bg-[#171717]/40 -mx-1.5 px-1.5 py-1 rounded transition-colors">
                             {% endif %}
                                 <div class="flex items-center gap-1.5">
+                                    {% if act.get('clearable', False) and act.get('scheduled_id') %}
+                                    <input type="checkbox" class="weekplan-clear-checkbox accent-red-500" data-scheduled-id="{{ act.scheduled_id }}" aria-label="Select scheduled post to clear" onclick="event.preventDefault(); event.stopPropagation()" onchange="updateClearSelectedBar()">
+                                    {% endif %}
                                     <span class="text-[#52525b] font-mono whitespace-nowrap tabular-nums" dir="ltr">{{ act.time }}</span>
                                     {% if act.type == 'morning' %}
                                         <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">{{ act.label }}</span>
@@ -423,6 +433,35 @@ async function purgeAutoFuture() {
     } catch(e) {
         statusEl.textContent = '❌ ' + e.message;
         btn.disabled = false; btn.style.opacity = '';
+    }
+}
+
+function updateClearSelectedBar() {
+    var selected = document.querySelectorAll('.weekplan-clear-checkbox:checked');
+    var bar = document.getElementById('clear-selected-bar');
+    document.getElementById('clear-selected-count').textContent = selected.length + ' selected';
+    bar.classList.toggle('hidden', selected.length === 0);
+    bar.classList.toggle('flex', selected.length > 0);
+}
+
+async function clearSelectedWeekplanItems() {
+    var selected = Array.from(document.querySelectorAll('.weekplan-clear-checkbox:checked'));
+    var ids = selected.map(function(input) { return Number(input.dataset.scheduledId); });
+    if (!ids.length || !confirm('Clear the selected scheduled posts? They will be removed so you can fill those slots again.')) return;
+    var btn = document.getElementById('clear-selected-btn');
+    btn.disabled = true;
+    try {
+        var resp = await fetch('/api/weekplan/clear-selected', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        });
+        var data = await resp.json().catch(function() { return {}; });
+        if (!resp.ok) throw new Error(data.detail || 'Unable to clear selected posts');
+        window.location.reload();
+    } catch (error) {
+        btn.disabled = false;
+        alert(error.message);
     }
 }
 </script>

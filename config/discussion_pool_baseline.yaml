@@ -9,25 +9,10 @@
 # Each entry should have a one-line comment in the burn-down list below
 # explaining why it's allowlisted and how to retire it.
 
-# Burn-down notes:
-# - cute/"מה הדבר הכי חמוד שראיתם השבוע מחוץ למסך?": collides with the
-#   freshness fragment "מה הדבר הכי חמוד שראיתם השבוע". Either rewrite the
-#   pool entry or remove the fragment from freshness.yaml — fragment was
-#   added during Hermes feedback so the pool needs adjustment.
-# - funny/"תמונה בלי הקשר ...": imperative show-form ending with period,
-#   doesn't fit the validator's accepted prompt shapes. Rewrite with `?`
-#   or `👇` to retire.
-# - general/<category>: this category isn't wired into
-#   settings.yaml:topics.discussions. Either wire it up or drop the
-#   category and its entries.
-
 allowlist:
   art:
-    - "<category itself>"  # 2026-06-07: topic 347 was repurposed to support/uplift; art pool kept for future art-topic re-enable.
-  cute:
-    - "מה הדבר הכי חמוד שראיתם השבוע מחוץ למסך?"
+    - "<category itself>"
   funny:
-    - "תמונה בלי הקשר שמצחיקה אתכם — תנו אחת."
-    - "<category itself>"  # 2026-05-16: funny disabled from topics.discussions until curated joke pool exists; pool entries kept for re-enable.
+    - "<category itself>"
   general:
     - "<category itself>"

@@ -26,6 +26,10 @@
 {% set disc_times = disc_sched.times if disc_sched.times is defined else (schedule.discussion_prompt or '10:00,14:00,18:00').split(',') %}
 {% set topics = settings.topics or {} %}
 {% set disc_topics = topics.discussions or {} %}
+{% set state_review = settings.weekly_state_review or {} %}
+{% set state_review_copy = (settings.copy or {}).weekly_state_review or {} %}
+{% set morning_on = feat.morning_prompt is sameas true or (feat.morning_prompt is mapping and feat.morning_prompt.enabled) %}
+{% set evening_on = feat.evening_prompt is sameas true or (feat.evening_prompt is mapping and feat.evening_prompt.enabled) %}
 
 <!-- Page header with feature toggles -->
 <div class="flex items-center justify-between mb-6">
@@ -49,6 +53,39 @@
             </label>
         </div>
     </div>
+</div>
+
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6 p-5">
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h2 class="text-sm font-medium text-[#fafafa]">{{ state_review_copy.dashboard_title or 'Weekly state review' }}</h2>
+            <p class="text-xs text-[#71717a] mt-1">{{ state_review_copy.dashboard_help or 'Configure one weekly question.' }}</p>
+        </div>
+        <label class="switch">
+            <input type="checkbox" id="weekly-review-enabled" {% if state_review.enabled %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label class="text-xs text-[#71717a]">{{ state_review_copy.time_label or 'Time' }}
+            <input id="weekly-review-time" type="time" value="{{ state_review.time or '19:00' }}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full">
+        </label>
+        <label class="text-xs text-[#71717a]">{{ state_review_copy.topic_label or 'Topic' }}
+            <select id="weekly-review-topic" class="mt-1 bg-[#0a0a0a] border border-[#272727] rounded-md h-8 px-2 text-sm text-[#fafafa] w-full">
+                {% for t in forum_topics %}
+                <option value="{{ t.topic_id }}" {% if t.topic_id == (state_review.topic_id or 0) %}selected{% endif %}>{{ t.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="text-xs text-[#71717a] md:col-span-2">{{ state_review_copy.question_label or 'Question' }}
+            <textarea id="weekly-review-question" rows="2" class="mt-1 bg-transparent border border-[#272727] rounded-md p-2 text-sm text-[#fafafa] w-full">{{ state_review.question or state_review_copy.question or '' }}</textarea>
+        </label>
+        <label class="text-xs text-[#71717a] md:col-span-2">{{ state_review_copy.tags_label or 'Usernames to tag' }}
+            <input id="weekly-review-tags" value="{{ (state_review.tag_usernames or []) | join(', ') }}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full">
+            <span class="block mt-1 text-[10px] text-[#52525b]">{{ state_review_copy.tags_help or 'Comma-separated usernames' }}</span>
+        </label>
+    </div>
+    <button onclick="saveWeeklyStateReview()" class="mt-4 bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-8 px-3 rounded-md text-xs font-medium cursor-pointer">{{ state_review_copy.save_label or 'Save weekly review' }}</button>
 </div>
 
 <!-- Daily Timeline (always visible) -->
@@ -795,6 +832,20 @@
             await apiCall('/api/settings/features', data);
             showToast(enabled ? 'פיצ\'ר הופעל' : 'פיצ\'ר כובה');
         } catch (e) { showToast('שגיאה בשמירה', 'error'); }
+    }
+
+    async function saveWeeklyStateReview() {
+        try {
+            await apiCall('/api/settings/weekly-state-review', {
+                enabled: document.getElementById('weekly-review-enabled').checked,
+                days: [6],
+                time: document.getElementById('weekly-review-time').value,
+                topic_id: parseInt(document.getElementById('weekly-review-topic').value),
+                question: document.getElementById('weekly-review-question').value,
+                tag_usernames: document.getElementById('weekly-review-tags').value.split(',').map(function(x) { return x.trim(); }).filter(Boolean)
+            });
+            showToast('Weekly review saved');
+        } catch (e) { showToast('Save failed', 'error'); }
     }
 
     async function sendPromptNow(type, evt) {

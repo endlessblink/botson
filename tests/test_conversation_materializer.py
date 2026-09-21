@@ -44,12 +44,8 @@ def test_retired_examples_are_not_positive_prompt_material_and_valid_text_surviv
     reviewer.assert_awaited_once()
 
 
-def test_regenerate_slot_text_produces_replacement_for_a_failed_slot():
-    """The dispatcher calls this when a stored row fails the send-time gate.
-
-    Regression: before this helper existed, a rejected row was marked
-    'skipped' and the slot posted nothing (2026-09-16 live incident).
-    """
+def test_regenerate_slot_text_never_creates_an_operator_question():
+    """A rejected scheduler row must be skipped, never replaced by AI text."""
     used = AsyncMock(return_value=["previous question"])
     generate = AsyncMock(return_value=json.dumps({"text": VALID}))
     reviewer = AsyncMock(return_value=(True, "concrete conversational payoff"))
@@ -59,7 +55,11 @@ def test_regenerate_slot_text_produces_replacement_for_a_failed_slot():
         result = asyncio.run(materializer.regenerate_slot_text(
             db=object(), message_type="morning",
             channel_topic_id=None, scheduled_date="2026-09-16", scheduled_time="09:00"))
-    assert result == VALID
-    used.assert_awaited_once()
-    assert used.await_args.kwargs["sent_only"] is True
+    assert result is None
+    used.assert_not_awaited()
+    generate.assert_not_awaited()
+    reviewer.assert_not_awaited()
 
+
+def test_materialize_forward_does_not_create_recurring_questions():
+    assert asyncio.run(materializer.materialize_forward(object(), days_ahead=14)) == 0

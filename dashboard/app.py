@@ -616,6 +616,46 @@ async def update_schedule(request: Request):
     return {"status": "ok", "bot_reloaded": reloaded}
 
 
+@app.post("/api/settings/weekly-state-review")
+async def update_weekly_state_review(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    question = str(data.get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    try:
+        topic_id = int(data.get("topic_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="topic_id is required")
+    if not await db.is_verified_topic_id(topic_id):
+        raise HTTPException(status_code=400, detail="topic_id is not verified")
+    raw_tags = data.get("tag_usernames") or []
+    if isinstance(raw_tags, str):
+        raw_tags = raw_tags.replace("\n", ",").split(",")
+    if not isinstance(raw_tags, list):
+        raise HTTPException(status_code=400, detail="tag_usernames must be a list")
+    tag_usernames = []
+    for value in raw_tags:
+        username = str(value).strip().lstrip("@")
+        if username and username not in tag_usernames:
+            tag_usernames.append(username)
+    settings = _load_settings_file()
+    settings["weekly_state_review"] = {
+        "enabled": bool(data.get("enabled", False)),
+        "days": [int(day) for day in (data.get("days") or [6])],
+        "time": str(data.get("time") or "19:00")[:5],
+        "topic_id": topic_id,
+        "question": question,
+        "tag_usernames": tag_usernames,
+    }
+    _save_settings_file(settings)
+    reloaded = _signal_bot_reload()
+    return {"status": "ok", "bot_reloaded": reloaded, "weekly_state_review": settings["weekly_state_review"]}
+
+
 @app.post("/api/settings/holiday-blackouts")
 async def update_holiday_blackouts(request: Request):
     if not request.session.get("authenticated"):
@@ -854,47 +894,13 @@ async def send_prompt_now(request: Request, db: Database = Depends(get_db)):
     if prompt_type not in ("morning", "evening", "discussion"):
         raise HTTPException(status_code=400, detail="Invalid type")
 
-    from bot.scheduler.materializer import _generate_fresh_text, _used_texts_for_type
-    from bot.utils.copy import load_copy
-    from telegram import Bot
-
-    category = None
-    topic_id = os.getenv("GOALS_TOPIC_ID", "")
-    if prompt_type == "discussion":
-        topic_ids = get_settings().get("topics", {}).get("discussions", {})
-        available = [key for key, value in topic_ids.items() if value]
-        if not available:
-            raise HTTPException(status_code=404, detail="No configured discussion topics")
-        category = random.choice(available)
-        topic_id = topic_ids[category]
-    recent = await _used_texts_for_type(db, prompt_type, sent_only=True)
-    now = datetime.now(ZoneInfo("Asia/Jerusalem"))
-    prompt = await _generate_fresh_text(
-        prompt_type, category=category, examples=[], used_texts=recent,
-        scheduled_date=now.date().isoformat(), scheduled_time=now.strftime("%H:%M"),
+    # This endpoint must never manufacture a conversation question. Questions
+    # are entered by the operator through the scheduler; direct-send remains
+    # available for explicitly supplied text via /api/bot/send-message.
+    raise HTTPException(
+        status_code=422,
+        detail="Conversation questions must be entered through the scheduler",
     )
-    if not prompt:
-        raise HTTPException(status_code=503, detail="Fresh reviewed content unavailable")
-    kwargs = {"chat_id": int(os.getenv("GROUP_ID", "0")), "text": prompt}
-    if topic_id:
-        kwargs["message_thread_id"] = int(topic_id)
-    row_id = await db.create_scheduled_message(
-        message_type=prompt_type, text=prompt,
-        channel_topic_id=int(topic_id) if topic_id else None, target_group="main",
-        scheduled_date=now.date().isoformat(), scheduled_time=now.strftime("%H:%M"),
-        created_by="manual-prompt", status="draft",
-    )
-    try:
-        sent = await Bot(os.getenv("BOT_TOKEN", "")).send_message(**kwargs)
-    except Exception as error:
-        await db.update_scheduled_message(row_id, status="failed")
-        raise HTTPException(status_code=500, detail=str(error))
-    await db.mark_message_sent(row_id, sent.message_id)
-    try:
-        await db.log_activity(prompt_type, load_copy("conversation_quality", "manual_sent", message_type=prompt_type), target_channel=category or "goals")
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-    return {"status": "ok", "prompt": prompt, "category": category}
 
 @app.post("/api/bot/send-message")
 async def send_message_to_topic(request: Request, db: Database = Depends(get_db)):
@@ -941,6 +947,10 @@ async def send_message_to_topic(request: Request, db: Database = Depends(get_db)
         str(message_type or ""), text, poll_options, topic_id,
     )
     if conversation_type in {"morning", "evening", "discussion"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Conversation questions must be entered through the scheduler",
+        )
         from bot.scheduler.materializer import _used_texts_for_type
 
         recent = await _used_texts_for_type(db, conversation_type, sent_only=True)
@@ -4464,6 +4474,21 @@ async def _review_discussion_quality(
     )
 
 
+async def _review_discussion_quality_batch(
+    candidates: list[dict],
+) -> dict[int, tuple[bool, str]]:
+    """Review planner candidates in one fail-closed provider call."""
+    from bot.utils.conversation_quality import review_conversations
+
+    async def generate(prompt):
+        raw, _ = await _generate_with_fallbacks(
+            prompt, temperature=0.0, context="quality.discussion_batch_review",
+        )
+        return raw
+
+    return await review_conversations(candidates, generate=generate)
+
+
 def _generation_provider_from_notices(notices: list[str]) -> str:
     joined = "\n".join(notices)
     if "Codex CLI fallback was used" in joined:
@@ -5153,6 +5178,11 @@ async def save_weekplan_day(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Missing date or time")
     if mtype not in ("morning", "evening", "discussion"):
         raise HTTPException(status_code=400, detail=f"Invalid type: {mtype}")
+    return {
+        "created": 0,
+        "skipped": 0,
+        "errors": ["conversation questions must be entered through the scheduler"],
+    }
     _reject_bad_planner_text(text)
 
     # Normalize topic_id to int or None
@@ -6414,9 +6444,9 @@ async def _ai_suggest_calendar(
     async def _gen_text(field: str, cat: str, d_iso: str, t: str, recent: list, category_name: str | None = None) -> tuple[str, list]:
         """Run LLM with bounded retries + validate. Returns (text, validation_failures).
 
-        On total failure returns ("", [last_reason, ...]) so the operator sees
-        why generation failed instead of getting a silent pool fallback. Pool
-        draws are a separate, explicit operator action (T-170).
+        On total failure returns the last rejected draft and its reasons so the
+        caller can omit it while reporting the failure. Pool draws remain a
+        separate, explicit operator action (T-170).
         """
         if provider_unavailable_error:
             return "", []
@@ -6634,32 +6664,24 @@ async def _ai_suggest_calendar(
                     # successful results on the next retry.
                     accepted_batch_texts.append(text)
 
-            review_concurrency = max(
-                1, int(os.environ.get("BOTSON_AI_FILL_CONCURRENCY", "4"))
-            )
-            review_semaphore = asyncio.Semaphore(review_concurrency)
-
-            async def _review_candidate(
-                candidate: tuple[dict, str, list[str], list[str]],
-            ) -> tuple[dict, str, list[str]]:
-                item, text, fails, recent_texts = candidate
-                async with review_semaphore:
-                    passed, reason = await _review_discussion_quality(
-                        text,
-                        category=item["category_name"],
-                        recent_texts=recent_texts,
+            if review_candidates:
+                verdicts = await _review_discussion_quality_batch([
+                    {
+                        "id": item["id"],
+                        "text": text,
+                        "category": item["category_name"],
+                        "recent_texts": recent_texts,
+                    }
+                    for item, text, _fails, recent_texts in review_candidates
+                ])
+                for item, text, fails, _recent_texts in review_candidates:
+                    passed, reason = verdicts.get(
+                        item["id"],
+                        (False, "semantic review unavailable: missing candidate verdict"),
                     )
-                if not passed:
-                    fails.append(f"conversation_semantic:{reason}")
-                return item, text, fails
-
-            reviewed = await asyncio.gather(
-                *(_review_candidate(candidate) for candidate in review_candidates)
-            )
-            reviewed_by_id = {
-                item["id"]: (text, fails) for item, text, fails in reviewed
-            }
-            candidate_results.update(reviewed_by_id)
+                    if not passed:
+                        fails.append(f"conversation_semantic:{reason}")
+                    candidate_results[item["id"]] = (text, fails)
 
             for item in pending:
                 text, fails = candidate_results[item["id"]]
@@ -7159,6 +7181,14 @@ async def _ai_suggest_calendar(
         occupied.add((d_iso, t, mtype))
         occupied_times.add((d_iso, t))
 
+    def _omit_rejected_draft(d_iso: str, t: str, mtype: str, failures: list) -> None:
+        reasons = "; ".join(str(failure) for failure in failures if str(failure).strip())
+        errors.append(
+            f"{d_iso} {str(t)[:5]} {mtype}: omitted rejected draft"
+            + (f" ({reasons})" if reasons else "")
+        )
+        _add_skip(d_iso, t, mtype, "quality_rejected")
+
     for di in day_indices:
         d = window_dates[di]
         d_iso = d.isoformat()
@@ -7173,8 +7203,8 @@ async def _ai_suggest_calendar(
             if not _slot_available_or_skip(d_iso, t, "morning"):
                 continue
             text, fails = await _gen_text("morning", "", d_iso, t, recent_by_type["morning"])
-            if not text:
-                errors.extend(fails)
+            if not text or fails:
+                _omit_rejected_draft(d_iso, t, "morning", fails)
                 continue
             if goals_topic:
                 _add_suggestion(d_iso, t, "morning", topic=int(goals_topic),
@@ -7192,8 +7222,8 @@ async def _ai_suggest_calendar(
             if not _slot_available_or_skip(d_iso, t, "evening"):
                 continue
             text, fails = await _gen_text("evening", "", d_iso, t, recent_by_type["evening"])
-            if not text:
-                errors.extend(fails)
+            if not text or fails:
+                _omit_rejected_draft(d_iso, t, "evening", fails)
                 continue
             if goals_topic:
                 _add_suggestion(d_iso, t, "evening", topic=int(goals_topic),
@@ -7224,13 +7254,12 @@ async def _ai_suggest_calendar(
                         db, "discussion", category_topic_id=int(expected_topic), limit=_dedup_limit,
                     )
                     text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan, category_name=cat_name)
-                    if not text:
-                        errors.extend(fails)
+                    if not text or fails:
+                        _omit_rejected_draft(d_iso, t, "discussion", fails)
                         continue
-                    src = "ai-fill-pool" if (fails and not _validate_draft_text(text)) else "ai-fill"
                     prompt_category = _discussion_prompt_category(cat, cat_name)
                     _add_suggestion(d_iso, t, "discussion", topic=int(expected_topic),
-                                    text=text, source=src, category=prompt_category or None,
+                                    text=text, source="ai-fill", category=prompt_category or None,
                                     rationale=f"שאלה ל{cat_name or cat}",
                                     validation_failures=fails)
 
@@ -7589,16 +7618,15 @@ async def _ai_suggest_calendar(
                         flex_day_count += 1
                         break
                     text, fails = await _gen_text("discussion", cat, d_iso, t, recent_chan, category_name=cat_name)
-                    if not text:
-                        errors.extend(fails)
+                    if not text or fails:
+                        _omit_rejected_draft(d_iso, t, mtype, fails)
                         continue
-                    src = "ai-fill-flex-pool" if (fails and not _validate_draft_text(text)) else "ai-fill-flex"
                     prompt_category = _discussion_prompt_category(cat, cat_name)
                     _add_suggestion(
                         d_iso, t, mtype,
                         topic=int(expected_topic),
                         text=text,
-                        source=src,
+                        source="ai-fill-flex",
                         category=prompt_category or None,
                         rationale=flex_rationale or f"שאלה ל{cat_name or cat}",
                         validation_failures=fails,
@@ -7612,15 +7640,14 @@ async def _ai_suggest_calendar(
         batch_results = await _gen_flex_discussion_batch(flex_batch_items)
         for item in flex_batch_items:
             text, fails = batch_results.get(item["id"], ("", ["generation failed"]))
-            if not text:
-                errors.extend(fails)
+            if not text or fails:
+                _omit_rejected_draft(item["date"], item["time"], item["mtype"], fails)
                 continue
-            src = "ai-fill-flex-pool" if (fails and not _validate_draft_text(text)) else "ai-fill-flex"
             _add_suggestion(
                 item["date"], item["time"], item["mtype"],
                 topic=int(item["topic"]),
                 text=text,
-                source=src,
+                source="ai-fill-flex",
                 category=item["prompt_category"] or None,
                 rationale=flex_rationale or f"שאלה ל{item['category_name'] or item['cat']}",
                 validation_failures=fails,
@@ -11755,6 +11782,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "channel": "", "enabled": enabled,
                     "committed": True,
                     "scheduled_id": committed_row.get("id"),
+                    "clearable": committed_row.get("status") == "scheduled",
                 })
             elif not auto_blocked:
                 preview = ""
@@ -11814,6 +11842,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                         "channel": channel_hint, "enabled": enabled,
                         "committed": True,
                         "scheduled_id": committed_row.get("id"),
+                        "clearable": committed_row.get("status") == "scheduled",
                     })
                 elif not auto_blocked:
                     preview = ""
@@ -11875,6 +11904,7 @@ async def weekplan_page(request: Request, week_offset: int = 0, db: Database = D
                     "channel": "", "enabled": enabled,
                     "committed": True,
                     "scheduled_id": committed_row.get("id"),
+                    "clearable": committed_row.get("status") == "scheduled",
                 })
             elif not auto_blocked:
                 preview = ""
@@ -12228,9 +12258,11 @@ async def qa_scoring_page(request: Request):
     drafts = _load_qa_drafts()
     # Newest first; unscored at the top so the operator sees what needs work.
     drafts.sort(key=lambda d: (d.get("score") is not None, -float(d.get("generated_at_ts") or 0)))
+    from bot.utils.copy import load_copy
     return templates.TemplateResponse(request, name="qa_scoring.html", context={
         "drafts": drafts,
         "active_page": "qa_scoring",
+        "qa_placeholder": load_copy("conversation_quality", "qa_placeholder"),
     })
 
 
@@ -13342,6 +13374,39 @@ async def delete_calendar_item(msg_id: int, request: Request, db: Database = Dep
     return {"status": "ok"}
 
 
+@app.post("/api/weekplan/clear-selected")
+async def clear_selected_weekplan_items(request: Request, db: Database = Depends(get_db)):
+    """Remove selected active planner rows so their slots can be filled again.
+
+    Body: {ids: [scheduled_message_id, ...]}. Only scheduled/draft rows are
+    removed; sent, failed, and cancelled history is never touched.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    raw_ids = data.get("ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty list")
+    if len(raw_ids) > 100:
+        raise HTTPException(status_code=400, detail="Too many ids")
+    try:
+        ids = list(dict.fromkeys(int(value) for value in raw_ids))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ids must contain integers")
+    if any(value <= 0 for value in ids):
+        raise HTTPException(status_code=400, detail="ids must be positive")
+
+    placeholders = ",".join("?" for _ in ids)
+    cur = await db._db.execute(
+        f"DELETE FROM scheduled_messages WHERE id IN ({placeholders}) AND status IN ('scheduled', 'draft')",
+        ids,
+    )
+    await db._db.commit()
+    cleared = cur.rowcount or 0
+    logger.info("[weekplan.clear-selected] requested=%s cleared=%d", ids, cleared)
+    return {"status": "ok", "cleared": cleared, "requested": len(ids)}
+
+
 @app.post("/api/weekplan/skip-slot")
 async def skip_weekplan_slot(request: Request, db: Database = Depends(get_db)):
     """Mark a planner slot as skipped so the pool fallback won't fill it.
@@ -13450,6 +13515,10 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         msg.get("poll_options"), msg.get("channel_topic_id"),
     )
     if msg["message_type"] in {"morning", "evening", "discussion"}:
+        from bot.handlers.calendar import _scheduler_authored_conversation
+
+        if not _scheduler_authored_conversation(msg):
+            raise ValueError("conversation questions must be entered through the scheduler")
         from bot.scheduler.materializer import _used_texts_for_type
 
         recent = await _used_texts_for_type(db, msg["message_type"], sent_only=True)
