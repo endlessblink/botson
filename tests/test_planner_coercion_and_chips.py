@@ -3573,6 +3573,22 @@ class TestPlannerTemplateExposure(unittest.TestCase):
 
         self.assertIn("'custom','poll'", planner_html)
 
+    def test_ai_suggest_rejection_checks_http_response_before_marking_saved(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        deny_start = planner_html.index("async function _aiSuggestDenyOne")
+        deny_block = planner_html[deny_start:planner_html.index("async function aiSuggestDenyChecked", deny_start)]
+        self.assertIn("if (!fbResp.ok)", deny_block)
+        self.assertIn("return true;", deny_block)
+        self.assertIn("return false;", deny_block)
+
+    def test_bulk_ai_suggest_rejection_reports_only_successful_saves(self):
+        planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
+        bulk_start = planner_html.index("async function aiSuggestDenyChecked")
+        bulk_block = planner_html[bulk_start:planner_html.index("// T-177:", bulk_start)]
+        self.assertIn("var deniedCount = 0;", bulk_block)
+        self.assertIn("var failedCount = 0;", bulk_block)
+        self.assertIn("if (failedCount)", bulk_block)
+
     def test_review_modal_surfaces_quality_failures(self):
         planner_html = (dashboard_app.TEMPLATES_DIR / "planner.html").read_text(encoding="utf-8")
         self.assertIn("props.qualityFailures", planner_html)

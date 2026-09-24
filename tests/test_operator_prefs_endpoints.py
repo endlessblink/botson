@@ -10,10 +10,11 @@ production and the unit tests would still pass.
 from __future__ import annotations
 
 import os
+import asyncio
 import pathlib
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -101,6 +102,22 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(r.status_code, 303, r.text)
+
+    def test_recovery_requeues_unlearned_substantive_feedback_only(self):
+        class FakeDb:
+            async def list_content_feedback(self, *, limit):
+                return [
+                    {"id": 11, "verdict": "rejected", "reason": "AUTO_LEARN_TEST: too generic", "corrected_text": ""},
+                    {"id": 12, "verdict": "rejected", "reason": "AUTO_LEARN_TEST: not specific enough", "corrected_text": ""},
+                    {"id": 13, "verdict": "rejected", "reason": "short", "corrected_text": ""},
+                ]
+
+            async def list_prefs_changes(self, *, limit):
+                return [{"change_kind": "add", "source_feedback_ids": "[11]"}]
+
+        with patch.object(dashboard_app, "_schedule_rule_abstraction", new_callable=AsyncMock) as schedule:
+            asyncio.run(dashboard_app._recover_pending_feedback_abstractions(FakeDb()))
+        schedule.assert_awaited_once_with(12, unittest.mock.ANY)
 
     # ── /api/operator-prefs/hebrew (the GET we built first) ──
 

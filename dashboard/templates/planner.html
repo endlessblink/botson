@@ -3241,6 +3241,11 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
                 }),
             }),
         });
+        var fbData = {};
+        try { fbData = await fbResp.clone().json(); } catch (_) { /* best-effort */ }
+        if (!fbResp.ok) {
+            throw new Error((fbData && fbData.detail) || ('HTTP ' + fbResp.status));
+        }
         // T-188: server may have auto-promoted this rejection to a permanent
         // rule. Show a visible toast (visibility, not approval) and remember
         // the feedback_id for one-click undo from the session-report panel.
@@ -3248,7 +3253,6 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
         // click enrichment so the reason becomes substantive and the rule
         // does learn instead of being wasted signal.
         try {
-            var fbData = await fbResp.clone().json();
             if (fbData && fbData.auto_promoted && !opts.silent) {
                 showToast('📚 כלל חדש נלמד אוטומטית — ביטול בלוח הסשן', 'success');
             } else if (fbData && Array.isArray(fbData.followup_chips) && fbData.followup_chips.length && !opts.silent) {
@@ -3276,8 +3280,10 @@ async function _aiSuggestDenyOne(suggestKey, opts) {
         _aiSuggestRenderCurrent();
         _aiSuggestUpdateCount();
         if (!opts.silent) showToast('נדחה, נשמר למשוב');
+        return true;
     } catch (e) {
         showToast('שגיאה בשמירת הדחייה', 'error');
+        return false;
     }
 }
 
@@ -3293,10 +3299,20 @@ async function aiSuggestDenyChecked() {
     });
     if (resp === null) return;
     var reasonText = (typeof resp === 'string') ? resp : (resp.reason || '');
+    var deniedCount = 0;
+    var failedCount = 0;
     for (var i = 0; i < checkedKeys.length; i++) {
-        await _aiSuggestDenyOne(checkedKeys[i], {reason: reasonText, silent: true});
+        if (await _aiSuggestDenyOne(checkedKeys[i], {reason: reasonText, silent: true})) {
+            deniedCount++;
+        } else {
+            failedCount++;
+        }
     }
-    showToast(checkedKeys.length + ' הצעות נדחו · 📚 כללים נלמדו אוטומטית מהסיבה');
+    if (failedCount) {
+        showToast('שגיאה בשמירת הדחייה', 'error');
+        return;
+    }
+    showToast(deniedCount + ' הצעות נדחו · 📚 כללים נלמדו אוטומטית מהסיבה');
 }
 
 // T-177: Quality Review drawer ─────────────────────────────────

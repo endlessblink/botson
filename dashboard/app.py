@@ -317,6 +317,13 @@ async def startup():
         await _hydrate_recent_feedback_cache(_db)
     except Exception as e:
         logger.warning("[working-memory] startup hydration failed: %s", e)
+    # T-190: debounce tasks are process-local. Requeue substantive feedback
+    # that has no successful abstraction audit so a restart or transient LLM
+    # failure cannot silently turn operator feedback into a one-shot signal.
+    try:
+        await _recover_pending_feedback_abstractions(_db)
+    except Exception as e:
+        logger.warning("[operator-prefs] feedback learning recovery failed: %s", e)
     # Gap 10: any ai-suggest jobs still pending/running in the DB belonged
     # to the previous process — their asyncio.Task is gone. Mark them
     # failed so the operator's poll sees a real status instead of 404.
@@ -9417,6 +9424,51 @@ def _is_substantive_reason(reason: str | None, corrected: str | None) -> bool:
     if r.lower().startswith("qa_score=") and len(r) < 30:
         return False
     return True
+
+
+async def _recover_pending_feedback_abstractions(db: Database) -> None:
+    """Requeue substantive feedback not covered by a successful rule audit.
+
+    The abstraction debounce buffer is intentionally in memory, so a process
+    restart can otherwise lose the only scheduled learning attempt. Failed
+    attempts are also retried here, while successful ``add`` audits remain
+    idempotent and are never scheduled again.
+    """
+    feedback_rows = await db.list_content_feedback(limit=500)
+    changes = await db.list_prefs_changes(limit=2000)
+    completed_ids: set[int] = set()
+    for change in changes:
+        if (change.get("change_kind") or "") != "add":
+            continue
+        raw_ids = change.get("source_feedback_ids")
+        try:
+            source_ids = json.loads(raw_ids or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            source_ids = []
+        if isinstance(source_ids, list):
+            for source_id in source_ids:
+                try:
+                    completed_ids.add(int(source_id))
+                except (TypeError, ValueError):
+                    continue
+    pending_ids = []
+    for row in feedback_rows:
+        feedback_id = int(row.get("id") or 0)
+        if (
+            feedback_id
+            and feedback_id not in completed_ids
+            and (row.get("verdict") or "") in ("rejected", "bad_wording")
+            and _is_substantive_reason(row.get("reason"), row.get("corrected_text"))
+        ):
+            pending_ids.append(feedback_id)
+    if not pending_ids:
+        return
+    for feedback_id in pending_ids:
+        await _schedule_rule_abstraction(feedback_id, db)
+    logger.info(
+        "[operator-prefs] requeued %d feedback row(s) for rule abstraction",
+        len(pending_ids),
+    )
 
 
 def _auto_append_rule_to_operator_prefs(
