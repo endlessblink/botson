@@ -9659,8 +9659,9 @@ async def _llm_abstract_rules(feedback_rows: list[dict]) -> str:
     translated-Hebrew, and rare-recall patterns. See CLAUDE.md
     ⚠ "Abstraction over enumeration" for the design rationale.
 
-    Failure mode: when the LLM call raises (Anthropic API down,
-    timeout, etc.), return '' — caller logs an audit row with
+    Provider order is Claude CLI, authenticated Codex CLI, then the
+    Anthropic API. When every provider raises (or returns no usable text),
+    return '' — caller logs an audit row with
     change_kind='abstraction-failed' and leaves the rule unwritten.
     DO NOT add deterministic fallback. Silent fallback to mechanical
     concat is what shipped this anti-pattern three times.
@@ -9695,20 +9696,23 @@ async def _llm_abstract_rules(feedback_rows: list[dict]) -> str:
         'פלט: 2-5 שורות בעברית, כל אחת מתחילה ב-"- ", בצורת הוראה אבסטרקטית. '
         "אל תצטט. אל תוסיף הסברים."
     )
-    # Try Claude CLI first (works without ANTHROPIC_API_KEY — the
-    # bot's other generations use this path). Fall back to the API
-    # only if the CLI isn't available. On total failure, return "" —
-    # NEVER fall back to deterministic verbatim concat.
+    # Keep feedback learning on the same authenticated provider chain as
+    # Planner Populate: Claude first, then Codex CLI, then the API. On total
+    # failure, return "" — NEVER fall back to deterministic verbatim concat.
     raw = ""
     try:
-        raw = await _generate_via_cli(prompt)
+        raw, notices = await _generate_with_fallbacks(
+            prompt, context="abstract-rules"
+        )
+        for notice in notices:
+            logger.warning("[abstract-rules] %s", notice)
     except Exception as cli_err:
-        logger.info("[abstract-rules] CLI unavailable, trying API: %s", cli_err)
+        logger.info("[abstract-rules] Claude/Codex unavailable, trying API: %s", cli_err)
         try:
             raw = await _generate_via_api(prompt)
         except Exception as api_err:
             logger.warning(
-                "[abstract-rules] both CLI and API failed (cli=%s api=%s) — "
+                "[abstract-rules] Claude/Codex and API failed (cli=%s api=%s) — "
                 "returning empty, no fallback to verbatim concat",
                 cli_err, api_err,
             )

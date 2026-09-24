@@ -148,8 +148,9 @@ class LlmAbstractRulesShape(unittest.IsolatedAsyncioTestCase):
         }]
         async def boom(prompt):
             raise RuntimeError("simulated LLM failure")
-        # Patch BOTH CLI and API — production tries CLI first, then API.
+        # Patch every provider — production tries Claude CLI, Codex CLI, then API.
         with patch.object(dashboard_app, "_generate_via_cli", boom), \
+             patch.object(dashboard_app, "_generate_via_codex_cli", boom), \
              patch.object(dashboard_app, "_generate_via_api", boom):
             result = await dashboard_app._llm_abstract_rules(rows)
         self.assertEqual(result, "")  # NOT "אל תייצרו טקסט בסגנון..."

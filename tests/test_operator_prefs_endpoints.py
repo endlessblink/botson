@@ -119,6 +119,35 @@ class OperatorPrefsEndpointsTest(unittest.TestCase):
             asyncio.run(dashboard_app._recover_pending_feedback_abstractions(FakeDb()))
         schedule.assert_awaited_once_with(12, unittest.mock.ANY)
 
+    def test_rule_abstraction_uses_codex_when_claude_cli_hits_limit(self):
+        feedback = [
+            {
+                "original_text": "CODEX_FALLBACK_TEST",
+                "reason": "too generic",
+                "topic_key": "test",
+                "content_type": "discussion",
+            }
+        ]
+
+        async def claude_limit(_prompt: str) -> str:
+            raise RuntimeError("Claude session limit")
+
+        async def codex_rule(_prompt: str) -> str:
+            return "- CODEX_ABSTRACTED: דרוש ניסוח ממוקד לקהל היעד."
+
+        with (
+            patch.object(dashboard_app, "_generate_via_cli", new=AsyncMock(side_effect=claude_limit)),
+            patch.object(dashboard_app, "_generate_via_codex_cli", new=AsyncMock(side_effect=codex_rule)),
+            patch.object(
+                dashboard_app,
+                "_generate_via_api",
+                new=AsyncMock(side_effect=AssertionError("API should be last resort")),
+            ),
+        ):
+            rules = asyncio.run(dashboard_app._llm_abstract_rules(feedback))
+
+        self.assertIn("CODEX_ABSTRACTED", rules)
+
     # ── /api/operator-prefs/hebrew (the GET we built first) ──
 
     def test_get_hebrew_returns_parsed_section(self):
