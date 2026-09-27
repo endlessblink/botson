@@ -7967,6 +7967,46 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         except KeyError:
             continue
 
+    # The approval endpoint can receive a full week's worth of discussion
+    # candidates. Review them in one provider call so a slow CLI fallback does
+    # not hold the request open once per card. The batch reviewer uses the same
+    # fail-closed rubric as the single-candidate path below.
+    semantic_candidates: list[dict] = []
+    for index, item in enumerate(approved):
+        if not isinstance(item, dict):
+            continue
+        try:
+            candidate_date = str(item["date"])
+            candidate_type = str(item["message_type"])
+            candidate_topic = int(item["topic_id"])
+            candidate_text = str(item.get("text") or "")
+            date.fromisoformat(candidate_date)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if candidate_type not in valid_types or candidate_type not in {
+            "morning", "evening", "discussion", "custom",
+        }:
+            continue
+        candidate_failures = _validate_draft_text(candidate_text)
+        freshness_failure = freshness_rejection(candidate_text, scheduled_date=candidate_date)
+        if freshness_failure:
+            candidate_failures.append(freshness_failure)
+        prose_type, _ = _coerce_game_message_fields(
+            candidate_type, candidate_text, item.get("poll_options_json"), candidate_topic,
+        )
+        if candidate_failures or prose_type not in {"morning", "evening", "discussion"}:
+            continue
+        recent = await _fetch_recent_sent_for_dedup(
+            db, candidate_type, category_topic_id=candidate_topic,
+        )
+        semantic_candidates.append({
+            "id": index,
+            "text": candidate_text,
+            "category": candidate_type,
+            "recent_texts": recent,
+        })
+    semantic_reviews = await _review_discussion_quality_batch(semantic_candidates)
+
     for i, item in enumerate(approved):
         if not isinstance(item, dict):
             errors.append(f"#{i}: not a dict")
@@ -7996,8 +8036,9 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                 failures.append(freshness_failure)
             prose_type, _ = _coerce_game_message_fields(mtype, text, item.get("poll_options_json"), topic)
             if not failures and prose_type in {"morning", "evening", "discussion"}:
-                recent = await _fetch_recent_sent_for_dedup(db, mtype, category_topic_id=topic)
-                passed, reason = await _review_discussion_quality(text, category=mtype, recent_texts=recent)
+                passed, reason = semantic_reviews.get(
+                    i, (False, "semantic review unavailable: missing batch verdict"),
+                )
                 if not passed:
                     failures.append(f"conversation_semantic:{reason}")
             if failures:
