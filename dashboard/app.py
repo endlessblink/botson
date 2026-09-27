@@ -7898,6 +7898,8 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         "emoji_puzzle", "free_games", "facts_tidbit", "facts_spooky",
     } - CRON_OWNED_TYPES
     inserted_ids: list = []
+    inserted_indexes: set[int] = set()
+    inserted_keys: list[str] = []
     errors: list = []
     skipped: list = []
     by_type: dict = {}
@@ -8066,17 +8068,43 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                 poll_options=poll_options_json,
             )
             inserted_ids.append(new_id)
+            inserted_indexes.add(i)
+            item_key = str(item.get("key") or "").strip()
+            if item_key:
+                inserted_keys.append(item_key)
             by_type[mtype] = by_type.get(mtype, 0) + 1
             committed_keys.add(slot_key)
             committed_time_types.setdefault(time_key, set()).add(mtype)
         except Exception as e:
             errors.append(f"#{i}: insert failed: {e}")
 
+    outcomes_by_index: dict[int, str] = {}
+    for outcome in errors + skipped:
+        prefix, separator, reason = outcome.partition(": ")
+        if separator and prefix.startswith("#"):
+            try:
+                outcomes_by_index[int(prefix[1:])] = reason
+            except ValueError:
+                continue
+    pending = []
+    for index, item in enumerate(approved):
+        if index in inserted_indexes:
+            continue
+        item = item if isinstance(item, dict) else {}
+        pending.append({
+            "key": str(item.get("key") or ""),
+            "date": str(item.get("date") or ""),
+            "time": str(item.get("time") or ""),
+            "message_type": str(item.get("message_type") or ""),
+            "reason": outcomes_by_index.get(index, "Not scheduled"),
+        })
+
     logger.info(
         "[weekplan.ai-suggest-commit] inserted=%d ids=%s by_type=%s errors=%s",
         len(inserted_ids), inserted_ids, by_type, errors + skipped,
     )
     return {"inserted": len(inserted_ids), "ids": inserted_ids,
+            "inserted_keys": inserted_keys, "pending": pending,
             "by_type": by_type, "errors": errors, "skipped": skipped}
 
 

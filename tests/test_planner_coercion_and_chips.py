@@ -1749,6 +1749,9 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         await db.close()
 
         self.assertEqual(result["inserted"], 1, result)
+        self.assertEqual(result["inserted_keys"], [])
+        self.assertEqual(rows[0]["scheduled_date"], "2099-01-01")
+        self.assertEqual(str(rows[0]["scheduled_time"])[:5], "22:00")
         self.assertEqual(len(result["skipped"]), 1)
         self.assertIn("duplicate slot", result["skipped"][0])
         self.assertEqual([row["message_type"] for row in rows], ["trivia_round"])
@@ -1844,6 +1847,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 "poll_options_json": '{"theme_label":"movies"}',
             },
             {
+                "key": "clashing-fact",
                 "date": "2099-01-01",
                 "time": "22:00",
                 "message_type": "facts_tidbit",
@@ -1864,6 +1868,16 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["inserted"], 1, result)
         self.assertEqual(len(result["skipped"]), 1)
         self.assertIn("slot clash", result["skipped"][0])
+        self.assertEqual(
+            result["pending"],
+            [{
+                "key": "clashing-fact",
+                "date": "2099-01-01",
+                "time": "22:00",
+                "message_type": "facts_tidbit",
+                "reason": result["skipped"][0].split(": ", 1)[1],
+            }],
+        )
         self.assertEqual([row["message_type"] for row in rows], ["emoji_puzzle"])
 
     async def test_ai_suggest_commit_rejects_known_low_quality_text(self):
@@ -3865,7 +3879,8 @@ class TestPopulateButtonConsolidation(unittest.TestCase):
 
     def test_approval_opens_the_week_containing_scheduled_posts(self):
         approve_start = self.html.index("async function aiSuggestApprove()")
-        block = self.html[approve_start:approve_start + 1800]
+        approve_end = self.html.index("\nasync function aiFillToday(", approve_start)
+        block = self.html[approve_start:approve_end]
         self.assertIn(
             "calendar.changeView('timeGridWeek', approvedDates[approvedDates.length - 1])",
             block,

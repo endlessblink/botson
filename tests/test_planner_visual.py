@@ -550,6 +550,78 @@ class PlannerVisualTests(unittest.TestCase):
             finally:
                 browser.close()
 
+    def test_partial_ai_suggest_commit_keeps_unscheduled_approved_card(self):
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+            try:
+                page, js_errors = self._open_planner(ctx)
+                page.route(
+                    "**/api/weekplan/ai-suggest-commit",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "inserted": 1,
+                            "ids": [123],
+                            "by_type": {"discussion": 1},
+                            "inserted_keys": ["saved"],
+                            "pending": [{
+                                "key": "keep",
+                                "date": "2099-01-06",
+                                "time": "21:30",
+                                "message_type": "discussion",
+                                "reason": "slot clash",
+                            }],
+                            "errors": [],
+                            "skipped": ["#1: slot clash"],
+                        }),
+                    ),
+                )
+                page.evaluate(
+                    """
+                    () => {
+                        openAiSuggestModal();
+                        _aiSuggestState.boardMode = true;
+                        _aiSuggestState.boardWindow = {start: '2099-01-04', end: '2099-01-10', scope: 'week'};
+                        _aiSuggestState.suggestions = [
+                            {key: 'saved', date: '2099-01-05', time: '19:00', message_type: 'discussion', topic_id: 111, text: 'Saved', source: 'ai-fill'},
+                            {key: 'keep', date: '2099-01-06', time: '21:30', message_type: 'discussion', topic_id: 111, text: 'Keep me', source: 'ai-fill'}
+                        ];
+                        _aiSuggestState.checked = {saved: true, keep: true};
+                        _aiSuggestRenderCurrent();
+                    }
+                    """
+                )
+                page.evaluate("aiSuggestApprove()")
+                page.wait_for_function("() => document.querySelector('[data-suggest-card=keep]')")
+                result = page.evaluate(
+                    """
+                    () => ({
+                        modalOpen: !document.getElementById('ai-suggest-modal').classList.contains('hidden'),
+                        savedCount: document.querySelectorAll('[data-suggest-card=saved]').length,
+                        keepCount: document.querySelectorAll('[data-suggest-card=keep]').length,
+                        keepDate: _aiSuggestState.suggestions.find(s => s.key === 'keep').date,
+                        keepTime: _aiSuggestState.suggestions.find(s => s.key === 'keep').time,
+                        keepChecked: _aiSuggestIsChecked(_aiSuggestState.suggestions.find(s => s.key === 'keep')),
+                        issue: document.querySelector('[data-suggest-card=keep]').textContent.includes('slot clash')
+                    })
+                    """
+                )
+                self.assertEqual(result, {
+                    "modalOpen": True,
+                    "savedCount": 0,
+                    "keepCount": 1,
+                    "keepDate": "2099-01-06",
+                    "keepTime": "21:30",
+                    "keepChecked": True,
+                    "issue": True,
+                })
+                self.assertEqual(js_errors, [], f"unexpected JS errors on /planner: {js_errors!r}")
+            finally:
+                browser.close()
+
     def test_weekly_ai_suggest_board_append_preserves_existing_state(self):
         """Per-day generate-more uses append semantics; existing board cards
         and unchecked choices must survive the merge. Exact duplicates are
