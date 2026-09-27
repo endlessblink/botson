@@ -628,7 +628,7 @@ async def _conversation_gate(
 def _scheduler_authored_conversation(msg: dict) -> bool:
     """Only explicit operator scheduler entries may send conversation text."""
     source = str(msg.get("created_by") or "").strip()
-    return source in {"manual-prompt", "manual-drawer", "dashboard", "weekplan", "recurrence"}
+    return source in {"manual-prompt", "manual-drawer", "dashboard", "weekplan", "recurrence", "ai-fill-flex"}
 
 
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):

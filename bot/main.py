@@ -30,6 +30,7 @@ _formatter = logging.Formatter(_log_format)
 # Root logger
 _root = logging.getLogger()
 _root.setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Console handler
 _console = logging.StreamHandler()

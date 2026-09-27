@@ -80,6 +80,18 @@ class ConversationCalendarTests(unittest.IsolatedAsyncioTestCase):
         history.assert_not_awaited()
         regenerate.assert_not_awaited()
 
+    async def test_approved_flexible_ai_fill_conversation_row_is_sent(self):
+        db, send, _, history, regenerate = await self.dispatch(
+            'discussion', True, 'operator-approved flexible suggestion',
+            created_by='ai-fill-flex',
+        )
+        send.assert_awaited_once()
+        self.assertEqual(send.call_args.kwargs['text'], 'operator-approved flexible suggestion')
+        self.assertEqual(db.sent, [(123, 456)])
+        self.assertFalse(db.skipped)
+        self.assertTrue(history.call_args.kwargs['sent_only'])
+        regenerate.assert_not_awaited()
+
     async def test_provider_unavailable_skips_without_send(self):
         db, send, _, _, regenerate = await self.dispatch('morning', RuntimeError('offline'))
         send.assert_not_awaited()
