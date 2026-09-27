@@ -443,6 +443,18 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         reviewer = patch.object(dashboard_app, "_review_discussion_quality", AsyncMock(return_value=(True, "accepted fixture")))
         reviewer.start()
         self.addCleanup(reviewer.stop)
+        async def accept_batch(candidates):
+            return {
+                int(candidate["id"]): (True, "accepted fixture")
+                for candidate in candidates
+            }
+        batch_reviewer = patch.object(
+            dashboard_app,
+            "_review_discussion_quality_batch",
+            side_effect=accept_batch,
+        )
+        batch_reviewer.start()
+        self.addCleanup(batch_reviewer.stop)
         shared_reviewer = patch("bot.utils.conversation_quality.review_conversation", AsyncMock(return_value=(True, "accepted fixture")))
         shared_reviewer.start()
         self.addCleanup(shared_reviewer.stop)
@@ -1702,6 +1714,92 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.created[0]["status"], "scheduled")
         self.assertEqual(db.created[0]["message_type"], "emoji_puzzle")
         self.assertEqual(db.created[0]["poll_options"], '{"theme_label":"movies"}')
+
+    async def test_ai_suggest_commit_batches_semantic_review_and_keeps_rejections_pending(self):
+        db = Database(":memory:")
+        await db.init()
+        approved = [
+            {
+                "key": "accepted-key",
+                "date": "2099-01-01",
+                "time": "18:00",
+                "message_type": "discussion",
+                "topic_id": 4037,
+                "text": "What small detail made your week better?",
+                "source": "ai-fill-discussion",
+            },
+            {
+                "key": "rejected-key",
+                "date": "2099-01-01",
+                "time": "19:00",
+                "message_type": "discussion",
+                "topic_id": 4037,
+                "text": "What small detail made your week better?",
+                "source": "ai-fill-discussion",
+            },
+        ]
+        async def review_batch(candidates):
+            return {
+                0: (True, "accepted fixture"),
+                1: (False, "generic fixture"),
+            }
+
+        try:
+            with (
+                patch.object(dashboard_app, "_validate_draft_text", return_value=[]),
+                patch.object(dashboard_app, "freshness_rejection", return_value=None),
+                patch.object(dashboard_app, "_fetch_recent_sent_for_dedup", AsyncMock(return_value=[])),
+                patch.object(dashboard_app, "_review_discussion_quality", new=AsyncMock()) as single_review,
+                patch.object(dashboard_app, "_review_discussion_quality_batch", side_effect=review_batch) as batch_review,
+            ):
+                result = await dashboard_app.ai_suggest_commit(
+                    FakeCalendarRequest({"approved": approved}), db,
+                )
+            rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        finally:
+            await db.close()
+
+        self.assertEqual(batch_review.await_count, 1)
+        self.assertEqual(batch_review.await_args.args[0][0]["id"], 0)
+        self.assertEqual(batch_review.await_args.args[0][1]["id"], 1)
+        single_review.assert_not_awaited()
+        self.assertEqual(result["inserted"], 1, result)
+        self.assertEqual(result["inserted_keys"], ["accepted-key"])
+        self.assertEqual([row["text"] for row in rows], [approved[0]["text"]])
+        self.assertEqual([item["key"] for item in result["pending"]], ["rejected-key"])
+        self.assertIn("conversation_semantic:generic fixture", result["pending"][0]["reason"])
+
+    async def test_ai_suggest_commit_fails_closed_when_batch_verdict_is_missing(self):
+        db = Database(":memory:")
+        await db.init()
+        approved = [{
+            "key": "missing-verdict-key",
+            "date": "2099-01-01",
+            "time": "18:00",
+            "message_type": "discussion",
+            "topic_id": 4037,
+            "text": "What small detail made your week better?",
+            "source": "ai-fill-discussion",
+        }]
+        try:
+            with (
+                patch.object(dashboard_app, "_validate_draft_text", return_value=[]),
+                patch.object(dashboard_app, "freshness_rejection", return_value=None),
+                patch.object(dashboard_app, "_fetch_recent_sent_for_dedup", AsyncMock(return_value=[])),
+                patch.object(dashboard_app, "_review_discussion_quality_batch", new=AsyncMock(return_value={})) as batch_review,
+            ):
+                result = await dashboard_app.ai_suggest_commit(
+                    FakeCalendarRequest({"approved": approved}), db,
+                )
+            rows = await db.get_scheduled_messages("2099-01-01", "2099-01-01")
+        finally:
+            await db.close()
+
+        batch_review.assert_awaited_once()
+        self.assertEqual(result["inserted"], 0, result)
+        self.assertEqual(rows, [])
+        self.assertEqual([item["key"] for item in result["pending"]], ["missing-verdict-key"])
+        self.assertIn("missing batch verdict", result["pending"][0]["reason"])
 
     async def test_ai_suggest_commit_is_idempotent_for_existing_game_slot(self):
         db = Database(":memory:")
