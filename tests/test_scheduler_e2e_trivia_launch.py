@@ -206,17 +206,22 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         """T3 (warm-up boundary): "בעוד … מתחממים" stays a discussion, sent as text."""
         date_iso, time_iso = _hhmm_seconds_ago(60)
         msg_id = await self.db.create_scheduled_message(
-            text="🧠 בעוד 30 דקות מתחממים לסיבוב טריוויה ישראל הערב!",
+            text="🧠 מתחממים לטריוויה הערב: איזה הרגל קטן עוזר לכם להתרכז כשיש סביבכם רעש?",
             message_type="discussion",
             channel_topic_id=4037,
             target_group="test",
+            created_by="ai-fill-flex",
             scheduled_date=date_iso,
             scheduled_time=time_iso,
             status="scheduled",
         )
 
         ctx = _make_context(self.db)
-        await calendar_handler.check_and_send_due_messages(ctx)
+        # This scenario locks type coercion; semantic quality is covered separately.
+        with patch.object(
+            calendar_handler, "_conversation_gate", new=AsyncMock(return_value=None),
+        ):
+            await calendar_handler.check_and_send_due_messages(ctx)
 
         # Trivia path NOT invoked; text-Bot path WAS invoked.
         ctx.bot.send_message.assert_not_called()
@@ -318,10 +323,11 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         date_iso_1s, time_iso_1s = _hhmm_seconds_ago(60)
         # Warm-up discussion with the "מתחממים" trigger word — stays text, doesn't coerce.
         warmup_id = await self.db.create_scheduled_message(
-            text="🧠 בעוד חצי שעה מתחממים לטריוויה ישראל!",
+            text="🧠 מתחממים לטריוויה הערב: איפה הכי קל לכם להתרכז, ולמה?",
             message_type="discussion",
             channel_topic_id=4037,
             target_group="test",
+            created_by="ai-fill-flex",
             scheduled_date=date_iso_3s,
             scheduled_time=time_iso_3s,
             status="scheduled",
@@ -343,7 +349,12 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         )
 
         ctx = _make_context(self.db)
-        await calendar_handler.check_and_send_due_messages(ctx)
+        # This scenario locks dispatch ordering/coercion; semantic quality-gate
+        # rejection and regeneration are covered in test_conversation_calendar.
+        with patch.object(
+            calendar_handler, "_conversation_gate", new=AsyncMock(return_value=None),
+        ):
+            await calendar_handler.check_and_send_due_messages(ctx)
 
         # Warm-up went via text-Bot; trivia went via context.bot.
         self._bot_factory_instance.send_message.assert_called()
@@ -351,7 +362,7 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
 
         warmup = await self._row(warmup_id)
         game = await self._row(game_id)
-        self.assertEqual(warmup["status"], "sent")
+        self.assertEqual(warmup["status"], "sent", warmup.get("error_message"))
         self.assertEqual(game["status"], "sent")
 
     async def test_warmup_rsvp_users_seed_scheduled_trivia_ready_gate(self):
@@ -471,7 +482,7 @@ class TriviaLaunchE2ETests(TriviaLaunchE2EBase):
         await calendar_handler.check_and_send_due_messages(ctx)
 
         row = await self._row(game_id)
-        self.assertEqual(row["status"], "sent")  # must NOT be 'skipped'
+        self.assertEqual(row["status"], "sent", row.get("error_message"))  # must NOT be 'skipped'
         round_state = trivia_handler._continue_round_after_announcement.await_args.kwargs["round_state"]
         self.assertEqual(round_state["ready_users"], {101: "Lotem", 202: "Refeli"})
 

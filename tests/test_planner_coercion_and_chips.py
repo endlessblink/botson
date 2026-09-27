@@ -155,10 +155,13 @@ class FakeQueryRequest:
 
 class TestWeekplanCommittedVisibility(unittest.IsolatedAsyncioTestCase):
     async def test_flexible_discussion_rows_are_not_hidden_by_static_schedule(self):
+        today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
+        this_week_sunday = today + timedelta(days=(6 - today.weekday()) % 7)
+        displayed_week_sunday = this_week_sunday + timedelta(days=7)
         rows = [
             {
                 "id": 1,
-                "scheduled_date": "2026-09-14",
+                "scheduled_date": (displayed_week_sunday + timedelta(days=1)).isoformat(),
                 "scheduled_time": "18:00",
                 "message_type": "discussion",
                 "status": "scheduled",
@@ -167,7 +170,7 @@ class TestWeekplanCommittedVisibility(unittest.IsolatedAsyncioTestCase):
             },
             {
                 "id": 2,
-                "scheduled_date": "2026-09-15",
+                "scheduled_date": (displayed_week_sunday + timedelta(days=2)).isoformat(),
                 "scheduled_time": "17:00",
                 "message_type": "discussion",
                 "status": "scheduled",
@@ -2286,38 +2289,19 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(event["extendedProps"].get("willSend"))
                 self.assertEqual(event["extendedProps"].get("diagnosticLabel"), "תצוגה בלבד")
 
-    async def test_bot_reload_materializer_generates_fresh_auto_content(self):
+    async def test_bot_reload_materializer_leaves_conversation_slots_empty(self):
         db = Database(":memory:")
         await db.init()
-        counter = 0
-
-        async def fresh_response(_prompt):
-            nonlocal counter
-            counter += 1
-            return json.dumps({"text": f"טקסט חדש שנוצר אוטומטית מספר {counter}"}, ensure_ascii=False)
 
         try:
-            with patch.object(materializer, "_generate_with_claude", new=AsyncMock(side_effect=fresh_response)):
+            generator = AsyncMock()
+            with patch.object(materializer, "_generate_with_claude", new=generator):
                 inserted = await materializer.materialize_forward(db, days_ahead=14)
-            self.assertGreater(inserted, 0)
-            self.assertEqual(await self._scheduled_count(db), inserted)
-            async with db._db.execute(
-                "SELECT text, created_by FROM scheduled_messages WHERE status = 'scheduled'"
-            ) as cur:
-                rows = await cur.fetchall()
-            self.assertTrue(all(row["created_by"] == "auto" for row in rows))
-            static_sources = set()
-            prompts = dashboard_app.load_yaml("prompts.yaml") or {}
-            for values in prompts.values():
-                static_sources.update(str(v).strip() for v in values or [])
-            discussions = dashboard_app.load_yaml("discussions.yaml") or {}
-            for values in discussions.values():
-                static_sources.update(str(v).strip() for v in values or [])
-            for row in rows:
-                self.assertNotIn(row["text"].strip(), static_sources)
-
+            self.assertEqual(inserted, 0)
+            self.assertEqual(await self._scheduled_count(db), 0)
+            generator.assert_not_awaited()
             purged = await materializer.purge_future_auto_rows(db)
-            self.assertEqual(purged, inserted)
+            self.assertEqual(purged, 0)
         finally:
             await db.close()
 
