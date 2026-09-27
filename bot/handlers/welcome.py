@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
 from ..utils.config import get_settings, is_feature_enabled
+from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name, is_bot_user
 
 logger = logging.getLogger(__name__)
@@ -21,54 +22,6 @@ _pending_joins: list[dict] = []
 _batch_task: asyncio.Task | None = None
 
 
-WELCOME_TEMPLATE = """היי {name}! 👋 ברוך/ה הבא/ה לאלהוריים וזה!
-
-אנחנו קהילה של אנשים שבחרו לחיות בלי ילדים — מקום לשיח פתוח, תמיכה, והנאה בלי שיפוטיות. 🌟
-
-הנה כמה ערוצים שווים להציץ בהם:
-
-🎮 גיימינג + משחקי לוח
-📺 סרטים סדרות וכו
-🎨 ערוץ אומנות ויצירה
-🐕 כל מה שחמוד
-😂 מצחיק / מגניב
-💌 אל הוריים/יות מכירים
-🌱 טבעונים וצמחוניים
-🌍 פוליטיקה / גיאו-פוליטיקה
-🌟 יום יום — הישגים ומטרות יומיות
-
-נשמח לשמוע קצת עליך! ספר/י על עצמך בערוץ מצטרפים חדשים + עדכונים 💬
-
-ואם בא לך רק לקרוא — גם זה לגיטימי לחלוטין. להיות שקט/ה כאן זו השתתפות בפני עצמה 🌿"""
-
-WELCOME_TEMPLATE_MULTI = """היי {names}! 👋 ברוכים/ות הבאים/ות לאלהוריים וזה!
-
-אנחנו קהילה של אנשים שבחרו לחיות בלי ילדים — מקום לשיח פתוח, תמיכה, והנאה בלי שיפוטיות. 🌟
-
-הנה כמה ערוצים שווים להציץ בהם:
-
-🎮 גיימינג + משחקי לוח
-📺 סרטים סדרות וכו
-🎨 ערוץ אומנות ויצירה
-🐕 כל מה שחמוד
-😂 מצחיק / מגניב
-💌 אל הוריים/יות מכירים
-🌱 טבעונים וצמחוניים
-🌍 פוליטיקה / גיאו-פוליטיקה
-🌟 יום יום — הישגים ומטרות יומיות
-
-נשמח לשמוע קצת עליכם! ספרו על עצמכם בערוץ מצטרפים חדשים + עדכונים 💬
-
-ואם בא לכם רק לקרוא — גם זה לגיטימי לחלוטין. להיות שקטים/ות כאן זו השתתפות בפני עצמה 🌿"""
-
-RULES_MESSAGE = """📋 כללי הקהילה:
-
-• כבוד הדדי — בלי התקפות אישיות או זלזול
-• אין ספאם או פרסום עצמי
-• כל נושא בערוץ המתאים
-• אין הטרדות בהודעות פרטיות — מי שעושה זאת יורחק מהקבוצה ⛔"""
-
-
 async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic_id: int | None):
     """Send batched welcome message for accumulated joins."""
     global _pending_joins, _batch_task
@@ -76,7 +29,6 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
     if not _pending_joins:
         return
 
-    names = [j["name"] for j in _pending_joins]
     joins = list(_pending_joins)
     _pending_joins = []
     _batch_task = None
@@ -88,12 +40,23 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
         await db.upsert_chat_member(chat_id, join["user_id"], join["username"], join["name"])
         await db.record_member_activity(chat_id, join["user_id"], "join", str(join["user_id"]))
 
+    if topic_id is not None:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                message_thread_id=topic_id,
+                text=load_copy("welcome", "public_batch"),
+            )
+        except Exception:
+            logger.exception("Could not post batched public welcome in topic %s", topic_id)
+
     for join in joins:
         name = join["name"]
-        text = WELCOME_TEMPLATE.format(name=name)
         try:
-            await context.bot.send_message(chat_id=join["user_id"], text=text)
-            await context.bot.send_message(chat_id=join["user_id"], text=RULES_MESSAGE)
+            await context.bot.send_message(
+                chat_id=join["user_id"], text=load_copy("welcome", "dm_single", name=name)
+            )
+            await context.bot.send_message(chat_id=join["user_id"], text=load_copy("welcome", "rules"))
             logger.info("Sent welcome DM to: %s (ID: %d)", name, join["user_id"])
             await db.log_activity("welcome", f"שלח הודעת ברוכים הבאים ל-{name}", join["user_id"])
         except Exception as e:
