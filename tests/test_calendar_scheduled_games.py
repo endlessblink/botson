@@ -518,6 +518,28 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.failed[0][0], 123)
         self.assertIn("not enough questions", db.failed[0][1])
 
+    async def test_scheduled_failure_alert_omits_message_and_exception_text(self):
+        db = FakeScheduledDb(_base_row("trivia_round"))
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+        notifier = AsyncMock()
+        bot = object()
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "TEST_GROUP_ID": "-1002"}), \
+             patch("telegram.Bot", return_value=bot), \
+             patch.object(calendar, "start_scheduled_trivia_round", new=AsyncMock(side_effect=RuntimeError("private message content"))), \
+             patch.object(calendar, "load_copy", return_value="alert:123:trivia_round:RuntimeError") as copy, \
+             patch.object(calendar, "notify_admins", new=notifier):
+            await calendar.check_and_send_due_messages(context)
+
+        copy.assert_called_once()
+        self.assertEqual(copy.call_args.args[:2], ("calendar", "dispatch_failed_alert"))
+        self.assertEqual(copy.call_args.kwargs["message_id"], 123)
+        self.assertEqual(copy.call_args.kwargs["message_type"], "trivia_round")
+        self.assertEqual(copy.call_args.kwargs["reason"], "RuntimeError")
+        self.assertNotIn("private message content", repr(copy.call_args))
+        notifier.assert_awaited_once_with(bot, "alert:123:trivia_round:RuntimeError")
+        self.assertEqual(db.failed[0][0], 123)
+
     async def test_scheduled_trivia_with_too_few_questions_fails_before_background_task(self):
         row = _base_row("trivia_round")
         row["_resolved_chat_id"] = -1002

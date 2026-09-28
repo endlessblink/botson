@@ -101,6 +101,7 @@ copy:
   # was also rejected — i.e. the slot posted nothing. {slot} and {reason} are
   # filled by the dispatcher.
   calendar:
+    dispatch_failed_alert: "⚠️ הודעה מתוזמנת נכשלה בשליחה.\nמזהה: {message_id}\nסוג: {message_type}\nסלוט: {slot}\nשגיאה: {reason}"
     regeneration_failed_alert: "⚠️ הודעה מתוזמנת לא פורסמה בקבוצה.\n\nהתוכן שאושר נפסל בשער האיכות בזמן השליחה, וגם ניסיון לייצר תוכן חלופי נכשל. הסלוט נשאר ריק — אף הודעה לא נשלחה.\n\nסלוט: {slot}\nסיבה: {reason}\n\nכדי לפרסם בכל זאת: ייצרו/אשרו תוכן ידנית מהדשבורד וקבעו אותו לאותו סלוט."
   # "נסח מחדש" — one-off wording rewrite of a draft the operator likes.
   # Each anchor is a chip in the dashboard; `directive` is appended to the
@@ -767,3 +768,4 @@ game_warmup_topic_routes:
     music: music
 welcome:
   batch_window_seconds: 30
+  public_cooldown_seconds: 86400

@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -349,6 +350,64 @@ def require_auth(request: Request):
     """Check if user is authenticated."""
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=303, headers={"Location": "/login"})
+
+
+def _is_agent_api_request(request: Request) -> bool:
+    expected = os.getenv("BOTSON_AGENT_API_TOKEN", "")
+    authorization = (getattr(request, "headers", {}) or {}).get("authorization", "")
+    scheme, _, supplied = authorization.partition(" ")
+    return bool(
+        expected
+        and scheme.lower() == "bearer"
+        and supplied
+        and secrets.compare_digest(supplied, expected)
+    )
+
+
+def _require_calendar_api_auth(request: Request) -> None:
+    """Allow the dashboard session or the separately scoped agent token."""
+    if request.session.get("authenticated") or _is_agent_api_request(request):
+        return
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+
+async def _begin_agent_api_action(request: Request, db: Database) -> JSONResponse | None:
+    """Claim an agent mutation before work; completed retries replay safely."""
+    if not _is_agent_api_request(request):
+        return None
+    key = (getattr(request, "headers", {}) or {}).get("idempotency-key", "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", key):
+        raise HTTPException(status_code=400, detail="A valid Idempotency-Key is required")
+    body = await request.body()
+    digest = hashlib.sha256(
+        request.method.encode("ascii") + b"\n" + request.url.path.encode("utf-8") + b"\n" + body
+    ).hexdigest()
+    state, cached = await db.begin_agent_api_action(key, digest)
+    if state == "conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key was already used for another request")
+    if state == "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="Previous request outcome is uncertain; inspect Botson state before retrying with a new key",
+        )
+    if state == "complete":
+        return JSONResponse(content=json.loads(cached or "null"))
+    request.state.agent_api_action = (key, digest)
+    return None
+
+
+async def _complete_agent_api_action(request: Request, db: Database, result: dict) -> dict:
+    action = getattr(request.state, "agent_api_action", None)
+    if action:
+        key, digest = action
+        saved = await db.complete_agent_api_action(
+            key,
+            digest,
+            json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+        )
+        if not saved:
+            raise HTTPException(status_code=500, detail="Could not persist agent action receipt")
+    return result
 
 
 @app.get("/api/health/generation")
@@ -12768,8 +12827,7 @@ from bot.scheduler.materializer import compute_week_previews
 @app.get("/api/calendar")
 async def get_calendar(request: Request, db: Database = Depends(get_db)):
     """Get scheduled messages in FullCalendar event format."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
 
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
@@ -12949,6 +13007,25 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
         current_sunday += timedelta(days=7)
 
     return events
+
+
+@app.get("/api/agent/calendar")
+async def get_agent_calendar(request: Request, db: Database = Depends(get_db)):
+    """Return full scheduled-message records for authenticated agents."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="Agent API token required")
+    today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
+    date_from = request.query_params.get("start", today.isoformat())
+    date_to = request.query_params.get("end", (today + timedelta(days=14)).isoformat())
+    try:
+        from_day = date.fromisoformat(date_from)
+        to_day = date.fromisoformat(date_to)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="start and end must be YYYY-MM-DD") from exc
+    if to_day < from_day or (to_day - from_day).days > 93:
+        raise HTTPException(status_code=400, detail="date range must be ordered and no longer than 94 days")
+    rows = await db.get_scheduled_messages(date_from, date_to, include_cancelled=True)
+    return {"start": date_from, "end": date_to, "items": rows}
 
 
 _EXECUTABLE_HANDLERS_REQUIRING_ROUTING = {
@@ -13213,11 +13290,23 @@ async def planner_day_diagnostics(request: Request, db: Database = Depends(get_d
 @app.post("/api/calendar")
 async def create_calendar_item(request: Request, db: Database = Depends(get_db)):
     """Create a new scheduled message."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
+    replay = await _begin_agent_api_action(request, db)
+    if replay is not None:
+        return replay
 
     data = await request.json()
     target_group = _validated_target_group(data.get("target_group", "main"))
+    initial_status = data.get("status", "draft" if _is_agent_api_request(request) else "scheduled")
+    if initial_status not in {"draft", "scheduled"}:
+        raise HTTPException(status_code=400, detail="status must be draft or scheduled")
+    if _is_agent_api_request(request) and initial_status == "scheduled":
+        _reject_bad_message_row({
+            "text": data["text"],
+            "message_type": data.get("message_type", "custom"),
+            "scheduled_date": data["scheduled_date"],
+        })
+        _reject_too_soon_schedule(data["scheduled_date"], data["scheduled_time"])
     poll_options = data.get("poll_options")
     raw_type = data.get("message_type", "custom")
     raw_topic = data.get("channel_topic_id")
@@ -13275,11 +13364,16 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         cover_path=data.get("cover_path"),
         poll_options=json.dumps(poll_options) if isinstance(poll_options, list) else poll_options,
         poll_duration=data.get("poll_duration"),
+        status=initial_status,
     )
     announcement_draft_id = None
     if message_type == "trivia_round":
         announcement_draft_id = await _ensure_trivia_announcement_scheduled(db, game_id=msg_id)
-    return {"status": "ok", "id": msg_id, "announcement_draft_id": announcement_draft_id, "trivia_topup": trivia_topup}
+    return await _complete_agent_api_action(request, db, {
+        "status": "ok", "id": msg_id,
+        "announcement_draft_id": announcement_draft_id,
+        "trivia_topup": trivia_topup,
+    })
 
 
 def _validated_target_group(target_group: str | None) -> str:
@@ -13359,8 +13453,10 @@ async def _reject_calendar_slot_clash(
 @app.put("/api/calendar/{msg_id}")
 async def update_calendar_item(msg_id: int, request: Request, db: Database = Depends(get_db)):
     """Update a scheduled message."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
+    replay = await _begin_agent_api_action(request, db)
+    if replay is not None:
+        return replay
 
     data = await request.json()
     allowed = {"text", "channel_topic_id", "target_group", "scheduled_date", "scheduled_time",
@@ -13475,14 +13571,20 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
             row = await cur.fetchone()
         if row and row["message_type"] == "trivia_round":
             announcement_draft_id = await _ensure_trivia_announcement_scheduled(db, game_id=msg_id)
-    return {"status": "ok", "announcement_draft_id": announcement_draft_id, "trivia_topup": trivia_topup}
+    return await _complete_agent_api_action(request, db, {
+        "status": "ok",
+        "announcement_draft_id": announcement_draft_id,
+        "trivia_topup": trivia_topup,
+    })
 
 
 @app.delete("/api/calendar/{msg_id}")
 async def delete_calendar_item(msg_id: int, request: Request, db: Database = Depends(get_db)):
     """Cancel a scheduled message."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
+    replay = await _begin_agent_api_action(request, db)
+    if replay is not None:
+        return replay
 
     await db.delete_scheduled_message(msg_id)
     for marker in (
@@ -13496,7 +13598,7 @@ async def delete_calendar_item(msg_id: int, request: Request, db: Database = Dep
             rows = await cur.fetchall()
         for row in rows:
             await db.delete_scheduled_message(int(row["id"]))
-    return {"status": "ok"}
+    return await _complete_agent_api_action(request, db, {"status": "ok"})
 
 
 @app.post("/api/weekplan/clear-selected")
@@ -13866,8 +13968,10 @@ async def quarantine_calendar_conversation(msg_id: int, request: Request, db: Da
 @app.post("/api/calendar/{msg_id}/send-now")
 async def send_calendar_item_now(msg_id: int, request: Request, db: Database = Depends(get_db)):
     """Send a scheduled/draft row immediately, without touching the scheduler."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
+    replay = await _begin_agent_api_action(request, db)
+    if replay is not None:
+        return replay
 
     headers = getattr(request, "headers", {}) or {}
     data = await request.json() if headers.get("content-type") == "application/json" else {}
@@ -13884,7 +13988,7 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
     try:
         sent_id = await _send_scheduled_row(db, msg, target)
         logger.info("[send-now] msg_id=%d target=%s sent_message_id=%s", msg_id, target, sent_id)
-        return {"status": "ok", "message_id": sent_id}
+        return await _complete_agent_api_action(request, db, {"status": "ok", "message_id": sent_id})
     except SkippedActivity as e:
         # Legitimate skip (blackout, pool exhausted, etc.) — not a Telegram
         # failure. Mirror the scheduler: stamp status='skipped' so the
@@ -13899,7 +14003,7 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
             else:
                 await db.mark_message_failed(msg_id, f"skipped: {reason}")
         logger.info("[send-now] msg_id=%d skipped: %s", msg_id, reason)
-        return {"status": "skipped", "reason": reason}
+        return await _complete_agent_api_action(request, db, {"status": "skipped", "reason": reason})
     except Exception as e:
         logger.exception("[send-now] failed for msg_id=%d", msg_id)
         raise HTTPException(status_code=500, detail=str(e))
@@ -13915,8 +14019,10 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     next 2 minutes — the bot's 60s tick would fire it almost immediately,
     bypassing the 'review then schedule' intent. Pass force=true to override.
     """
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
+    replay = await _begin_agent_api_action(request, db)
+    if replay is not None:
+        return replay
 
     try:
         body = await request.json()
@@ -13961,13 +14067,13 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
         "[schedule] msg_id=%d → status=scheduled at %s (force=%s)",
         msg_id, target_dt.isoformat(), force,
     )
-    return {
+    return await _complete_agent_api_action(request, db, {
         "status": "ok",
         "id": msg_id,
         "scheduled_for": target_dt.isoformat(),
         "announcement_draft_id": announcement_draft_id,
         "trivia_topup": topup_result,
-    }
+    })
 
 
 @app.post("/api/weekplan/send-today-drafts-now")

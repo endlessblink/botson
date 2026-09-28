@@ -65,6 +65,7 @@ class Database:
             "CREATE TABLE IF NOT EXISTS message_reactors (scheduled_msg_id INTEGER NOT NULL, user_id INTEGER NOT NULL, reaction_type TEXT, reacted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (scheduled_msg_id, user_id))",
             "CREATE TABLE IF NOT EXISTS chat_members (chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, username TEXT, display_name TEXT, first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (chat_id, user_id))",
             "CREATE INDEX IF NOT EXISTS idx_chat_members_chat ON chat_members(chat_id, last_seen_at DESC)",
+            "CREATE TABLE IF NOT EXISTS action_cooldowns (cooldown_key TEXT PRIMARY KEY, claimed_at TEXT NOT NULL)",
             # T-172: operator feedback capture. Every rejection/edit of an
             # AI suggestion is stored so future generation can learn from it
             # (T-174). Data-capture only at this phase — no consumer yet.
@@ -126,6 +127,14 @@ class Database:
             "week_offset INTEGER NOT NULL DEFAULT 0, "
             "result_json TEXT, "
             "error TEXT"
+            ")",
+            "CREATE TABLE IF NOT EXISTS agent_api_actions ("
+            "idempotency_key TEXT PRIMARY KEY, "
+            "request_hash TEXT NOT NULL, "
+            "status TEXT NOT NULL, "
+            "response_json TEXT, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "completed_at TIMESTAMP"
             ")",
             "CREATE INDEX IF NOT EXISTS idx_ai_suggest_jobs_created ON ai_suggest_jobs(created_at DESC)",
             # DM menu (bot/handlers/dm_menu.py): per-user opt-in to activity
@@ -302,6 +311,21 @@ class Database:
             members,
         )
         await self._db.commit()
+
+    async def claim_action_cooldown(self, key: str, cooldown_seconds: int) -> bool:
+        """Atomically claim a keyed action if its previous cooldown expired."""
+        now = datetime.now(_IL_TZ)
+        claimed_at = now.strftime("%Y-%m-%d %H:%M:%S")
+        expires_before = (now - timedelta(seconds=int(cooldown_seconds))).strftime("%Y-%m-%d %H:%M:%S")
+        cursor = await self._db.execute(
+            """INSERT INTO action_cooldowns (cooldown_key, claimed_at)
+               VALUES (?, ?)
+               ON CONFLICT(cooldown_key) DO UPDATE SET claimed_at = excluded.claimed_at
+               WHERE action_cooldowns.claimed_at <= ?""",
+            (key, claimed_at, expires_before),
+        )
+        await self._db.commit()
+        return cursor.rowcount == 1
 
     async def get_chat_members_for_tagging(self, chat_id: int) -> list[dict]:
         """Return the known member roster for one Telegram chat."""
@@ -1308,6 +1332,37 @@ class Database:
             f"UPDATE scheduled_messages SET {set_clause} WHERE id = ?", values
         )
         await self._db.commit()
+
+    async def begin_agent_api_action(self, idempotency_key: str, request_hash: str) -> tuple[str, str | None]:
+        """Claim a machine API mutation; pending outcomes are never replayed."""
+        cursor = await self._db.execute(
+            "INSERT OR IGNORE INTO agent_api_actions (idempotency_key, request_hash, status) VALUES (?, ?, 'pending')",
+            (idempotency_key, request_hash),
+        )
+        await self._db.commit()
+        if cursor.rowcount == 1:
+            return "new", None
+        async with self._db.execute(
+            "SELECT request_hash, status, response_json FROM agent_api_actions WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row or row["request_hash"] != request_hash:
+            return "conflict", None
+        if row["status"] == "complete":
+            return "complete", row["response_json"]
+        return "pending", None
+
+    async def complete_agent_api_action(self, idempotency_key: str, request_hash: str, response_json: str) -> bool:
+        """Persist the response for safe replay after a client timeout."""
+        cursor = await self._db.execute(
+            """UPDATE agent_api_actions
+               SET status = 'complete', response_json = ?, completed_at = CURRENT_TIMESTAMP
+               WHERE idempotency_key = ? AND request_hash = ? AND status = 'pending'""",
+            (response_json, idempotency_key, request_hash),
+        )
+        await self._db.commit()
+        return cursor.rowcount == 1
 
     async def quarantine_conversation_message(self, msg_id: int, expected: dict) -> str:
         """Hold one reviewed queue snapshot without overwriting edits or dispatch claims.

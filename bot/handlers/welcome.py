@@ -41,14 +41,21 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
         await db.record_member_activity(chat_id, join["user_id"], "join", str(join["user_id"]))
 
     if topic_id is not None:
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                message_thread_id=topic_id,
-                text=load_copy("welcome", "public_batch"),
-            )
-        except Exception:
-            logger.exception("Could not post batched public welcome in topic %s", topic_id)
+        welcome_key = f"public_welcome:{chat_id}:{topic_id}"
+        cooldown_seconds = int(get_settings()["welcome"]["public_cooldown_seconds"])
+        if await db.claim_action_cooldown(welcome_key, cooldown_seconds):
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    message_thread_id=topic_id,
+                    text=load_copy("welcome", "public_batch"),
+                )
+            except Exception:
+                # Keep the claim on ambiguous failures: Telegram may have accepted
+                # the message even when the client did not receive its response.
+                logger.exception("Could not post batched public welcome in topic %s", topic_id)
+        else:
+            logger.info("Public welcome suppressed by cooldown in topic %s", topic_id)
 
     for join in joins:
         name = join["name"]

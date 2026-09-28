@@ -1054,6 +1054,16 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await db.mark_message_failed(msg["id"], str(e))
             logger.error("Failed to send scheduled message %d: %s", msg["id"], e)
+            try:
+                await notify_admins(bot, load_copy(
+                    "calendar", "dispatch_failed_alert",
+                    message_id=msg["id"],
+                    message_type=msg.get("message_type", "custom"),
+                    slot=f"{msg.get('scheduled_date')} {msg.get('scheduled_time')}",
+                    reason=type(e).__name__,
+                ))
+            except Exception:
+                logger.exception("Failed to alert admins about scheduled message %d", msg["id"])
 
 
 async def cleanup_public_warmup_announcements(context: ContextTypes.DEFAULT_TYPE):

@@ -22,6 +22,7 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
             upsert_chat_member=AsyncMock(),
             record_member_activity=AsyncMock(),
             log_activity=AsyncMock(),
+            claim_action_cooldown=AsyncMock(return_value=True),
         )
         context = SimpleNamespace(bot=bot, bot_data={"db": db})
         joins = [
@@ -45,6 +46,38 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
         self.assertEqual(public_posts[0]["text"], "welcome.public_batch")
         self.assertNotIn("Person One", public_posts[0]["text"])
         self.assertNotIn("Person Two", public_posts[0]["text"])
+        db.claim_action_cooldown.assert_awaited_once_with(
+            "public_welcome:-100123:341", 86400
+        )
+
+    async def test_recent_public_welcome_is_suppressed_but_join_is_recorded(self):
+        bot = SimpleNamespace(send_message=AsyncMock())
+        db = SimpleNamespace(
+            upsert_member=AsyncMock(),
+            upsert_chat_member=AsyncMock(),
+            record_member_activity=AsyncMock(),
+            log_activity=AsyncMock(),
+            claim_action_cooldown=AsyncMock(return_value=False),
+        )
+        context = SimpleNamespace(bot=bot, bot_data={"db": db})
+
+        with (
+            patch.object(welcome, "_pending_joins", [{"user_id": 303, "username": None, "name": "New Person"}]),
+            patch.object(welcome, "_batch_task", None),
+            patch("bot.handlers.welcome.load_copy", create=True, side_effect=lambda ns, key, **_: f"{ns}.{key}"),
+        ):
+            await welcome._flush_pending(context, chat_id=-100123, topic_id=341)
+
+        db.upsert_chat_member.assert_awaited_once_with(-100123, 303, None, "New Person")
+        db.record_member_activity.assert_awaited_once_with(-100123, 303, "join", "303")
+        db.claim_action_cooldown.assert_awaited_once_with(
+            "public_welcome:-100123:341", 86400
+        )
+        self.assertFalse(any(
+            call.kwargs.get("chat_id") == -100123
+            and call.kwargs.get("message_thread_id") == 341
+            for call in bot.send_message.await_args_list
+        ))
 
     async def test_public_welcome_is_sent_even_when_private_messages_fail(self):
         async def send_message(*, chat_id, **kwargs):
@@ -58,6 +91,7 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
             upsert_chat_member=AsyncMock(),
             record_member_activity=AsyncMock(),
             log_activity=AsyncMock(),
+            claim_action_cooldown=AsyncMock(return_value=True),
         )
         context = SimpleNamespace(bot=bot, bot_data={"db": db})
 
@@ -80,6 +114,7 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
             upsert_chat_member=AsyncMock(),
             record_member_activity=AsyncMock(),
             log_activity=AsyncMock(),
+            claim_action_cooldown=AsyncMock(return_value=True),
         )
         context = SimpleNamespace(bot=bot, bot_data={"db": db})
 
