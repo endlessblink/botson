@@ -35,6 +35,22 @@ class CapturedGenericReflectionTests(unittest.TestCase):
                 reason = freshness_rejection(text)
                 self.assertIn("forbidden fragment", reason or "")
 
+    def test_questions_that_delegate_botson_planning_to_members_are_rejected(self):
+        for text in (
+            "מה הכי יעזור לכם להשתתף כאן השבוע? אפשר לבחור פעילות",
+            "איזו פעילות תרצו שנכין כדי שתהיו פעילים יותר בקבוצה?",
+            "מה כדאי לנו לפרסם כדי שהקבוצה תהיה יותר מעניינת?",
+        ):
+            with self.subTest(text=text):
+                reason = freshness_rejection(text)
+                self.assertTrue(
+                    reason and ("planning burden" in reason or "forbidden fragment" in reason),
+                    msg=f"member-responsibility framing passed the hard gate: {text!r}",
+                )
+
+    def test_member_centric_discussion_is_not_rejected_as_planning_burden(self):
+        self.assertIsNone(freshness_rejection("מה עוזר לכם להתרכז כשאתם קוראים?"))
+
 
 class HebrewNormalizeStripsNoise(unittest.TestCase):
     def test_strips_nikud_and_punctuation(self):

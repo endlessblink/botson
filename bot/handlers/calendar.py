@@ -919,6 +919,15 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             elif msg.get("message_type") == "warmup_reminder":
                 raise SkippedActivity("warmup_reminder: public group reminders disabled; personal DM reminders handle sign-ups")
             else:
+                if msg.get("message_type") in {"custom", "poll"}:
+                    from ..utils.freshness import freshness_rejection
+
+                    rejection = freshness_rejection(
+                        str(msg.get("text") or ""),
+                        scheduled_date=msg.get("scheduled_date"),
+                    )
+                    if rejection:
+                        raise SkippedActivity(f"content_quality_rejected:{rejection}")
                 poll_options = _parse_poll_options(msg.get("poll_options"))
                 if msg.get("message_type") == "poll" and len(poll_options) >= 2:
                     sent = await send_poll_message(

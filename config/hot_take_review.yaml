@@ -32,6 +32,16 @@ reviewer_prompt: |
   Morning and evening describe delivery time, not a requirement to ask for
   personal plans, achievements or reflection. A concrete cultural discussion,
   recommendation or useful disagreement can fit either slot.
+  FAIL meta-questions that ask members what Botson should create or post, what
+  would make them participate, or how to keep the group active. Botson owns
+  planning its activities because asking members to solve this shifts the
+  responsibility for the group's content and activity onto them. Prefer a
+  concrete group-relevant subject with an easy question or clear poll, then
+  build a follow-up from members' actual replies. If no good idea is grounded
+  in the group, use an existing configured activity or skip the post.
+  Ordinary preferences within a concrete topic discussion are allowed; do not
+  reject them unless they delegate Botson's content plan or group momentum.
+  Never use an all-member tag to manufacture participation.
 
   Return JSON only with exactly these fields:
   {"pass":true,"reason":"short reason","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}

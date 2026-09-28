@@ -308,6 +308,23 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.sent, [(123, 789)])
         self.assertEqual(db.failed, [])
 
+    async def test_poll_with_member_planning_question_is_skipped_before_send(self):
+        row = _base_row("poll")
+        row["text"] = "מה הכי יעזור לכם להשתתף כאן השבוע?"
+        row["poll_options"] = json.dumps(["מפגש", "שיחה", "משחק"])
+        db = FakeScheduledDb(row)
+        context = SimpleNamespace(bot_data={"db": db}, bot=object())
+
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
+             patch("telegram.Bot", return_value=object()), \
+             patch.object(calendar, "send_poll_message", new=AsyncMock()) as send_poll:
+            await calendar.check_and_send_due_messages(context)
+
+        send_poll.assert_not_awaited()
+        self.assertEqual(db.sent, [])
+        self.assertEqual(len(db.skipped), 1)
+        self.assertIn("content_quality_rejected:planning burden", db.skipped[0][1])
+
     async def test_game_warmup_row_uses_stored_relevant_topic(self):
         row = _base_row("trivia_warmup_rsvp")
         row["channel_topic_id"] = 54

@@ -35,6 +35,21 @@ misleading_ready_fragments:
   - "שמסמנים שהם בפנים"
   - "צריך לפחות"
 
+# Never ask members to plan Botson's output or carry responsibility for
+# participation. The semantic review prompt covers paraphrases; these
+# concrete variants are an independent, model-free rejection layer.
+planning_burden_fragments:
+  - "מה הכי יעזור לכם להשתתף"
+  - "מה יעזור לכם להשתתף"
+  - "מה יגרום לכם להשתתף"
+  - "איזו פעילות תרצו שנכין"
+  - "איזה תוכן תרצו שנעלה"
+  - "מה כדאי לנו לפרסם כדי שהקבוצה"
+  - "מה כדאי שנעשה כדי שהקבוצה תהיה פעילה"
+  - "מה יעזור להחיות את הקבוצה"
+  - "מה ישאיר את הקבוצה פעילה"
+  - "מה תרצו שבוטסון יעלה"
+
 # Generic filler phrases the LLM gravitates toward when it has nothing
 # specific to say. Reject so prompts stay substantive.
 generic_fragments:

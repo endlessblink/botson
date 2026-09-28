@@ -3334,12 +3334,17 @@ def _quality_failures_for_planner_text(text: str, *, scheduled_date: str | None 
 
 
 def _reject_bad_message_row(row: dict) -> None:
-    if row.get("message_type") not in {"morning", "evening", "discussion"}:
+    message_type = row.get("message_type")
+    if message_type not in {"morning", "evening", "discussion", "custom", "poll"}:
         return
-    failures = _quality_failures_for_planner_text(
-        str(row.get("text") or ""),
-        scheduled_date=row.get("scheduled_date"),
-    )
+    text = str(row.get("text") or "")
+    if message_type in {"custom", "poll"}:
+        # Custom posts and native polls still pass through model-free content bans.
+        # Keep planner-specific structure checks scoped to planner rows.
+        freshness_failure = freshness_rejection(text, scheduled_date=row.get("scheduled_date"))
+        failures = [freshness_failure] if freshness_failure else []
+    else:
+        failures = _quality_failures_for_planner_text(text, scheduled_date=row.get("scheduled_date"))
     if failures:
         raise HTTPException(
             status_code=422,

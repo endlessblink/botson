@@ -16,18 +16,22 @@ from dashboard.app import (
     _is_agent_api_request,
     _require_calendar_api_auth,
     create_calendar_item,
+    update_calendar_item,
 )
 
 
-def make_request(*, token="", key="", session=None, body=b'{"text":"hello"}', payload=None):
+def make_request(
+    *, token="", key="", session=None, body=b'{"text":"hello"}', payload=None,
+    method="POST", path="/api/calendar",
+):
     return SimpleNamespace(
         headers={
             "authorization": f"Bearer {token}" if token else "",
             "idempotency-key": key,
         },
         session=session or {},
-        method="POST",
-        url=SimpleNamespace(path="/api/calendar"),
+        method=method,
+        url=SimpleNamespace(path=path),
         body=lambda: _body(body),
         json=lambda: _json(payload or json.loads(body)),
         state=SimpleNamespace(),
@@ -109,6 +113,53 @@ def test_agent_action_replays_completed_response_and_rejects_uncertain_retry(tmp
                 await _begin_agent_api_action(different, db)
             assert error.value.status_code == 409
             assert "another request" in error.value.detail
+        finally:
+            await db.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("message_type", ["custom", "poll"])
+def test_agent_cannot_approve_poll_that_shifts_planning_to_members(tmp_path, monkeypatch, message_type):
+    monkeypatch.setenv("BOTSON_AGENT_API_TOKEN", "agent-secret-value")
+    target_day = (date.today() + timedelta(days=5)).isoformat()
+    payload = {
+        "text": "מה הכי יעזור לכם להשתתף כאן השבוע?",
+        "message_type": "custom",
+        "scheduled_date": target_day,
+        "scheduled_time": "12:00",
+    }
+    payload["message_type"] = message_type
+    if message_type == "poll":
+        payload["poll_options"] = ["להיפגש", "לשוחח", "לענות על משחק"]
+
+    async def scenario():
+        db = Database(str(tmp_path / "agent-planning-burden.db"))
+        await db.init()
+        try:
+            draft_request = make_request(
+                token="agent-secret-value",
+                key="create-draft-123456",
+                body=json.dumps(payload).encode(),
+                payload=payload,
+            )
+            result = await create_calendar_item(draft_request, db)
+            approval = {"status": "scheduled"}
+            approve_request = make_request(
+                token="agent-secret-value",
+                key="approve-poll-123456",
+                body=json.dumps(approval).encode(),
+                payload=approval,
+                method="PUT",
+                path=f"/api/calendar/{result['id']}",
+            )
+
+            with pytest.raises(HTTPException) as error:
+                await update_calendar_item(result["id"], approve_request, db)
+            assert error.value.status_code == 422
+            row = await db.get_scheduled_message(result["id"])
+            assert row["status"] == "draft"
+            assert "planning burden framing" in str(error.value.detail)
         finally:
             await db.close()
 

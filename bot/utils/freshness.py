@@ -30,7 +30,9 @@ EXECUTABLE_TYPES = {
 }
 
 
-def _load_fragment_lists() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+def _load_fragment_lists() -> tuple[
+    tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]
+]:
     """Read fragment lists from ``config/freshness.yaml``.
 
     Falls back to empty tuples + a logged warning when the file is missing
@@ -41,17 +43,23 @@ def _load_fragment_lists() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str,
         data = load_yaml("freshness.yaml") or {}
     except FileNotFoundError:
         logger.warning("freshness: config/freshness.yaml missing — fragment list empty")
-        return (), (), ()
+        return (), (), (), ()
     except Exception as e:
         logger.warning("freshness: failed to load config/freshness.yaml: %s", e)
-        return (), (), ()
+        return (), (), (), ()
     stale = tuple(str(x) for x in (data.get("stale_fragments") or []))
     misleading = tuple(str(x) for x in (data.get("misleading_ready_fragments") or []))
     generic = tuple(str(x) for x in (data.get("generic_fragments") or []))
-    return stale, misleading, generic
+    planning_burden = tuple(str(x) for x in (data.get("planning_burden_fragments") or []))
+    return stale, misleading, generic, planning_burden
 
 
-STALE_FRAGMENTS, MISLEADING_READY_FRAGMENTS, GENERIC_FRAGMENTS = _load_fragment_lists()
+(
+    STALE_FRAGMENTS,
+    MISLEADING_READY_FRAGMENTS,
+    GENERIC_FRAGMENTS,
+    PLANNING_BURDEN_FRAGMENTS,
+) = _load_fragment_lists()
 
 
 def normalize_text(text: str) -> str:
@@ -202,6 +210,9 @@ def freshness_rejection(
     if not has_hebrew(raw):
         return "no Hebrew"
     normalized = normalize_text(raw)
+    for fragment in PLANNING_BURDEN_FRAGMENTS:
+        if normalize_text(fragment) in normalized:
+            return f"planning burden framing: {fragment}"
     for fragment in STALE_FRAGMENTS + MISLEADING_READY_FRAGMENTS + GENERIC_FRAGMENTS:
         if normalize_text(fragment) in normalized:
             return f"forbidden fragment: {fragment}"

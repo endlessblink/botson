@@ -71,7 +71,11 @@ class MaterializerFreshTextPromptIncludesRules(unittest.IsolatedAsyncioTestCase)
             captured["prompt"] = prompt
             return '{"text":"מה הסצנה הכי משונה שראית בשוק לאחרונה"}'
 
-        with patch.object(materializer, "_generate_with_claude", new=AsyncMock(side_effect=fake_claude)):
+        with patch.object(
+            materializer, "_generate_with_claude", new=AsyncMock(side_effect=fake_claude)
+        ), patch.object(
+            materializer, "review_conversation", new=AsyncMock(return_value=(True, "accepted fixture"))
+        ):
             await materializer._generate_fresh_text(
                 "discussion",
                 category="movies",
@@ -82,6 +86,9 @@ class MaterializerFreshTextPromptIncludesRules(unittest.IsolatedAsyncioTestCase)
             )
 
         _assert_contains_rules(self, captured["prompt"], "materializer._generate_fresh_text")
+        self.assertIn("בחר נושא קונקרטי שרלוונטי לקבוצה", captured["prompt"])
+        self.assertIn("השתמש בתשובות עצמן כהמשך", captured["prompt"])
+        self.assertIn("אם אין רעיון טוב, בחר פעילות מוגדרת שכבר קיימת או דלג", captured["prompt"])
 
 
 class SharedLoaderRoundtrip(unittest.TestCase):
