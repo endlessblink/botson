@@ -4,7 +4,7 @@ import json
 import os
 import logging
 import re
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 from zoneinfo import ZoneInfo
@@ -51,6 +51,7 @@ class Database:
             "ALTER TABLE scheduled_messages ADD COLUMN cover_path TEXT",
             "ALTER TABLE scheduled_messages ADD COLUMN poll_options TEXT",
             "ALTER TABLE scheduled_messages ADD COLUMN poll_duration INTEGER",
+            "ALTER TABLE recent_community_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'member'",
             "ALTER TABLE events ADD COLUMN cover_path TEXT",
             "ALTER TABLE events ADD COLUMN auto_pin INTEGER DEFAULT 0",
             "ALTER TABLE events ADD COLUMN topic_id INTEGER",
@@ -345,6 +346,82 @@ class Database:
             (chat_id, user_id, activity_type, str(source_id), _now_il()),
         )
         await self._db.commit()
+
+    async def record_recent_community_message(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        thread_id: int | None,
+        sender_name: str,
+        source: str = "member",
+        text: str,
+        occurred_at: datetime | str,
+        retention_hours: int = 24,
+    ) -> None:
+        """Keep minimal group context temporarily for private agent read-back."""
+        occurred = (
+            occurred_at if isinstance(occurred_at, datetime)
+            else datetime.fromisoformat(occurred_at)
+        )
+        if occurred.tzinfo is None:
+            occurred = occurred.replace(tzinfo=timezone.utc)
+        occurred = occurred.astimezone(timezone.utc)
+        occurred_text = occurred.isoformat(timespec="seconds")
+        expires_text = (occurred + timedelta(hours=retention_hours)).isoformat(timespec="seconds")
+        now_text = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        await self._db.execute(
+            "DELETE FROM recent_community_messages WHERE expires_at <= ?", (now_text,)
+        )
+        await self._db.execute(
+            """INSERT OR REPLACE INTO recent_community_messages
+               (chat_id, message_id, thread_id, sender_name, source, text, occurred_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (chat_id, message_id, thread_id, sender_name, source, text, occurred_text, expires_text),
+        )
+        await self._db.commit()
+
+    async def get_recent_community_messages(
+        self, chat_id: int, *, since: datetime, limit: int = 100
+    ) -> list[dict]:
+        """Read unexpired message context for one configured community."""
+        now_text = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        since_text = since.astimezone(timezone.utc).isoformat(timespec="seconds")
+        await self._db.execute(
+            "DELETE FROM recent_community_messages WHERE expires_at <= ?", (now_text,)
+        )
+        async with self._db.execute(
+            """SELECT message_id, thread_id, sender_name, source, text, occurred_at
+               FROM recent_community_messages
+               WHERE chat_id = ? AND occurred_at >= ? AND expires_at > ?
+               ORDER BY occurred_at DESC, message_id DESC LIMIT ?""",
+            (chat_id, since_text, now_text, limit),
+        ) as cursor:
+            rows = [dict(row) for row in await cursor.fetchall()]
+        await self._db.commit()
+        rows = list(reversed(rows))
+        return rows
+
+    async def get_recent_scheduled_community_messages(
+        self, *, since: datetime, limit: int = 100
+    ) -> list[dict]:
+        """Read Botson's recently sent main-group calendar messages."""
+        since_text = since.astimezone(_IL_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT sent_message_id AS message_id, channel_topic_id AS thread_id,
+                      'Botson' AS sender_name, text, sent_at AS occurred_at
+               FROM scheduled_messages
+               WHERE status = 'sent' AND target_group = 'main'
+                 AND sent_message_id IS NOT NULL AND sent_at >= ?
+               ORDER BY sent_at DESC, id DESC LIMIT ?""",
+            (since_text, limit),
+        ) as cursor:
+            rows = [dict(row) for row in await cursor.fetchall()]
+        for row in rows:
+            sent_at = datetime.strptime(row["occurred_at"], "%Y-%m-%d %H:%M:%S")
+            row["occurred_at"] = sent_at.replace(tzinfo=_IL_TZ).astimezone(timezone.utc).isoformat(timespec="seconds")
+            row["source"] = "botson"
+        return list(reversed(rows))
 
     async def create_member_cleanup_campaign(self, chat_id: int, *, deadline_at: str, activity_window_days: int) -> int:
         cursor = await self._db.execute(

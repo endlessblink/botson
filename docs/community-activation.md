@@ -3,6 +3,14 @@
 Status: operating proposal; production schedule changes are not verified.
 Last reviewed: 2026-09-28.
 
+## Live activity record — 2026-09-28
+
+- The group ran the poll: “אפשר לבחור כוח־על קטן ליום אחד — מה לוקחים?”
+- Aggregate read-back showed 3 votes for falling asleep within a minute and 2 for understanding every language.
+- Botson sent one contextual follow-up in the same topic at 16:29 IDT, referencing those two choices. Calendar row 872 read back as `sent`, Telegram message 8776; no duplicate send was observed.
+- The follow-up is a response layer to the poll, not a second scheduled anchor. Re-read live context before another broadcast.
+- The private recent-message feed is implemented locally with 24-hour retention and regression tests; production capture and authenticated read-back remain pending deployment.
+
 ## Goal
 
 Help recent joiners make a first, low-pressure contribution and give them a
@@ -14,16 +22,15 @@ responses, not message volume, tags, or poll counts.
 Use no more than one planned anchor activity per day. Add a response layer only
 when it refers to something members actually said.
 
-1. **Today — continue the live joke.** Prepare one short, playful reply in
-   context to the existing conversation. Render and review the actual copy in
-   the authenticated dashboard `/review`; send once, as a reply, only after
-   checking recent posts and the live schedule. Do not post another generic
-   welcome.
-2. **Next day — one simple choice.** Prepare a short native poll about what
-   makes joining a new group easy. Configure three distinct, easy-to-answer
-   choices. Render and review all copy in `/review`; first check recent
-   Botson posts and the live schedule for overlap. Leave a short comment window
-   so regulars can answer in their own words.
+1. **Today — continue the live poll.** The poll has one grounded, playful
+   follow-up already. Let members answer; do not stack another prompt onto it.
+2. **Next day — turn the poll into a group joke.** If the poll still has a
+   clear leading choice, post: “אחת ההצעות המובילות הייתה להירדם תוך דקה 😴
+   בואו ניתן לכוח הזה שם של כפתור בטלפון. ״מצב טיסה למוח״ הוא מועמד — מה שם
+   יותר טוב?” If the leader changes, replace the first sentence with the
+   actual leading choice. Check fresh group context and the live schedule
+   before sending once. This gives members an easy creative reply without
+   asking newcomers to explain themselves or do work for the group.
 3. **Following day — reflect real answers.** Mention the winning choice or an
    interesting answer and ask one useful follow-up. If the poll had little
    response, switch to a simpler open question rather than repeating it.
@@ -47,6 +54,8 @@ pretend to remember facts it cannot see.
 - A poll is a format, not a reason to post. Use it only when options create a
   real choice that can be followed up on.
 - After the anchor, prefer contextual replies to another scheduled broadcast.
+- Never ask newcomers to justify joining, explain inactivity, or do the work of
+  making the group welcoming; offer a light prompt they can answer or ignore.
 - Never send a newcomer private messages; the bot cannot start a private chat.
 
 ## Learning record

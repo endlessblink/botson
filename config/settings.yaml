@@ -29,6 +29,7 @@ bot:
     קהילת "אלהוריים וזה" — קהילת צ'ילדפרי (ללא ילדים מבחירה) בטלגרם.
     הקבוצה הראשית פעילה ב-RTL, התרבות ביתית-חברית, התוכן הומור-ענייני, גמיש בנושאים אבל מכבד את הקו ה-childfree.
     כתבו בשפה טבעית, ישירה, ללא סלוגנים שיווקיים. אל תשתמשו ב"אנחנו, הקהילה" — דברו אל החברים.
+  community_context_recent_hours: 24
 
 # Centralized user-facing copy. Every Hebrew template the bot or
 # dashboard surfaces should read from here via `bot/utils/copy.py:load_copy`.

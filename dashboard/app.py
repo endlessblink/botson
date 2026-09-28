@@ -33,7 +33,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.database.db import Database
-from bot.utils.config import ADMIN_IDS, DB_PATH, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
+from bot.utils.config import ADMIN_IDS, DB_PATH, GROUP_ID, get_holiday_blackout, get_settings, get_prompts, get_spam_patterns, get_topic_rules, is_auto_blocked_on, load_yaml
 from bot.utils.freshness import freshness_rejection, near_duplicate
 from bot.utils.game_categories import canonical_emoji_media_type
 from bot.utils.levels import get_level, get_progress
@@ -13031,6 +13031,44 @@ async def get_agent_calendar(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="date range must be ordered and no longer than 94 days")
     rows = await db.get_scheduled_messages(date_from, date_to, include_cancelled=True)
     return {"start": date_from, "end": date_to, "items": rows}
+
+
+@app.get("/api/agent/community/messages")
+async def get_agent_community_messages(
+    request: Request,
+    hours: int = 24,
+    limit: int = 100,
+    db: Database = Depends(get_db),
+):
+    """Return short-lived text context for the configured main group only."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="Agent API token required")
+    retention_hours = int(
+        (get_settings().get("bot") or {}).get("community_context_recent_hours", 24)
+    )
+    if hours < 1 or hours > retention_hours:
+        raise HTTPException(status_code=400, detail=f"hours must be between 1 and {retention_hours}")
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+    if not GROUP_ID:
+        raise HTTPException(status_code=503, detail="Community group is not configured")
+    since = datetime.now(ZoneInfo("UTC")) - timedelta(hours=hours)
+    member_messages = await db.get_recent_community_messages(GROUP_ID, since=since, limit=limit)
+    bot_messages = await db.get_recent_scheduled_community_messages(since=since, limit=limit)
+    # safe_send captures live Botson outputs, while scheduled calendar rows are
+    # also queried separately. A scheduled send therefore appears in both
+    # stores; prefer the durable calendar record and emit the Telegram message
+    # only once.
+    unique_messages = {}
+    for item in [*member_messages, *bot_messages]:
+        key = (item["thread_id"], item["message_id"])
+        if item["source"] == "botson" or key not in unique_messages:
+            unique_messages[key] = item
+    messages = sorted(
+        unique_messages.values(),
+        key=lambda item: (item["occurred_at"], item["message_id"]),
+    )[-limit:]
+    return {"hours": hours, "retention_hours": retention_hours, "messages": messages}
 
 
 _EXECUTABLE_HANDLERS_REQUIRING_ROUTING = {

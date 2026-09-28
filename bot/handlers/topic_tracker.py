@@ -8,8 +8,38 @@ from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
+from ..utils.config import GROUP_ID, get_settings
+from ..utils.helpers import get_display_name
 
 logger = logging.getLogger(__name__)
+
+
+async def capture_recent_community_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store only ordinary text from the configured main group for short context read-back."""
+    msg = update.message
+    user = getattr(update, "effective_user", None)
+    if not msg or not user or msg.chat_id != GROUP_ID or getattr(user, "is_bot", False):
+        return
+    text = (msg.text or msg.caption or "").strip()
+    if not text or text.startswith("/"):
+        return
+
+    retention_hours = int(
+        (get_settings().get("bot") or {}).get("community_context_recent_hours", 24)
+    )
+    db: Database = context.bot_data["db"]
+    try:
+        await db.record_recent_community_message(
+            chat_id=msg.chat_id,
+            message_id=msg.message_id,
+            thread_id=msg.message_thread_id,
+            sender_name=get_display_name(user),
+            text=text,
+            occurred_at=msg.date,
+            retention_hours=retention_hours,
+        )
+    except Exception:
+        logger.exception("topic_tracker: failed to retain recent community context")
 
 
 def _auto_category_key(thread_id: int) -> str:
@@ -22,8 +52,8 @@ async def track_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = update.message
+    await capture_recent_community_message(update, context)
     thread_id = msg.message_thread_id
-    logger.debug("track_topic called: chat=%s thread=%s text=%s", msg.chat_id, thread_id, (msg.text or '')[:30])
     if not thread_id:
         return
 

@@ -9,7 +9,7 @@ Configure `BOTSON_AGENT_API_TOKEN` on the dashboard service with a newly generat
 Send it as `Authorization: Bearer <token>`; the dashboard password and Telegram bot token are not substitutes.
 When the variable is unset, bearer authentication fails closed.
 
-The token is accepted only by the calendar read/create/update/cancel/schedule/send endpoints described below.
+The token is accepted only by the calendar endpoints and the restricted community-message read endpoint described below.
 It does not grant access to other dashboard APIs.
 
 ## Read and edit the schedule
@@ -20,6 +20,9 @@ It does not grant access to other dashboard APIs.
 - `POST /api/calendar/{id}/schedule` validates the row and schedules it.
 - `DELETE /api/calendar/{id}` cancels a row.
 - `POST /api/calendar/{id}/send-now` explicitly sends one row now. It uses the regular Botson content checks and dispatch handlers.
+- `GET /api/agent/community/messages?hours=24&limit=100` returns recent text context from the configured main group. It requires the same private bearer token, returns at most 200 messages, and cannot request more than the configured retention window.
+
+The bot captures non-command text and captions from non-bot members in the configured main group only, and includes sent calendar messages addressed to the main group. Entries expire after `bot.community_context_recent_hours` (24 hours by default); expired member rows are deleted during writes and reads. The endpoint does not expose other groups or DMs. Direct Bot API replies that do not create a calendar row are not yet included. Telegram does not provide a bot API for backfilling arbitrary group history, so member-message collection starts after the bot version with this capture handler is deployed.
 
 Existing validation remains active, including message quality, slot-conflict, game-payload, and schedule-time checks.
 

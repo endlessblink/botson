@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Protocol
+from datetime import datetime, timezone
 
 from .config import GROUP_ID, TEST_GROUP_ID
 
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 class _VerifiedTopicsLookup(Protocol):
     async def is_verified_topic_id(self, topic_id: int) -> bool: ...
     async def delete_topic(self, topic_id: int) -> None: ...
+    async def record_recent_community_message(self, **kwargs: Any) -> None: ...
 
 
 class UnverifiedTopicError(RuntimeError):
@@ -99,7 +101,37 @@ async def safe_send(
     if message_thread_id is not None:
         call_kwargs["message_thread_id"] = message_thread_id
     try:
-        return await method(**call_kwargs)
+        sent = await method(**call_kwargs)
+        if chat_id == GROUP_ID:
+            sent_text = (
+                getattr(sent, "text", None)
+                or getattr(sent, "caption", None)
+                or getattr(getattr(sent, "poll", None), "question", None)
+                or call_kwargs.get("text")
+                or call_kwargs.get("caption")
+                or call_kwargs.get("question")
+            )
+            sent_id = getattr(sent, "message_id", None)
+            if sent_text and sent_id is not None:
+                try:
+                    await db.record_recent_community_message(
+                        chat_id=chat_id,
+                        message_id=sent_id,
+                        thread_id=(
+                            getattr(sent, "message_thread_id", None)
+                            or message_thread_id
+                        ),
+                        sender_name="Botson",
+                        source="botson",
+                        text=sent_text,
+                        occurred_at=getattr(sent, "date", None)
+                        or datetime.now(timezone.utc),
+                    )
+                except Exception:
+                    logger.exception(
+                        "topic_guard: sent group message but failed to record private context"
+                    )
+        return sent
     except Exception as e:
         err = str(e).lower()
         if message_thread_id is not None and any(m in err for m in _DELETED_TOPIC_MARKERS):

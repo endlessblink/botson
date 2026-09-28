@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS member_activity_events (
 CREATE INDEX IF NOT EXISTS idx_member_activity_window
     ON member_activity_events(chat_id, occurred_at, user_id, activity_type);
 
+CREATE TABLE IF NOT EXISTS recent_community_messages (
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    thread_id INTEGER,
+    sender_name TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'member',
+    text TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_recent_community_messages_expiry
+    ON recent_community_messages(chat_id, expires_at, occurred_at);
+
 CREATE TABLE IF NOT EXISTS member_cleanup_campaigns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id INTEGER NOT NULL,
