@@ -163,12 +163,12 @@ async def quiz_winners(db: Database, *, poll_row: dict, correct_option: str) -> 
     return {uid: names[uid] for uid, picked in choices.items() if picked == {correct_key}}
 
 
-async def award_quiz_points(db: Database, context, *, poll_row: dict, correct_option: str) -> list[str]:
+async def award_quiz_points(db: Database, context, *, poll_row: dict, correct_option: str) -> dict[int, str]:
     """Give points to members who picked only the correct option of a guess poll.
 
     Voting is a toggle, so a member can tick several options; only members
     whose sole choice is the correct one score. Idempotent per poll message.
-    Returns the names of the members who scored (empty if already awarded).
+    Returns {user_id: name} of the members who scored (empty if already awarded).
     """
     from ..utils.scoring import get_points
     from .calendar import _parse_poll_options
@@ -182,7 +182,7 @@ async def award_quiz_points(db: Database, context, *, poll_row: dict, correct_op
         raise ValueError("poll has not been sent yet")
     already = await db.get_recent_activity_subjects(action_type="quiz_points", days=365, key="quiz")
     if str(message_id) in already:
-        return []
+        return {}
 
     names = await quiz_winners(db, poll_row=poll_row, correct_option=correct_option)
     winners = list(names)
@@ -196,4 +196,11 @@ async def award_quiz_points(db: Database, context, *, poll_row: dict, correct_op
         await db.log_activity("points", f"+{points} quiz:{message_id} {names[uid]}", uid)
     await db.log_activity("quiz_points", f"quiz:{message_id} +{points} x{len(winners)}")
     logger.info("quiz points: poll msg %d, %d winner(s), +%d each", message_id, len(winners), points)
-    return [names[uid] for uid in winners]
+    return {uid: names[uid] for uid in winners}
+
+
+def tag_members(winners: dict[int, str]) -> str:
+    """HTML mentions that notify each member (send with parse_mode="HTML")."""
+    from html import escape
+
+    return ", ".join(f'<a href="tg://user?id={uid}">{escape(name)}</a>' for uid, name in winners.items())

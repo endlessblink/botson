@@ -33,6 +33,7 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
         with (
             patch.object(welcome, "_pending_joins", joins),
             patch.object(welcome, "_batch_task", object()),
+            patch.object(welcome, "get_settings", _public_welcome_enabled),
             patch("bot.handlers.welcome.load_copy", create=True, side_effect=lambda ns, key, **_: f"{ns}.{key}"),
         ):
             await welcome._flush_pending(context, chat_id=-100123, topic_id=341)
@@ -63,6 +64,7 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
 
         with (
             patch.object(welcome, "_pending_joins", [{"user_id": 303, "username": None, "name": "New Person"}]),
+            patch.object(welcome, "get_settings", _public_welcome_enabled),
             patch.object(welcome, "_batch_task", None),
             patch("bot.handlers.welcome.load_copy", create=True, side_effect=lambda ns, key, **_: f"{ns}.{key}"),
         ):
@@ -98,6 +100,7 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
         with (
             patch.object(welcome, "_pending_joins", [{"user_id": 101, "username": None, "name": "Person"}]),
             patch.object(welcome, "_batch_task", None),
+            patch.object(welcome, "get_settings", _public_welcome_enabled),
             patch("bot.handlers.welcome.load_copy", create=True, side_effect=lambda ns, key, **_: f"{ns}.{key}"),
         ):
             await welcome._flush_pending(context, chat_id=-100123, topic_id=341)
@@ -130,3 +133,31 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
             call(chat_id=101, text="welcome.rules"),
         ])
         self.assertFalse(any("message_thread_id" in call.kwargs for call in bot.send_message.await_args_list))
+
+
+def _public_welcome_enabled():
+    """Real settings with the (default-off) public greeting switched on."""
+    from bot.utils.config import get_settings
+    settings = get_settings()
+    return {**settings, "welcome": {**settings["welcome"], "public_enabled": True}}
+
+
+class PublicWelcomeOffByDefaultTests(IsolatedAsyncioTestCase):
+    async def test_join_is_recorded_but_nothing_is_posted_publicly(self):
+        bot = SimpleNamespace(send_message=AsyncMock())
+        db = SimpleNamespace(
+            upsert_member=AsyncMock(), upsert_chat_member=AsyncMock(),
+            record_member_activity=AsyncMock(), log_activity=AsyncMock(),
+            claim_action_cooldown=AsyncMock(return_value=True),
+        )
+        context = SimpleNamespace(bot=bot, bot_data={"db": db})
+        with (
+            patch.object(welcome, "_pending_joins", [{"user_id": 404, "username": None, "name": "Newcomer"}]),
+            patch.object(welcome, "_batch_task", object()),
+            patch("bot.handlers.welcome.load_copy", create=True, side_effect=lambda ns, key, **_: f"{ns}.{key}"),
+        ):
+            await welcome._flush_pending(context, chat_id=-100123, topic_id=341)
+        db.upsert_member.assert_awaited()
+        db.claim_action_cooldown.assert_not_awaited()
+        public = [c for c in bot.send_message.await_args_list if c.kwargs.get("message_thread_id") == 341]
+        self.assertEqual(public, [])

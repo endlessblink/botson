@@ -490,7 +490,7 @@ async def _award_quiz_reveal(bot, db, msg: dict, chat_id: int, reply_to: int | N
     marker = _quiz_marker(msg.get("poll_options"))
     if not marker:
         return
-    from .polls import award_quiz_points
+    from .polls import award_quiz_points, tag_members
 
     try:
         poll_row = await db.get_scheduled_message(int(marker["quiz_answer_for"]))
@@ -504,10 +504,11 @@ async def _award_quiz_reveal(bot, db, msg: dict, chat_id: int, reply_to: int | N
             from ..utils.scoring import get_points
             await safe_send(
                 bot, db, "send_message", chat_id=chat_id,
-                text=load_copy("polls", "quiz_winners", names=", ".join(winners),
+                text=load_copy("polls", "quiz_winners", names=tag_members(winners),
                                points=get_points("quiz_poll_correct")),
                 message_thread_id=msg.get("channel_topic_id"),
                 reply_to_message_id=reply_to,
+                parse_mode="HTML",
             )
     except Exception:
         logger.exception("quiz points failed for reveal row %s", msg.get("id"))

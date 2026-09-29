@@ -55,8 +55,8 @@ def test_only_sole_correct_pick_scores_and_is_idempotent(tmp_path):
 
     first, second, member = run(tmp_path, body)
     assert member is not None
-    assert first == ["Right"]
-    assert second == []
+    assert first == {1: "Right"}
+    assert second == {}
     award.assert_awaited_once()
     assert award.call_args.args[2:] == (1, "Right", 5)
 
@@ -75,19 +75,20 @@ def test_reveal_row_marker_triggers_scoring_and_winner_reply():
     msg = {"id": 874, "channel_topic_id": 54,
            "poll_options": json.dumps({"quiz_answer_for": 875, "correct_option": "A"})}
     send = AsyncMock()
-    with patch("bot.handlers.polls.award_quiz_points", new=AsyncMock(return_value=["Right"])) as award, \
+    with patch("bot.handlers.polls.award_quiz_points", new=AsyncMock(return_value={1: "Right"})) as award, \
          patch.object(calendar, "safe_send", new=send), \
          patch.object(calendar, "load_copy", return_value="winners"):
         asyncio.run(calendar._award_quiz_reveal(AsyncMock(), db, msg, -100, 9000))
     award.assert_awaited_once()
     assert send.call_args.kwargs["reply_to_message_id"] == 9000
     assert send.call_args.kwargs["message_thread_id"] == 54
+    assert send.call_args.kwargs["parse_mode"] == "HTML"
 
 
 def test_plain_rows_and_reveal_without_winners_send_nothing():
     send = AsyncMock()
     with patch.object(calendar, "safe_send", new=send), \
-         patch("bot.handlers.polls.award_quiz_points", new=AsyncMock(return_value=[])):
+         patch("bot.handlers.polls.award_quiz_points", new=AsyncMock(return_value={})):
         asyncio.run(calendar._award_quiz_reveal(AsyncMock(), SimpleNamespace(), {"poll_options": None}, -100, 1))
         db = SimpleNamespace(get_scheduled_message=AsyncMock(return_value=_poll_row()))
         msg = {"poll_options": {"quiz_answer_for": 875, "correct_option": "A"}}
@@ -97,3 +98,10 @@ def test_plain_rows_and_reveal_without_winners_send_nothing():
 
 def test_marker_dict_is_not_read_as_poll_options():
     assert calendar._parse_poll_options(json.dumps({"quiz_answer_for": 1, "correct_option": "A"})) == []
+
+
+def test_winners_are_tagged_and_names_escaped():
+    from bot.handlers.polls import tag_members
+    out = tag_members({1: "Ann", 2: "<b>x</b>"})
+    assert '<a href="tg://user?id=1">Ann</a>' in out
+    assert "&lt;b&gt;" in out

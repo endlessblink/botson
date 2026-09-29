@@ -794,5 +794,7 @@ game_warmup_topic_routes:
     song: music
     music: music
 welcome:
+  # Recurring public greeting on member joins. Off: the operator wanted it once only.
+  public_enabled: false
   batch_window_seconds: 30
   public_cooldown_seconds: 86400

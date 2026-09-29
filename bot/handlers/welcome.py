@@ -40,7 +40,9 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
         await db.upsert_chat_member(chat_id, join["user_id"], join["username"], join["name"])
         await db.record_member_activity(chat_id, join["user_id"], "join", str(join["user_id"]))
 
-    if topic_id is not None:
+    # The public group greeting was a one-time operator post, not a recurring
+    # feature: it stays off unless welcome.public_enabled is explicitly true.
+    if topic_id is not None and get_settings()["welcome"].get("public_enabled", False):
         welcome_key = f"public_welcome:{chat_id}:{topic_id}"
         cooldown_seconds = int(get_settings()["welcome"]["public_cooldown_seconds"])
         if await db.claim_action_cooldown(welcome_key, cooldown_seconds):
