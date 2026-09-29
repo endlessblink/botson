@@ -88,3 +88,38 @@ async def test_missing_or_escaped_context_field_rejects_before_provider(config, 
     generate = AsyncMock(return_value=response())
     assert not (await quality.review_conversation('candidate', generate=generate))[0]
     generate.assert_not_awaited()
+
+
+@run_async
+async def test_malformed_reply_is_retried_then_accepted(config):
+    config['technical_attempts'] = 3
+    broken = '{\n"pass": true,\n"reason": "uses "quoted" hebrew", "specificity": 4}'
+    generate = AsyncMock(side_effect=[broken, response()])
+    assert await quality.review_conversation('candidate', generate=generate) == (True, 'concrete')
+    assert generate.await_count == 2
+
+
+@run_async
+async def test_wellformed_rejection_is_not_retried(config):
+    config['technical_attempts'] = 3
+    generate = AsyncMock(return_value=response(**{'pass': False, 'reason': 'generic'}))
+    assert await quality.review_conversation('candidate', generate=generate) == (False, 'generic')
+    assert generate.await_count == 1
+
+
+@run_async
+async def test_exhausted_technical_retries_fail_closed(config, caplog):
+    config['technical_attempts'] = 2
+    generate = AsyncMock(return_value='not json at all')
+    passed, reason = await quality.review_conversation('candidate', generate=generate)
+    assert passed is False and reason.startswith('semantic review unavailable')
+    assert generate.await_count == 2
+    assert 'excerpt: not json at all' in caplog.text
+
+
+@run_async
+async def test_batch_review_retries_malformed_reply(config):
+    config['technical_attempts'] = 2
+    good = json.dumps({'items': [{'id': 1, 'pass': True, 'reason': 'ok', **dict.fromkeys(SCORES, 4)}]})
+    generate = AsyncMock(side_effect=['{"items": [broken', good])
+    assert await quality.review_conversations([{'id': 1, 'text': 'x'}], generate=generate) == {1: (True, 'ok')}

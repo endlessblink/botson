@@ -3,6 +3,9 @@
 minimum_score: 4
 score_min: 1
 score_max: 5
+# Extra tries when the reviewer reply is malformed or the provider errors.
+# A well-formed "fail" verdict is never retried.
+technical_attempts: 3
 candidate_prompt: |
   Channel or conversation type: {category}
   Recent questions (avoid repeating their ideas):

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 _SCORES = ('specificity', 'naturalness', 'novelty', 'channel_fit', 'answerability', 'payoff')
 
 
-def _review_contract() -> tuple[str, str, int, int, int]:
+def _review_contract() -> tuple[str, str, int, int, int, int]:
     config = load_yaml('hot_take_review.yaml')
     reviewer_prompt = config['reviewer_prompt'].strip()
     candidate_prompt = config['candidate_prompt'].strip()
@@ -21,11 +21,52 @@ def _review_contract() -> tuple[str, str, int, int, int]:
     fields = {field for _, field, _, _ in Formatter().parse(candidate_prompt) if field is not None}
     if not {'text', 'category', 'recent_texts'} <= fields:
         raise ValueError('reviewer candidate template missing required context fields')
+    attempts = config.get('technical_attempts', 1)
+    if type(attempts) is not int or attempts < 1:
+        raise ValueError('invalid reviewer technical_attempts')
     minimum = config['minimum_score']
     score_min, score_max = config['score_min'], config['score_max']
     if any(type(value) is not int for value in (minimum, score_min, score_max)) or not score_min <= minimum <= score_max:
         raise ValueError('invalid reviewer score configuration')
-    return reviewer_prompt, candidate_prompt, minimum, score_min, score_max
+    return reviewer_prompt, candidate_prompt, minimum, score_min, score_max, attempts
+
+
+class _MalformedReview(ValueError):
+    """The reviewer answered, but not in the required JSON contract."""
+
+
+def _extract_json(raw: str | None) -> dict:
+    payload = (raw or '').strip()
+    start, end = payload.find('{'), payload.rfind('}')
+    try:
+        if start < 0 or end <= start:
+            raise ValueError('reviewer returned no JSON object')
+        parsed = json.loads(payload[start:end + 1])
+        if not isinstance(parsed, dict):
+            raise ValueError('reviewer JSON is not an object')
+        return parsed
+    except ValueError as error:
+        # Keep a redacted excerpt so the next malformed reply is diagnosable.
+        excerpt = redact_sensitive(payload[:400]).replace('\n', ' | ')
+        logger.warning('Reviewer reply malformed (%s); excerpt: %s', error, excerpt)
+        raise _MalformedReview(str(error)) from error
+
+
+async def _generate_parsed(generate: Callable[[str], Awaitable[str]], prompt: str,
+                           attempts: int, validate: Callable[[dict], object]):
+    """Retry only technical failures (bad JSON / broken contract / provider
+    error). A well-formed verdict is returned as-is, pass or fail."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return validate(_extract_json(await generate(prompt)))
+        except Exception as error:  # noqa: BLE001 - every technical failure is retryable
+            last_error = error
+            if attempt < attempts:
+                logger.info('Reviewer technical failure on attempt %d/%d: %s; retrying',
+                            attempt, attempts, redact_sensitive(error))
+    assert last_error is not None
+    raise last_error
 
 
 def _parse_verdict(result: Mapping, minimum: int, score_min: int, score_max: int) -> tuple[bool, str]:
@@ -46,20 +87,17 @@ async def review_conversation(
 ) -> tuple[bool, str]:
     """Review a candidate using an injected provider; unavailable review rejects."""
     try:
-        reviewer_prompt, candidate_prompt, minimum, score_min, score_max = _review_contract()
+        reviewer_prompt, candidate_prompt, minimum, score_min, score_max, attempts = _review_contract()
         if not text.strip():
             raise ValueError('candidate missing')
         recent_block = '\n'.join(str(item).strip() for item in (recent_texts or []) if str(item).strip())
         prompt = reviewer_prompt + '\n\n' + candidate_prompt.format(
             category=category or '', recent_texts=recent_block, text=text.strip(),
         )
-        raw = await generate(prompt)
-        candidate = (raw or '').strip()
-        start, end = candidate.find('{'), candidate.rfind('}')
-        if start < 0 or end <= start:
-            raise ValueError('reviewer returned no JSON object')
-        result = json.loads(candidate[start:end + 1])
-        return _parse_verdict(result, minimum, score_min, score_max)
+        return await _generate_parsed(
+            generate, prompt, attempts,
+            lambda result: _parse_verdict(result, minimum, score_min, score_max),
+        )
     except Exception as error:
         safe_error = redact_sensitive(error)
         logger.warning('Conversation semantic review failed closed: %s', safe_error)
@@ -88,7 +126,7 @@ async def review_conversations(
             raise ValueError('candidate ids missing or duplicated')
         if not candidates:
             return {}
-        reviewer_prompt, candidate_prompt, minimum, score_min, score_max = _review_contract()
+        reviewer_prompt, candidate_prompt, minimum, score_min, score_max, attempts = _review_contract()
         rendered = []
         for candidate in candidates:
             text = str(candidate.get('text') or '').strip()
@@ -115,27 +153,24 @@ async def review_conversations(
             'answerability, and payoff fields required above. Do not omit or duplicate ids.\n\n'
             + json.dumps(rendered, ensure_ascii=False)
         )
-        raw = await generate(prompt)
-        payload = (raw or '').strip()
-        start, end = payload.find('{'), payload.rfind('}')
-        if start < 0 or end <= start:
-            raise ValueError('reviewer returned no JSON object')
-        parsed = json.loads(payload[start:end + 1])
-        items = parsed.get('items') if isinstance(parsed, dict) else None
-        if not isinstance(items, list):
-            raise ValueError('reviewer response missing items list')
-        results: dict[int, tuple[bool, str]] = {}
-        for item in items:
-            if not isinstance(item, dict) or type(item.get('id')) is not int:
-                raise ValueError('reviewer item missing integer id')
-            item_id = item['id']
-            if item_id not in expected_ids:
-                raise ValueError('reviewer returned unknown id')
-            if item_id in results:
-                raise ValueError('reviewer returned duplicate id')
-            results[item_id] = _parse_verdict(item, minimum, score_min, score_max)
-        if set(results) != expected_ids:
-            raise ValueError('reviewer omitted candidate id')
-        return results
+        def validate_batch(parsed: dict) -> dict[int, tuple[bool, str]]:
+            items = parsed.get('items')
+            if not isinstance(items, list):
+                raise ValueError('reviewer response missing items list')
+            results: dict[int, tuple[bool, str]] = {}
+            for item in items:
+                if not isinstance(item, dict) or type(item.get('id')) is not int:
+                    raise ValueError('reviewer item missing integer id')
+                item_id = item['id']
+                if item_id not in expected_ids:
+                    raise ValueError('reviewer returned unknown id')
+                if item_id in results:
+                    raise ValueError('reviewer returned duplicate id')
+                results[item_id] = _parse_verdict(item, minimum, score_min, score_max)
+            if set(results) != expected_ids:
+                raise ValueError('reviewer omitted candidate id')
+            return results
+
+        return await _generate_parsed(generate, prompt, attempts, validate_batch)
     except Exception as error:
         return reject_all(error)
