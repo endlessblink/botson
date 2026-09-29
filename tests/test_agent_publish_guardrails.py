@@ -161,3 +161,30 @@ def test_agent_created_rows_are_labelled_and_sendable(env):
     assert result["status"] == "ok"
     assert rows[0]["created_by"] == "agent"
     assert _scheduler_authored_conversation(rows[0])
+
+
+def test_picture_riddle_and_answer_reveal_skip_the_discussion_rubric(env):
+    tmp_path, review = env
+    review.return_value = (False, "not a discussion question")
+
+    async def body(db):
+        when = datetime.now(ZoneInfo("Asia/Jerusalem"))
+        await dash._agent_publish_guard(
+            agent_request(), db, row_id=11, text="riddle", message_type="poll", target_group="main",
+            scheduled_date=when.strftime("%Y-%m-%d"), scheduled_time=when.strftime("%H:%M"),
+            sending_now=True, poll_options='["A", "B"]', cover_path="covers/x.png",
+        )
+        await dash._agent_publish_guard(
+            agent_request(), db, row_id=12, text="answer", message_type="custom", target_group="main",
+            scheduled_date=when.strftime("%Y-%m-%d"), scheduled_time=when.strftime("%H:%M"),
+            sending_now=False, poll_options={"quiz_answer_for": 11, "correct_option": "A"},
+        )
+        # A text-only poll is still reviewed.
+        with pytest.raises(HTTPException):
+            await dash._agent_publish_guard(
+                agent_request(), db, row_id=13, text="plain poll", message_type="poll", target_group="main",
+                scheduled_date=when.strftime("%Y-%m-%d"), scheduled_time=when.strftime("%H:%M"),
+                sending_now=False, poll_options='["A", "B"]',
+            )
+    run(body, tmp_path)
+    review.assert_awaited_once()

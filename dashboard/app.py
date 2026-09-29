@@ -475,6 +475,8 @@ async def _agent_publish_guard(
     scheduled_date: str | None,
     scheduled_time: str | None,
     sending_now: bool,
+    poll_options=None,
+    cover_path: str | None = None,
 ) -> None:
     """Guardrails for agents publishing to the main group without operator review.
 
@@ -483,6 +485,9 @@ async def _agent_publish_guard(
     * A post the reviewer rejected cannot be edited and retried until it slips
       through; after the daily rejection budget, agent publishing pauses.
     * send-now only fires a row that is due now; future rows must be scheduled.
+    * The review rubric judges discussion prompts, so it is not applied to a
+      picture riddle (a poll with an image the reviewer cannot see) or to the
+      answer reveal of a guess poll. Hard content rules still apply to both.
     """
     if not _is_agent_api_request(request) or (target_group or "main") != "main":
         return
@@ -501,6 +506,10 @@ async def _agent_publish_guard(
                 detail=f"Row is due {scheduled_date} {str(scheduled_time)[:5]}; schedule it instead of sending early",
             )
     if message_type in EXECUTABLE_GAME_TYPES or message_type in CRON_OWNED_TYPES:
+        return
+    from bot.handlers.calendar import _quiz_marker
+
+    if _quiz_marker(poll_options) or (message_type == "poll" and cover_path):
         return
     if row_id is not None and await _agent_rejections(db, since="2000-01-01", row_id=row_id):
         raise HTTPException(
@@ -13504,7 +13513,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
             request, db, row_id=None, text=data["text"],
             message_type=data.get("message_type", "custom"), target_group=target_group,
             scheduled_date=data["scheduled_date"], scheduled_time=data["scheduled_time"],
-            sending_now=False,
+            sending_now=False, poll_options=data.get("poll_options"), cover_path=data.get("cover_path"),
         )
     poll_options = data.get("poll_options")
     raw_type = data.get("message_type", "custom")
@@ -13761,8 +13770,8 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
 
     if _is_agent_api_request(request) and ({"text", "message_type", "status", "target_group"} & set(fields)):
         async with db._db.execute(
-            "SELECT text, message_type, status, target_group, scheduled_date, scheduled_time "
-            "FROM scheduled_messages WHERE id = ?",
+            "SELECT text, message_type, status, target_group, scheduled_date, scheduled_time, "
+            "poll_options, cover_path FROM scheduled_messages WHERE id = ?",
             (msg_id,),
         ) as cur:
             current = await cur.fetchone()
@@ -13775,6 +13784,8 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
                 scheduled_date=fields.get("scheduled_date", current["scheduled_date"]),
                 scheduled_time=fields.get("scheduled_time", current["scheduled_time"]),
                 sending_now=False,
+                poll_options=fields.get("poll_options", current["poll_options"]),
+                cover_path=fields.get("cover_path", current["cover_path"]),
             )
 
     await db.update_scheduled_message(msg_id, **fields)
@@ -14261,7 +14272,7 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
         request, db, row_id=msg_id, text=str(msg.get("text") or ""),
         message_type=str(msg.get("message_type") or ""), target_group=target,
         scheduled_date=msg.get("scheduled_date"), scheduled_time=msg.get("scheduled_time"),
-        sending_now=True,
+        sending_now=True, poll_options=msg.get("poll_options"), cover_path=msg.get("cover_path"),
     )
     from bot.utils.scheduling_errors import SkippedActivity
 
@@ -14330,7 +14341,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     target_time_str = new_time or (row["scheduled_time"] or "")[:5]
     target_dt = _reject_too_soon_schedule(target_date_str, target_time_str, force=force)
     async with db._db.execute(
-        "SELECT target_group FROM scheduled_messages WHERE id = ?", (msg_id,),
+        "SELECT target_group, cover_path FROM scheduled_messages WHERE id = ?", (msg_id,),
     ) as cur:
         group_row = await cur.fetchone()
     await _agent_publish_guard(
@@ -14338,6 +14349,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
         message_type=str(row["message_type"] or ""),
         target_group=(group_row["target_group"] if group_row else None) or "main",
         scheduled_date=target_date_str, scheduled_time=target_time_str, sending_now=False,
+        poll_options=row["poll_options"], cover_path=group_row["cover_path"] if group_row else None,
     )
 
     topup_result = None
