@@ -14189,14 +14189,38 @@ async def award_calendar_quiz_points(msg_id: int, request: Request, db: Database
     from telegram import Bot
     from bot.handlers.polls import award_quiz_points
 
+    from bot.handlers.polls import quiz_winners
+    from bot.utils.copy import load_copy
+    from bot.utils.scoring import get_points
+    from bot.utils.topic_guard import safe_send
+
+    bot = Bot(os.getenv("BOT_TOKEN", ""))
+    correct = str(data.get("correct_option") or "")
     try:
-        winners = await award_quiz_points(
-            db, SimpleNamespace(bot=Bot(os.getenv("BOT_TOKEN", ""))),
-            poll_row=poll_row, correct_option=str(data.get("correct_option") or ""),
+        awarded = await award_quiz_points(
+            db, SimpleNamespace(bot=bot), poll_row=poll_row, correct_option=correct,
         )
+        winners = list((await quiz_winners(db, poll_row=poll_row, correct_option=correct)).values())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await _complete_agent_api_action(request, db, {"status": "ok", "winners": winners})
+    announced_message_id = None
+    reply_row_id = data.get("announce_reply_to_row")
+    if reply_row_id and winners:
+        reveal = await db.get_scheduled_message(int(reply_row_id))
+        if not reveal or not reveal.get("sent_message_id"):
+            raise HTTPException(status_code=400, detail="announce_reply_to_row is not a sent row")
+        sent = await safe_send(
+            bot, db, "send_message", chat_id=int(os.getenv("GROUP_ID", "0")),
+            text=load_copy("polls", "quiz_winners", names=", ".join(winners),
+                           points=get_points("quiz_poll_correct")),
+            message_thread_id=reveal.get("channel_topic_id"),
+            reply_to_message_id=int(reveal["sent_message_id"]),
+        )
+        announced_message_id = getattr(sent, "message_id", None)
+    return await _complete_agent_api_action(request, db, {
+        "status": "ok", "newly_awarded": awarded, "winners": winners,
+        "announced_message_id": announced_message_id,
+    })
 
 
 @app.post("/api/calendar/{msg_id}/quarantine-conversation")
