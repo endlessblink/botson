@@ -474,6 +474,45 @@ def pin_notifies_members(auto_pin) -> bool:
         return False
 
 
+def _quiz_marker(raw) -> dict | None:
+    """A reveal row carries {"quiz_answer_for": <poll row id>, "correct_option": "..."}."""
+    try:
+        data = raw if isinstance(raw, dict) else json.loads(raw or "null")
+    except (TypeError, ValueError):
+        return None
+    if isinstance(data, dict) and data.get("quiz_answer_for") and data.get("correct_option"):
+        return data
+    return None
+
+
+async def _award_quiz_reveal(bot, db, msg: dict, chat_id: int, reply_to: int | None) -> None:
+    """After a guess-poll answer is revealed, score the members who guessed right."""
+    marker = _quiz_marker(msg.get("poll_options"))
+    if not marker:
+        return
+    from .polls import award_quiz_points
+
+    try:
+        poll_row = await db.get_scheduled_message(int(marker["quiz_answer_for"]))
+        if not poll_row:
+            return
+        winners = await award_quiz_points(
+            db, SimpleNamespace(bot=bot), poll_row=poll_row,
+            correct_option=str(marker["correct_option"]),
+        )
+        if winners:
+            from ..utils.scoring import get_points
+            await safe_send(
+                bot, db, "send_message", chat_id=chat_id,
+                text=load_copy("polls", "quiz_winners", names=", ".join(winners),
+                               points=get_points("quiz_poll_correct")),
+                message_thread_id=msg.get("channel_topic_id"),
+                reply_to_message_id=reply_to,
+            )
+    except Exception:
+        logger.exception("quiz points failed for reveal row %s", msg.get("id"))
+
+
 def _parse_poll_options(raw) -> list[str]:
     """Decode poll_options from DB (JSON string or list) into a clean list."""
     if not raw:
@@ -485,6 +524,8 @@ def _parse_poll_options(raw) -> list[str]:
             items = json.loads(raw)
         except (TypeError, ValueError):
             return []
+    if not isinstance(items, list):
+        return []
     return [str(o).strip() for o in items if str(o).strip()]
 
 
@@ -1078,6 +1119,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Failed to pin message %d: %s", sent.message_id, e)
 
             await db.mark_message_sent(msg["id"], sent.message_id)
+            await _award_quiz_reveal(bot, db, msg, group_id, sent.message_id)
             if mtype in _SLOT_CLAIMING_TYPES:
                 slot_claims_this_tick.add(slot_key)
 

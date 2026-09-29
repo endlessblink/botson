@@ -14170,6 +14170,35 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
     return sent.message_id
 
 
+@app.post("/api/calendar/{msg_id}/award-quiz-points")
+async def award_calendar_quiz_points(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Score a sent guess poll whose answer was already revealed.
+
+    Body: {"correct_option": "<one of the poll options>"}. Idempotent per poll.
+    Future guess polls score automatically when their reveal row is sent.
+    """
+    _require_calendar_api_auth(request)
+    replay = await _begin_agent_api_action(request, db)
+    if replay is not None:
+        return replay
+    data = await request.json()
+    poll_row = await db.get_scheduled_message(msg_id)
+    if not poll_row or poll_row.get("message_type") != "poll" or poll_row.get("status") != "sent":
+        raise HTTPException(status_code=404, detail="No sent poll with this id")
+    from types import SimpleNamespace
+    from telegram import Bot
+    from bot.handlers.polls import award_quiz_points
+
+    try:
+        winners = await award_quiz_points(
+            db, SimpleNamespace(bot=Bot(os.getenv("BOT_TOKEN", ""))),
+            poll_row=poll_row, correct_option=str(data.get("correct_option") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _complete_agent_api_action(request, db, {"status": "ok", "winners": winners})
+
+
 @app.post("/api/calendar/{msg_id}/quarantine-conversation")
 async def quarantine_calendar_conversation(msg_id: int, request: Request, db: Database = Depends(get_db)):
     """Quarantine one unchanged pending conversation using its reviewed snapshot."""

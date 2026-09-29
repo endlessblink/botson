@@ -142,3 +142,44 @@ async def handle_poll_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def register(app):
     """Register poll callback handler."""
     app.add_handler(CallbackQueryHandler(handle_poll_vote, pattern=r"^poll_"))
+
+
+async def award_quiz_points(db: Database, context, *, poll_row: dict, correct_option: str) -> list[str]:
+    """Give points to members who picked only the correct option of a guess poll.
+
+    Voting is a toggle, so a member can tick several options; only members
+    whose sole choice is the correct one score. Idempotent per poll message.
+    Returns the names of the members who scored (empty if already awarded).
+    """
+    from ..utils.scoring import get_points
+    from .calendar import _parse_poll_options
+    from .levels import award_and_check_level
+
+    options = _parse_poll_options(poll_row.get("poll_options"))
+    if correct_option not in options:
+        raise ValueError(f"correct option {correct_option!r} is not one of the poll options")
+    message_id = int(poll_row.get("sent_message_id") or 0)
+    if not message_id:
+        raise ValueError("poll has not been sent yet")
+    already = await db.get_recent_activity_subjects(action_type="quiz_points", days=365, key="quiz")
+    if str(message_id) in already:
+        return []
+
+    correct_key = str(options.index(correct_option))
+    choices: dict[int, set[str]] = defaultdict(set)
+    names: dict[int, str] = {}
+    for vote in await db.get_poll_votes(message_id):
+        choices[int(vote["user_id"])].add(str(vote["option_key"]))
+        names[int(vote["user_id"])] = str(vote.get("display_name") or vote["user_id"])
+    winners = [uid for uid, picked in choices.items() if picked == {correct_key}]
+
+    points = get_points("quiz_poll_correct")
+    for uid in winners:
+        # Points live on the members row; a voter may never have had one.
+        if not await db.get_member(uid):
+            await db.upsert_member(uid, None, names[uid])
+        await award_and_check_level(db, context, uid, names[uid], points)
+        await db.log_activity("points", f"+{points} quiz:{message_id} {names[uid]}", uid)
+    await db.log_activity("quiz_points", f"quiz:{message_id} +{points} x{len(winners)}")
+    logger.info("quiz points: poll msg %d, %d winner(s), +%d each", message_id, len(winners), points)
+    return [names[uid] for uid in winners]

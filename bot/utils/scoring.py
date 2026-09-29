@@ -25,6 +25,7 @@ def get_points(action: str) -> int:
         "streak_7_bonus": 10,
         "streak_14_bonus": 15,
         "streak_30_bonus": 25,
+        "quiz_poll_correct": 5,
     }
 
     return gamification.get(action, defaults.get(action, 1))
