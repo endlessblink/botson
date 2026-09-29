@@ -48,5 +48,6 @@ reviewer_prompt: |
 
   Return JSON only with exactly these fields:
   {"pass":true,"reason":"short reason","specificity":4,"naturalness":4,"novelty":4,"channel_fit":4,"answerability":4,"payoff":4}
+  Write "reason" as one short sentence in Hebrew; it is shown to the Hebrew-speaking operator.
   Scores are integers from 1 to 5. Use false for pass if any score is below 4.
   Do not rewrite the candidate.

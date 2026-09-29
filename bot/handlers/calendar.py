@@ -634,10 +634,10 @@ async def _conversation_gate(
 
 
 _CONVERSATION_TYPES = ("morning", "evening", "discussion")
-# (row id, text hash, finding kind) already reported, so each finding is sent once.
-_PRECHECK_REPORTED: set[tuple[int, str, str]] = set()
-# (row id, text hash) already given the one-time advisory LLM review.
-_PRECHECK_REVIEWED: set[tuple[int, str]] = set()
+# Precheck bookkeeping lives in activity_log (`precheck:<row>_<hash>_<kind>`),
+# so a bot restart or deploy never re-sends the same warning.
+_PRECHECK_ACTION = "precheck_reported"
+_PRECHECK_MEMORY_DAYS = 3
 
 
 async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
@@ -662,6 +662,14 @@ async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
     rows = await db.get_scheduled_messages(
         now.date().isoformat(), (now + timedelta(minutes=lookahead)).date().isoformat(),
     )
+    done = set(await db.get_recent_activity_subjects(
+        action_type=_PRECHECK_ACTION, days=_PRECHECK_MEMORY_DAYS, key="precheck",
+    ))
+
+    async def remember(token: str) -> None:
+        done.add(token)
+        await db.log_activity(_PRECHECK_ACTION, f"precheck:{token}")
+
     reviews = 0
     for row in rows:
         if row.get("status") != "scheduled" or row.get("message_type") not in _CONVERSATION_TYPES:
@@ -680,10 +688,10 @@ async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
         slot = f"{row['scheduled_date']} {str(row['scheduled_time'])[:5]}"
 
         async def report(kind: str, copy_key: str, reason: str) -> None:
-            key = (int(row["id"]), digest, kind)
-            if key in _PRECHECK_REPORTED:
+            token = f"{int(row['id'])}_{digest}_{kind}"
+            if token in done:
                 return
-            _PRECHECK_REPORTED.add(key)
+            await remember(token)
             await notify_admins(context.bot, load_copy(
                 "calendar", copy_key, slot=slot, message_id=row["id"], reason=reason,
             ))
@@ -695,7 +703,8 @@ async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
         if hard:
             await report("hard", "precheck_blocked_alert", hard)
             continue
-        if (int(row["id"]), digest) in _PRECHECK_REVIEWED or reviews >= max_reviews:
+        reviewed_token = f"{int(row['id'])}_{digest}_reviewed"
+        if reviewed_token in done or reviews >= max_reviews:
             continue
         reviews += 1
         recent_texts = await _used_texts_for_type(db, row["message_type"], sent_only=True)
@@ -705,7 +714,7 @@ async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
         )
         if reason.startswith("semantic review unavailable"):
             continue  # technical failure: try again next run, never alert on it
-        _PRECHECK_REVIEWED.add((int(row["id"]), digest))
+        await remember(reviewed_token)
         if not passed:
             await report("advisory", "precheck_advisory_alert", reason)
 

@@ -31,6 +31,9 @@ async def notify_admins(bot: Bot, message: str) -> int:
         try:
             await bot.send_message(chat_id=admin_id, text=message)
             delivered += 1
+            # One searchable line per delivered alert, so agents and log readers
+            # can see every warning the operator received.
+            logger.info("admin_alerts: delivered to %d: %s", admin_id, " | ".join(message.splitlines())[:600])
         except Exception as exc:
             logger.error("admin_alerts: failed to notify admin %d: %s", admin_id, exc)
     return delivered

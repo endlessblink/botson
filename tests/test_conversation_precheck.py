@@ -20,11 +20,22 @@ def _row(minutes_ahead=120, text="approved question", created_by="dashboard", ro
 
 class PrecheckTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        calendar._PRECHECK_REPORTED.clear()
-        calendar._PRECHECK_REVIEWED.clear()
+        # Persistent activity log shared across runs, like the real database.
+        self.activity: list[str] = []
+
+    async def _subjects(self, *, action_type, days, key):
+        prefix = f"{key}:"
+        return [d[len(prefix):] for d in self.activity if d.startswith(prefix)]
+
+    async def _log(self, action_type, description, **_):
+        self.activity.append(description)
 
     async def run_precheck(self, rows, *, verdict=(True, "fine"), freshness=None):
-        db = SimpleNamespace(get_scheduled_messages=AsyncMock(return_value=rows))
+        db = SimpleNamespace(
+            get_scheduled_messages=AsyncMock(return_value=rows),
+            get_recent_activity_subjects=self._subjects,
+            log_activity=self._log,
+        )
         context = SimpleNamespace(bot_data={"db": db}, bot=AsyncMock())
         notify = AsyncMock(return_value=1)
         review = AsyncMock(return_value=verdict)
@@ -80,3 +91,11 @@ class PrecheckTests(unittest.IsolatedAsyncioTestCase):
         rows = [_row(row_id=i, text=f"q{i}") for i in range(5)]
         _, review = await self.run_precheck(rows)
         self.assertEqual(review.await_count, 3)
+
+    async def test_restart_does_not_repeat_warnings(self):
+        rows = [_row()]
+        await self.run_precheck(rows, verdict=(False, "weak"))
+        # A deploy restarts the process; only the database survives.
+        notify, review = await self.run_precheck(rows, verdict=(False, "weak"))
+        notify.assert_not_awaited()
+        review.assert_not_awaited()
