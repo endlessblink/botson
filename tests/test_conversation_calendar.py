@@ -37,27 +37,14 @@ class ConversationCalendarTests(unittest.IsolatedAsyncioTestCase):
             await calendar.check_and_send_due_messages(context)
         return db, send, generate, history, regenerate
 
-    async def test_rejected_stored_slot_is_skipped_without_regeneration(self):
+    async def test_ai_rejection_never_blocks_an_approved_post(self):
         for kind in ('morning', 'evening', 'discussion'):
             with self.subTest(kind=kind):
-                db, send, _, _, regenerate = await self.dispatch(
-                    kind, False, replacement='fresh replacement text',
-                )
-                send.assert_not_awaited()
-                self.assertFalse(db.sent)
-                self.assertTrue(db.skipped)
-                self.assertIn('conversation_regeneration_failed', db.skipped[0][1])
-                regenerate.assert_not_awaited()
-
-    async def test_regeneration_failure_skips_and_alerts(self):
-        for kind in ('morning', 'evening', 'discussion'):
-            with self.subTest(kind=kind):
-                db, send, _, _, regenerate = await self.dispatch(kind, False, replacement=None)
-                send.assert_not_awaited()
-                self.assertFalse(db.sent)
-                self.assertTrue(db.skipped)
-                self.assertIn('conversation_regeneration_failed', db.skipped[0][1])
-                self.assertIn('conversation_semantic', db.skipped[0][1])
+                db, send, generate, _, regenerate = await self.dispatch(kind, False)
+                send.assert_awaited_once()
+                self.assertEqual(db.sent, [(123, 456)])
+                self.assertFalse(db.skipped)
+                generate.assert_not_awaited()
                 regenerate.assert_not_awaited()
 
     async def test_accepted_text_is_sent_unchanged_with_sent_only_history(self):
@@ -92,10 +79,10 @@ class ConversationCalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(history.call_args.kwargs['sent_only'])
         regenerate.assert_not_awaited()
 
-    async def test_provider_unavailable_skips_without_send(self):
+    async def test_reviewer_outage_does_not_block_an_approved_post(self):
         db, send, _, _, regenerate = await self.dispatch('morning', RuntimeError('offline'))
-        send.assert_not_awaited()
-        self.assertTrue(db.skipped)
+        send.assert_awaited_once()
+        self.assertFalse(db.skipped)
         regenerate.assert_not_awaited()
 
     async def test_freshness_rejection_prevents_review_and_send(self):
@@ -104,6 +91,7 @@ class ConversationCalendarTests(unittest.IsolatedAsyncioTestCase):
         )
         send.assert_not_awaited()
         generate.assert_not_awaited()
+        self.assertIn('conversation_hard_rule_blocked', db.skipped[0][1])
         self.assertIn('conversation_freshness', db.skipped[0][1])
         regenerate.assert_not_awaited()
 

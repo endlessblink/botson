@@ -169,6 +169,15 @@ def setup_jobs(app: Application) -> None:
         name="materializer_daily",
     )
 
+    from ..handlers.calendar import precheck_scheduled_conversations
+    precheck_cfg = (settings.get("schedule", {}) or {}).get("conversation_precheck", {}) or {}
+    jq.run_repeating(
+        precheck_scheduled_conversations,
+        interval=int(precheck_cfg.get("interval_minutes", 15)) * 60,
+        first=120,
+        name="conversation_precheck",
+    )
+
     jq.run_repeating(
         reveal_unsolved_rounds_job,
         interval=3600,

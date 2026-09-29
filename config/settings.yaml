@@ -103,7 +103,12 @@ copy:
   # filled by the dispatcher.
   calendar:
     dispatch_failed_alert: "⚠️ הודעה מתוזמנת נכשלה בשליחה.\nמזהה: {message_id}\nסוג: {message_type}\nסלוט: {slot}\nשגיאה: {reason}"
-    regeneration_failed_alert: "⚠️ הודעה מתוזמנת לא פורסמה בקבוצה.\n\nהתוכן שאושר נפסל בשער האיכות בזמן השליחה, וגם ניסיון לייצר תוכן חלופי נכשל. הסלוט נשאר ריק — אף הודעה לא נשלחה.\n\nסלוט: {slot}\nסיבה: {reason}\n\nכדי לפרסם בכל זאת: ייצרו/אשרו תוכן ידנית מהדשבורד וקבעו אותו לאותו סלוט."
+    # Send-time block of an approved post — only hard rules (banned fragment / recent duplicate) can do this.
+    hard_rule_blocked_alert: "⚠️ הודעה מתוזמנת לא פורסמה בקבוצה.\n\nהיא נחסמה בכלל קשיח (ביטוי אסור או כפילות של הודעה שנשלחה לאחרונה). הסלוט נשאר ריק.\n\nסלוט: {slot}\nסיבה: {reason}\n\nכדי לפרסם: ערכו את הטקסט בדשבורד וקבעו אותו מחדש."
+    # Early warning: this approved post WILL be blocked at send time unless edited.
+    precheck_blocked_alert: "⚠️ הודעה מתוזמנת תיחסם אם לא תשתנה.\n\nסלוט: {slot} (מזהה {message_id})\nסיבה: {reason}\n\nערכו או החליפו אותה בדשבורד לפני מועד השליחה."
+    # Advisory only: the quality reviewer thinks the post is weak; it will still be sent.
+    precheck_advisory_alert: "💡 הערת איכות להודעה מתוזמנת — היא תישלח כרגיל.\n\nסלוט: {slot} (מזהה {message_id})\nהערת הבודק: {reason}\n\nאם תרצו לשפר, ערכו אותה בדשבורד לפני מועד השליחה."
   # "נסח מחדש" — one-off wording rewrite of a draft the operator likes.
   # Each anchor is a chip in the dashboard; `directive` is appended to the
   # rewrite prompt as extra instructions. Editing this list changes the
@@ -616,6 +621,14 @@ levels:
       tag: "אלוף/ה"
       emoji: "👑"
 schedule:
+  # Early check of approved morning/evening/discussion posts. Hard-rule blocks
+  # are reported ahead of time; the AI quality review is advice only and never
+  # cancels an approved post.
+  conversation_precheck:
+    enabled: true
+    interval_minutes: 15
+    lookahead_minutes: 1440
+    max_reviews_per_run: 3
   discussion_prompt:
     # Slow-chat shift (2026-05-10): dropped 21:00 second slot — same-day
     # double prompt was too dense for the active core size; let one

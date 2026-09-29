@@ -612,15 +612,16 @@ async def _alert_admin_on_dead_emoji_pool(bot, payload: dict, reason: str) -> bo
 async def _conversation_gate(
     db, message_type: str, text: str, scheduled_date: str,
 ) -> str | None:
-    """Send-time quality gate for morning/evening/discussion rows.
+    """Send-time gate for operator-approved morning/evening/discussion rows.
 
-    Returns a rejection string ('conversation_freshness:…' or
-    'conversation_semantic:…') when `text` must not be published, else None.
-    Kept as a helper so the dispatcher can re-run the identical gate against
-    a freshly generated replacement.
+    Only deterministic hard rules may block an approved post: the operator's
+    banned-fragment list and near-duplicates of recently *sent* texts. The
+    subjective LLM review never runs here — the operator's approval is the
+    quality decision. The review runs earlier as advice
+    (`precheck_scheduled_conversations`) so weak copy is flagged with time to
+    edit, instead of silently emptying an approved slot.
     """
-    from ..scheduler.materializer import _generate_with_claude, _used_texts_for_type
-    from ..utils.conversation_quality import review_conversation
+    from ..scheduler.materializer import _used_texts_for_type
     from ..utils.freshness import freshness_rejection
 
     recent_texts = await _used_texts_for_type(db, message_type, sent_only=True)
@@ -629,13 +630,84 @@ async def _conversation_gate(
     )
     if freshness_failure:
         return f"conversation_freshness:{freshness_failure}"
-    review_passed, review_reason = await review_conversation(
-        text, category=message_type, recent_texts=recent_texts,
-        generate=_generate_with_claude,
-    )
-    if not review_passed:
-        return f"conversation_semantic:{review_reason}"
     return None
+
+
+_CONVERSATION_TYPES = ("morning", "evening", "discussion")
+# (row id, text hash, finding kind) already reported, so each finding is sent once.
+_PRECHECK_REPORTED: set[tuple[int, str, str]] = set()
+# (row id, text hash) already given the one-time advisory LLM review.
+_PRECHECK_REVIEWED: set[tuple[int, str]] = set()
+
+
+async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
+    """Check approved conversation rows well before they are due.
+
+    Hard-rule blocks are reported ahead of time (they *will* stop the send).
+    The LLM quality review runs once per text version and is advisory only.
+    """
+    import hashlib
+
+    from ..scheduler.materializer import _generate_with_claude, _used_texts_for_type
+    from ..utils.config import get_settings
+    from ..utils.conversation_quality import review_conversation
+
+    cfg = (get_settings().get("schedule", {}) or {}).get("conversation_precheck", {}) or {}
+    if cfg.get("enabled") is False:
+        return
+    lookahead = int(cfg.get("lookahead_minutes", 1440))
+    max_reviews = int(cfg.get("max_reviews_per_run", 3))
+    db: Database = context.bot_data["db"]
+    now = datetime.now(_IL_TZ)
+    rows = await db.get_scheduled_messages(
+        now.date().isoformat(), (now + timedelta(minutes=lookahead)).date().isoformat(),
+    )
+    reviews = 0
+    for row in rows:
+        if row.get("status") != "scheduled" or row.get("message_type") not in _CONVERSATION_TYPES:
+            continue
+        try:
+            due = datetime.strptime(
+                f"{row['scheduled_date']} {str(row['scheduled_time'])[:5]}", "%Y-%m-%d %H:%M",
+            ).replace(tzinfo=_IL_TZ)
+        except (KeyError, ValueError):
+            continue
+        minutes_left = (due - now).total_seconds() / 60
+        if minutes_left <= 0 or minutes_left > lookahead:
+            continue
+        text = str(row.get("text") or "")
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        slot = f"{row['scheduled_date']} {str(row['scheduled_time'])[:5]}"
+
+        async def report(kind: str, copy_key: str, reason: str) -> None:
+            key = (int(row["id"]), digest, kind)
+            if key in _PRECHECK_REPORTED:
+                return
+            _PRECHECK_REPORTED.add(key)
+            await notify_admins(context.bot, load_copy(
+                "calendar", copy_key, slot=slot, message_id=row["id"], reason=reason,
+            ))
+
+        if not _scheduler_authored_conversation(row):
+            await report("not_authored", "precheck_blocked_alert", "conversation_not_scheduler_authored")
+            continue
+        hard = await _conversation_gate(db, row["message_type"], text, row["scheduled_date"])
+        if hard:
+            await report("hard", "precheck_blocked_alert", hard)
+            continue
+        if (int(row["id"]), digest) in _PRECHECK_REVIEWED or reviews >= max_reviews:
+            continue
+        reviews += 1
+        recent_texts = await _used_texts_for_type(db, row["message_type"], sent_only=True)
+        passed, reason = await review_conversation(
+            text, category=row["message_type"], recent_texts=recent_texts,
+            generate=_generate_with_claude,
+        )
+        if reason.startswith("semantic review unavailable"):
+            continue  # technical failure: try again next run, never alert on it
+        _PRECHECK_REVIEWED.add((int(row["id"]), digest))
+        if not passed:
+            await report("advisory", "precheck_advisory_alert", reason)
 
 
 def _scheduler_authored_conversation(msg: dict) -> bool:
@@ -963,12 +1035,12 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                         )
                         if rejection:
                             await notify_admins(bot, load_copy(
-                                "calendar", "regeneration_failed_alert",
+                                "calendar", "hard_rule_blocked_alert",
                                 slot=f"{msg.get('scheduled_date')} {msg.get('scheduled_time')}",
                                 reason=rejection,
                             ))
                             raise SkippedActivity(
-                                f"conversation_regeneration_failed:{rejection}"
+                                f"conversation_hard_rule_blocked:{rejection}"
                             )
                     if msg.get("message_type") == "poll":
                         logger.warning(
