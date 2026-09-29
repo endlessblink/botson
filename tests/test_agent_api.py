@@ -38,6 +38,16 @@ def make_request(
     )
 
 
+@pytest.fixture(autouse=True)
+def _chat_already_read(monkeypatch):
+    """Legacy mutation tests predate the chat-read gate; the gate itself is
+    covered by tests/test_agent_chat_read_gate.py."""
+    async def _ok(_request, _db):
+        return None
+
+    monkeypatch.setattr("dashboard.app._require_community_context_receipt", _ok)
+
+
 async def _body(value):
     return value
 

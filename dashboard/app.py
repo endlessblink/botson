@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -371,6 +372,79 @@ def _require_calendar_api_auth(request: Request) -> None:
     raise HTTPException(status_code=401, detail="Authentication required")
 
 
+def _community_context_settings() -> tuple[int, int]:
+    bot_cfg = get_settings().get("bot") or {}
+    return (
+        int(bot_cfg.get("community_context_recent_hours", 24)),
+        int(bot_cfg.get("agent_context_receipt_ttl_minutes", 20)),
+    )
+
+
+async def _collect_community_messages(db: Database, hours: int, limit: int) -> list[dict]:
+    since = datetime.now(ZoneInfo("UTC")) - timedelta(hours=hours)
+    member_messages = await db.get_recent_community_messages(GROUP_ID, since=since, limit=limit)
+    bot_messages = await db.get_recent_scheduled_community_messages(since=since, limit=limit)
+    # safe_send captures live Botson outputs, while scheduled calendar rows are
+    # also queried separately. A scheduled send therefore appears in both
+    # stores; prefer the durable calendar record and emit the Telegram message
+    # only once.
+    unique_messages = {}
+    for item in [*member_messages, *bot_messages]:
+        key = (item["thread_id"], item["message_id"])
+        if item["source"] == "botson" or key not in unique_messages:
+            unique_messages[key] = item
+    return sorted(
+        unique_messages.values(),
+        key=lambda item: (item["occurred_at"], item["message_id"]),
+    )[-limit:]
+
+
+def _latest_message_marker(messages: list[dict]) -> str:
+    """Stable marker for the newest captured message (empty chat → '0')."""
+    if not messages:
+        return "0"
+    newest = messages[-1]
+    return hashlib.sha256(
+        f"{newest['thread_id']}:{newest['message_id']}:{newest['occurred_at']}".encode()
+    ).hexdigest()[:16]
+
+
+def _sign_context_receipt(issued_at: int, marker: str) -> str:
+    secret = os.getenv("BOTSON_AGENT_API_TOKEN", "").encode()
+    payload = f"v1.{issued_at}.{marker}"
+    sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{payload}.{sig}"
+
+
+async def _require_community_context_receipt(request: Request, db: Database) -> None:
+    """Agents may not create, edit, schedule, or send group content without a
+    fresh read of the actual chat feed. The receipt comes from
+    GET /api/agent/community/messages and is refused when it is expired or
+    when new chat messages arrived after that read."""
+    receipt = (getattr(request, "headers", {}) or {}).get("x-community-context-receipt", "").strip()
+    parts = receipt.split(".")
+    if len(parts) != 4 or parts[0] != "v1" or not parts[1].isdigit():
+        raise HTTPException(
+            status_code=428,
+            detail="Read the recent chat first: GET /api/agent/community/messages, "
+                   "then send its context_receipt as X-Community-Context-Receipt",
+        )
+    issued_at, marker = int(parts[1]), parts[2]
+    if not hmac.compare_digest(_sign_context_receipt(issued_at, marker), receipt):
+        raise HTTPException(status_code=428, detail="Invalid community context receipt")
+    retention_hours, ttl_minutes = _community_context_settings()
+    if time.time() - issued_at > ttl_minutes * 60:
+        raise HTTPException(status_code=428, detail="Community context receipt expired; re-read the chat")
+    if not GROUP_ID:
+        raise HTTPException(status_code=503, detail="Community group is not configured")
+    current = await _collect_community_messages(db, retention_hours, 200)
+    if _latest_message_marker(current) != marker:
+        raise HTTPException(
+            status_code=409,
+            detail="The chat changed since your read; re-read it before proposing or sending",
+        )
+
+
 async def _begin_agent_api_action(request: Request, db: Database) -> JSONResponse | None:
     """Claim an agent mutation before work; completed retries replay safely."""
     if not _is_agent_api_request(request):
@@ -378,6 +452,8 @@ async def _begin_agent_api_action(request: Request, db: Database) -> JSONRespons
     key = (getattr(request, "headers", {}) or {}).get("idempotency-key", "").strip()
     if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", key):
         raise HTTPException(status_code=400, detail="A valid Idempotency-Key is required")
+    if request.method != "DELETE":
+        await _require_community_context_receipt(request, db)
     body = await request.body()
     digest = hashlib.sha256(
         request.method.encode("ascii") + b"\n" + request.url.path.encode("utf-8") + b"\n" + body
@@ -13043,32 +13119,25 @@ async def get_agent_community_messages(
     """Return short-lived text context for the configured main group only."""
     if not _is_agent_api_request(request):
         raise HTTPException(status_code=401, detail="Agent API token required")
-    retention_hours = int(
-        (get_settings().get("bot") or {}).get("community_context_recent_hours", 24)
-    )
+    retention_hours, _ = _community_context_settings()
     if hours < 1 or hours > retention_hours:
         raise HTTPException(status_code=400, detail=f"hours must be between 1 and {retention_hours}")
     if limit < 1 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
     if not GROUP_ID:
         raise HTTPException(status_code=503, detail="Community group is not configured")
-    since = datetime.now(ZoneInfo("UTC")) - timedelta(hours=hours)
-    member_messages = await db.get_recent_community_messages(GROUP_ID, since=since, limit=limit)
-    bot_messages = await db.get_recent_scheduled_community_messages(since=since, limit=limit)
-    # safe_send captures live Botson outputs, while scheduled calendar rows are
-    # also queried separately. A scheduled send therefore appears in both
-    # stores; prefer the durable calendar record and emit the Telegram message
-    # only once.
-    unique_messages = {}
-    for item in [*member_messages, *bot_messages]:
-        key = (item["thread_id"], item["message_id"])
-        if item["source"] == "botson" or key not in unique_messages:
-            unique_messages[key] = item
-    messages = sorted(
-        unique_messages.values(),
-        key=lambda item: (item["occurred_at"], item["message_id"]),
-    )[-limit:]
-    return {"hours": hours, "retention_hours": retention_hours, "messages": messages}
+    messages = await _collect_community_messages(db, hours, limit)
+    # The receipt always reflects the full retention window, so a narrow read
+    # cannot hide newer messages from the mutation gate.
+    full = messages if hours == retention_hours and limit == 200 else \
+        await _collect_community_messages(db, retention_hours, 200)
+    receipt = _sign_context_receipt(int(time.time()), _latest_message_marker(full))
+    return {
+        "hours": hours,
+        "retention_hours": retention_hours,
+        "messages": messages,
+        "context_receipt": receipt,
+    }
 
 
 _EXECUTABLE_HANDLERS_REQUIRING_ROUTING = {
@@ -13821,11 +13890,12 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         if target == "test":
             return
         if msg.get("auto_pin") and sent_message_id:
+            from bot.handlers.calendar import pin_notifies_members
             try:
                 await bot.pin_chat_message(
                     chat_id=group_id,
                     message_id=sent_message_id,
-                    disable_notification=True,
+                    disable_notification=not pin_notifies_members(msg.get("auto_pin")),
                 )
             except Exception as e:
                 logger.warning("[send-now] failed to pin %d: %s", sent_message_id, e)

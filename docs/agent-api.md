@@ -24,6 +24,10 @@ It does not grant access to other dashboard APIs.
 
 The bot captures non-command text and captions from non-bot members in the configured main group only, and includes sent calendar messages addressed to the main group. Entries expire after `bot.community_context_recent_hours` (24 hours by default); expired member rows are deleted during writes and reads. The endpoint does not expose other groups or DMs. Direct Bot API replies that do not create a calendar row are not yet included. Telegram does not provide a bot API for backfilling arbitrary group history, so member-message collection starts after the bot version with this capture handler is deployed.
 
+### Chat-read gate
+
+Every agent create, edit, schedule, or send-now request must carry `X-Community-Context-Receipt`, copied from the `context_receipt` field of a `GET /api/agent/community/messages` response. Without it the request is refused (428). The receipt expires after `bot.agent_context_receipt_ttl_minutes` and is refused (409) when any new message was captured after the read, so a proposal always reflects the chat as it is now. Cancelling a row does not need a receipt. The schedule and activity log are not chat history and never satisfy this gate. The feed only holds what was captured since deployment and within retention; say so rather than claiming to have seen older or deleted messages.
+
 Existing validation remains active, including message quality, slot-conflict, game-payload, and schedule-time checks.
 
 ## Safe retries

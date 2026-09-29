@@ -461,6 +461,19 @@ async def _create_event_row_from_scheduled(db: Database, msg: dict) -> int:
     )
 
 
+# auto_pin: 0 = no pin, 1 = silent pin, 2 = pin and notify every member.
+# A notifying pin is Telegram's only way for a bot to reach the whole group;
+# use it sparingly (a few highlights a week), never as a default.
+PIN_AND_NOTIFY = 2
+
+
+def pin_notifies_members(auto_pin) -> bool:
+    try:
+        return int(auto_pin) == PIN_AND_NOTIFY
+    except (TypeError, ValueError):
+        return False
+
+
 def _parse_poll_options(raw) -> list[str]:
     """Decode poll_options from DB (JSON string or list) into a clean list."""
     if not raw:
@@ -977,7 +990,7 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     await bot.pin_chat_message(
                         chat_id=group_id,
                         message_id=sent.message_id,
-                        disable_notification=True,
+                        disable_notification=not pin_notifies_members(msg.get("auto_pin")),
                     )
                 except Exception as e:
                     logger.warning("Failed to pin message %d: %s", sent.message_id, e)
