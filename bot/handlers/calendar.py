@@ -713,7 +713,8 @@ async def precheck_scheduled_conversations(context: ContextTypes.DEFAULT_TYPE):
 def _scheduler_authored_conversation(msg: dict) -> bool:
     """Only explicit operator scheduler entries may send conversation text."""
     source = str(msg.get("created_by") or "").strip()
-    return source in {"manual-prompt", "manual-drawer", "dashboard", "weekplan", "recurrence", "ai-fill-flex"}
+    # "agent" rows passed the agent publishing guardrails in the dashboard API.
+    return source in {"manual-prompt", "manual-drawer", "dashboard", "weekplan", "recurrence", "ai-fill-flex", "agent"}
 
 
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):

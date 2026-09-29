@@ -620,6 +620,14 @@ levels:
       min_points: 500
       tag: "אלוף/ה"
       emoji: "👑"
+# Limits for AI agents publishing to the main group through the agent API.
+# Rejected posts cannot be retried; after this many quality rejections in a
+# day, agent publishing pauses until the next day.
+agent_guardrails:
+  max_quality_rejections_per_day: 2
+  # Agents may "send now" only a row due within this many minutes.
+  send_now_early_minutes: 10
+
 schedule:
   # Early check of approved morning/evening/discussion posts. Hard-rule blocks
   # are reported ahead of time; the AI quality review is advice only and never

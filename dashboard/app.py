@@ -445,6 +445,87 @@ async def _require_community_context_receipt(request: Request, db: Database) -> 
         )
 
 
+def _agent_guardrail_settings() -> tuple[int, int]:
+    cfg = get_settings().get("agent_guardrails") or {}
+    return (
+        int(cfg.get("max_quality_rejections_per_day", 2)),
+        int(cfg.get("send_now_early_minutes", 10)),
+    )
+
+
+async def _agent_rejections(db: Database, *, since: str, row_id: int | None = None) -> int:
+    sql = "SELECT COUNT(*) FROM activity_log WHERE action_type = 'agent_quality_rejected' AND timestamp >= ?"
+    params: list = [since]
+    if row_id is not None:
+        sql += " AND description LIKE ?"
+        params.append(f"row:{row_id} %")
+    async with db._db.execute(sql, params) as cur:
+        row = await cur.fetchone()
+    return int(row[0] if row else 0)
+
+
+async def _agent_publish_guard(
+    request: Request,
+    db: Database,
+    *,
+    row_id: int | None,
+    text: str,
+    message_type: str,
+    target_group: str,
+    scheduled_date: str | None,
+    scheduled_time: str | None,
+    sending_now: bool,
+) -> None:
+    """Guardrails for agents publishing to the main group without operator review.
+
+    * Every agent-authored text post is quality-reviewed, whatever its type
+      (a "custom" label no longer skips review). Pool-backed games are exempt.
+    * A post the reviewer rejected cannot be edited and retried until it slips
+      through; after the daily rejection budget, agent publishing pauses.
+    * send-now only fires a row that is due now; future rows must be scheduled.
+    """
+    if not _is_agent_api_request(request) or (target_group or "main") != "main":
+        return
+    max_rejections, early_minutes = _agent_guardrail_settings()
+    now = datetime.now(ZoneInfo("Asia/Jerusalem"))
+    if sending_now and scheduled_date and scheduled_time:
+        try:
+            due = datetime.strptime(
+                f"{scheduled_date} {str(scheduled_time)[:5]}", "%Y-%m-%d %H:%M",
+            ).replace(tzinfo=ZoneInfo("Asia/Jerusalem"))
+        except ValueError:
+            due = now
+        if due > now + timedelta(minutes=early_minutes):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Row is due {scheduled_date} {str(scheduled_time)[:5]}; schedule it instead of sending early",
+            )
+    if message_type in EXECUTABLE_GAME_TYPES or message_type in CRON_OWNED_TYPES:
+        return
+    if row_id is not None and await _agent_rejections(db, since="2000-01-01", row_id=row_id):
+        raise HTTPException(
+            status_code=409,
+            detail="The quality review already rejected this post; write a genuinely different post as a new row",
+        )
+    if await _agent_rejections(db, since=now.strftime("%Y-%m-%d 00:00:00")) >= max_rejections:
+        raise HTTPException(
+            status_code=429,
+            detail="Agent publishing is paused for today after repeated quality rejections",
+        )
+    from bot.scheduler.materializer import _used_texts_for_type
+
+    recent = await _used_texts_for_type(db, "discussion", sent_only=True)
+    passed, reason = await _review_discussion_quality(text, category=message_type, recent_texts=recent)
+    if passed:
+        return
+    if reason.startswith("semantic review unavailable"):
+        raise HTTPException(status_code=503, detail="Quality review unavailable; try again later")
+    await db.log_activity(
+        "agent_quality_rejected", f"row:{row_id if row_id is not None else 'new'} {reason[:300]}",
+    )
+    raise HTTPException(status_code=422, detail=f"Quality review rejected this post: {reason}")
+
+
 async def _begin_agent_api_action(request: Request, db: Database) -> JSONResponse | None:
     """Claim an agent mutation before work; completed retries replay safely."""
     if not _is_agent_api_request(request):
@@ -13419,6 +13500,12 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
             "scheduled_date": data["scheduled_date"],
         })
         _reject_too_soon_schedule(data["scheduled_date"], data["scheduled_time"])
+        await _agent_publish_guard(
+            request, db, row_id=None, text=data["text"],
+            message_type=data.get("message_type", "custom"), target_group=target_group,
+            scheduled_date=data["scheduled_date"], scheduled_time=data["scheduled_time"],
+            sending_now=False,
+        )
     poll_options = data.get("poll_options")
     raw_type = data.get("message_type", "custom")
     raw_topic = data.get("channel_topic_id")
@@ -13477,6 +13564,7 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
         poll_options=json.dumps(poll_options) if isinstance(poll_options, list) else poll_options,
         poll_duration=data.get("poll_duration"),
         status=initial_status,
+        created_by="agent" if _is_agent_api_request(request) else "dashboard",
     )
     announcement_draft_id = None
     if message_type == "trivia_round":
@@ -13670,6 +13758,24 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
                 "id": msg_id,
                 "poll_options": fields.get("poll_options") if "poll_options" in fields else (existing_row["poll_options"] if existing_row else None),
             })
+
+    if _is_agent_api_request(request) and ({"text", "message_type", "status", "target_group"} & set(fields)):
+        async with db._db.execute(
+            "SELECT text, message_type, status, target_group, scheduled_date, scheduled_time "
+            "FROM scheduled_messages WHERE id = ?",
+            (msg_id,),
+        ) as cur:
+            current = await cur.fetchone()
+        if current and fields.get("status", current["status"]) == "scheduled":
+            await _agent_publish_guard(
+                request, db, row_id=msg_id,
+                text=str(fields.get("text", current["text"]) or ""),
+                message_type=str(fields.get("message_type", current["message_type"]) or ""),
+                target_group=str(fields.get("target_group", current["target_group"]) or "main"),
+                scheduled_date=fields.get("scheduled_date", current["scheduled_date"]),
+                scheduled_time=fields.get("scheduled_time", current["scheduled_time"]),
+                sending_now=False,
+            )
 
     await db.update_scheduled_message(msg_id, **fields)
     announcement_draft_id = None
@@ -14096,6 +14202,12 @@ async def send_calendar_item_now(msg_id: int, request: Request, db: Database = D
         raise HTTPException(status_code=404, detail="Message not found")
 
     _reject_bad_message_row(msg)
+    await _agent_publish_guard(
+        request, db, row_id=msg_id, text=str(msg.get("text") or ""),
+        message_type=str(msg.get("message_type") or ""), target_group=target,
+        scheduled_date=msg.get("scheduled_date"), scheduled_time=msg.get("scheduled_time"),
+        sending_now=True,
+    )
     from bot.utils.scheduling_errors import SkippedActivity
 
     try:
@@ -14162,6 +14274,16 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
     target_date_str = new_date or row["scheduled_date"]
     target_time_str = new_time or (row["scheduled_time"] or "")[:5]
     target_dt = _reject_too_soon_schedule(target_date_str, target_time_str, force=force)
+    async with db._db.execute(
+        "SELECT target_group FROM scheduled_messages WHERE id = ?", (msg_id,),
+    ) as cur:
+        group_row = await cur.fetchone()
+    await _agent_publish_guard(
+        request, db, row_id=msg_id, text=str(row["text"] or ""),
+        message_type=str(row["message_type"] or ""),
+        target_group=(group_row["target_group"] if group_row else None) or "main",
+        scheduled_date=target_date_str, scheduled_time=target_time_str, sending_now=False,
+    )
 
     topup_result = None
     if row["message_type"] == "trivia_round":

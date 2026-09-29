@@ -28,6 +28,17 @@ The bot captures non-command text and captions from non-bot members in the confi
 
 Every agent create, edit, schedule, or send-now request must carry `X-Community-Context-Receipt`, copied from the `context_receipt` field of a `GET /api/agent/community/messages` response. Without it the request is refused (428). The receipt expires after `bot.agent_context_receipt_ttl_minutes` and is refused (409) when any new message was captured after the read, so a proposal always reflects the chat as it is now. Cancelling a row does not need a receipt. The schedule and activity log are not chat history and never satisfy this gate. The feed only holds what was captured since deployment and within retention; say so rather than claiming to have seen older or deleted messages.
 
+### Publishing guardrails
+
+Agents may publish to the main group without operator review, inside these server-side limits (`agent_guardrails` in settings):
+
+- Every agent text post is quality-reviewed when it is scheduled or sent, whatever its `message_type`; labelling a post `custom` does not skip review. Pool-backed games are exempt.
+- A rejected post (422) cannot be edited and retried on the same row (409). Write a genuinely different post as a new row.
+- After `max_quality_rejections_per_day` rejections, agent publishing pauses until the next day (429).
+- `send-now` only fires a row due within `send_now_early_minutes`; future rows must be scheduled (409).
+- A reviewer outage returns 503 and is not counted as a rejection.
+- Agent-created rows are labelled `created_by: agent`. Once scheduled, they are sent like operator-approved rows: at send time only hard rules (banned fragments, recent duplicates) can block them.
+
 Existing validation remains active, including message quality, slot-conflict, game-payload, and schedule-time checks.
 
 ## Safe retries
