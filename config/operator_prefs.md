@@ -83,6 +83,8 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-05-16 — operator flagged "יש כבר נקודה אחת שאתם מחכים לה" as wrong; "נקודה" reads as placeholder, not a real noun in this context._
 - אין לכפות הומור באמצעות שאלת דיון כללית או בקשה לשיתוף חוויה אישית. בקטגוריית "funny" יש להשתמש רק בתוכן הומוריסטי מוכן ומתאים לערוץ; בהיעדר תוכן כזה יש לדלג. אין להפעיל יצירה אוטומטית לקטגוריה לפני שקיים מאגר מתאים.
   _**Source:** chat via /teach-bot, 2026-05-16 — operator: "humor-as-discussion-question doesn't work; remove channel from rotation or generate jokes instead."_
+- חידה שמוגדרת "קשה" לא מאיירת את שם השיר, הסרט או היצירה ולא מתרגמת אותו לתמונה. הרמז מגיע ממשהו שרק מי שמכיר יודע — הקליפ, שורה מהמילים (לא השם), עטיפת האלבום, היסטוריית היוצרים או אסוציאציה עקיפה — והמסיחים בנויים באותו היגיון, כך שקריאה מילולית של התמונה לא מספיקה כדי לפתור.
+  _**Source:** music room feedback relayed by operator, 2026-09-30 — a member showed a "super hard" image riddle was solvable without knowing the song because the image illustrated the title; operator: "when I ask for a hard question it shouldn't be like this."_
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
