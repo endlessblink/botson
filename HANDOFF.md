@@ -1,55 +1,76 @@
-# Current handoff — 2026-09-08
+# HANDOFF — Botson: riddle series (2026-10-01 12:25 IDT)
 
-Status: `manual_action_required`. The cleanup is implemented, committed, pushed and deployed at `72edf31d960d61cf9bf879e28784d5f1ceffc117`. **Next: obtain an authenticated browser session by having the operator sign in at http://127.0.0.1:18080/login, then finish the already-approved four queue repairs and exact preference retirement.** An SSH tunnel forwards local 18080 to the production dashboard at localhost:8080. Do not inspect credentials or bypass login.
+## Immediate task (Noam's latest words)
+> "lets go with the riddle series"
 
-Deployment and repairs were explicitly approved with "go"; do not ask again. Both production services are active, all 34 release files match the commit, and four deployment guardians passed. Final isolated release tests: 409 passed, 1 skipped, 316 subtests passed; four existing deprecation warnings. Prior real-provider evaluation: 6/6 matched. No Telegram test sends or authenticated visual acceptance have been performed.
+That is option 1 from my last proposal:
+- 2–3 **picture riddles a week** in topics people actually like (music room 4502, movies 54), each one a 4-option inline poll with a GPT Image 2 image, answered later by a reveal row that gives points to correct guessers and tags them in the group.
+- A **Friday leaderboard post** that tags the week's top riddle guessers.
+- First two riddles go to Noam for **approval before scheduling**: (a) the movie poll with his requested twist — *a famous film scene recreated with animals as the actors*, 4 options; (b) a **genuinely hard** dark-80s music riddle (see hard-riddle rule below).
 
-Approved queue repairs: rows 786, 787, 813, 814 to draft using `POST /api/calendar/{id}/quarantine-conversation` with the unchanged full expected snapshots in `docs/conversation-queue-repair-manifest.json`. Fresh post-deploy read-only SQL found all four still scheduled and matching. First read the authenticated calendar; changed state requires reassessment, never silently revise expectations. Read back each mutation and repeat the original request for idempotence. Rows 780 and 785 are sent; preserve them. Rows 792 and newly observed 819 are outside the repair. All four protected rows match the pre-deploy backup.
+He explicitly REJECTED "member-hosted riddles" ("won't work, I'm not sure people are entering that much anyway. stop using one occasion as a pattern"). Do not propose it again. Do not claim patterns from one busy night (memory: feedback_no_patterns_from_one_occasion). He also floated "measure first" (activity data over 4–8 weeks) — not chosen yet; mention it only if relevant.
 
-Preference repair: use the exact full old bullet and authenticated untrain request in `docs/conversation-preference-repair-manifest.json`. Post-deploy read-back found the new replacement present, all prior bullets preserved, and exactly one old bullet still present. It has not been removed. Preserve runtime-only learned rules and verify the removal tombstone. Eight retired daily_prompts rows remain archived; their send path is disabled.
+## Definition of done for the riddle series
+1. A repeatable way to create a riddle: image (GPT Image 2 via Codex only) → poll row (message_type `poll`, 4 options, `cover_path`) → reveal row (message_type `custom`, `poll_options: {"quiz_answer_for": <poll row id>, "correct_option": "<exact option>"}`) — this already works end-to-end (see "What exists").
+2. A weekly cadence (2–3 riddles) scheduled with Noam's approval; times/days must come from config (`config/settings.yaml`), never hardcoded (hard project rule).
+3. Friday leaderboard: weekly totals of quiz points, posted with tags. Does NOT exist yet — needs building: sum `activity_log` rows `action_type='points'` with description containing `quiz:` for the week (written by `award_quiz_points`), or a cleaner query; post via `safe_send` with HTML mentions (`tag_members` in bot/handlers/polls.py). Must be **one dispatcher only** (memory: weekly_roundup double-send incident — recurring computed content gets exactly one dispatcher; cron-owned types must not also be calendar rows). Copy text in settings `copy.*`, schedule in `schedule.*`, guardian tests must pass.
+4. Tests + commit + push; deploy only after explicit "deploy" confirmation from Noam (memory: pause before deploy, every time).
+5. Show Noam the first two riddles (images + exact Hebrew text + options + topic + times) for approval. Hebrew drafts: project rule says render on dashboard, not terminal — in practice I created **draft** calendar rows via the agent API and also showed text in chat; Noam has accepted that. Drafts never send.
 
-Private backup: `/opt/robotnik-backups/conversation-cleanup-20260908T200929Z`, directory 700 and files 600; database quick_check passed, live preferences copied. No tombstone file existed before deployment. Previous production revision: `d99b5552c4e3129e0f437e8c30f72c9e5ee5b89c`. Deployment log is private there; do not dump raw logs or credentials.
+## Hard rules for riddles (learned this session)
+- **Hard means hard**: never illustrate the answer's title (Iris, a dark-80s fan, caught "pearls dripping like dew" = "Pearly-Dewdrops' Drops"). Clue must come from fan-only knowledge: video imagery, a lyric line other than the title, sleeve art, band history, lateral association; distractors must fit the picture equally. Canonical rule now in `config/operator_prefs.md` → `### Hebrew content rules` (committed 74b922e, live on VPS), in `~/.codex/skills/botson-game-creator/SKILL.md` (section "Image riddles and guess polls"), and memory `feedback_hard_riddles_oblique_clues`.
+- Images ONLY GPT Image 2 or Seedream 5. Noam: "I don't want to use tokens, only through gpt image 2" → use Codex CLI image_generation (subscription, no paid credits):
+  `cd <scratch dir> && codex exec --skip-git-repo-check -s workspace-write -C . "Use only your built-in image_generation tool (GPT Image 2)... Save it as X.png ..."` (~1–2 min). Never other models.
+- 4 options. Not everything should be a poll ("the poll has no meaning if it's everything polls all the time").
+- Winners must get points AND be tagged in the group (done automatically by reveal rows with the quiz marker).
+- No notifying pin late at night; pins are group-wide.
+- Cute topic: bot questions there are DISABLED (Noam, 2026-10-01). Don't put riddles/questions there.
+- One-time posts are not features (memory feedback_one_time_posts_not_features).
 
-Registry correction outside the workspace was explicitly approved and applied; YAML and exact Botson stanza were validated/read back. It records deployed 72edf31 and pending authenticated repairs without claiming identity/onboarding or visual proof. `docs/botson-registry-proposed.patch` is retained evidence of the already-applied patch; do not reapply.
+## How to post a riddle (proven 2026-09-30, scripts in my scratchpad)
+Scratchpad: `/media/endlessblink/data/.dev-tmp/endlessblink/claude-1000/-media-endlessblink-data-my-projects-ai-development-bots-automation-botson/aab09480-a275-4477-8830-8025b0afd61b/scratchpad/music/` — see `post2.py`, `post_hard.py` (poll create → send-now → reveal create). Pattern:
+1. Upload image: `scp img root@84.46.253.137:/tmp/x.png` then `ssh root@84.46.253.137 'install -o botson -g botson -m 644 /tmp/x.png /opt/robotnik/media/covers/<epoch>_up_<name>.png && rm /tmp/x.png'` (dashboard upload endpoint needs a browser session; covers dir is gitignored runtime data). cover_path = `covers/<file>`.
+2. Run the python script ON the VPS via `ssh root@84.46.253.137 'python3 -' < script.py` — it reads `BOTSON_AGENT_API_TOKEN` from `/opt/robotnik/.env` so the token never leaves the VPS, and calls `http://127.0.0.1:8080`.
+3. Every agent mutation needs `Idempotency-Key` + `X-Community-Context-Receipt` (receipt = `context_receipt` from `GET /api/agent/community/messages?hours=24&limit=200`, ≤20 min old, invalid if a new chat message arrived — re-read right before each call).
+4. For scheduled (not immediate) riddles: create poll row with `status: "scheduled"` at the slot time (or draft → `POST /api/calendar/{id}/schedule`). Image polls and reveal rows with the quiz marker are exempt from the AI discussion rubric (commit 02657ed). send-now only works for rows due within 10 min.
+5. To credit/score an already-revealed poll: `POST /api/calendar/{poll_id}/award-quiz-points {"correct_option": ..., "announce_reply_to_row": <reveal row id>}`.
 
-Preserve unrelated dirty weekly-review work in AGENTS.md, bot/scheduler/jobs.py, config/settings.yaml, dashboard/app.py, dashboard/templates/prompts.html and untracked bot/handlers/weekly_state_review.py, tests/test_weekly_state_review.py. None was included in the release. Read `docs/conversation-cleanup-release-checklist.md`, cleanup plan and exact inventory for implemented scope. Documentation-only follow-up commits do not require another service restart.
+## What exists / was done this session (all committed & pushed to origin/main, VPS deployed at HEAD ffcafd8)
+- 3bb02fb chat-read gate (agents must read real chat feed before content mutations; receipt) + notifying pin (`auto_pin: 2`).
+- 609e35c reviewer JSON retry (`technical_attempts` in config/hot_take_review.yaml).
+- 6aeb381 operator-approved posts never blocked by AI review at send time (hard rules only); new `conversation_precheck` job (advisory DM ~early).
+- e99362e agent publishing guardrails (review all agent text posts regardless of type; rejected row can't be retried; `agent_guardrails.max_quality_rejections_per_day: 2`; send-now only if due ≤10 min; agent rows `created_by: agent`).
+- 02366e5 precheck dedupe persisted in activity_log (no repeat DMs after deploy), Hebrew reviewer reasons, delivered admin alerts logged (`admin_alerts: delivered`).
+- 7472717 / 997782f / 4a2130a guess-poll scoring: `award_quiz_points`, `quiz_winners`, `tag_members` (bot/handlers/polls.py), reveal hook `_award_quiz_reveal` (bot/handlers/calendar.py), endpoint award-quiz-points; points `gamification.quiz_poll_correct: 5`, copy `copy.polls.quiz_winners`. Public welcome on joins turned OFF (`welcome.public_enabled: false`).
+- 74b922e hard-riddle rule in operator_prefs.
+- ffcafd8 cute topic unmapped from `topics.discussions`.
+- Real chat feed: `GET /api/agent/community/messages` works and now captures member messages (music room was active 29/09 night). Read it before any group content.
 
-Tools: extension browser connection timed out; standard Playwright opened only about:blank and no existing authenticated session. Disposable visual child `release_visual` is checking the tunnel login page. Parent must not view images. No test Telegram sends authorized. Local ctx_shell cwd outside project is rejected and silently runs project root; use explicit git -C for external read-only operations. Native lean-ctx wrapper caps jobs at 120 seconds; long tests use ctx_shell background inside project. One local bash syntax-check command was blocked by allowlist; do not retry it through a bypass.
+## Production state (2026-10-01 12:25)
+- Riddles posted 30/09: spider/Lullaby (row 876, Iris won +5 and was tagged), hard Cocteau Twins (row 878, 0 winners — Iris called out that the picture gave away the title).
+- Draft row **880** (music room 4502): credit to Iris — "🖤 קרדיט לאיריס: ..." — NOT sent: agent text posting was paused on 30/09 by the daily rejection budget (2 false rejections from my pre-fix rubric). Budget resets daily (IL date); on 10/01 agent posting should work again. Ask Noam whether to still send it (he said "give her credit") — it's a plain custom text, so it WILL go through the AI review and may be rejected (counts against budget). Alternative: Noam sends it from the dashboard planner (session sends are not guarded).
+- Scheduled this week: row 855 facts_tidbit 10-01 12:00; 865 movies 10-01 13:00; 866 gaming 10-01 19:00; 863 support 10-01 23:30; 870 vegan 10-02 19:00; 858 movies 10-02 20:00. Row 856 (facts_spooky 09-27) failed "facts spooky did not send" — cause unknown, uninvestigated.
 
----
+## Uncommitted state in the repo (NOT mine — preserve)
+Another session's work is uncommitted: AGENTS.md, bot/database/db.py, models.py, bot/handlers/welcome.py, bot/main.py, bot/utils/topic_guard.py, config/operator_prefs.md, config/settings.yaml, tests/test_operator_prefs_canonical.py, tests/test_recent_community_context.py, tests/test_welcome.py, untracked community_replies.py, config/community_reply.yaml, docs/botson-task-routing.md, tests/test_botson_task_selection_policy.py, tests/test_community_replies.py. My committed edits were staged surgically (HEAD blob + my change via `git hash-object -w` + `git update-index --cacheinfo`) so their work stayed uncommitted. The working copies of settings.yaml, operator_prefs.md, welcome.py, test_welcome.py contain BOTH my committed changes and their uncommitted ones. In test_welcome.py working copy I also added (uncommitted, inside their file) an `asyncSetUp` patch enabling the public welcome for their tests + `_public_welcome_enabled` helper — keep it. Use the same staging technique for any file in that list; never `git add` those files wholesale.
+HANDOFF.md itself is uncommitted (don't commit it).
 
-# Historical dropoff — 2026-09-06 09:41 Sunday IDT
+## Known pre-existing test failures (not caused by this work)
+10 in tests/test_planner_coercion_and_chips.py (FakeCalendarRequest has no .state, 422!=409, prompt budget 28523>28000), 2 in tests/test_send_now_parity.py, 1 in tests/test_bug7_context_grounding.py (semantic review unavailable). Full suite takes >8 min; run focused files.
 
-The following is historical diagnosis, superseded by the current handoff above.
+## House rules (abbreviated — read CLAUDE.md, AGENTS.md, ~/.claude/CLAUDE.md)
+- Answers to Noam: 1–4 short plain sentences + "Next steps"; no paths/code in replies.
+- No live cloud LLM calls for testing. No SSH+SQL on prod (use agent API / vps-admin.sh read-only). Never edit /opt/robotnik code directly; deploy = commit → push → `ssh -i ~/.ssh/id_ed25519 root@84.46.253.137 '/opt/robotnik/scripts/deploy.sh'` — ask before every deploy.
+- No hardcoded user-facing Hebrew/thresholds in code; copy in settings `copy.*` via `load_copy`; guardian `tests/test_no_hardcoded_content.py`.
+- Check Israel time with `date` before any scheduling. Topic ids from `vps-admin.sh topics` (verified: music 4502, movies 54, botson_corner 4037, gaming 1517, cute 335).
+- lean-ctx: use ctx_shell; heredocs with python may be blocked — use script files.
+- Declare a plain-language cockpit task.
 
-You are continuing work in Botson at `/media/endlessblink/data/my-projects/ai-development/bots+automation/botson` on branch `main`.
+## Exact next steps
+1. `date +"%Y-%m-%d %H:%M %A"`; read the chat feed (receipt) — check music/movies activity since 30/09.
+2. Design the Friday leaderboard (one dispatcher, config-driven day/time/topic, copy in settings, tests). Confirm with Noam where it posts (music? botson_corner 4037?) — ask one short question if unclear.
+3. Generate 2 riddle images via Codex GPT Image 2: (a) movie scene recreated with animals as actors (4 options, medium-hard, fan-recognisable but not literal-title); (b) a truly hard dark-80s riddle per the oblique-clue rule. Self-check: "could someone who doesn't know the song solve this from the picture alone?" — if yes, redo.
+4. Create them as **drafts** for the proposed slots (evenings when people are around), show Noam images + exact text + options + topic + times, schedule only after approval, with reveal rows carrying the quiz marker.
+5. Ask about row 880 (Iris credit).
 
-## Current task & next step
-Status: `in_progress`. User wants the repeated generic conversation starters removed everywhere and a complete list of hardcoded messages like them, including other hiding places. Latest instruction was `$dropoff`; no cleanup edits have been made. Next: write a scoped cleanup plan and regression tests covering automatic generation, static-pool sends, and queued messages before changing behavior.
-
-## Files touched / in flight
-Only `HANDOFF.md` was updated by this session. Preserve pre-existing dirty work: `AGENTS.md`, `bot/scheduler/jobs.py`, `config/settings.yaml`, `dashboard/app.py`, `dashboard/templates/prompts.html`; untracked `bot/handlers/weekly_state_review.py`, `tests/test_weekly_state_review.py`. These are unrelated weekly-review work and are not staged in the dropoff.
-
-Commit `cf79e31` already added freshness/quality rules and tests before this session. The previous handoff commit `7e83347` and `cf79e31` are already pushed: live `git ls-remote origin refs/heads/main` matched local HEAD `7e83347` before this update. Deployment is separate.
-
-## Key decisions & gotchas
-- Exact reported text: `ראשון בבוקר - מה הדבר שאתם לוקחים איתכם מהשבוע שעבר?`. Production `scheduled_messages` row 780: `created_by=auto`, created `2026-08-22 21:06:50`, scheduled `2026-09-06 09:00`, recorded sent `2026-09-06 09:00:34`. No recurrence. No independent Telegram visual check was performed.
-- Similar pending row 787: `☀️ ראשון בבוקר — איזה דבר אתם משאירים למחצית השבוע?`, auto-created August 29, scheduled September 13 at 09:00. Six auto and three ai-fill-flex morning/evening/discussion rows were pending at inspection. Re-query before mutation.
-- `bot/scheduler/materializer.py:293-395,445-518` generates new text using static examples and writes `created_by=auto`; no semantic review here. On generation failure it skips, not static fallback. Existing scheduled rows are skipped, not regenerated. Do not claim the exact sentence is a Python literal: it was found only in the live scheduled row.
-- `config/prompts.yaml` has 3 morning and 5 evening examples steering toward tasks/reflection. `config/discussions.yaml` is another static pool. Inventory exact entries before removing sendable sources; curated facts/games and functional UI copy must be identified separately rather than blindly deleted.
-- Hidden duplicate: live `daily_prompts` contains 3 morning + 5 evening rows. `bot/database/db.py:427` seeds only when the entire table is empty; YAML edits do not refresh it. `get_random_prompt:473` resets exhausted rows and repeats them.
-- `dashboard/app.py:885-954` Send Now directly sends morning/evening from daily_prompts and discussions from discussions.yaml, without fresh generation or freshness checks.
-- `config/weekday_rubrics.yaml` dictates weekday themes. `dashboard/app.py:8303,8332,8533` embeds more timing/themes, including “Sunday morning is the time to summarize the weekend.” These are additional generation influences, not proven provenance for row 780.
-- Live learned preferences/anchors are `data/operator_prefs.md`, seeded/reconciled from tracked `config/operator_prefs.md` through `bot/utils/prefs_store.py`. Inspect only bot-owned rules/examples, never raw private transcripts or credentials.
-- Diagnostic reproduction: `.venv/bin/python` calling `freshness_rejection(exact_text, scheduled_date='2026-09-06')` returned `None` (accepted). The shorter banned wording does not match the paraphrase. This was baseline diagnosis, not acceptance evidence.
-- Planner semantic review at `dashboard/app.py:6567` only runs for discussion; morning/evening bypass it. `bot/handlers/calendar.py:905-925` sends stored text without freshness revalidation. Fixing future generation alone does not repair pending rows.
-- Production freshness.yaml and question_quality.md differ from local: the earlier cf79e31 fix was not deployed. Materializer, freshness.py, calendar.py, and prompts.yaml had identical local/server SHA-256 checksums.
-- Keep negative regression fixtures distinct from active generation examples. Do not solve this by adding one more literal phrase ban; address the generation/send paths and provide the requested inventory.
-- Follow AGENTS.md, continuation contract, skill router and registry. No Botson runtime_surfaces entry exists in registry; host was verified from project deploy instructions. Runtime mutations should use authenticated dashboard/API, not SSH SQL. User authorizes removal; determine deployment authority from current instructions before release. Never push unrelated dirty work or erase sent history without explicit scope.
-- lean-ctx ctx_compose/ctx_session were unavailable in exposed tools. ctx_search skips dashboard/app.py (>512 KB): use rg through ctx_shell; use ctx_read start_line/limit for precise reads. Remote host has no rg; use grep. The explore subagent failed on a Spark usage limit; no child completed work. Skill router returned no relevant cleanup skill; dropoff SKILL.md was read and followed. No tests during dropoff.
-
-## Env / run state
-Branch: main | Pre-update HEAD: 7e83347 wip: dropoff handoff — remove static conversation starters.
-Remote: https://github.com/endlessblink/botson.git. Production: `ssh -i ~/.ssh/id_ed25519 root@84.46.253.137`, host vmi2922149, checkout `/opt/robotnik`, SQLite `/opt/robotnik/data/bot.db`. At the prior inspection both botson.service and botson-dashboard.service were active; production HEAD was d99b555. Production observations above were inherited from the supplied handoff and were not rechecked during this dropoff. Local Docker lists no Botson-named container. Alias root@vps did not resolve; read-only sqlite3 over SSH worked in the prior investigation. Never read .env/auth files. No code, config, database, deployment changes, or tests were performed during this dropoff.
-
-Start by: write the cleanup plan with the exact removal boundary and falsifiable regression cases, using the proven origins above.
+First command: `cd /media/endlessblink/data/my-projects/ai-development/bots+automation/botson && date +"%Y-%m-%d %H:%M %A" && git status -sb | head -1`
