@@ -240,6 +240,7 @@ class Database:
             ("facts_spooky", 4037),
             ("weekly_roundup", 4037),
             ("weekly_leaderboard", 4037),
+            ("riddle_leaderboard", 4502),
             ("events_publish", 341),
             ("events_reminder", 341),
         ]
@@ -675,6 +676,44 @@ class Database:
         return sorted(
             scores.values(),
             key=lambda m: (-m["weekly_stars"], -m["karma_points"], m["display_name"] or ""),
+        )[:limit]
+
+    async def get_weekly_riddle_leaders(self, limit: int = 10) -> list[dict]:
+        """Top quiz-point earners (guess polls) from the last seven days.
+
+        Quiz points are logged by ``award_quiz_points`` as ``+N quiz:<msg_id> name``.
+        """
+        cutoff = (datetime.now(_IL_TZ) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        async with self._db.execute(
+            """SELECT a.target_user_id, a.description, m.display_name
+               FROM activity_log a
+               JOIN members m ON m.user_id = a.target_user_id
+               WHERE a.timestamp >= ?
+                 AND a.action_type = 'points'
+                 AND a.target_user_id IS NOT NULL
+                 AND a.description LIKE '+% quiz:%'""",
+            (cutoff,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        scores: dict[int, dict] = {}
+        for row in rows:
+            match = re.match(r"^\+(\d+)\s+quiz:", row[1] or "")
+            if not match:
+                continue
+            user_id = int(row[0])
+            entry = scores.setdefault(user_id, {
+                "user_id": user_id,
+                "display_name": row[2],
+                "points": 0,
+                "wins": 0,
+            })
+            entry["points"] += int(match.group(1))
+            entry["wins"] += 1
+
+        return sorted(
+            scores.values(),
+            key=lambda m: (-m["points"], -m["wins"], m["display_name"] or ""),
         )[:limit]
 
     # ── Events ───────────────────────────────────────────────

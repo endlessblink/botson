@@ -40,6 +40,10 @@ copy:
   polls:
     # Reply to a guess-poll answer reveal, naming who guessed right.
     quiz_winners: "🏆 ניחשו נכון: {names} — +{points} נקודות לכל אחד/ת"
+    # Friday riddle leaderboard (cron: schedule.riddle_leaderboard).
+    riddle_leaderboard_title: "🧩 מלכי החידות של השבוע:"
+    riddle_leaderboard_medals: "🥇 🥈 🥉"
+    riddle_leaderboard_line: "{medal} {name} — {points} נקודות ({wins} ניחושים נכונים)"
   conversation_quality:
     generation_instruction: "כתבו שאלה חדשה לערוץ {category} בסוג {message_type}, עם נושא מוגדר וסיבה מעניינת לענות. שעת השליחה אינה מחייבת שאלה על תכנון או סיכום היום."
     manual_sent: "נשלחה ידנית הודעה חדשה שעברה בדיקת איכות: {message_type}"
@@ -717,6 +721,11 @@ schedule:
     days:
     - 6
     time: '18:00'
+  # Guess-poll winners board, music room (routing row riddle_leaderboard). 5 = Friday.
+  riddle_leaderboard:
+    days:
+    - 5
+    time: '19:00'
 weekly_state_review:
   enabled: false
   days:

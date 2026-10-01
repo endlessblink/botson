@@ -24,6 +24,7 @@ To add a new recurring content type, classify it here FIRST:
 # calendar dispatch branches — the guardian test fails CI on drift.
 DISPATCHER_OWNER: dict[str, str] = {
     "weekly_leaderboard": "cron",
+    "riddle_leaderboard": "cron",
     "weekly_roundup": "cron",
     "free_games": "cron",
     "emoji_puzzle": "calendar",   # cron code path exists but must stay inert (days empty)

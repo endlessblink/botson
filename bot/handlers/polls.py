@@ -14,12 +14,16 @@ so no separate registration step is needed.
 
 import logging
 from collections import defaultdict
+from datetime import date
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
 
 from ..database.db import Database
+from ..utils.config import GROUP_ID, is_auto_blocked_on
+from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
+from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -204,3 +208,52 @@ def tag_members(winners: dict[int, str]) -> str:
     from html import escape
 
     return ", ".join(f'<a href="tg://user?id={uid}">{escape(name)}</a>' for uid, name in winners.items())
+
+
+async def send_riddle_leaderboard(context: ContextTypes.DEFAULT_TYPE):
+    """Scheduled job: post the week's guess-poll (riddle) winners, tagging them."""
+    if is_auto_blocked_on(date.today()):
+        logger.info("polls: blackout date, skipping riddle leaderboard")
+        return {"skipped": "blackout date"}
+
+    db: Database = context.bot_data["db"]
+    leaders = await db.get_weekly_riddle_leaders(10)
+    if not leaders:
+        return {"skipped": "no riddle winners"}
+
+    routing = await db.get_handler_routing("riddle_leaderboard")
+    if not routing or routing["play_topic_id"] is None:
+        logger.warning("polls: no routing configured for 'riddle_leaderboard'; skipping")
+        return None
+
+    from html import escape
+
+    medals = load_copy("polls", "riddle_leaderboard_medals").split()
+    lines = [load_copy("polls", "riddle_leaderboard_title"), ""]
+    for i, m in enumerate(leaders):
+        medal = medals[i] if i < len(medals) else f"{i + 1}."
+        lines.append(load_copy(
+            "polls", "riddle_leaderboard_line",
+            medal=medal,
+            name=f'<a href="tg://user?id={m["user_id"]}">{escape(str(m["display_name"] or m["user_id"]))}</a>',
+            points=m["points"],
+            wins=m["wins"],
+        ))
+
+    try:
+        msg = await safe_send(
+            context.bot,
+            db,
+            "send_message",
+            chat_id=GROUP_ID,
+            text="\n".join(lines),
+            message_thread_id=routing["play_topic_id"],
+            parse_mode="HTML",
+        )
+        logger.info("Sent riddle leaderboard")
+        return getattr(msg, "message_id", None)
+    except UnverifiedTopicError as e:
+        logger.warning("polls: guard refused send: %s", e)
+    except Exception as e:
+        logger.error("Failed to send riddle leaderboard: %s", e)
+    return None

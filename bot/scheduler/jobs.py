@@ -56,6 +56,7 @@ def setup_jobs(app: Application) -> None:
     time from live DB state.
     """
     from ..handlers.levels import send_weekly_leaderboard
+    from ..handlers.polls import send_riddle_leaderboard
     from ..handlers.roundup import send_weekly_roundup
     from ..handlers.weekly_state_review import send_weekly_state_review
     from ..handlers.events import send_event_reminder
@@ -81,6 +82,17 @@ def setup_jobs(app: Application) -> None:
             time=lb_time,
             days=lb_days,
             name="weekly_leaderboard",
+        )
+
+    # ── Weekly riddle leaderboard (guess-poll winners) ──
+    riddle_lb = _parse_schedule(schedule.get("riddle_leaderboard", {}))
+    riddle_days = _hebrew_to_python_days(riddle_lb.get("days", []))
+    if riddle_days:
+        jq.run_daily(
+            send_riddle_leaderboard,
+            time=_parse_time(riddle_lb.get("time", "19:00")),
+            days=riddle_days,
+            name="riddle_leaderboard",
         )
 
     # ── Weekly roundup ──
