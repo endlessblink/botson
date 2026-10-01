@@ -766,7 +766,7 @@ trivia:
 topics:
   discussions:
     support: 347
-    cute: 335
+    # cute: 335  # disabled 2026-10-01 — operator: generated cute questions are almost always low quality (one deleted 2026-09-30). Channel stays alive for organic posts; re-enable only for curated visual content.
     # funny: 153  # disabled 2026-05-16 — auto-generated humor-as-question doesn't work; channel stays alive for organic posts. Re-enable when option C (curated joke pool) ships.
     fitness: 5438
     gaming: 1517

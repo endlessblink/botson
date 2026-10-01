@@ -587,12 +587,14 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
             s for s in suggestions
             if s["message_type"] == "discussion" and str(s.get("source") or "").startswith("ai-fill-flex")
         ]
-        self.assertGreaterEqual(len(flex_rows), 7, result)
+        # One flex row per mapped discussion topic, less sibling-dedup losses;
+        # the floor tracks the configured topics (cute unmapped 2026-10-01).
+        self.assertGreaterEqual(len(flex_rows), 6, result)
         # Sibling dedup may spend the two configured batch retries replacing
         # same-topic collisions, but must not fall back to one call per row.
         self.assertLessEqual(calls["generate"], 9, dict(calls))
         self.assertLessEqual(review_state["calls"], 5, review_state)
-        self.assertGreaterEqual(len(review_state["batches"][0]), 7, review_state)
+        self.assertGreaterEqual(len(review_state["batches"][0]), 6, review_state)
         retried_id = review_state["batches"][0][0]
         self.assertTrue(
             any(retried_id in batch for batch in review_state["batches"][1:]),
@@ -3755,7 +3757,9 @@ class TestPlannerTemplateExposure(unittest.TestCase):
         # See config/operator_prefs.md "no humor as discussion question" rule.
         # `art` was intentionally unmapped when topic 347 was repurposed to
         # "מרימים אחד לשני/ה"; support now owns that topic.
-        intentionally_disabled = {"general", "funny", "art"}
+        # `cute` was unmapped 2026-10-01: the operator found generated cute
+        # questions almost always low quality; the topic stays for members.
+        intentionally_disabled = {"general", "funny", "art", "cute"}
         expected = set(discussions) - intentionally_disabled
         self.assertGreaterEqual(set(mapped), expected)
         self.assertEqual(mapped.get("support"), 347)

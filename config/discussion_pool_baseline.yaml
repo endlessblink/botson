@@ -12,6 +12,8 @@
 allowlist:
   art:
     - "<category itself>"
+  cute:  # unmapped 2026-10-01: generated cute questions disabled by operator
+    - "<category itself>"
   funny:
     - "<category itself>"
   general:
