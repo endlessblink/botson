@@ -14701,6 +14701,22 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
                 d["draft_options_list"] = []
         else:
             d["draft_options_list"] = []
+        # Rich-draft fields so the drafts table can show a poll's image,
+        # options and correct answer, and tie a reveal row to its poll.
+        d["draft_poll_choices"] = []
+        d["draft_quiz_for"] = None
+        d["draft_quiz_correct"] = None
+        raw_poll = d.get("poll_options_json")
+        if raw_poll and isinstance(raw_poll, str):
+            try:
+                parsed_poll = _json.loads(raw_poll)
+            except Exception:
+                parsed_poll = None
+            if isinstance(parsed_poll, list):
+                d["draft_poll_choices"] = [str(o) for o in parsed_poll]
+            elif isinstance(parsed_poll, dict):
+                d["draft_quiz_for"] = parsed_poll.get("quiz_answer_for")
+                d["draft_quiz_correct"] = parsed_poll.get("correct_option")
 
     topic_names = {t["topic_id"]: t["name"] for t in forum_topics}
 

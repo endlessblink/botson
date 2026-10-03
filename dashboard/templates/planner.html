@@ -618,6 +618,7 @@
         <div class="{% if not loop.last %}pb-4 border-b border-[#1f1f1f]{% endif %}" data-draft-id="{{ draft.id }}">
             <div class="flex items-center gap-2 mb-2">
                 <span class="text-xs px-2 py-0.5 rounded-md bg-zinc-500/10 text-zinc-400">{{ draft.message_type }}</span>
+                <span class="text-xs text-[#a1a1aa]">{{ draft.scheduled_date }}</span>
                 {% if draft.channel_topic_id and topic_names %}
                 <span class="text-xs text-[#52525b]">{{ topic_names.get(draft.channel_topic_id, '') }}</span>
                 {% endif %}
@@ -631,6 +632,19 @@
             {% endfor %}
             {% else %}
             <p class="text-[14px] text-[#d4d4d8] bg-[#111318] border border-[#272727] rounded-lg px-4 py-3 whitespace-pre-line">{{ draft.text }}</p>
+            {% endif %}
+            {% if draft.cover_path %}
+            <img src="/media/{{ draft.cover_path }}" alt="" class="mt-2 rounded-lg border border-[#272727] max-h-56">
+            {% endif %}
+            {% if draft.draft_poll_choices %}
+            <ol class="mt-2 space-y-1">
+                {% for opt in draft.draft_poll_choices %}
+                <li class="text-[13px] text-[#d4d4d8] bg-[#111318] border border-[#272727] rounded-md px-3 py-1.5">{{ loop.index }}. {{ opt }}</li>
+                {% endfor %}
+            </ol>
+            {% endif %}
+            {% if draft.draft_quiz_for %}
+            <p class="mt-2 text-xs text-emerald-400">תשובה לחידה #{{ draft.draft_quiz_for }} · התשובה הנכונה: {{ draft.draft_quiz_correct }}</p>
             {% endif %}
             <div class="mt-3 flex items-center gap-2">
                 <input type="time" class="draft-time bg-transparent border border-[#272727] rounded h-7 px-2 text-xs text-[#fafafa] w-[90px]" value="{{ draft.scheduled_time[:5] if draft.scheduled_time else '18:00' }}">
