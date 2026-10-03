@@ -78,6 +78,8 @@ If a correction doesn't fit any of these, add a new context category.
 - שאלות חכמות > שאלות פילר רגשי. עוגן קונקרטי (חפץ, פעולה, החלטה, רגע) > קופי פואטי.
 - עדיף עוגן טרי: שאלה שנולדה ממה שהקבוצה באמת מדברת עליו בימים האחרונים (נושאים, משחקים, סרטים או ויכוחים שעלו) עדיפה על שאלה שמתאימה לכל קבוצה. בנוסף, חפש זווית שאפשר להתווכח עליה, כדי שיהיה לאנשים מה להגיב. אם אין עוגן טרי וגם אין זווית כזו — דלג.
   _**Source:** chat via /teach-bot, 2026-10-03 — operator said blocked questions were generic filler, forced in tone, or too hard to answer, and wants concrete, fresh, arguable questions._
+- אל תחזור מילה במילה על משפט או בדיחה שנאמרו בערוץ אחר, ואל תבנה פוסט על שיחה שכבר הסתיימה ואין בה מה להוסיף. קח מהשיחה רק נושא שעדיין חי, ונסח אותו במילים חדשות.
+  _**Source:** chat via /teach-bot, 2026-10-03 — operator rejected a poll that restated a joke from another channel one to one, about a conversation that had already ended._
 - "איך היה היום" / "מה הדבר הטוב היום" / "הריטואל שסוגר" — פסולים גם אם נראים תמימים, כי הם פילר.
 - שאלת מאמץ (פסקה, רשימה, הסבר) פסולה. תמיד בקש פרט אחד, שם אחד, החלטה אחת.
 - עברית של חבר בקבוצה, לא של קופירייטר. אם זה נשמע כמו תרגום מ-engagement prompt באנגלית — לפסול ולנסח שוב.
