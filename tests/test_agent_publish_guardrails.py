@@ -78,6 +78,24 @@ def test_custom_label_does_not_skip_review(env):
     review.assert_awaited_once()
 
 
+def test_operator_approved_post_skips_review_and_budget(env):
+    tmp_path, review = env
+    review.return_value = (False, "reviewer would reject this")
+
+    async def body(db):
+        for i in range(3):
+            await db.log_activity("agent_quality_rejected", f"row:{i} earlier rejection")
+        request = agent_request()
+        request.headers["x-operator-approved"] = "true"
+        await guard(db, text="approved by the operator", request=request)
+        async with db._db.execute(
+            "SELECT COUNT(*) FROM activity_log WHERE action_type = 'agent_operator_approved'"
+        ) as cur:
+            return (await cur.fetchone())[0]
+    assert run(body, tmp_path) == 1
+    review.assert_not_awaited()
+
+
 def test_rejected_row_cannot_be_rewritten_and_retried(env):
     tmp_path, review = env
 

@@ -511,6 +511,15 @@ async def _agent_publish_guard(
 
     if _quiz_marker(poll_options) or (message_type == "poll" and cover_path):
         return
+    # The operator reviewed this exact post and approved it (the agent says so
+    # with the X-Operator-Approved header). Operator approval outranks the
+    # automated reviewer and its daily budget; every use is logged for audit.
+    approved = str((getattr(request, "headers", {}) or {}).get("x-operator-approved", "")).strip().lower()
+    if approved in {"1", "true", "yes"}:
+        await db.log_activity(
+            "agent_operator_approved", f"row:{row_id if row_id is not None else 'new'} {text[:200]}",
+        )
+        return
     if row_id is not None and await _agent_rejections(db, since="2000-01-01", row_id=row_id):
         raise HTTPException(
             status_code=409,
