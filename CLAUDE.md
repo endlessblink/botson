@@ -135,6 +135,7 @@ Noam was frustrated that agents kept falling back to their defaults. Follow this
 3. **Riddles: never show the answer, the reveal text, or any hint of it.** He wants to play. Image + question + options only.
 4. **Nothing is drafted or scheduled before he approves it in the tool.** Approved items are then scheduled; the server's quality review can still reject (it did for a repeated-idea question). Report that and ask for a replacement. Do not blindly retry or reword to get past it.
 5. **Quality bar from his own words:** blocked questions were generic filler, forced or copywriter tone, or too much effort/too hard to answer. A good one has a concrete anchor, is fresh from what the group is actually saying (read the real chat feed first), has a real angle, and takes a one-word answer. If no strong idea exists for a slot, bring a few candidates (one AskUserQuestion), do not fill it with filler.
+5b. **Volume: at least 4 content slots every day** (operator 2026-10-03). A riddle (poll + reveal) is one slot; the daily digest and free-games post don't count. Count per day before and after planning, show the count, and fill the gap with a mix of riddles, questions, polls and games. Never pad with filler to reach the number.
 6. **Learn from every answer.** When he approves, rejects or rewrites something, fold the lesson into the learned Hebrew rules in the same session (`/teach-bot`, as an abstract directive, never a quote of the text). Do not leave it only in chat or memory.
 
 ## Hermes Feedback Ingestion
