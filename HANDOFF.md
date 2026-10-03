@@ -1,76 +1,62 @@
-# HANDOFF — Botson: riddle series (2026-10-01 12:25 IDT)
+# HANDOFF — Botson weekly schedule (min 4 slots/day), deploy pending (eleventh instance, written 2026-10-03 ~21:00 IDT Saturday)
 
-## Immediate task (Noam's latest words)
-> "lets go with the riddle series"
+Project dir: /media/endlessblink/data/my-projects/ai-development/bots+automation/botson
+Date check first: `date +"%Y-%m-%d %H:%M %A"`. Reply style to Noam: 1-4 short plain sentences, no paths/code/commands, no option menus (global CLAUDE.md changed: "End with a plain sentence at most"). NEVER tell Noam to run anything.
 
-That is option 1 from my last proposal:
-- 2–3 **picture riddles a week** in topics people actually like (music room 4502, movies 54), each one a 4-option inline poll with a GPT Image 2 image, answered later by a reveal row that gives points to correct guessers and tags them in the group.
-- A **Friday leaderboard post** that tags the week's top riddle guessers.
-- First two riddles go to Noam for **approval before scheduling**: (a) the movie poll with his requested twist — *a famous film scene recreated with animals as the actors*, 4 options; (b) a **genuinely hard** dark-80s music riddle (see hard-riddle rule below).
+## Noam's requests and corrections (his words, in order of importance)
+- Original: continue the previous handoff (riddle series, SSH, deploy). All done earlier: SSH works (`ssh -o BatchMode=yes bina-ci ...` via mcp__lean-ctx__ctx_shell raw=true; load schema with ToolSearch `select:mcp__lean-ctx__ctx_shell`).
+- "I want to see it here + have you use the questions tool to review each one" -> ALL content review goes through AskUserQuestion, one item per question, the actual post text IS the question text (options: Approve / Change the wording / Replace it / Skip). Never in chat text, never only in a preview/table/artifact. Never ask the same thing twice; never re-ask what he answered.
+- "today is saturday, ask me for each day in order" -> walk the week day by day starting today.
+- "make sure to not show me the answers [of riddles]" -> image + question + options only, no answer/reveal.
+- Quality (his words): blocked questions were generic filler, forced/cringe tone, too much effort or too hard. A good one: concrete anchor, fresh from group chat, real angle, one-word answer. "dont repeat 1 to 1 what was said in another channel! also the conversation stopped there, there is nothing to add". When no strong idea: bring candidates (AskUserQuestion). "none are good, find something else" is a valid answer: bring a different one.
+- "this is too little ... should be minimum 4" -> every day needs >=4 content slots. A riddle (poll+reveal) = 1 slot; daily digest 09:30 and free-games 10:00 don't count; weekly roundup/leaderboard cron and Friday riddle leaderboard 19:00 are automatic and don't count. Noam allowed ONLY "Text questions" and "Polls" as filler types (no more riddles/games).
+- "what I tell you here should be changed in the harness ... so it wont default again and again" -> done in project CLAUDE.md "Content review workflow" + memory + learned rules (below).
+- On the server AI quality check: "if I approved it that goes above that system because I built it ... a system that just disqualifies results is a bad system" -> (1) operator approval must outrank the reviewer (DONE in code, not yet deployed), (2) the reviewer should SUGGEST better versions instead of only rejecting (NOT BUILT; Noam hasn't been asked to confirm scope; it does not weaken any guardrail so it is allowed).
+- Last message: "ok so did you schedule them?" -> answer was: no; Tuesday 18:00 question is a draft because the fix is not deployed.
 
-He explicitly REJECTED "member-hosted riddles" ("won't work, I'm not sure people are entering that much anyway. stop using one occasion as a pattern"). Do not propose it again. Do not claim patterns from one busy night (memory: feedback_no_patterns_from_one_occasion). He also floated "measure first" (activity data over 4–8 weeks) — not chosen yet; mention it only if relevant.
+## What is scheduled (live on VPS, verified via GET /api/calendar, all status=scheduled)
+Sat 3/10: 893 movies 16:30 q (superhero movie); 899 music room 4502 17:30 q (ruined song); 885+886 gaming riddle 19:30 (+reveal 20:30); 887+888 TV riddle 21:30 (+22:30). [4 slots] (+cron roundup/leaderboard 18:00)
+Sun 4/10: 894 WFH channel 9029 09:00 q (desk item); 900 gaming 1517 13:00 q (unfinished game); 901 fitness 5438 17:00 q (dropped exercise); 881+882 movie riddle 20:30 (+21:30). [4]
+Mon 5/10: 902 WFH 9029 10:30 POLL (music or silence + genre, 6 options); 903 movies 54 14:00 q (second viewing); 895 gaming 18:00 q (board game concept cooler than game); 904 music 4502 20:30 q (secret lyrics). [4]
+Tue 6/10: 905 movies 54 10:30 q (surprise series); 896 vegan 7 13:00 q (salad sauce); 883+884 music riddle 21:00 (+22:00). [3]. DRAFT 907 gaming 1517 18:00 "אם אפשר לשמור רק משחק אחד מהספרייה שלכם לכל החיים – איזה?" Noam APPROVED it but scheduling got 429 (agent publishing paused for the day after 2 quality rejections). Needs scheduling after deploy using the new header.
+Wed 7/10: 892 movies 54 20:00 q (soundtrack better than movie); 898 trivia warm-up 20:00 (bot corner 4037); 897 trivia round 21:00 (general, 5 q). [2 slots]
+Thu 8/10: 889+890 movie riddle 20:30 (+21:30). [1 slot]. Thursday daytime: Noam rejected my keyboard Q, onesie Q, and all three candidates ("Skip Thursday daytime, notes: nothing works?"). Needs new ideas, need 3 more.
+Fri 9/10: nothing but automatic riddle leaderboard 19:00 (music room). Noam said "Leave Friday as is" BEFORE the min-4 rule -> needs 4 slots now; ask again.
+Needed to reach 4/day: Tue +1 (907 pending), Wed +2, Thu +3, Fri +4.
+Row 891 (old Monday gaming) and 906 (rejected Tuesday poll) were deleted. Row 880 (Iris credit draft in music room) stays a draft, never send/delete.
 
-## Definition of done for the riddle series
-1. A repeatable way to create a riddle: image (GPT Image 2 via Codex only) → poll row (message_type `poll`, 4 options, `cover_path`) → reveal row (message_type `custom`, `poll_options: {"quiz_answer_for": <poll row id>, "correct_option": "<exact option>"}`) — this already works end-to-end (see "What exists").
-2. A weekly cadence (2–3 riddles) scheduled with Noam's approval; times/days must come from config (`config/settings.yaml`), never hardcoded (hard project rule).
-3. Friday leaderboard: weekly totals of quiz points, posted with tags. Does NOT exist yet — needs building: sum `activity_log` rows `action_type='points'` with description containing `quiz:` for the week (written by `award_quiz_points`), or a cleaner query; post via `safe_send` with HTML mentions (`tag_members` in bot/handlers/polls.py). Must be **one dispatcher only** (memory: weekly_roundup double-send incident — recurring computed content gets exactly one dispatcher; cron-owned types must not also be calendar rows). Copy text in settings `copy.*`, schedule in `schedule.*`, guardian tests must pass.
-4. Tests + commit + push; deploy only after explicit "deploy" confirmation from Noam (memory: pause before deploy, every time).
-5. Show Noam the first two riddles (images + exact Hebrew text + options + topic + times) for approval. Hebrew drafts: project rule says render on dashboard, not terminal — in practice I created **draft** calendar rows via the agent API and also showed text in chat; Noam has accepted that. Drafts never send.
+## Code/repo state (branch main; local ahead of origin; NOT pushed/deployed since ee02dda)
+Pushed+deployed earlier: ee02dda (planner drafts list shows poll image/options/correct answer/date).
+Committed locally, NOT pushed, NOT deployed:
+- b4c5c1b fix(dashboard): scheduling a trivia round crashed on sqlite row (500) [`_ensure_trivia_pool_ready_for_round(dict(row))` in schedule_calendar_item]
+- 9a98546, 58e85a6, 4347350 CLAUDE.md workflow docs; 507be41 + 4347350 operator_prefs rules (fresh anchor/arguable angle; don't recycle other-channel phrases or finished threads) — committed as separate hunks via `git apply --cached` because config/operator_prefs.md also has another session's uncommitted hunks.
+- 8114dc5 feat(agent-api): header `X-Operator-Approved: true` makes `_agent_publish_guard` skip the AI quality review, per-row rejection check and the 2/day budget; logs activity `agent_operator_approved` (dashboard/app.py; test tests/test_agent_publish_guardrails.py::test_operator_approved_post_skips_review_and_budget). Tests: 21 passed (guardrails + hardcoded-content guardian).
+- Permission: I added `"Edit(dashboard/app.py)"` to `.claude/settings.local.json` (gitignored) at Noam's explicit request after the auto-mode classifier ([Security Weaken]) blocked the edit; that is why the edit finally worked. Do not add other permission rules yourself without his explicit ask.
+Uncommitted files NOT mine (other session, never `git add` wholesale): AGENTS.md, MASTER_PLAN.md, bot/database/db.py, models.py, bot/handlers/welcome.py, bot/main.py, bot/utils/topic_guard.py, config/operator_prefs.md (other hunks), config/settings.yaml, tests/test_operator_prefs_canonical.py, test_recent_community_context.py, test_welcome.py, untracked bot/handlers/community_replies.py, config/community_reply.yaml, docs/botson-task-routing.md, tests/test_botson_task_selection_policy.py, tests/test_community_replies.py, BlenderMCP/, applications/. This HANDOFF.md is also uncommitted.
+Deploy needs Noam's explicit "deploy" (memory: pause before SSH deploy). He has NOT yet said deploy for the new commits; I asked ("say deploy and I'll push it") and he replied with "ok so did you schedule them?". Next step: ask in one plain sentence / or just confirm, then `git push origin main` then `ssh -o BatchMode=yes bina-ci '/opt/robotnik/scripts/deploy.sh'` (guardians run; push once only).
+After deploy: schedule 907 by POST /api/calendar/907/schedule WITH header `X-Operator-Approved: true` (plus fresh Idempotency-Key + X-Community-Context-Receipt from GET /api/agent/community/messages?hours=24&limit=200 — hours must be 24, other values 400). Use the header ONLY for items Noam approved in AskUserQuestion.
 
-## Hard rules for riddles (learned this session)
-- **Hard means hard**: never illustrate the answer's title (Iris, a dark-80s fan, caught "pearls dripping like dew" = "Pearly-Dewdrops' Drops"). Clue must come from fan-only knowledge: video imagery, a lyric line other than the title, sleeve art, band history, lateral association; distractors must fit the picture equally. Canonical rule now in `config/operator_prefs.md` → `### Hebrew content rules` (committed 74b922e, live on VPS), in `~/.codex/skills/botson-game-creator/SKILL.md` (section "Image riddles and guess polls"), and memory `feedback_hard_riddles_oblique_clues`.
-- Images ONLY GPT Image 2 or Seedream 5. Noam: "I don't want to use tokens, only through gpt image 2" → use Codex CLI image_generation (subscription, no paid credits):
-  `cd <scratch dir> && codex exec --skip-git-repo-check -s workspace-write -C . "Use only your built-in image_generation tool (GPT Image 2)... Save it as X.png ..."` (~1–2 min). Never other models.
-- 4 options. Not everything should be a poll ("the poll has no meaning if it's everything polls all the time").
-- Winners must get points AND be tagged in the group (done automatically by reveal rows with the quiz marker).
-- No notifying pin late at night; pins are group-wide.
-- Cute topic: bot questions there are DISABLED (Noam, 2026-10-01). Don't put riddles/questions there.
-- One-time posts are not features (memory feedback_one_time_posts_not_features).
+## How posting works (proven)
+Scripts live in scratchpad (/media/endlessblink/data/.dev-tmp/endlessblink/claude-1000/-media-endlessblink-data-my-projects-ai-development-bots-automation-botson/53ae1678-60f2-495f-bbd7-df58fa49981d/scratchpad/): text_drafts.py (ITEMS list; run `ssh -o BatchMode=yes bina-ci 'python3 -' < text_drafts.py`; creates draft then schedules; message_type discussion needs "category" matching settings topics.discussions (support, fitness, gaming, movies, music, politics, singles, vegan); topics not in that list (9029 WFH) use message_type "custom"; polls use message_type "poll" + poll_options list), cal_today.py (lists calendar 10-03..10-10), trivia.py, feed.py (24h chat feed), riddle_*.py. Idempotency keys derive from tag: a reused key after a failed call returns "Previous request outcome uncertain" -> rename tag. slot_clash 409 if an existing draft/scheduled row has the same date+time+topic (delete the draft first: DELETE /api/calendar/{id}). Server AI quality review rejects repeats/generic items (422) and after 2 rejections/day pauses agent publishing (429); the header bypass above fixes that once deployed.
+Never SSH+SQL prod. Read-only dumps: `ssh -o BatchMode=yes bina-ci '/opt/robotnik/scripts/vps-admin.sh topics|routing|schedule|logs dash 120'`.
 
-## How to post a riddle (proven 2026-09-30, scripts in my scratchpad)
-Scratchpad: `/media/endlessblink/data/.dev-tmp/endlessblink/claude-1000/-media-endlessblink-data-my-projects-ai-development-bots-automation-botson/aab09480-a275-4477-8830-8025b0afd61b/scratchpad/music/` — see `post2.py`, `post_hard.py` (poll create → send-now → reveal create). Pattern:
-1. Upload image: `scp img root@84.46.253.137:/tmp/x.png` then `ssh root@84.46.253.137 'install -o botson -g botson -m 644 /tmp/x.png /opt/robotnik/media/covers/<epoch>_up_<name>.png && rm /tmp/x.png'` (dashboard upload endpoint needs a browser session; covers dir is gitignored runtime data). cover_path = `covers/<file>`.
-2. Run the python script ON the VPS via `ssh root@84.46.253.137 'python3 -' < script.py` — it reads `BOTSON_AGENT_API_TOKEN` from `/opt/robotnik/.env` so the token never leaves the VPS, and calls `http://127.0.0.1:8080`.
-3. Every agent mutation needs `Idempotency-Key` + `X-Community-Context-Receipt` (receipt = `context_receipt` from `GET /api/agent/community/messages?hours=24&limit=200`, ≤20 min old, invalid if a new chat message arrived — re-read right before each call).
-4. For scheduled (not immediate) riddles: create poll row with `status: "scheduled"` at the slot time (or draft → `POST /api/calendar/{id}/schedule`). Image polls and reveal rows with the quiz marker are exempt from the AI discussion rubric (commit 02657ed). send-now only works for rows due within 10 min.
-5. To credit/score an already-revealed poll: `POST /api/calendar/{poll_id}/award-quiz-points {"correct_option": ..., "announce_reply_to_row": <reveal row id>}`.
+## Verified channels (vps-admin topics, 2026-10-03; Noam changed several channels yesterday)
+7 vegan, 54 movies/series, 59 singles, 153 funny, 335 cute (bot Qs disabled), 341 welcome, 347 support, 1431 politics, 1517 gaming, 2184 now named "קשקשת ברשת" (was יום יום, chatter), 3113 AI/tech, 4037 bot corner, 4502 music room, 5438 fitness, 9029 "עבודה מהבית ופרודוקטיביות" (NEW, auto-detected, Noam confirmed it as the Sunday desk-question channel). Facts/trivia/emoji route to 4037.
 
-## What exists / was done this session (all committed & pushed to origin/main, VPS deployed at HEAD ffcafd8)
-- 3bb02fb chat-read gate (agents must read real chat feed before content mutations; receipt) + notifying pin (`auto_pin: 2`).
-- 609e35c reviewer JSON retry (`technical_attempts` in config/hot_take_review.yaml).
-- 6aeb381 operator-approved posts never blocked by AI review at send time (hard rules only); new `conversation_precheck` job (advisory DM ~early).
-- e99362e agent publishing guardrails (review all agent text posts regardless of type; rejected row can't be retried; `agent_guardrails.max_quality_rejections_per_day: 2`; send-now only if due ≤10 min; agent rows `created_by: agent`).
-- 02366e5 precheck dedupe persisted in activity_log (no repeat DMs after deploy), Hebrew reviewer reasons, delivered admin alerts logged (`admin_alerts: delivered`).
-- 7472717 / 997782f / 4a2130a guess-poll scoring: `award_quiz_points`, `quiz_winners`, `tag_members` (bot/handlers/polls.py), reveal hook `_award_quiz_reveal` (bot/handlers/calendar.py), endpoint award-quiz-points; points `gamification.quiz_poll_correct: 5`, copy `copy.polls.quiz_winners`. Public welcome on joins turned OFF (`welcome.public_enabled: false`).
-- 74b922e hard-riddle rule in operator_prefs.
-- ffcafd8 cute topic unmapped from `topics.discussions`.
-- Real chat feed: `GET /api/agent/community/messages` works and now captures member messages (music room was active 29/09 night). Read it before any group content.
+## Quality lessons already persisted
+CLAUDE.md "Content review workflow" (items 1-6 plus 5a/5b), memory files feedback_riddle_review_hide_answers, feedback_use_questions_tool_for_content_review, feedback_min_four_content_slots_per_day, feedback_no_recycling_group_chat, learned Hebrew rules in config/operator_prefs.md (committed hunks). The bot's live prefs reach prod only after deploy.
 
-## Production state (2026-10-01 12:25)
-- Riddles posted 30/09: spider/Lullaby (row 876, Iris won +5 and was tagged), hard Cocteau Twins (row 878, 0 winners — Iris called out that the picture gave away the title).
-- Draft row **880** (music room 4502): credit to Iris — "🖤 קרדיט לאיריס: ..." — NOT sent: agent text posting was paused on 30/09 by the daily rejection budget (2 false rejections from my pre-fix rubric). Budget resets daily (IL date); on 10/01 agent posting should work again. Ask Noam whether to still send it (he said "give her credit") — it's a plain custom text, so it WILL go through the AI review and may be rejected (counts against budget). Alternative: Noam sends it from the dashboard planner (session sends are not guarded).
-- Scheduled this week: row 855 facts_tidbit 10-01 12:00; 865 movies 10-01 13:00; 866 gaming 10-01 19:00; 863 support 10-01 23:30; 870 vegan 10-02 19:00; 858 movies 10-02 20:00. Row 856 (facts_spooky 09-27) failed "facts spooky did not send" — cause unknown, uninvestigated.
-
-## Uncommitted state in the repo (NOT mine — preserve)
-Another session's work is uncommitted: AGENTS.md, bot/database/db.py, models.py, bot/handlers/welcome.py, bot/main.py, bot/utils/topic_guard.py, config/operator_prefs.md, config/settings.yaml, tests/test_operator_prefs_canonical.py, tests/test_recent_community_context.py, tests/test_welcome.py, untracked community_replies.py, config/community_reply.yaml, docs/botson-task-routing.md, tests/test_botson_task_selection_policy.py, tests/test_community_replies.py. My committed edits were staged surgically (HEAD blob + my change via `git hash-object -w` + `git update-index --cacheinfo`) so their work stayed uncommitted. The working copies of settings.yaml, operator_prefs.md, welcome.py, test_welcome.py contain BOTH my committed changes and their uncommitted ones. In test_welcome.py working copy I also added (uncommitted, inside their file) an `asyncSetUp` patch enabling the public welcome for their tests + `_public_welcome_enabled` helper — keep it. Use the same staging technique for any file in that list; never `git add` those files wholesale.
-HANDOFF.md itself is uncommitted (don't commit it).
-
-## Known pre-existing test failures (not caused by this work)
-10 in tests/test_planner_coercion_and_chips.py (FakeCalendarRequest has no .state, 422!=409, prompt budget 28523>28000), 2 in tests/test_send_now_parity.py, 1 in tests/test_bug7_context_grounding.py (semantic review unavailable). Full suite takes >8 min; run focused files.
-
-## House rules (abbreviated — read CLAUDE.md, AGENTS.md, ~/.claude/CLAUDE.md)
-- Answers to Noam: 1–4 short plain sentences + "Next steps"; no paths/code in replies.
-- No live cloud LLM calls for testing. No SSH+SQL on prod (use agent API / vps-admin.sh read-only). Never edit /opt/robotnik code directly; deploy = commit → push → `ssh -i ~/.ssh/id_ed25519 root@84.46.253.137 '/opt/robotnik/scripts/deploy.sh'` — ask before every deploy.
-- No hardcoded user-facing Hebrew/thresholds in code; copy in settings `copy.*` via `load_copy`; guardian `tests/test_no_hardcoded_content.py`.
-- Check Israel time with `date` before any scheduling. Topic ids from `vps-admin.sh topics` (verified: music 4502, movies 54, botson_corner 4037, gaming 1517, cute 335).
-- lean-ctx: use ctx_shell; heredocs with python may be blocked — use script files.
-- Declare a plain-language cockpit task.
+## Other open items
+- Trivia warm-up row 898 text says "בעוד שעה, בשעה 21:00" fine; game 897 scheduled via PUT {"status":"scheduled"} workaround (schedule endpoint crashed before b4c5c1b).
+- pages/week-plan.html is a stale April snapshot (project rule says update it when the weekly plan changes) — not updated; ask or update later.
+- Weekly smoke check: Noam chose "tests only"; ran locally, 314 passed, 14 failed all in tests/test_planner_coercion_and_chips.py (pre-existing). Health-guard record not updated.
+- Optional: build the "reviewer suggests better versions" feature (conversation_quality.review_conversation returns only (bool, reason); add a suggestion step, attach to the 422 detail for agent callers; Hebrew prompt text must come from config, not code).
+- Artifact page of the first three riddles exists (claude.ai/artifact/E55R3ZYdAToWWJkYQVVCo2), contains answers; don't share/republish with answers.
+- Global rule: no live cloud LLM test calls; images only GPT Image 2 / Seedream 5 (Codex `exec` image_generation works: see gen_images.sh).
+- The auto-mode classifier blocks guardrail-weakening edits and prod deploys the first time; Noam's explicit approval + a retry worked for deploy; for permission-type blocks he must add rules (done for dashboard/app.py).
 
 ## Exact next steps
-1. `date +"%Y-%m-%d %H:%M %A"`; read the chat feed (receipt) — check music/movies activity since 30/09.
-2. Design the Friday leaderboard (one dispatcher, config-driven day/time/topic, copy in settings, tests). Confirm with Noam where it posts (music? botson_corner 4037?) — ask one short question if unclear.
-3. Generate 2 riddle images via Codex GPT Image 2: (a) movie scene recreated with animals as actors (4 options, medium-hard, fan-recognisable but not literal-title); (b) a truly hard dark-80s riddle per the oblique-clue rule. Self-check: "could someone who doesn't know the song solve this from the picture alone?" — if yes, redo.
-4. Create them as **drafts** for the proposed slots (evenings when people are around), show Noam images + exact text + options + topic + times, schedule only after approval, with reveal rows carrying the quiz marker.
-5. Ask about row 880 (Iris credit).
-
-First command: `cd /media/endlessblink/data/my-projects/ai-development/bots+automation/botson && date +"%Y-%m-%d %H:%M %A" && git status -sb | head -1`
+1. `date +"%Y-%m-%d %H:%M %A"`; run cal_today.py to confirm the schedule above is intact.
+2. Answer Noam's pending question plainly: Tuesday 18:00 question not scheduled yet (needs deploy of 8114dc5). Get his "deploy", push once, deploy, verify (`vps-admin.sh status`, guardians passed), then schedule 907 with the header.
+3. Continue the day-by-day AskUserQuestion walk: Tuesday done after 907; Wednesday +2, Thursday +3, Friday +4. For each slot bring candidates only when no strong live idea; avoid recycling chat phrases; texts/polls only. Poll note: server calls generic either-or polls "no concrete angle" — give concrete angles.
+4. Update pages/week-plan.html when the week is final; commit only own files.
