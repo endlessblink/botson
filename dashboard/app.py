@@ -14354,7 +14354,7 @@ async def schedule_calendar_item(msg_id: int, request: Request, db: Database = D
 
     topup_result = None
     if row["message_type"] == "trivia_round":
-        topup_result = await _ensure_trivia_pool_ready_for_round(row)
+        topup_result = await _ensure_trivia_pool_ready_for_round(dict(row))
 
     update_fields: dict = {"status": "scheduled"}
     if new_date and new_date != row["scheduled_date"]:
