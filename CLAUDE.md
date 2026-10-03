@@ -121,10 +121,21 @@ When scheduling a trivia game, follow these rules — they exist because the cal
 ## Schedule & Content Rules
 
 - When updating the bot's schedule or weekly plan, **always update `pages/week-plan.html`** to reflect the changes.
-- **NEVER present Hebrew text options in the terminal** — always render on the dashboard `/review` page (route: `dashboard/app.py:review_page`, template: `dashboard/templates/review.html`) for approval. Add drafts by appending dicts to the `pending` list in `dashboard/app.py` with fields: `title`, `channel`, `when`, `preview` (or `options` for a choice), `note`. This includes message drafts, discussion questions, poll text, event announcements — anything Hebrew.
+- **Content review runs through the AskUserQuestion tool (HARD RULE, operator 2026-10-03; supersedes the old "/review page only" rule).** Anything Hebrew or user-facing that needs Noam's approval — discussion questions, riddles, polls, announcements, quality discussions — is shown with AskUserQuestion so he sees each item and answers it there. Never in plain chat text, never as a table in the terminal, never as the only copy on a dashboard page or artifact. See "Content review workflow" below.
 - **Project layout:** `docs/` contains markdown documentation only. Hand-built HTML snapshots/visualizations (week plan, activity reports, message previews) live in `pages/`.
 - Anti-spam runs in `dry_run` mode by default — detect and log only, no deletions.
 - **Topic routing** (off-topic detection) runs in Phase 0 `observe` mode — classifies messages against `config/topic_rules.yaml` and logs to `topic_observations` table, no user-visible action. Controlled via `topic_routing: {enabled, mode}` in `settings.yaml` and the `/moderation` dashboard page.
+
+## Content review workflow (HARD RULE — operator 2026-10-03)
+
+Noam was frustrated that agents kept falling back to their defaults. Follow this every time, without being reminded:
+
+1. **Walk the week day by day, in calendar order, starting from today.** One day per step. For each day show what is already set, then ask about the open slots. Do not dump the whole week, do not reorder, do not skip days.
+2. **One item per AskUserQuestion, and the actual post text IS the question text.** Options: approve / change the wording / replace / skip. Never ask the same question twice, never re-ask what he already answered, never put the real content only in a preview.
+3. **Riddles: never show the answer, the reveal text, or any hint of it.** He wants to play. Image + question + options only.
+4. **Nothing is drafted or scheduled before he approves it in the tool.** Approved items are then scheduled; the server's quality review can still reject (it did for a repeated-idea question). Report that and ask for a replacement. Do not blindly retry or reword to get past it.
+5. **Quality bar from his own words:** blocked questions were generic filler, forced or copywriter tone, or too much effort/too hard to answer. A good one has a concrete anchor, is fresh from what the group is actually saying (read the real chat feed first), has a real angle, and takes a one-word answer. If no strong idea exists for a slot, bring a few candidates (one AskUserQuestion), do not fill it with filler.
+6. **Learn from every answer.** When he approves, rejects or rewrites something, fold the lesson into the learned Hebrew rules in the same session (`/teach-bot`, as an abstract directive, never a quote of the text). Do not leave it only in chat or memory.
 
 ## Hermes Feedback Ingestion
 
