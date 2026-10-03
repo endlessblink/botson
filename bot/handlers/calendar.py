@@ -28,6 +28,7 @@ from ..scheduler.game_contracts import EXECUTABLE_GAME_TYPES, GAME_SLOT_CLAIMING
 from ..utils.admin_alerts import notify_admins
 from ..utils.config import should_skip_scheduled_message
 from ..utils.copy import default_theme_label, load_copy
+from ..utils.pin_manager import pin_replacing_previous
 from ..utils.scheduling_errors import SkippedActivity
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 
@@ -1128,8 +1129,10 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             # Auto-pin if requested
             if msg.get("auto_pin") and sent.message_id and msg.get("created_by") != "weekly-checkin":
                 try:
-                    await bot.pin_chat_message(
+                    await pin_replacing_previous(
+                        bot, db,
                         chat_id=group_id,
+                        topic_id=msg.get("channel_topic_id"),
                         message_id=sent.message_id,
                         disable_notification=not pin_notifies_members(msg.get("auto_pin")),
                     )

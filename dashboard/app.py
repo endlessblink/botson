@@ -14267,9 +14267,12 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
             return
         if msg.get("auto_pin") and sent_message_id:
             from bot.handlers.calendar import pin_notifies_members
+            from bot.utils.pin_manager import pin_replacing_previous
             try:
-                await bot.pin_chat_message(
+                await pin_replacing_previous(
+                    bot, db,
                     chat_id=group_id,
+                    topic_id=msg.get("channel_topic_id"),
                     message_id=sent_message_id,
                     disable_notification=not pin_notifies_members(msg.get("auto_pin")),
                 )
