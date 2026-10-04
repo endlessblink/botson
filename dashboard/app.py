@@ -6456,6 +6456,52 @@ def _ai_populate_flex_config(settings: dict, scope: str) -> dict:
     return scoped
 
 
+async def _resolve_ai_flex_routes(db, settings, scope, active_categories, verified_names):
+    """Resolve the configured flex strategy without inventing a destination."""
+    cfg = _ai_populate_flex_config(settings, scope)
+    if not cfg:
+        return {}, []
+    allowed = [kind for kind in (cfg.get("allowed_types") or []) if kind in {"discussion", "custom"}]
+    strategy = str(cfg.get("topic_strategy") or "").strip()
+    candidates = []
+    reason = ""
+    if strategy == "discussion_category":
+        candidates = [item for item in active_categories if item.get("topic_id") in verified_names]
+        if not candidates:
+            reason = "No configured discussion topic is verified"
+    elif strategy in {"topics.welcome", "topics.goals", "handler_routing"}:
+        key = strategy.partition(".")[2]
+        raw_topic = (settings.get("topics") or {}).get(key) if key else None
+        if strategy == "handler_routing":
+            handler = str(cfg.get("handler") or "").strip()
+            raw_topic = await _resolve_routing_topic(db, handler) if handler else None
+        try:
+            topic = int(raw_topic) if not isinstance(raw_topic, bool) else None
+        except (TypeError, ValueError):
+            topic = None
+        if topic not in verified_names:
+            reason = "Configured flex destination is missing or unverified"
+        else:
+            category = next((item for item in active_categories if item.get("topic_id") == topic), None)
+            candidates = [category or {"topic_id": topic, "category_key": key,
+                                       "name": verified_names[topic]}]
+    else:
+        reason = "Flex topic strategy is missing or unsupported"
+    routes = {}
+    problems = []
+    discussion_topics = (settings.get("topics") or {}).get("discussions") or {}
+    for kind in allowed:
+        eligible = candidates
+        if kind == "discussion":
+            eligible = [item for item in candidates
+                        if discussion_topics.get(item.get("category_key")) == item.get("topic_id")]
+        if eligible:
+            routes[kind] = eligible
+        else:
+            problems.append((kind, reason or "Discussion destination has no configured category rubric"))
+    return routes, problems
+
+
 def _expand_ai_flex_times(settings: dict, scope: str) -> list[str]:
     flex_cfg = _ai_populate_flex_config(settings, scope)
     times: list[str] = []
@@ -6706,6 +6752,7 @@ async def _ai_suggest_calendar(
         "past_or_too_soon": _load_copy("ai_populate", "skip_past_or_too_soon", default="past_or_too_soon"),
         "occupied": _load_copy("ai_populate", "skip_occupied", default="occupied"),
         "time_occupied": _load_copy("ai_populate", "skip_time_occupied", default="time_occupied"),
+        "missing_flex_routing": _load_copy("ai_populate", "skip_missing_flex_routing", default="missing_flex_routing"),
     }
     skip_default_label = _load_copy("ai_populate", "skip_default", default="skipped")
     empty_state_copy = {
@@ -6818,6 +6865,11 @@ async def _ai_suggest_calendar(
     weekly_min_per_day = _ai_populate_weekly_min_per_day(settings) if scope == "week" else 0
     flex_rationale = str(flex_cfg.get("rationale") or "").strip()
     flex_count = 0
+    flex_routes, flex_route_problems = await _resolve_ai_flex_routes(
+        db, settings, scope, active_categories, topic_names,
+    )
+    for kind, problem in flex_route_problems:
+        _add_skip(win_start, "", kind, "missing_flex_routing", problem)
 
     cap_per_window = _ai_populate_caps(settings, scope, slot_map)
     counts = {k: existing_type_counts.get(k, 0) for k in cap_per_window}
@@ -7684,7 +7736,7 @@ async def _ai_suggest_calendar(
 
         # Emoji puzzle row + announcement. Runtime filters the puzzle pool by
         # the selected subject payload, so the modal's subject is truthful.
-        if (counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]
+        if (emoji_t and counts["emoji_puzzle"] < cap_per_window["emoji_puzzle"]
                 and game_day_counts.get(d_iso, 0) < games_per_day_cap
                 and _feature_on("emoji_puzzle")
                 and routed_topics.get("emoji_puzzle") is not None):
@@ -7800,7 +7852,7 @@ async def _ai_suggest_calendar(
                     break
 
         # Facts tidbit (max cap)
-        if (counts["facts_tidbit"] < cap_per_window["facts_tidbit"]
+        if (tidbit_t and counts["facts_tidbit"] < cap_per_window["facts_tidbit"]
                 and routed_topics.get("facts_tidbit") is not None):
             try:
                 fy = load_yaml("facts.yaml") or {}
@@ -7832,7 +7884,7 @@ async def _ai_suggest_calendar(
                 break
 
         # Facts spooky (max 1)
-        if (counts["facts_spooky"] < cap_per_window["facts_spooky"]
+        if (spooky_t and counts["facts_spooky"] < cap_per_window["facts_spooky"]
                 and routed_topics.get("facts_spooky") is not None):
             try:
                 fy = load_yaml("facts.yaml") or {}
@@ -7987,8 +8039,8 @@ async def _ai_suggest_calendar(
                                  poll_options_json=json.dumps(poll_payload, ensure_ascii=False))
                 break
 
-        if flex_count < flex_max and flex_t and flex_allowed and active_categories and _feature_on("discussions"):
-            cats_for_flex = random.sample(active_categories, len(active_categories))
+        if flex_count < flex_max and flex_t and flex_allowed and flex_routes and _feature_on("discussions"):
+            cats_for_flex = {kind: random.sample(routes, len(routes)) for kind, routes in flex_routes.items()}
             flex_day_count = 0
             day_floor_remaining = max(0, weekly_min_per_day - _day_suggestion_count(d_iso))
             day_flex_limit = min(flex_per_day_max, day_floor_remaining) if weekly_min_per_day else flex_per_day_max
@@ -8000,12 +8052,15 @@ async def _ai_suggest_calendar(
                 for mtype in flex_allowed:
                     if flex_count >= flex_max or flex_day_count >= day_flex_limit:
                         break
+                    categories_for_type = cats_for_flex.get(mtype) or []
+                    if not categories_for_type:
+                        continue
                     if not _flex_available_or_skip(d_iso, t, mtype):
                         continue
-                    cat_info = cats_for_flex[flex_count % len(cats_for_flex)]
+                    cat_info = categories_for_type[flex_count % len(categories_for_type)]
                     cat = str(cat_info.get("category_key") or "").strip()
                     cat_name = str(cat_info.get("name") or cat).strip()
-                    expected_topic = topic_ids.get(cat)
+                    expected_topic = cat_info.get("topic_id")
                     if not expected_topic:
                         continue
                     recent_chan = await _fetch_recent_sent_for_dedup(

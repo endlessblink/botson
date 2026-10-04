@@ -315,6 +315,7 @@ copy:
     skip_past_or_too_soon: "הזמן קרוב מדי או כבר עבר"
     skip_occupied: "כבר יש טיוטה/פרסום באותו סלוט"
     skip_time_occupied: "כבר יש משהו בשעה הזו"
+    skip_missing_flex_routing: "חסר יעד מאומת לחלון הגמיש"
     skip_default: "דולג"
   activity_copy:
     emoji_warmup: "🧩 Emoji Night על {theme_label} מתחיל ב-{game_time}. {puzzle_count} חידות; לחצו 🙋 כדי להיכנס."
@@ -475,6 +476,10 @@ ai_populate:
       - discussion
       - custom
       topic_strategy: discussion_category
+      # Supported: discussion_category, topics.welcome, topics.goals,
+      # handler_routing (requires handler below). All destinations must be
+      # verified. A discussion also requires a topics.discussions category;
+      # use allowed_types: [custom] for a general configured destination.
       rationale: חלון גמיש פנוי
     week:
       # Subject discussions across a RANGE of hours (not one fixed slot),
