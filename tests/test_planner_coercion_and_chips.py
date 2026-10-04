@@ -440,6 +440,13 @@ class TestDiscussionTopicGenerationContext(unittest.IsolatedAsyncioTestCase):
             self.assertIn(rubric_text, prompt)
 
 
+async def _seed_configured_flex_topics(db):
+    """Routing fixtures explicitly verify their synthetic configured catalog."""
+    topics = (dashboard_app.get_settings().get("topics") or {}).get("discussions") or {}
+    for category, topic in topics.items():
+        await db.upsert_verified_forum_topic(topic, category, category, "synthetic routing fixture")
+
+
 class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         # These cases exercise routing/retry mechanics; semantic rejection has
@@ -535,6 +542,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
         db = Database(":memory:")
         await db.init()
+        await _seed_configured_flex_topics(db)
         calls = Counter()
         review_state = {"calls": 0, "batches": []}
 
@@ -1131,6 +1139,8 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
         db = Database(":memory:")
         await db.init()
+        await _seed_configured_flex_topics(db)
+        verified_fixture_rows = await db.get_verified_forum_topics()
         counter = {"n": 0}
 
         async def distinct_canned(*args, **kwargs):
@@ -1143,6 +1153,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                  db,
                  "get_verified_forum_topics",
                  new=AsyncMock(return_value=[
+                     *verified_fixture_rows,
                      {
                          "topic_id": 153,
                          "verified_name": "מצחיק / מגניב",
@@ -1318,6 +1329,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
 
         db = Database(":memory:")
         await db.init()
+        await _seed_configured_flex_topics(db)
         counter = {"n": 0}
 
         async def distinct_canned(*args, **kwargs):
@@ -1355,6 +1367,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_returns_flex_non_game_after_evening(self):
         db = Database(":memory:")
         await db.init()
+        await _seed_configured_flex_topics(db)
         target_date = "2099-01-01"
         call_counter = {"n": 0}
 
@@ -1388,6 +1401,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
     async def test_ai_suggest_calendar_treats_client_board_rows_as_occupied(self):
         db = Database(":memory:")
         await db.init()
+        await _seed_configured_flex_topics(db)
         target_date = "2099-01-01"
         call_counter = {"n": 0}
 
