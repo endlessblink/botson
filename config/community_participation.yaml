@@ -3,10 +3,13 @@
 topic_news:
   enabled: false
   mode: preview_only
+  timezone: null
+  dedupe_scope: null  # Explicit choice: chat or topic; no automatic routing.
   sources: {}
   topic_sources: {}
   freshness_hours: null
   verification_max_age_hours: null
+  context_max_age_minutes: null
   minimum_relevance: null
   global_daily_cap: null
   topic_daily_cap: null
@@ -15,6 +18,7 @@ topic_news:
 occasional_replies:
   enabled: false
   mode: needs_decision
+  timezone: null
   allowed_topics: []
   allow_unsolicited: false
   minimum_value: null
@@ -22,4 +26,6 @@ occasional_replies:
   topic_daily_cap: null
   thread_daily_cap: null
   cooldown_minutes: null
+  cooldown_scope: null  # Explicit choice: topic or conversation.
+  context_max_age_minutes: null
   quiet_hours: null
