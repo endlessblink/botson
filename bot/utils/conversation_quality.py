@@ -104,6 +104,63 @@ async def review_conversation(
         return False, f'semantic review unavailable: {safe_error}'
 
 
+async def suggest_conversation_alternative(
+    text: str,
+    *,
+    reason: str,
+    category: str,
+    recent_texts: Sequence[str],
+    guidance: str,
+    community_context: Sequence[str],
+    generate: Callable[[str], Awaitable[str]],
+    review: Callable[..., Awaitable[tuple[bool, str]]],
+    validate: Callable[[str], Sequence[str]],
+) -> dict:
+    """Return a reviewed preview; never approve, persist, learn, or publish it."""
+    config = load_yaml('hot_take_review.yaml')
+    attempts = config.get('alternative_attempts')
+    max_chars = config.get('alternative_max_chars')
+    template = str(config.get('alternative_prompt') or '').strip()
+    if (type(attempts) is not int or attempts < 1 or
+            type(max_chars) is not int or max_chars < 1 or not template):
+        raise ValueError('alternative configuration missing or invalid')
+    fields = {field for _, field, _, _ in Formatter().parse(template) if field is not None}
+    if not {'context', 'guidance', 'max_chars'} <= fields:
+        raise ValueError('alternative template missing required context fields')
+    history = [text, *recent_texts]
+    last_reason = reason
+    for _ in range(attempts):
+        prompt = template.format(
+            max_chars=max_chars, guidance=guidance,
+            context=json.dumps({
+                'rejected_text': text, 'rejection_reason': last_reason,
+                'category': category, 'recent_texts': history,
+                'community_context': list(community_context),
+            }, ensure_ascii=False),
+        )
+        candidate = (await generate(prompt)).strip()
+        if not candidate:
+            return {'text': '', 'reason': 'no worthwhile alternative', 'needs_approval': True}
+        if len(candidate) > max_chars:
+            last_reason = 'alternative exceeds configured length'
+            continue
+        failures = list(validate(candidate))
+        if candidate in history:
+            failures.append('alternative repeats rejected or recent text')
+        if failures:
+            last_reason = '; '.join(failures)
+            history.append(candidate)
+            continue
+        passed, verdict = await review(candidate, category=category, recent_texts=history)
+        if passed:
+            return {'text': candidate, 'reason': verdict, 'needs_approval': True}
+        if verdict.startswith('semantic review unavailable'):
+            return {'text': '', 'reason': verdict, 'needs_approval': True}
+        last_reason = verdict
+        history.append(candidate)
+    return {'text': '', 'reason': last_reason, 'needs_approval': True}
+
+
 async def review_conversations(
     candidates: Sequence[Mapping],
     *,

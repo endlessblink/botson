@@ -49,6 +49,7 @@ from bot.utils.prefs_store import record_removed_bullets, runtime_prefs_path
 from bot.scheduler.dispatch_owner import CRON_OWNED_TYPES
 from bot.scheduler.game_contracts import EXECUTABLE_GAME_TYPES
 from bot.utils.redaction import redact_sensitive
+from bot.utils.copy import load_copy_block
 from dashboard.trivia_admin import TriviaVerificationError, build_round_trigger_payload, review_trivia_questions, save_and_verify_trivia_questions
 from dashboard.verified_topics import (
     VerifiedTopicError,
@@ -114,6 +115,17 @@ def _signal_bot_reload():
         RELOAD_FLAG.write_text("reload")
         return True
     except Exception:
+        return False
+
+
+def _signal_weekly_reload():
+    """Reload only the check-in job; do not rematerialize unrelated content."""
+    try:
+        flag = CONFIG_DIR.parent / 'data' / 'weekly-checkin.reload'
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.write_text('reload weekly check-in')
+        return True
+    except OSError:
         return False
 
 
@@ -857,44 +869,182 @@ async def update_schedule(request: Request):
     return {"status": "ok", "bot_reloaded": reloaded}
 
 
-@app.post("/api/settings/weekly-state-review")
-async def update_weekly_state_review(request: Request, db: Database = Depends(get_db)):
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
-    data = await request.json()
+async def _weekly_state_review_candidate(data, settings, db, *, preview=False):
+    from bot.handlers.weekly_state_review import selected_usernames, resolve_selected_users
+    from bot.utils.weekly_checkin_config import validate_timezone
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="invalid body")
+    previous = settings.get("weekly_state_review") or {}
+    if type(data.get("expected_revision")) is not int or data["expected_revision"] != previous.get("revision", 0):
+        raise HTTPException(status_code=409, detail="Read the current weekly configuration revision first")
+    enabled = data.get("enabled", False)
+    if type(enabled) is not bool:
+        raise HTTPException(status_code=400, detail="enabled must be a boolean")
+    mode = data.get("mode", previous.get("mode", "draft"))
+    if mode not in {"draft", "auto_send"}:
+        raise HTTPException(status_code=400, detail="mode must be draft or auto_send")
     question = str(data.get("question") or "").strip()
-    if not question:
+    required = enabled or preview
+    if required and not question:
         raise HTTPException(status_code=400, detail="question is required")
     try:
-        topic_id = int(data.get("topic_id"))
+        topic_id = int(data.get("topic_id")) if data.get("topic_id") is not None else None
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="topic_id is required")
-    if not await db.is_verified_topic_id(topic_id):
+    if required and topic_id is None:
+        raise HTTPException(status_code=400, detail="topic_id is required")
+    if topic_id is not None and not await db.is_verified_topic_id(topic_id):
         raise HTTPException(status_code=400, detail="topic_id is not verified")
-    raw_tags = data.get("tag_usernames") or []
-    if isinstance(raw_tags, str):
-        raw_tags = raw_tags.replace("\n", ",").split(",")
-    if not isinstance(raw_tags, list):
-        raise HTTPException(status_code=400, detail="tag_usernames must be a list")
-    tag_usernames = []
-    for value in raw_tags:
-        username = str(value).strip().lstrip("@")
-        if username and username not in tag_usernames:
-            tag_usernames.append(username)
-    settings = _load_settings_file()
-    settings["weekly_state_review"] = {
-        "enabled": bool(data.get("enabled", False)),
-        "days": [int(day) for day in (data.get("days") or [6])],
-        "time": str(data.get("time") or "19:00")[:5],
-        "topic_id": topic_id,
-        "question": question,
-        "tag_usernames": tag_usernames,
+    try:
+        tags = selected_usernames(data.get("tag_usernames") or [])
+        timezone = validate_timezone(data.get("timezone")) if required else str(data.get("timezone") or "")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    days = data.get("days") or []
+    time_value = str(data.get("time") or "").strip()
+    category = previous.get("initial_topic_category")
+    if not isinstance(days, list) or any(type(day) is not int or not 0 <= day <= 6 for day in days):
+        raise HTTPException(status_code=400, detail="days must be configured Hebrew weekdays")
+    selected = []
+    if required:
+        if len(days) != 1:
+            raise HTTPException(status_code=400, detail="Select one weekly day and specific members")
+        if not re.fullmatch(r"[0-2][0-9]:[0-5][0-9]", time_value):
+            raise HTTPException(status_code=400, detail="Select an explicit weekly time")
+        try:
+            datetime.strptime(time_value, "%H:%M")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Select an explicit weekly time")
+        topics = await db.get_verified_forum_topics()
+        if not category or not any(item.get("topic_id") == topic_id and item.get("category_key") == category for item in topics):
+            raise HTTPException(status_code=400, detail="The initial weekly check-in needs its verified configured topic")
+    if tags:
+        try:
+            selected = resolve_selected_users(tags, await db.get_chat_members_for_tagging(GROUP_ID))
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        old_by_name = {str(item.get("username") or "").lower(): item["user_id"] for item in previous.get("selected_members") or []}
+        for member in selected:
+            old_id = old_by_name.get(str(member.get("username") or "").lower())
+            if old_id is not None and old_id != member["user_id"]:
+                raise HTTPException(status_code=409, detail="A selected handle now resolves to another ID; review membership")
+            if member["user_id"] in (previous.get("excluded_user_ids") or []):
+                raise HTTPException(status_code=400, detail="A selected member opted out; only that member may opt back in")
+    # IDs are resolved against this group's authorized roster; an arbitrary
+    # number cannot create a mention. This also supports members without handles.
+    supplied_ids = data.get("selected_user_ids")
+    if supplied_ids is None:
+        supplied_ids = [item['user_id'] for item in previous.get('selected_members') or [] if not item.get('username')]
+    if not isinstance(supplied_ids, list) or any(type(value) is not int or value <= 0 for value in supplied_ids):
+        raise HTTPException(status_code=400, detail="selected_user_ids must contain exact Telegram IDs")
+    if supplied_ids:
+        roster = await db.get_chat_members_for_tagging(GROUP_ID)
+        by_id = {item['user_id']: item for item in roster}
+        if any(value not in by_id for value in supplied_ids):
+            raise HTTPException(status_code=400, detail="A selected ID is not known in this group")
+        if any(value in (previous.get('excluded_user_ids') or []) for value in supplied_ids):
+            raise HTTPException(status_code=400, detail="Only the opted-out member may opt back in")
+        selected.extend(by_id[value] for value in supplied_ids)
+    selected = list({item['user_id']: {'user_id': item['user_id'], 'username': item.get('username')} for item in selected}.values())
+    if required and not selected:
+        raise HTTPException(status_code=400, detail="Select specific members")
+    pin_enabled = data.get("pin_enabled", previous.get("pin_enabled", False))
+    if type(pin_enabled) is not bool:
+        raise HTTPException(status_code=400, detail="pin_enabled must be a boolean")
+    if required and question and (failure := freshness_rejection(question)):
+        raise HTTPException(status_code=422, detail={"error": "quality_rejected", "failures": [failure]})
+    candidate = {
+        "enabled": enabled, "mode": mode, "days": days, "time": time_value, "timezone": timezone,
+        "topic_id": topic_id, "question": question, "tag_usernames": tags, "selected_members": selected,
+        "initial_topic_category": category, "excluded_user_ids": previous.get("excluded_user_ids", []),
+        "pin_enabled": pin_enabled, "not_before": previous.get("not_before"),
+        "revision": previous.get("revision", 0),
     }
-    _save_settings_file(settings)
-    reloaded = _signal_bot_reload()
-    return {"status": "ok", "bot_reloaded": reloaded, "weekly_state_review": settings["weekly_state_review"]}
+    if required:
+        from telegram.constants import MessageLimit
+        from bot.handlers.weekly_state_review import build_weekly_state_review
+        rendered = build_weekly_state_review(candidate) or ''
+        if len(rendered.encode('utf-16-le')) // 2 > MessageLimit.MAX_TEXT_LENGTH:
+            raise HTTPException(status_code=422, detail="Rendered invitation exceeds Telegram's text limit")
+    return candidate
+
+
+_WEEKLY_PREVIEW_SECRET = os.getenv("DASHBOARD_SECRET") or secrets.token_hex(32)
+
+
+def _weekly_state_review_digest(candidate):
+    from bot.utils.weekly_checkin_config import configuration_digest
+    return configuration_digest(candidate)
+
+
+def _weekly_preview_receipt(candidate):
+    payload = f"v1.{int(time.time())}.{candidate['revision']}.{_weekly_state_review_digest(candidate)}"
+    signature = hmac.new(_WEEKLY_PREVIEW_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _validate_weekly_preview_receipt(receipt, candidate):
+    pieces = str(receipt or "").split(".")
+    if len(pieces) != 5 or pieces[0] != "v1" or not pieces[1].isdigit():
+        return False
+    payload = ".".join(pieces[:4])
+    signature = hmac.new(_WEEKLY_PREVIEW_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    _, ttl = _community_context_settings()
+    return (hmac.compare_digest(signature, pieces[4]) and
+            pieces[2] == str(candidate['revision']) and pieces[3] == _weekly_state_review_digest(candidate) and
+            0 <= time.time() - int(pieces[1]) <= ttl * 60)
+
+
+@app.get("/api/agent/weekly-checkin")
+async def get_weekly_checkin(request: Request):
+    _require_calendar_api_auth(request)
+    runtime_path = CONFIG_DIR.parent / 'data' / 'weekly-checkin-status.json'
+    runtime = json.loads(runtime_path.read_text()) if runtime_path.exists() else None
+    return {"weekly_state_review": _load_settings_file().get("weekly_state_review") or {}, "runtime": runtime}
+
+
+@app.post("/api/agent/weekly-checkin/preview")
+@app.post("/api/settings/weekly-state-review/preview")
+async def preview_weekly_state_review(request: Request, db: Database = Depends(get_db)):
+    _require_calendar_api_auth(request)
+    if _is_agent_api_request(request):
+        await _require_community_context_receipt(request, db)
+    from bot.handlers.weekly_state_review import build_weekly_state_review
+    from bot.utils.weekly_checkin_config import next_weekly_occurrence
+    candidate = await _weekly_state_review_candidate(await request.json(), _load_settings_file(), db, preview=True)
+    text = build_weekly_state_review(candidate)
+    now = datetime.now(ZoneInfo(candidate["timezone"]))
+    return {"preview_only": True, "text": text, "topic_id": candidate["topic_id"],
+            "days": candidate["days"], "time": candidate["time"], "timezone": candidate["timezone"],
+            "mode": candidate["mode"], "selected_members": candidate["selected_members"],
+            "next_due": next_weekly_occurrence(candidate, now).isoformat(),
+            "preview_receipt": _weekly_preview_receipt(candidate), "needs_approval": True,
+            "pin_enabled": candidate["pin_enabled"], "pin_behavior": "silent; replace only previous owned weekly pin",
+            "membership_status": "cached IDs; rechecked live at dispatch"}
+
+
+@app.put("/api/agent/weekly-checkin")
+@app.post("/api/settings/weekly-state-review")
+async def update_weekly_state_review(request: Request, db: Database = Depends(get_db)):
+    _require_calendar_api_auth(request)
+    if replay := await _begin_agent_api_action(request, db):
+        return replay
+    data = await request.json()
+    settings = _load_settings_file()
+    candidate = await _weekly_state_review_candidate(data, settings, db)
+    if candidate["enabled"] and (data.get("activation_approved") is not True or
+            not _validate_weekly_preview_receipt(data.get("preview_receipt"), candidate)):
+        raise HTTPException(status_code=409, detail="Preview and approve the exact current invitation before enabling")
+    from bot.utils.weekly_checkin_config import write_weekly_config, StaleWeeklyConfig
+    try:
+        saved, _ = write_weekly_config(CONFIG_DIR / "settings.yaml", expected_revision=candidate['revision'],
+                                      candidate=candidate, actor="agent" if _is_agent_api_request(request) else "dashboard",
+                                      action="configure")
+    except StaleWeeklyConfig as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    reloaded = _signal_weekly_reload()
+    return await _complete_agent_api_action(request, db, {"status": "ok", "bot_reloaded": reloaded,
+                                                        "weekly_state_review": saved})
 
 
 @app.post("/api/settings/holiday-blackouts")
@@ -9291,10 +9441,43 @@ def _strip_json_fences(raw: str) -> str:
     return txt.strip()
 
 
+def _cli_schema_without_descriptions(schema):
+    """Remove prose metadata, preserving named properties and every constraint.
+
+    Operational instructions already live in the digest system prompt. Avoid
+    repeating them inside the CLI schema; never trim learned quality rules.
+    A property named 'description' is payload, not schema metadata.
+    """
+    if isinstance(schema, list):
+        return [_cli_schema_without_descriptions(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    result = {}
+    for key, value in schema.items():
+        if key == "description":
+            continue
+        if key in {"const", "enum", "default", "examples", "example"}:
+            # These are literal payload values, not child schemas. In
+            # particular, a description key here is part of validation.
+            result[key] = value
+            continue
+        if key in {"properties", "patternProperties", "$defs", "definitions"}:
+            result[key] = {
+                name: _cli_schema_without_descriptions(child)
+                for name, child in value.items()
+            }
+        else:
+            result[key] = _cli_schema_without_descriptions(value)
+    return result
+
+
 def _build_cli_digest_prompt(bundle: dict) -> str:
     """System + bundle + schema rolled into one prompt for CLI transports."""
     compact_bundle = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
-    compact_schema = json.dumps(_today_plan_tool_schema()["input_schema"], ensure_ascii=False, separators=(",", ":"))
+    compact_schema = json.dumps(
+        _cli_schema_without_descriptions(_today_plan_tool_schema()["input_schema"]),
+        ensure_ascii=False, separators=(",", ":"),
+    )
     return (
         _build_digest_cli_prompt()
         + "\n\n---\n\nקונטקסט היום (JSON):\n```json\n"
@@ -13839,6 +14022,73 @@ async def delete_calendar_item(msg_id: int, request: Request, db: Database = Dep
     return await _complete_agent_api_action(request, db, {"status": "ok"})
 
 
+@app.post("/api/calendar/{msg_id}/suggest-alternative")
+async def suggest_calendar_alternative(msg_id: int, request: Request, db: Database = Depends(get_db)):
+    """Moderator-only, write-free preview of a constructive quality alternative."""
+    require_auth(request)
+    body = await request.json()
+    row = await db.get_scheduled_message(msg_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="message not found")
+    if row.get("status") != "draft":
+        raise HTTPException(status_code=409, detail="Only a draft can receive an alternative")
+    text = str(row.get("text") or "")
+    if body.get("expected_text") != text:
+        raise HTTPException(status_code=409, detail="Draft changed; refresh before requesting an alternative")
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A rejection reason is required")
+    mtype = str(row.get("message_type") or "")
+    if mtype not in {"morning", "evening", "discussion", "custom"}:
+        raise HTTPException(status_code=422, detail="This content type requires its own review flow")
+    topic_id = row.get("channel_topic_id")
+    verified = await db.get_verified_forum_topics()
+    if not topic_id or not any(item.get("topic_id") == topic_id for item in verified):
+        raise HTTPException(status_code=422, detail="Draft needs a verified topic before an alternative")
+    contract = load_yaml("hot_take_review.yaml")
+    context_limit = contract.get("alternative_context_messages")
+    if type(context_limit) is not int or context_limit < 1:
+        raise HTTPException(status_code=503, detail="Alternative context configuration is missing")
+    hours, _ = _community_context_settings()
+    community = await _collect_community_messages(db, hours, context_limit)
+    same_topic_context = [
+        str(item.get("text") or "") for item in community
+        if item.get("thread_id") == topic_id and item.get("text")
+    ]
+    if not same_topic_context:
+        return {"id": msg_id, "original_text": text, "preview_only": True,
+                "text": "", "reason": "current topic context unavailable", "needs_approval": True}
+    category = _discussion_category_for_topic(topic_id) if topic_id else ""
+    name = await _topic_display_name(db, topic_id) if topic_id else None
+    recent = await _fetch_recent_sent_for_dedup(db, mtype, category_topic_id=topic_id)
+    guidance = build_generation_prompt(
+        mtype, "single", "", category or "", recent_sent=recent,
+        category_name=name, scheduled_date=row.get("scheduled_date"),
+    )
+
+    async def generate(prompt):
+        result, _ = await _generate_with_fallbacks(prompt, context="quality.alternative")
+        return result
+
+    from bot.utils.conversation_quality import suggest_conversation_alternative
+    result = await suggest_conversation_alternative(
+        text, reason=reason, category=name or category or mtype,
+        recent_texts=recent, guidance=guidance, community_context=same_topic_context, generate=generate,
+        review=_review_discussion_quality,
+        validate=lambda candidate: _quality_failures_for_planner_text(
+            candidate, scheduled_date=row.get("scheduled_date"),
+        ) + ([failure] if (failure := freshness_rejection(
+            candidate, avoid_texts=set([text, *recent]),
+            scheduled_date=row.get("scheduled_date"),
+        )) else []),
+    )
+    fresh = await db.get_scheduled_message(msg_id)
+    snapshot_keys = ("text", "status", "message_type", "channel_topic_id", "scheduled_date", "scheduled_time")
+    if not fresh or any(fresh.get(key) != row.get(key) for key in snapshot_keys):
+        raise HTTPException(status_code=409, detail="Draft changed while generating; refresh and review again")
+    return {"id": msg_id, "original_text": text, "preview_only": True, **result}
+
+
 @app.post("/api/weekplan/clear-selected")
 async def clear_selected_weekplan_items(request: Request, db: Database = Depends(get_db)):
     """Remove selected active planner rows so their slots can be filled again.
@@ -14828,6 +15078,7 @@ async def planner_page(request: Request, db: Database = Depends(get_db)):
         "trivia_default_play": trivia_default_play,
         "trivia_populate_defaults": (settings_obj.get("trivia") or {}).get("populate_defaults") or {},
         "trivia_current_questions_text": trivia_current_questions_text,
+        "alternative_ui": load_copy_block("conversation_alternative_ui", default={}) or {},
     })
 
 

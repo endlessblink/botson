@@ -8,10 +8,10 @@ from bot.handlers import weekly_state_review
 def test_build_weekly_state_review_uses_configured_question_and_tags():
     text = weekly_state_review.build_weekly_state_review({
         "question": "על איזה פרויקט בינה מלאכותית עבדתם השבוע?",
-        "tag_usernames": ["noam", "friend", "builder"],
+        "tag_usernames": ["noam_fixture", "friend", "builder"],
     })
 
-    assert text == "על איזה פרויקט בינה מלאכותית עבדתם השבוע?\n\n@noam @friend @builder"
+    assert text == "על איזה פרויקט בינה מלאכותית עבדתם השבוע?\n\n@noam_fixture @friend @builder"
 
 
 def test_build_weekly_state_review_returns_none_without_question():

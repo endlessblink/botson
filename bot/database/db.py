@@ -138,6 +138,11 @@ class Database:
             "completed_at TIMESTAMP"
             ")",
             "CREATE INDEX IF NOT EXISTS idx_ai_suggest_jobs_created ON ai_suggest_jobs(created_at DESC)",
+            "CREATE TABLE IF NOT EXISTS weekly_checkin_posts ("
+            "chat_id INTEGER NOT NULL, topic_id INTEGER NOT NULL, message_id INTEGER NOT NULL, "
+            "week_key TEXT NOT NULL UNIQUE, pinned INTEGER NOT NULL DEFAULT 0, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (chat_id, topic_id, message_id))",
             # DM menu (bot/handlers/dm_menu.py): per-user opt-in to activity
             # types. Default is opt-in required — a user only gets DM heads-ups
             # for types they explicitly toggled on. Keyed (user_id, type).
@@ -337,6 +342,34 @@ class Database:
             (chat_id,),
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
+
+    async def record_weekly_checkin_post(self, chat_id, topic_id, message_id, week_key):
+        await self._db.execute(
+            "INSERT OR IGNORE INTO weekly_checkin_posts (chat_id,topic_id,message_id,week_key) VALUES (?,?,?,?)",
+            (chat_id, topic_id, message_id, week_key),
+        )
+        await self._db.commit()
+
+    async def is_weekly_checkin_post(self, chat_id, topic_id, message_id):
+        async with self._db.execute(
+            "SELECT 1 FROM weekly_checkin_posts WHERE chat_id=? AND topic_id=? AND message_id=?",
+            (chat_id, topic_id, message_id),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def weekly_checkin_pins(self, chat_id, topic_id):
+        async with self._db.execute(
+            "SELECT message_id FROM weekly_checkin_posts WHERE chat_id=? AND topic_id=? AND pinned=1",
+            (chat_id, topic_id),
+        ) as cursor:
+            return [row[0] for row in await cursor.fetchall()]
+
+    async def set_weekly_checkin_pin(self, chat_id, topic_id, message_id, pinned):
+        await self._db.execute(
+            "UPDATE weekly_checkin_posts SET pinned=? WHERE chat_id=? AND topic_id=? AND message_id=?",
+            (int(pinned), chat_id, topic_id, message_id),
+        )
+        await self._db.commit()
 
     async def record_member_activity(self, chat_id: int, user_id: int, activity_type: str, source_id: str) -> None:
         """Record one deduplicated member activity signal."""

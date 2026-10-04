@@ -13,7 +13,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity, weekly_state_review
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts
@@ -202,17 +202,26 @@ async def post_shutdown(app: Application):
 def _setup_reload_watcher(app):
     """Watch for a reload flag file and reload schedule when found."""
     reload_flag = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "reload")
+    weekly_flag = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "weekly-checkin.reload")
 
     # Clean stale reload flag on startup
     if os.path.exists(reload_flag):
         os.unlink(reload_flag)
         logger.info("Cleaned stale reload flag")
+    if os.path.exists(weekly_flag):
+        os.unlink(weekly_flag)
 
     async def _check_reload(context):
         if os.path.exists(reload_flag):
             os.unlink(reload_flag)
             logger.info("Reload flag detected — reloading schedule...")
             await _reload_config(app)
+        elif os.path.exists(weekly_flag):
+            os.unlink(weekly_flag)
+            from .scheduler.jobs import setup_weekly_checkin_job
+            for job in app.job_queue.get_jobs_by_name("weekly_state_review"):
+                job.schedule_removal()
+            setup_weekly_checkin_job(app)
 
     # Check reload every 5 seconds
     app.job_queue.run_repeating(_check_reload, interval=5, first=5, name="reload_watcher")
@@ -363,6 +372,7 @@ def main():
     dm_menu.register(app)          # Private DM menu — sign-up + notification prefs
     tagall.register(app)            # Admin announcement with known-member mentions
     member_activity.register(app)   # Activity measurement and reversible cleanup opt-in
+    weekly_state_review.register(app)  # Own-ID opt-in/out replies to recorded check-in posts
     reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 

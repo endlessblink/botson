@@ -1099,17 +1099,34 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                             "Scheduled poll %d has no valid options — sending as text",
                             msg["id"],
                         )
-                    sent = await send_message_with_optional_cover(
-                        bot,
-                        db=db,
-                        chat_id=group_id,
-                        text=msg["text"],
-                        message_thread_id=msg.get("channel_topic_id"),
-                        cover_path=msg.get("cover_path"),
-                    )
+                    if msg.get("created_by") == "weekly-checkin":
+                        from .weekly_state_review import _review_config, render_weekly_state_review, current_weekly_audience
+                        current_weekly = _review_config()
+                        weekly_payload = json.loads(msg.get("poll_options") or "{}")
+                        weekly_text, weekly_entities = render_weekly_state_review(current_weekly)
+                        if (weekly_payload.get("weekly_revision") != current_weekly.get("revision", 0)
+                                or current_weekly.get("enabled") is not True
+                                or msg.get("target_group") != "main"
+                                or msg["text"] != weekly_text
+                                or msg.get("channel_topic_id") != current_weekly.get("topic_id")):
+                            raise SkippedActivity("weekly_checkin_snapshot_changed: review current configuration")
+                        if not await current_weekly_audience(bot, db, current_weekly):
+                            raise SkippedActivity("weekly_checkin_audience_changed: review current membership")
+                        sent = await safe_send(bot, db, "send_message", chat_id=group_id,
+                                               text=weekly_text, entities=weekly_entities,
+                                               message_thread_id=msg.get("channel_topic_id"))
+                    else:
+                        sent = await send_message_with_optional_cover(
+                            bot,
+                            db=db,
+                            chat_id=group_id,
+                            text=msg["text"],
+                            message_thread_id=msg.get("channel_topic_id"),
+                            cover_path=msg.get("cover_path"),
+                        )
 
             # Auto-pin if requested
-            if msg.get("auto_pin") and sent.message_id:
+            if msg.get("auto_pin") and sent.message_id and msg.get("created_by") != "weekly-checkin":
                 try:
                     await bot.pin_chat_message(
                         chat_id=group_id,
@@ -1120,6 +1137,15 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Failed to pin message %d: %s", sent.message_id, e)
 
             await db.mark_message_sent(msg["id"], sent.message_id)
+            if msg.get("created_by") == "weekly-checkin":
+                from .weekly_state_review import record_delivered_checkin
+                weekly_payload = json.loads(msg.get("poll_options") or "{}")
+                if weekly_payload.get("weekly_checkin_key"):
+                    await record_delivered_checkin(
+                        bot, db, topic_id=msg.get("channel_topic_id"), message_id=sent.message_id,
+                        week_key=weekly_payload["weekly_checkin_key"],
+                        pin_enabled=weekly_payload.get("weekly_pin_enabled", False),
+                    )
             await _award_quiz_reveal(bot, db, msg, group_id, sent.message_id)
             if mtype in _SLOT_CLAIMING_TYPES:
                 slot_claims_this_tick.add(slot_key)

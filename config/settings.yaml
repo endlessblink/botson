@@ -49,16 +49,54 @@ copy:
     manual_sent: "נשלחה ידנית הודעה חדשה שעברה בדיקת איכות: {message_type}"
     qa_placeholder: "הדביקו כאן טקסט לבדיקה — שורה לכל מועמד"
   weekly_state_review:
-    dashboard_title: "Weekly state review"
-    dashboard_help: "One configurable Saturday question; it is sent only when enabled."
-    enabled_label: "Enabled"
-    time_label: "Time"
-    topic_label: "Topic"
-    question_label: "Question"
-    tags_label: "Usernames to tag"
-    tags_help: "Comma-separated Telegram usernames without @"
-    save_label: "Save weekly review"
+    dashboard_title: "הצ׳ק־אין השבועי בטופיק AI"
+    dashboard_help: "הזמינו חברים נבחרים לשתף מה בנו ובמה התקדמו. בחרו יום, שעה וטופיק וצפו בנוסח לפני הפעלה. אין סיכום של הודעות קודמות."
+    enabled_label: "פעיל"
+    time_label: "שעה"
+    topic_label: "טופיק"
+    question_label: "נוסח ההזמנה"
+    tags_label: "שמות המשתמש לתיוג"
+    tags_help: "שמות משתמש בטלגרם מופרדים בפסיקים, ללא @"
+    ids_label: "מזהי טלגרם מאומתים לחברים ללא שם משתמש ציבורי (רשות)"
+    save_label: "שמור הגדרות"
+    day_label: "יום"
+    select_label: "בחרו במפורש"
+    day_options:
+      - {value: 0, label: "ראשון"}
+      - {value: 1, label: "שני"}
+      - {value: 2, label: "שלישי"}
+      - {value: 3, label: "רביעי"}
+      - {value: 4, label: "חמישי"}
+      - {value: 5, label: "שישי"}
+      - {value: 6, label: "שבת"}
+    preview_label: "תצוגה מקדימה של ההזמנה"
+    preview_help: "תצוגה מקדימה בלבד. לפני השליחה הבוט יבדוק שוב שהנמענים עדיין חברי הקבוצה ושמזהיהם תואמים."
+    activate_confirm: "להפעיל את ההזמנה השבועית בנוסח, בטופיק, עם הנמענים ובלוז שמופיעים בתצוגה המקדימה?"
+    preview_first: "צפו בבחירה הנוכחית לפני הפעלה."
+    saved_label: "ההגדרות השבועיות נשמרו"
+    error_label: "לא ניתן לשמור או להציג את ההזמנה. בדקו את ההגדרות והגרסה הנוכחית."
+    timezone_label: "אזור זמן (IANA)"
+    mode_label: "אופן ההפעלה"
+    draft_label: "הכן טיוטה לאישור מנהל"
+    auto_send_label: "שלח אוטומטית"
+    pin_label: "נעיצה שקטה; החלף רק את הנעיצה השבועית הקודמת"
+    member_label: "חבר/ה"
+    opt_in_command: "תייג אותי"
+    opt_out_command: "הסר אותי מהתיוג"
+    opt_in_confirmation: "נוספת לתיוג השבועי. השינוי יחול מהפרסום הבא."
+    opt_out_confirmation: "הוסרת מהתיוג השבועי. הודעות שכבר פורסמו אינן משתנות."
     question: ""
+  conversation_alternative_ui:
+    button_label: "💡 הצע רעיון אחר"
+    reason_label: "מה לא מתאים בטיוטה?"
+    working_label: "מחפש חלופה…"
+    preview_label: "חלופה לבדיקה — עדיין לא נשמרה"
+    use_label: "העבר לעריכה"
+    dismiss_label: "השאר את המקור"
+    empty_label: "לא נמצאה חלופה טובה בהקשר הזמין."
+    save_first: "שמרו או בטלו את השינויים לפני בקשת חלופה."
+    stale_label: "הטיוטה השתנתה. בקשו חלופה מחדש."
+    error_label: "לא ניתן להכין חלופה כרגע."
   tagall:
     all_label: "@all"
     syncing: "בודק את חברי הקבוצה…"
@@ -728,12 +766,29 @@ schedule:
     time: '19:00'
 weekly_state_review:
   enabled: false
-  days:
-  - 6
+  # Owner-approved candidate. Activation follows tested deployment and exact preview.
+  # No catch-up or test post; first eligible occurrence is 2026-10-10.
+  mode: auto_send
+  days: [6]
   time: '19:00'
+  timezone: Asia/Jerusalem
+  not_before: '2026-10-10'
   topic_id: 3113
-  question: ""
+  question: |-
+    מה בניתם או ניסיתם עם AI השבוע, ובמה התקדמתם?
+    שתפו משהו שיצרתם, למדתם או הצלחתם להזיז קדימה — גם אם הוא עדיין באמצע, וגם אם זה צעד קטן או קצת משעמם. לא חייבים דמו נוצץ 🙂
+
+    וגם ״לא היה לי זמן השבוע״ זו תשובה לגמרי בסדר — בלי לחץ 🙂
+
+    רוצים להצטרף לתיוג השבועי או להסיר את עצמכם? השיבו להודעה הזו ״תייג אותי״ או ״הסר אותי מהתיוג״.
+  # Recipient identities are runtime configuration, never public source defaults.
   tag_usernames: []
+  selected_members: []
+  initial_topic_category: ai_en
+  excluded_user_ids: []
+  pin_enabled: true
+  revision: 0
+  audit: []
 topic_routing:
   enabled: true
   mode: observe

@@ -24,10 +24,32 @@ echo
 
 BEFORE=$(sudo -u "$SERVICE_USER" -H git rev-parse HEAD)
 echo "Current HEAD:  $BEFORE"
+REQUIREMENTS_BEFORE=$(sha256sum requirements.txt | cut -d' ' -f1)
 
 sudo -u "$SERVICE_USER" -H git fetch --quiet origin main
 AFTER=$(sudo -u "$SERVICE_USER" -H git rev-parse origin/main)
 echo "Target HEAD:   $AFTER"
+if [ -n "${DEPLOY_EXPECTED_SHA:-}" ] && [ "$AFTER" != "$DEPLOY_EXPECTED_SHA" ]; then
+  echo "Target changed since review; refusing deployment."
+  exit 1
+fi
+
+# The versioned weekly configuration is runtime state shared by the dashboard,
+# agent API and self-service. Keep it in the same canonical settings file across
+# code resets. Its lock also prevents losing an in-flight opt-out during deploy.
+touch config/.weekly-checkin.lock
+chown "$SERVICE_USER:$SERVICE_USER" config/.weekly-checkin.lock
+exec 9<>config/.weekly-checkin.lock
+flock 9
+WEEKLY_SNAPSHOT=$(mktemp "$REPO_DIR/data/weekly-checkin-deploy.XXXXXX")
+chmod 600 "$WEEKLY_SNAPSHOT"
+.venv/bin/python - "$WEEKLY_SNAPSHOT" <<'PY'
+import json,sys,yaml
+with open('config/settings.yaml') as source:
+    weekly=(yaml.safe_load(source) or {}).get('weekly_state_review') or {}
+with open(sys.argv[1], 'w') as output:
+    json.dump(weekly if weekly.get('revision', 0) > 0 else None, output)
+PY
 
 if [ "$BEFORE" = "$AFTER" ]; then
   echo "Already up to date."
@@ -39,11 +61,32 @@ else
   echo "=== Applying (git reset --hard origin/main) ==="
   sudo -u "$SERVICE_USER" -H git reset --hard origin/main --quiet
 
-  if [ -f requirements.txt ]; then
+  REQUIREMENTS_AFTER=$(sha256sum requirements.txt | cut -d' ' -f1)
+  if [ "$REQUIREMENTS_BEFORE" != "$REQUIREMENTS_AFTER" ]; then
     echo "=== pip install -r requirements.txt ==="
     sudo -u "$SERVICE_USER" -H .venv/bin/pip install --quiet -r requirements.txt
   fi
 fi
+
+.venv/bin/python - "$WEEKLY_SNAPSHOT" <<'PY'
+import json,os,sys,tempfile,yaml
+from pathlib import Path
+weekly=json.loads(Path(sys.argv[1]).read_text())
+if weekly is not None:
+    path=Path('config/settings.yaml')
+    settings=yaml.safe_load(path.read_text()) or {}
+    settings['weekly_state_review']=weekly
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as output:
+        os.chmod(output.name, path.stat().st_mode & 0o777)
+        yaml.safe_dump(settings, output, allow_unicode=True, sort_keys=False)
+        output.flush()
+        os.fsync(output.fileno())
+        temporary=output.name
+    os.replace(temporary,path)
+PY
+chown "$SERVICE_USER:$SERVICE_USER" config/settings.yaml
+flock -u 9
+rm -f "$WEEKLY_SNAPSHOT"
 
 # Hardcoded-content guardian gate. See CLAUDE.md → "No Hardcoded
 # User-Facing Content". Bypass with SKIP_HARDCODED_GUARDIAN=1 for

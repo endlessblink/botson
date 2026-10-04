@@ -1,0 +1,25 @@
+# Planning defaults only. Nothing consumes this file in the live scheduler.
+# Select sources/topics/caps/quiet hours explicitly before any future activation.
+topic_news:
+  enabled: false
+  mode: preview_only
+  sources: {}
+  topic_sources: {}
+  freshness_hours: null
+  verification_max_age_hours: null
+  minimum_relevance: null
+  global_daily_cap: null
+  topic_daily_cap: null
+  quiet_hours: null
+
+occasional_replies:
+  enabled: false
+  mode: needs_decision
+  allowed_topics: []
+  allow_unsolicited: false
+  minimum_value: null
+  global_daily_cap: null
+  topic_daily_cap: null
+  thread_daily_cap: null
+  cooldown_minutes: null
+  quiet_hours: null

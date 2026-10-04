@@ -4625,6 +4625,9 @@ async function sendDraftNow(msgId) {
 
 // Forum topics (id → name) for the topic dropdown — reuses Jinja data
 // already rendered for the channel-chip palette.
+var ALTERNATIVE_UI = {{ alternative_ui | default({}) | tojson }};
+function alternativeCopy(key) { return ALTERNATIVE_UI[key] || '[copy missing]'; }
+
 var REVIEW_TOPICS = (function() {
     var out = [];
     {% for t in forum_topics %}
@@ -4764,6 +4767,18 @@ function renderDraftCard(draft) {
     var fullText = props.fullText || '';
     var emoji = TYPE_EMOJI[mtype] || '📌';
     var qualityFailures = Array.isArray(props.qualityFailures) ? props.qualityFailures : [];
+    var alternativeHtml = ['morning', 'evening', 'discussion', 'custom'].indexOf(mtype) !== -1 && topicId
+        ? '<div class="review-alternative-controls mt-2 space-y-2">' +
+            '<label class="block text-xs text-[#a1a1aa]">' + escapeHtml(alternativeCopy('reason_label')) +
+                '<input class="review-alternative-reason mt-1 w-full border border-[#272727] bg-[#0a0a0a] rounded p-2 text-[#fafafa]"></label>' +
+            '<button type="button" class="review-alternative-btn text-xs text-sky-300 border border-sky-500/30 px-3 py-1 rounded">' + escapeHtml(alternativeCopy('button_label')) + '</button>' +
+            '<div class="review-alternative-preview hidden border border-sky-500/30 rounded p-3">' +
+                '<p class="text-xs text-[#a1a1aa]">' + escapeHtml(alternativeCopy('preview_label')) + '</p>' +
+                '<p class="review-alternative-text whitespace-pre-wrap text-sm text-[#fafafa] my-2"></p>' +
+                '<button type="button" class="review-alternative-use text-xs text-amber-300 border border-amber-500/30 px-3 py-1 rounded">' + escapeHtml(alternativeCopy('use_label')) + '</button> ' +
+                '<button type="button" class="review-alternative-dismiss text-xs text-[#a1a1aa] border border-[#272727] px-3 py-1 rounded">' + escapeHtml(alternativeCopy('dismiss_label')) + '</button>' +
+            '</div></div>'
+        : '';
     var qualityHtml = qualityFailures.length
         ? '<div class="review-quality-warning mb-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">בדיקת איכות נכשלה: ' + escapeHtml(qualityFailures.join(', ')) + '. ערכו ושמרו לפני אישור.</div>'
         : '<div class="review-quality-ok mb-2 text-[11px] text-emerald-400/80">בדיקת איכות: תקין</div>';
@@ -4787,6 +4802,7 @@ function renderDraftCard(draft) {
             (draftDate !== (activeReviewDate || draftDate) ? '<div class="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">הטיוטה שייכת ל-' + escapeHtml(draftDate) + '. אישור מהמסך הזה יעביר אותה ל-' + escapeHtml(activeReviewDate) + '.</div>' : '') +
             qualityHtml +
             '<textarea class="review-text w-full bg-[#0a0a0a] border border-[#272727] rounded text-sm text-[#fafafa] p-2 min-h-[70px] leading-relaxed" rows="3">' + escapeHtml(fullText) + '</textarea>' +
+            alternativeHtml +
             '<div class="mt-2 flex items-center gap-1.5 flex-wrap">' +
                 '<button class="review-schedule-btn text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1 rounded cursor-pointer">⏰ קבע לזמן הזה</button>' +
                 '<button class="review-send-btn text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 hover:border-sky-500/60 px-3 py-1 rounded cursor-pointer">📤 שלח עכשיו</button>' +
@@ -4826,6 +4842,68 @@ function _wireCard(card) {
     textEl.addEventListener('input', checkDirty);
     timeEl.addEventListener('change', checkDirty);
     topicEl.addEventListener('change', checkDirty);
+
+    var alternativeButton = card.querySelector('.review-alternative-btn');
+    if (alternativeButton) {
+        var alternativePanel = card.querySelector('.review-alternative-preview');
+        var alternativeText = card.querySelector('.review-alternative-text');
+        var candidate = null;
+        function unchangedSource() {
+            return textEl.value === card.getAttribute('data-original-text') &&
+                timeEl.value === card.getAttribute('data-original-time') &&
+                topicEl.value === card.getAttribute('data-original-topic');
+        }
+        alternativeButton.addEventListener('click', async function() {
+            if (!unchangedSource()) {
+                showToast(alternativeCopy('save_first'), 'error');
+                return;
+            }
+            var original = textEl.value;
+            var reason = card.querySelector('.review-alternative-reason').value.trim();
+            if (!reason) { showToast(alternativeCopy('reason_label'), 'error'); return; }
+            candidate = null;
+            alternativePanel.classList.add('hidden');
+            alternativeButton.disabled = true;
+            alternativeButton.textContent = alternativeCopy('working_label');
+            try {
+                var response = await fetch('/api/calendar/' + id + '/suggest-alternative', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({expected_text: original, reason: reason})
+                });
+                if (!response.ok) throw new Error('alternative preview refused');
+                var result = await response.json();
+                if (!unchangedSource() || textEl.value !== original) {
+                    showToast(alternativeCopy('stale_label'), 'error');
+                    return;
+                }
+                if (!result.text || result.preview_only !== true || result.needs_approval !== true) {
+                    showToast(alternativeCopy('empty_label'));
+                    return;
+                }
+                candidate = {text: result.text, original: original};
+                alternativeText.textContent = result.text;
+                alternativePanel.classList.remove('hidden');
+            } catch (e) { showToast(alternativeCopy('error_label'), 'error'); }
+            finally {
+                alternativeButton.disabled = false;
+                alternativeButton.textContent = alternativeCopy('button_label');
+            }
+        });
+        card.querySelector('.review-alternative-use').addEventListener('click', function() {
+            if (!candidate || !unchangedSource() || textEl.value !== candidate.original) {
+                showToast(alternativeCopy('stale_label'), 'error');
+                return;
+            }
+            textEl.value = candidate.text;
+            candidate = null;
+            alternativePanel.classList.add('hidden');
+            checkDirty();
+        });
+        card.querySelector('.review-alternative-dismiss').addEventListener('click', function() {
+            candidate = null;
+            alternativePanel.classList.add('hidden');
+        });
+    }
 
     card.querySelector('.review-schedule-btn').addEventListener('click', async function() {
         var btn = this;

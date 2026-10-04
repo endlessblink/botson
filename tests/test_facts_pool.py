@@ -20,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 FACTS_PATH = ROOT / "config" / "facts.yaml"
 DISCUSSIONS_PATH = ROOT / "config" / "discussions.yaml"
 MIN_FACTS_PER_POOL = 40
-MIN_DISCUSSIONS_PER_CATEGORY = 25
 
 
 class FactsPoolIntegrityTests(unittest.TestCase):
@@ -37,7 +36,7 @@ class FactsPoolIntegrityTests(unittest.TestCase):
                 self.assertIn(pool, self.raw, f"facts.yaml missing pool: {pool}")
                 self.assertTrue(self.raw[pool], f"pool {pool} is empty")
 
-    def test_facts_and_discussion_pools_are_large_enough_for_cooldowns(self):
+    def test_facts_cooldowns_and_retired_discussion_sources(self):
         for pool in POOLS:
             with self.subTest(pool=pool):
                 self.assertGreaterEqual(
@@ -50,11 +49,7 @@ class FactsPoolIntegrityTests(unittest.TestCase):
             discussions = yaml.safe_load(f) or {}
         for category, items in discussions.items():
             with self.subTest(category=category):
-                self.assertGreaterEqual(
-                    len(items or []),
-                    MIN_DISCUSSIONS_PER_CATEGORY,
-                    f"discussions.yaml:{category} must keep at least {MIN_DISCUSSIONS_PER_CATEGORY} prompts",
-                )
+                self.assertEqual(items, [], f"Retired reusable question source reappeared: {category}")
 
     def test_every_item_has_id_text_source_and_image(self):
         for pool in POOLS:

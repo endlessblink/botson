@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% set active_page = "prompts" %}
+{% set state_review = settings.weekly_state_review or {} %}
+{% set state_review_copy = (settings.copy or {}).weekly_state_review or {} %}
 {% block title %}Botson — הודעות ושאלות{% endblock %}
 
 {% block content %}
@@ -26,8 +28,6 @@
 {% set disc_times = disc_sched.times if disc_sched.times is defined else (schedule.discussion_prompt or '10:00,14:00,18:00').split(',') %}
 {% set topics = settings.topics or {} %}
 {% set disc_topics = topics.discussions or {} %}
-{% set state_review = settings.weekly_state_review or {} %}
-{% set state_review_copy = (settings.copy or {}).weekly_state_review or {} %}
 {% set morning_on = feat.morning_prompt is sameas true or (feat.morning_prompt is mapping and feat.morning_prompt.enabled) %}
 {% set evening_on = feat.evening_prompt is sameas true or (feat.evening_prompt is mapping and feat.evening_prompt.enabled) %}
 
@@ -68,14 +68,36 @@
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label class="text-xs text-[#71717a]">{{ state_review_copy.time_label or 'Time' }}
-            <input id="weekly-review-time" type="time" value="{{ state_review.time or '19:00' }}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full">
+            <input id="weekly-review-time" type="time" value="{{ state_review.time or '' }}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full">
         </label>
         <label class="text-xs text-[#71717a]">{{ state_review_copy.topic_label or 'Topic' }}
             <select id="weekly-review-topic" class="mt-1 bg-[#0a0a0a] border border-[#272727] rounded-md h-8 px-2 text-sm text-[#fafafa] w-full">
+                <option value="">{{ state_review_copy.select_label or '[copy missing]' }}</option>
                 {% for t in forum_topics %}
                 <option value="{{ t.topic_id }}" {% if t.topic_id == (state_review.topic_id or 0) %}selected{% endif %}>{{ t.name }}</option>
                 {% endfor %}
             </select>
+        </label>
+        <label class="text-xs text-[#71717a]">{{ state_review_copy.day_label or '[copy missing]' }}
+            <select id="weekly-review-day" class="mt-1 bg-[#0a0a0a] border border-[#272727] rounded-md h-8 px-2 text-sm text-[#fafafa] w-full">
+                <option value="">{{ state_review_copy.select_label or '[copy missing]' }}</option>
+                {% for day in state_review_copy.day_options or [] %}
+                <option value="{{ day.value }}" {% if state_review.days == [day.value] %}selected{% endif %}>{{ day.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="text-xs text-[#71717a]">{{ state_review_copy.timezone_label or '[copy missing]' }}
+            <input id="weekly-review-timezone" value="{{ state_review.timezone or '' }}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full" dir="ltr">
+        </label>
+        <label class="text-xs text-[#71717a]">{{ state_review_copy.mode_label or '[copy missing]' }}
+            <select id="weekly-review-mode" class="mt-1 bg-[#0a0a0a] border border-[#272727] rounded-md h-8 px-2 text-sm text-[#fafafa] w-full">
+                <option value="draft" {% if state_review.mode == 'draft' %}selected{% endif %}>{{ state_review_copy.draft_label or '[copy missing]' }}</option>
+                <option value="auto_send" {% if state_review.mode == 'auto_send' %}selected{% endif %}>{{ state_review_copy.auto_send_label or '[copy missing]' }}</option>
+            </select>
+        </label>
+        <label class="text-xs text-[#71717a] flex items-center gap-2">
+            <input id="weekly-review-pin" type="checkbox" {% if state_review.pin_enabled %}checked{% endif %}>
+            {{ state_review_copy.pin_label or '[copy missing]' }}
         </label>
         <label class="text-xs text-[#71717a] md:col-span-2">{{ state_review_copy.question_label or 'Question' }}
             <textarea id="weekly-review-question" rows="2" class="mt-1 bg-transparent border border-[#272727] rounded-md p-2 text-sm text-[#fafafa] w-full">{{ state_review.question or state_review_copy.question or '' }}</textarea>
@@ -84,8 +106,16 @@
             <input id="weekly-review-tags" value="{{ (state_review.tag_usernames or []) | join(', ') }}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full">
             <span class="block mt-1 text-[10px] text-[#52525b]">{{ state_review_copy.tags_help or 'Comma-separated usernames' }}</span>
         </label>
+        <label class="text-xs text-[#71717a] md:col-span-2">{{ state_review_copy.ids_label or '[copy missing]' }}
+            <input id="weekly-review-ids" value="{% for member in state_review.selected_members or [] if not member.username %}{{ member.user_id }}{% if not loop.last %}, {% endif %}{% endfor %}" class="mt-1 bg-transparent border border-[#272727] rounded-md h-8 px-3 text-sm text-[#fafafa] w-full" dir="ltr">
+        </label>
     </div>
+    <button type="button" onclick="previewWeeklyStateReview()" class="mt-4 border border-sky-500/30 text-sky-300 h-8 px-3 rounded-md text-xs font-medium cursor-pointer">{{ state_review_copy.preview_label or '[copy missing]' }}</button>
     <button onclick="saveWeeklyStateReview()" class="mt-4 bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-8 px-3 rounded-md text-xs font-medium cursor-pointer">{{ state_review_copy.save_label or 'Save weekly review' }}</button>
+    <div id="weekly-review-preview" class="hidden mt-4 border border-[#272727] rounded-md p-3">
+        <pre id="weekly-review-preview-text" class="whitespace-pre-wrap text-sm text-[#fafafa] font-sans"></pre>
+        <p class="mt-2 text-xs text-[#71717a]">{{ state_review_copy.preview_help or '[copy missing]' }}</p>
+    </div>
 </div>
 
 <!-- Daily Timeline (always visible) -->
@@ -834,18 +864,73 @@
         } catch (e) { showToast('שגיאה בשמירה', 'error'); }
     }
 
-    async function saveWeeklyStateReview() {
+    var weeklyReviewCopy = {{ state_review_copy | tojson }};
+    var weeklyReviewPreviewSignature = null;
+    var weeklyReviewPreviewReceipt = null;
+    var weeklyReviewRevision = {{ state_review.revision | default(0) | tojson }};
+
+    function weeklyReviewPayload() {
+        var day = document.getElementById('weekly-review-day').value;
+        var topic = document.getElementById('weekly-review-topic').value;
+        return {
+            enabled: document.getElementById('weekly-review-enabled').checked,
+            expected_revision: weeklyReviewRevision,
+            timezone: document.getElementById('weekly-review-timezone').value.trim(),
+            mode: document.getElementById('weekly-review-mode').value,
+            pin_enabled: document.getElementById('weekly-review-pin').checked,
+            selected_user_ids: document.getElementById('weekly-review-ids').value.split(',').map(function(x) { return x.trim(); }).filter(Boolean).map(Number),
+            days: day === '' ? [] : [parseInt(day)],
+            time: document.getElementById('weekly-review-time').value,
+            topic_id: topic === '' ? null : parseInt(topic),
+            question: document.getElementById('weekly-review-question').value,
+            tag_usernames: document.getElementById('weekly-review-tags').value.split(',').map(function(x) { return x.trim(); }).filter(Boolean)
+        };
+    }
+
+    ['enabled', 'day', 'time', 'topic', 'question', 'tags', 'timezone', 'mode', 'pin', 'ids'].forEach(function(field) {
+        document.getElementById('weekly-review-' + field).addEventListener('input', function() {
+            weeklyReviewPreviewSignature = null;
+            weeklyReviewPreviewReceipt = null;
+            document.getElementById('weekly-review-preview').classList.add('hidden');
+        });
+    });
+
+    async function previewWeeklyStateReview() {
+        var payload = weeklyReviewPayload();
         try {
-            await apiCall('/api/settings/weekly-state-review', {
-                enabled: document.getElementById('weekly-review-enabled').checked,
-                days: [6],
-                time: document.getElementById('weekly-review-time').value,
-                topic_id: parseInt(document.getElementById('weekly-review-topic').value),
-                question: document.getElementById('weekly-review-question').value,
-                tag_usernames: document.getElementById('weekly-review-tags').value.split(',').map(function(x) { return x.trim(); }).filter(Boolean)
-            });
-            showToast('Weekly review saved');
-        } catch (e) { showToast('Save failed', 'error'); }
+            var preview = await apiCall('/api/settings/weekly-state-review/preview', payload);
+            if (JSON.stringify(weeklyReviewPayload()) !== JSON.stringify(payload)) return;
+            var topic = document.getElementById('weekly-review-topic');
+            var day = document.getElementById('weekly-review-day');
+            document.getElementById('weekly-review-preview-text').textContent = preview.text + '\n\n' +
+                topic.options[topic.selectedIndex].text + ' · ' + day.options[day.selectedIndex].text +
+                ' ' + preview.time + ' ' + preview.timezone;
+            weeklyReviewPreviewSignature = JSON.stringify(payload);
+            weeklyReviewPreviewReceipt = preview.preview_receipt;
+            document.getElementById('weekly-review-preview').classList.remove('hidden');
+        } catch (e) {
+            weeklyReviewPreviewSignature = null;
+            weeklyReviewPreviewReceipt = null;
+            showToast(weeklyReviewCopy.error_label || '[copy missing]', 'error');
+        }
+    }
+
+    async function saveWeeklyStateReview() {
+        var payload = weeklyReviewPayload();
+        try {
+            if (payload.enabled && weeklyReviewPreviewSignature !== JSON.stringify(payload)) {
+                showToast(weeklyReviewCopy.preview_first || '[copy missing]', 'error');
+                return;
+            }
+            if (payload.enabled && !confirm(weeklyReviewCopy.activate_confirm || '[copy missing]')) return;
+            payload.preview_receipt = weeklyReviewPreviewReceipt;
+            payload.activation_approved = payload.enabled;
+            var result = await apiCall('/api/settings/weekly-state-review', payload);
+            weeklyReviewRevision = result.weekly_state_review.revision;
+            weeklyReviewPreviewSignature = null;
+            weeklyReviewPreviewReceipt = null;
+            showToast(weeklyReviewCopy.saved_label || '[copy missing]');
+        } catch (e) { showToast(weeklyReviewCopy.error_label || '[copy missing]', 'error'); }
     }
 
     async function sendPromptNow(type, evt) {

@@ -5,7 +5,9 @@ No hardcoded values.
 """
 
 import logging
-from datetime import time
+import json
+from pathlib import Path
+from datetime import time, datetime
 from zoneinfo import ZoneInfo
 
 from telegram.ext import Application
@@ -40,6 +42,43 @@ def _parse_schedule(raw) -> dict:
     if isinstance(raw, str):
         return {"time": raw, "days": [0, 1, 2, 3, 4, 5, 6]}
     return {"time": "00:00", "days": []}
+
+
+def setup_weekly_checkin_job(app, settings=None):
+    from ..handlers.weekly_state_review import send_weekly_state_review
+    from ..utils.config import CONFIG_DIR
+    from ..utils.weekly_checkin_config import validate_timezone
+    config = (settings or get_settings()).get("weekly_state_review") or {}
+    status = {"registered": False, "observed_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+              "revision": config.get("revision", 0), "next_due": None}
+    if config.get("enabled") is True:
+        try:
+            zone = ZoneInfo(validate_timezone(config.get("timezone")))
+            at = _parse_time(config["time"]).replace(tzinfo=zone)
+            days = config.get("days") or []
+            if len(days) != 1 or type(days[0]) is not int or not 0 <= days[0] <= 6:
+                raise ValueError("Select one weekly day")
+            kwargs = {}
+            if config.get("not_before"):
+                kwargs["start_date"] = datetime.fromisoformat(config["not_before"]).replace(tzinfo=zone)
+            job = app.job_queue.run_daily(send_weekly_state_review, time=at, days=tuple(days),
+                                          name="weekly_state_review", job_kwargs=kwargs)
+            status['registered'] = True
+            trigger = getattr(getattr(job, 'job', None), 'trigger', None)
+            if trigger:
+                next_due = trigger.get_next_fire_time(None, datetime.now(zone))
+                status['next_due'] = next_due.isoformat() if next_due else None
+            logger.info("weekly_checkin registered timezone=%s day=%s time=%s next_due=%s",
+                        config['timezone'], days[0], config['time'], status['next_due'])
+        except (ValueError, KeyError, TypeError) as error:
+            status['error'] = str(error)
+            logger.warning("weekly check-in schedule is incomplete: %s", error)
+    status_path = CONFIG_DIR.parent / 'data' / 'weekly-checkin-status.json'
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = status_path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(status))
+    temporary.replace(status_path)
+    return status
 
 
 def setup_jobs(app: Application) -> None:
@@ -107,18 +146,8 @@ def setup_jobs(app: Application) -> None:
             name="weekly_roundup",
         )
 
-    # ── Configurable weekly state review ──
-    state_review = _parse_schedule(settings.get("weekly_state_review", {}))
-    if state_review.get("enabled", False):
-        review_time = _parse_time(state_review.get("time", "19:00"))
-        review_days = _hebrew_to_python_days(state_review.get("days", []))
-        if review_days:
-            jq.run_daily(
-                send_weekly_state_review,
-                time=review_time,
-                days=review_days,
-                name="weekly_state_review",
-            )
+    # Weekly updates can reload this job independently of other content jobs.
+    setup_weekly_checkin_job(app, settings)
 
     # ── Free games RSS — daily check ──
     fg = _parse_schedule(schedule.get("free_games", {"time": "10:00", "days": [0, 1, 2, 3, 4, 5, 6]}))

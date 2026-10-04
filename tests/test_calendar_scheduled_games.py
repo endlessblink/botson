@@ -315,7 +315,7 @@ class ScheduledGameDispatchTests(unittest.IsolatedAsyncioTestCase):
         db = FakeScheduledDb(row)
         context = SimpleNamespace(bot_data={"db": db}, bot=object())
 
-        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001"}), \
+        with patch.dict(calendar.os.environ, {"BOT_TOKEN": "token", "GROUP_ID": "-1001", "TEST_GROUP_ID": "-1002"}), \
              patch("telegram.Bot", return_value=object()), \
              patch.object(calendar, "send_poll_message", new=AsyncMock()) as send_poll:
             await calendar.check_and_send_due_messages(context)

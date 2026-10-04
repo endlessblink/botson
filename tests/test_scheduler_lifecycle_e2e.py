@@ -127,7 +127,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         kwargs.setdefault("scheduled_time", self.due_dt.strftime("%H:%M"))
         kwargs.setdefault("status", "scheduled")
         kwargs.setdefault("target_group", "test")
-        kwargs.setdefault("text", "test body")
+        kwargs.setdefault("text", "הודעת בדיקה מתוזמנת")
         kwargs.setdefault("channel_topic_id", None)
         return await self.db.create_scheduled_message(**kwargs)
 
@@ -149,7 +149,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
     # ── Happy paths ─────────────────────────────────────────────────────
 
     async def test_plain_message_marked_sent_with_message_id(self):
-        msg_id = await self._seed(message_type="custom", text="plain body")
+        msg_id = await self._seed(message_type="custom", text="הודעת בדיקה רגילה")
         sent_obj = SimpleNamespace(message_id=999)
         with patch.object(cal, "send_message_with_optional_cover", new=AsyncMock(return_value=sent_obj)) as send_text, \
              patch("telegram.Bot", return_value=SimpleNamespace()):
@@ -160,7 +160,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         send_text.assert_awaited_once()
 
     async def test_post_send_activity_log_failure_does_not_flip_sent_to_failed(self):
-        msg_id = await self._seed(message_type="custom", text="plain body")
+        msg_id = await self._seed(message_type="custom", text="הודעת בדיקה רגילה")
         sent_obj = SimpleNamespace(message_id=1001)
         self.db.log_activity = AsyncMock(side_effect=RuntimeError("activity log down"))  # type: ignore[method-assign]
 
@@ -176,7 +176,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_post_send_recurrence_failure_does_not_flip_sent_to_failed(self):
         msg_id = await self._seed(
             message_type="custom",
-            text="recurring body",
+            text="הודעת בדיקה חוזרת",
             recurrence="daily",
         )
         sent_obj = SimpleNamespace(message_id=1002)
@@ -194,7 +194,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_poll_message_routes_to_send_poll(self):
         msg_id = await self._seed(
             message_type="poll",
-            text="poll question",
+            text="שאלת סקר לבדיקה",
             poll_options=json.dumps(["yes", "no", "maybe"]),
             poll_duration=24,
         )
@@ -212,7 +212,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_poll_without_valid_options_falls_back_to_text(self):
         msg_id = await self._seed(
             message_type="poll",
-            text="poll with no options",
+            text="סקר בדיקה ללא אפשרויות",
             poll_options=json.dumps(["only one"]),
         )
         sent_obj = SimpleNamespace(message_id=778)
@@ -435,7 +435,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         send_text.assert_not_called()
 
     async def test_send_seam_exception_marks_failed_with_reason(self):
-        msg_id = await self._seed(message_type="custom", text="explode please")
+        msg_id = await self._seed(message_type="custom", text="הודעת בדיקה לכשל בשליחה")
         boom = AsyncMock(side_effect=RuntimeError("telegram exploded"))
         with patch.object(cal, "send_message_with_optional_cover", new=boom), \
              patch("telegram.Bot", return_value=SimpleNamespace()):
@@ -447,7 +447,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_unverified_topic_error_marks_failed_not_silent(self):
         msg_id = await self._seed(
             message_type="custom",
-            text="topic-guarded",
+            text="הודעת בדיקה בטופיק לא מאומת",
             target_group="main",
             channel_topic_id=999_999,  # never verified
         )
@@ -470,7 +470,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         surface after a missed daily slot in production."""
         msg_id = await self._seed(
             message_type="custom",
-            text="daily prompt",
+            text="הודעת בדיקה יומית",
             recurrence="daily",
         )
         sent_obj = SimpleNamespace(message_id=1234)
@@ -492,7 +492,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
         nxt = future_rows[0]
         self.assertEqual(nxt["status"], "scheduled")
-        self.assertEqual(nxt["text"], "daily prompt")
+        self.assertEqual(nxt["text"], "הודעת בדיקה יומית")
         self.assertEqual(nxt["message_type"], "custom")
         self.assertEqual(nxt["recurrence"], "daily")
         self.assertEqual(nxt["created_by"], "recurrence")
@@ -500,7 +500,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_overdue_daily_recurrence_uses_scheduled_slot_not_scheduler_day(self):
         midnight_now = datetime(2099, 6, 15, 0, 5, tzinfo=_IL_TZ)
         msg_id = await self.db.create_scheduled_message(
-            text="late daily prompt",
+            text="הודעת בדיקה יומית מאוחרת",
             message_type="custom",
             channel_topic_id=None,
             target_group="test",
@@ -520,14 +520,14 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         original = await self.db.get_scheduled_message(msg_id)
         self.assertEqual(original["status"], "sent")
         rows = await self.db.get_scheduled_messages("2099-06-15", "2099-06-15")
-        future_rows = [r for r in rows if r["text"] == "late daily prompt"]
+        future_rows = [r for r in rows if r["text"] == "הודעת בדיקה יומית מאוחרת"]
         self.assertEqual(len(future_rows), 1)
         self.assertEqual(future_rows[0]["scheduled_date"], "2099-06-15")
         self.assertEqual(future_rows[0]["scheduled_time"], "23:59")
 
     async def test_overdue_daily_recurrence_skips_already_due_next_slot(self):
         msg_id = await self.db.create_scheduled_message(
-            text="very late daily prompt",
+            text="הודעת בדיקה יומית באיחור גדול",
             message_type="custom",
             channel_topic_id=None,
             target_group="test",
@@ -548,11 +548,11 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(original["status"], "sent")
         same_day_rows = await self.db.get_scheduled_messages("2099-06-15", "2099-06-15")
         self.assertFalse(
-            [r for r in same_day_rows if r["text"] == "very late daily prompt"],
+            [r for r in same_day_rows if r["text"] == "הודעת בדיקה יומית באיחור גדול"],
             "recurrence must not create a row whose scheduled time is already behind the scheduler",
         )
         next_rows = await self.db.get_scheduled_messages("2099-06-16", "2099-06-16")
-        future_rows = [r for r in next_rows if r["text"] == "very late daily prompt"]
+        future_rows = [r for r in next_rows if r["text"] == "הודעת בדיקה יומית באיחור גדול"]
         self.assertEqual(len(future_rows), 1)
         self.assertEqual(future_rows[0]["scheduled_time"], "00:01")
 
@@ -604,7 +604,7 @@ class SchedulerLifecycleVisibilityTests(unittest.TestCase):
         ids = {}
         # sent
         ids["sent"] = await db.create_scheduled_message(
-            text="visible sent", message_type="custom", channel_topic_id=None,
+            text="הודעת בדיקה שנשלחה", message_type="custom", channel_topic_id=None,
             target_group="test",
             scheduled_date=self.due_dt.strftime("%Y-%m-%d"),
             scheduled_time=self.due_dt.strftime("%H:%M"),
@@ -612,7 +612,7 @@ class SchedulerLifecycleVisibilityTests(unittest.TestCase):
         )
         # failed (will raise in send seam)
         ids["failed"] = await db.create_scheduled_message(
-            text="visible failed", message_type="custom", channel_topic_id=None,
+            text="הודעת בדיקה שנכשלה", message_type="custom", channel_topic_id=None,
             target_group="test",
             scheduled_date=self.due_dt.strftime("%Y-%m-%d"),
             scheduled_time=self.due_dt.strftime("%H:%M"),

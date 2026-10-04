@@ -136,6 +136,7 @@ class FakeCalendarRequest:
     def __init__(self, body):
         self._body = body
         self.query_params = {}
+        self.state = SimpleNamespace()
 
     async def json(self):
         return self._body
@@ -156,7 +157,7 @@ class FakeQueryRequest:
 class TestWeekplanCommittedVisibility(unittest.IsolatedAsyncioTestCase):
     async def test_flexible_discussion_rows_are_not_hidden_by_static_schedule(self):
         today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
-        this_week_sunday = today + timedelta(days=(6 - today.weekday()) % 7)
+        this_week_sunday = today - timedelta(days=(today.weekday() + 1) % 7)
         displayed_week_sunday = this_week_sunday + timedelta(days=7)
         rows = [
             {
@@ -2633,7 +2634,7 @@ class TestSchedulerTypeExposure(unittest.IsolatedAsyncioTestCase):
                     status="scheduled",
                 )
                 msg_id = await db.create_scheduled_message(
-                    text="second",
+                    text="הודעת בדיקה שנייה של לוח התוכן",
                     message_type="custom",
                     channel_topic_id=4037,
                     target_group="main",

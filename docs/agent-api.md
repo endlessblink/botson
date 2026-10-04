@@ -9,7 +9,7 @@ Configure `BOTSON_AGENT_API_TOKEN` on the dashboard service with a newly generat
 Send it as `Authorization: Bearer <token>`; the dashboard password and Telegram bot token are not substitutes.
 When the variable is unset, bearer authentication fails closed.
 
-The token is accepted only by the calendar endpoints and the restricted community-message read endpoint described below.
+The token is accepted only by the calendar endpoints, restricted community-message read endpoint and validated weekly check-in endpoints described below.
 It does not grant access to other dashboard APIs.
 
 ## Read and edit the schedule
@@ -64,3 +64,51 @@ curl --fail-with-body -X POST \
 ```
 
 `BOTSON_AGENT_API_TOKEN` and `BOTSON_DASHBOARD_URL` must be provided by the caller's approved runtime; neither belongs in source control.
+
+## Weekly AI check-in: one configuration, two interfaces
+
+The dashboard's weekly check-in card and these agent endpoints use **the same
+`config/settings.yaml:weekly_state_review`**. Do not create a second project
+file or edit YAML directly as an agent workaround. Runtime participant IDs,
+subscriptions and audit entries must not be committed to a public repository.
+Normal deployment preserves the versioned runtime section under its write lock.
+
+- `GET /api/agent/weekly-checkin`: current configuration/revision and the bot's
+  last observed scheduler-registration status. This is a read-only endpoint.
+- `POST /api/agent/weekly-checkin/preview`: validate exact text, selected member
+  handles or `selected_user_ids`, AI destination, weekday, time, IANA timezone,
+  `mode` (`draft` or `auto_send`), `pin_enabled` and `expected_revision`. Returns
+  exact rendered text/ID-bound audience, next occurrence and an expiring signed
+  `preview_receipt`; no settings, draft or Telegram message is written.
+- `PUT /api/agent/weekly-checkin`: save those same fields. Requires the normal
+  agent token, fresh `X-Community-Context-Receipt`, and unique `Idempotency-Key`.
+  `expected_revision` prevents losing concurrent moderator or member changes.
+  Completed retries replay their receipt; an uncertain attempt must be inspected.
+
+To enable either weekly mode, also provide the matching `preview_receipt` and
+`activation_approved: true` **only after the human approved that exact audience,
+text, destination and delivery mode**. A quality-override header grants no
+weekly activation approval. Changes to the candidate, revision or expired
+receipt require a new preview. Unknown/ambiguous/reassigned handles, arbitrary
+IDs, unverified destinations, opted-out members and malformed schedules refuse
+validation. The currently supported scope is the configured verified AI topic.
+
+The configured timezone determines the local Sunday-start week. Nonexistent DST
+times are skipped; ambiguous times use the first fold only. A durable weekly
+claim prevents repeats and uncertain transport retries. `not_before` prevents
+catch-up before the approved start date. Draft mode creates one held calendar
+draft; it cannot auto-send. A draft whose configuration or recipient snapshot
+changed must be reviewed again rather than delivering stale mentions.
+
+Recipients may join/leave only by replying with the configured exact command to
+a recorded check-in post in the correct group/topic. The authenticated sender's
+own Telegram ID is the only affected member. Opt-out affects future previews
+and posts; already delivered text is not rewritten. The request and moderator
+updates merge atomically and create minimal audit entries. No member-history
+summary or activity attribution is part of this feature.
+
+Pinning is silent. Only the previous recorded weekly check-in pin is replaced;
+other pins remain intact. There is no automatic expiry. Disabling the feature
+stops future jobs without deleting old posts or pins. For a rollback to code
+predating this feature, disable it through the current validated interface
+before restoring old code.

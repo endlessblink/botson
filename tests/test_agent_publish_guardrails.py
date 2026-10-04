@@ -96,6 +96,28 @@ def test_operator_approved_post_skips_review_and_budget(env):
     review.assert_not_awaited()
 
 
+def test_operator_quality_approval_does_not_allow_early_send(env):
+    tmp_path, review = env
+    request = agent_request()
+    request.headers["x-operator-approved"] = "true"
+    later = datetime.now(ZoneInfo("Asia/Jerusalem")) + timedelta(hours=20)
+
+    async def body(db):
+        with pytest.raises(HTTPException) as error:
+            await guard(db, request=request, when=later, sending_now=True)
+        return error.value.status_code
+    assert run(body, tmp_path) == 409
+    review.assert_not_awaited()
+
+
+def test_operator_quality_header_does_not_authorize_invalid_agent_token(env):
+    request = agent_request(token="wrong-token")
+    request.headers["x-operator-approved"] = "true"
+    with pytest.raises(HTTPException) as error:
+        dash._require_calendar_api_auth(request)
+    assert error.value.status_code == 401
+
+
 def test_rejected_row_cannot_be_rewritten_and_retried(env):
     tmp_path, review = env
 

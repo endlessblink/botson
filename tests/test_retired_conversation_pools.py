@@ -32,20 +32,23 @@ def test_no_reusable_question_sources_remain_in_runtime_config():
     assert prompts.get("morning") == []
     assert prompts.get("evening") == []
     assert all(items == [] for items in discussions.values())
-    assert baseline.get("allowlist") == {
-        "art": ["<category itself>"],
-        "funny": ["<category itself>"],
-        "general": ["<category itself>"],
-    }
+    # Category-only references are permitted; concrete reusable questions are
+    # not. Adding a configured category must not weaken or break this invariant.
+    allowlist = baseline.get("allowlist") or {}
+    assert {"art", "funny", "general"} <= set(allowlist)
+    assert all(entries == ["<category itself>"] for entries in allowlist.values())
 
 
-def test_weekly_review_is_not_a_default_question_sender():
+def test_weekly_review_requires_explicit_audience_and_activation():
     settings = yaml.safe_load(
         (Path(__file__).resolve().parent.parent / "config" / "settings.yaml").read_text(encoding="utf-8")
     ) or {}
     review = settings.get("weekly_state_review") or {}
     assert review.get("enabled") is False
-    assert not str(review.get("question") or "").strip()
+    # The owner-approved editable invitation is allowed; the public template
+    # cannot send until an exact audience and activation are configured.
+    assert review.get("tag_usernames") == []
+    assert review.get("selected_members") == []
 
 
 @pytest.mark.parametrize("prompt_type", ["morning", "evening"])
