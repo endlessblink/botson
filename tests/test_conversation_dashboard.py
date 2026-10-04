@@ -57,7 +57,7 @@ def test_checked_suggestion_still_requires_semantic_acceptance(kind):
     request.body = AsyncMock(return_value=json.dumps(request.json.return_value).encode())
     db = MagicMock(_db=None)
     db.create_scheduled_message = AsyncMock()
-    with patch.object(dashboard, "_validate_draft_text", side_effect=lambda text: []), patch.object(dashboard, "freshness_rejection", return_value=None), patch.object(dashboard, "_fetch_recent_sent_for_dedup", AsyncMock(return_value=[])), patch.object(dashboard, "_review_discussion_quality", AsyncMock(return_value=(False, "generic check-in"))):
+    with patch.object(dashboard, "_validate_draft_text", side_effect=lambda text: []), patch.object(dashboard, "freshness_rejection", return_value=None), patch.object(dashboard, "_fetch_recent_sent_for_dedup", AsyncMock(return_value=[])), patch.object(dashboard, "_review_discussion_quality_batch", AsyncMock(return_value={0: (False, "generic check-in")})):
         result = asyncio.run(dashboard.ai_suggest_commit(request, db))
     assert result["inserted"] == 0
     assert "generic check-in" in result["errors"][0]

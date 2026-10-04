@@ -416,7 +416,7 @@ class Database:
         await self._db.commit()
 
     async def get_recent_community_messages(
-        self, chat_id: int, *, since: datetime, limit: int = 100
+        self, chat_id: int, *, since: datetime, limit: int = 100, thread_id: int | None = None
     ) -> list[dict]:
         """Read unexpired message context for one configured community."""
         now_text = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -424,12 +424,17 @@ class Database:
         await self._db.execute(
             "DELETE FROM recent_community_messages WHERE expires_at <= ?", (now_text,)
         )
+        topic_clause = " AND thread_id = ?" if thread_id is not None else ""
+        parameters = [chat_id, since_text, now_text]
+        if thread_id is not None:
+            parameters.append(thread_id)
+        parameters.append(limit)
         async with self._db.execute(
             """SELECT message_id, thread_id, sender_name, source, text, occurred_at
                FROM recent_community_messages
-               WHERE chat_id = ? AND occurred_at >= ? AND expires_at > ?
-               ORDER BY occurred_at DESC, message_id DESC LIMIT ?""",
-            (chat_id, since_text, now_text, limit),
+               WHERE chat_id = ? AND occurred_at >= ? AND expires_at > ?""" + topic_clause +
+            " ORDER BY occurred_at DESC, message_id DESC LIMIT ?",
+            parameters,
         ) as cursor:
             rows = [dict(row) for row in await cursor.fetchall()]
         await self._db.commit()
@@ -437,18 +442,23 @@ class Database:
         return rows
 
     async def get_recent_scheduled_community_messages(
-        self, *, since: datetime, limit: int = 100
+        self, *, since: datetime, limit: int = 100, thread_id: int | None = None
     ) -> list[dict]:
         """Read Botson's recently sent main-group calendar messages."""
         since_text = since.astimezone(_IL_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        topic_clause = " AND channel_topic_id = ?" if thread_id is not None else ""
+        parameters = [since_text]
+        if thread_id is not None:
+            parameters.append(thread_id)
+        parameters.append(limit)
         async with self._db.execute(
             """SELECT sent_message_id AS message_id, channel_topic_id AS thread_id,
                       'Botson' AS sender_name, text, sent_at AS occurred_at
                FROM scheduled_messages
                WHERE status = 'sent' AND target_group = 'main'
-                 AND sent_message_id IS NOT NULL AND sent_at >= ?
-               ORDER BY sent_at DESC, id DESC LIMIT ?""",
-            (since_text, limit),
+                 AND sent_message_id IS NOT NULL AND sent_at >= ?""" + topic_clause +
+            " ORDER BY sent_at DESC, id DESC LIMIT ?",
+            parameters,
         ) as cursor:
             rows = [dict(row) for row in await cursor.fetchall()]
         for row in rows:
