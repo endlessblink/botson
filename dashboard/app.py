@@ -136,9 +136,8 @@ def _load_settings_file() -> dict:
 
 
 def _save_settings_file(settings: dict) -> None:
-    settings_path = CONFIG_DIR / "settings.yaml"
-    with open(settings_path, "w", encoding="utf-8") as f:
-        yaml.dump(settings, f, allow_unicode=True, default_flow_style=False)
+    from bot.utils.weekly_checkin_config import save_settings_preserving_weekly
+    save_settings_preserving_weekly(CONFIG_DIR / "settings.yaml", settings)
 
 
 def _parse_aliases_input(raw) -> list[str]:
@@ -392,10 +391,11 @@ def _community_context_settings() -> tuple[int, int]:
     )
 
 
-async def _collect_community_messages(db: Database, hours: int, limit: int) -> list[dict]:
+async def _collect_community_messages(db: Database, hours: int, limit: int, *, thread_id: int | None = None) -> list[dict]:
     since = datetime.now(ZoneInfo("UTC")) - timedelta(hours=hours)
-    member_messages = await db.get_recent_community_messages(GROUP_ID, since=since, limit=limit)
-    bot_messages = await db.get_recent_scheduled_community_messages(since=since, limit=limit)
+    topic = {"thread_id": thread_id} if thread_id is not None else {}
+    member_messages = await db.get_recent_community_messages(GROUP_ID, since=since, limit=limit, **topic)
+    bot_messages = await db.get_recent_scheduled_community_messages(since=since, limit=limit, **topic)
     # safe_send captures live Botson outputs, while scheduled calendar rows are
     # also queried separately. A scheduled send therefore appears in both
     # stores; prefer the durable calendar record and emit the Telegram message
@@ -3533,7 +3533,7 @@ async def _topic_display_name(db: "Database", topic_id: int | None) -> str | Non
 
 
 async def _fetch_recent_sent_for_dedup(
-    db: "Database", message_type: str, *, category_topic_id: int | None = None, limit: int = 60
+    db: "Database", message_type: str, *, category_topic_id: int | None = None, limit: int = 60, strict: bool = False
 ) -> list[str]:
     """Return up to `limit` distinct recent texts of a given message_type.
     Optionally scoped to a single channel_topic_id (preferred for discussion
@@ -3543,16 +3543,15 @@ async def _fetch_recent_sent_for_dedup(
     fired also count as "already proposed" — matches the existing
     get_used_discussion_texts() spirit.
     """
-    sql = (
-        "SELECT DISTINCT text FROM scheduled_messages "
-        "WHERE message_type = ? AND text IS NOT NULL AND text != '' "
-        "AND status IN ('sent', 'scheduled') "
-    )
-    params: list = [message_type]
+    conversation = message_type in {"morning", "evening", "discussion"}
+    sql = "SELECT text FROM scheduled_messages WHERE "
+    sql += ("message_type IN ('morning', 'evening', 'discussion') " if conversation else "message_type = ? ")
+    sql += "AND text IS NOT NULL AND text != '' AND target_group = 'main' AND status IN ('sent', 'scheduled') "
+    params: list = [] if conversation else [message_type]
     if category_topic_id is not None:
         sql += "AND channel_topic_id = ? "
         params.append(category_topic_id)
-    sql += "ORDER BY scheduled_date DESC, scheduled_time DESC LIMIT ?"
+    sql += "GROUP BY text ORDER BY MAX(scheduled_date || ' ' || scheduled_time) DESC, MAX(id) DESC LIMIT ?"
     params.append(limit)
     out: list[str] = []
     try:
@@ -3563,6 +3562,8 @@ async def _fetch_recent_sent_for_dedup(
                     out.append(txt)
     except Exception as e:
         logger.warning("[generate] recent-sent dedup query failed: %s", e)
+        if strict:
+            raise HTTPException(status_code=503, detail="Recent conversation history unavailable; retry before approving") from e
     return out
 
 
@@ -8383,6 +8384,8 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
     # not hold the request open once per card. The batch reviewer uses the same
     # fail-closed rubric as the single-candidate path below.
     semantic_candidates: list[dict] = []
+    conversation_history: dict[int, list[str]] = {}
+    history_errors: dict[int, str] = {}
     for index, item in enumerate(approved):
         if not isinstance(item, dict):
             continue
@@ -8398,6 +8401,11 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             "morning", "evening", "discussion", "custom",
         }:
             continue
+        candidate_category = str(item.get("category") or "").strip()
+        if candidate_type == "discussion" and candidate_category:
+            resolved_category = _discussion_category_for_topic(candidate_topic)
+            if not resolved_category or candidate_category != resolved_category:
+                continue
         candidate_failures = _validate_draft_text(candidate_text)
         freshness_failure = freshness_rejection(candidate_text, scheduled_date=candidate_date)
         if freshness_failure:
@@ -8407,16 +8415,22 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         )
         if candidate_failures or prose_type not in {"morning", "evening", "discussion"}:
             continue
-        recent = await _fetch_recent_sent_for_dedup(
-            db, candidate_type, category_topic_id=candidate_topic,
-        )
+        try:
+            recent = await _fetch_recent_sent_for_dedup(
+                db, candidate_type, category_topic_id=candidate_topic, strict=True,
+            )
+        except HTTPException as error:
+            history_errors[index] = str(error.detail)
+            continue
+        conversation_history[index] = recent
         semantic_candidates.append({
             "id": index,
             "text": candidate_text,
-            "category": candidate_type,
+            "category": _discussion_category_for_topic(candidate_topic) or candidate_type,
             "recent_texts": recent,
         })
     semantic_reviews = await _review_discussion_quality_batch(semantic_candidates)
+    committed_conversation_texts: dict[int, list[str]] = {}
 
     for i, item in enumerate(approved):
         if not isinstance(item, dict):
@@ -8440,6 +8454,17 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             errors.append(f"#{i}: bad date {d}")
             continue
 
+        category = str(item.get("category") or "").strip()
+        if mtype == "discussion" and category:
+            resolved_category = _discussion_category_for_topic(topic)
+            if not resolved_category:
+                errors.append(f"#{i}: unknown discussion topic {topic}")
+                continue
+            if category != resolved_category:
+                errors.append(f"#{i}: discussion topic mismatch for {category}")
+                continue
+            category = resolved_category
+
         if mtype in {"morning", "evening", "discussion", "custom"}:
             failures = _validate_draft_text(text)
             freshness_failure = freshness_rejection(text, scheduled_date=d)
@@ -8447,6 +8472,15 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
                 failures.append(freshness_failure)
             prose_type, _ = _coerce_game_message_fields(mtype, text, item.get("poll_options_json"), topic)
             if not failures and prose_type in {"morning", "evening", "discussion"}:
+                if i in history_errors:
+                    errors.append(f"#{i}: {history_errors[i]}")
+                    continue
+                duplicate = freshness_rejection(
+                    text, scheduled_date=d,
+                    avoid_texts=set(conversation_history.get(i, [])) | set(committed_conversation_texts.get(topic, [])),
+                )
+                if duplicate:
+                    failures.append(duplicate)
                 passed, reason = semantic_reviews.get(
                     i, (False, "semantic review unavailable: missing batch verdict"),
                 )
@@ -8459,17 +8493,6 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
         source = str(item.get("source") or "ai-fill")
         if not source.startswith("ai-fill"):
             source = "ai-fill"  # anchor inside the wipe pattern
-
-        category = str(item.get("category") or "").strip()
-        if mtype == "discussion" and category:
-            resolved_category = _discussion_category_for_topic(topic)
-            if not resolved_category:
-                errors.append(f"#{i}: unknown discussion topic {topic}")
-                continue
-            if category and category != resolved_category:
-                errors.append(f"#{i}: discussion topic mismatch for {category}")
-                continue
-            category = resolved_category
 
         poll_options_json = item.get("poll_options_json") or None
         if poll_options_json is not None and not isinstance(poll_options_json, str):
@@ -8527,6 +8550,8 @@ async def ai_suggest_commit(request: Request, db: Database = Depends(get_db)):
             by_type[mtype] = by_type.get(mtype, 0) + 1
             committed_keys.add(slot_key)
             committed_time_types.setdefault(time_key, set()).add(mtype)
+            if mtype in {"morning", "evening", "discussion"}:
+                committed_conversation_texts.setdefault(topic, []).append(text)
         except Exception as e:
             errors.append(f"#{i}: insert failed: {e}")
 
@@ -14084,6 +14109,8 @@ async def suggest_calendar_alternative(msg_id: int, request: Request, db: Databa
         raise HTTPException(status_code=404, detail="message not found")
     if row.get("status") != "draft":
         raise HTTPException(status_code=409, detail="Only a draft can receive an alternative")
+    if row.get("created_by") == "weekly-checkin" or row.get("target_group", "main") != "main":
+        raise HTTPException(status_code=422, detail="This draft needs its own configuration and context review flow")
     text = str(row.get("text") or "")
     if body.get("expected_text") != text:
         raise HTTPException(status_code=409, detail="Draft changed; refresh before requesting an alternative")
@@ -14102,7 +14129,7 @@ async def suggest_calendar_alternative(msg_id: int, request: Request, db: Databa
     if type(context_limit) is not int or context_limit < 1:
         raise HTTPException(status_code=503, detail="Alternative context configuration is missing")
     hours, _ = _community_context_settings()
-    community = await _collect_community_messages(db, hours, context_limit)
+    community = await _collect_community_messages(db, hours, context_limit, thread_id=topic_id)
     same_topic_context = [
         str(item.get("text") or "") for item in community
         if item.get("thread_id") == topic_id and item.get("text")
@@ -14112,7 +14139,7 @@ async def suggest_calendar_alternative(msg_id: int, request: Request, db: Databa
                 "text": "", "reason": "current topic context unavailable", "needs_approval": True}
     category = _discussion_category_for_topic(topic_id) if topic_id else ""
     name = await _topic_display_name(db, topic_id) if topic_id else None
-    recent = await _fetch_recent_sent_for_dedup(db, mtype, category_topic_id=topic_id)
+    recent = await _fetch_recent_sent_for_dedup(db, mtype, category_topic_id=topic_id, strict=True)
     guidance = build_generation_prompt(
         mtype, "single", "", category or "", recent_sent=recent,
         category_name=name, scheduled_date=row.get("scheduled_date"),
@@ -14135,7 +14162,7 @@ async def suggest_calendar_alternative(msg_id: int, request: Request, db: Databa
         )) else []),
     )
     fresh = await db.get_scheduled_message(msg_id)
-    snapshot_keys = ("text", "status", "message_type", "channel_topic_id", "scheduled_date", "scheduled_time")
+    snapshot_keys = ("text", "status", "message_type", "channel_topic_id", "scheduled_date", "scheduled_time", "target_group", "created_by")
     if not fresh or any(fresh.get(key) != row.get(key) for key in snapshot_keys):
         raise HTTPException(status_code=409, detail="Draft changed while generating; refresh and review again")
     return {"id": msg_id, "original_text": text, "preview_only": True, **result}

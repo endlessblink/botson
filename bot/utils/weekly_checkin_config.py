@@ -56,6 +56,40 @@ def read_weekly_config(settings_path):
     return settings.get('weekly_state_review') or {}
 
 
+def _replace_settings(path, settings):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix='.weekly-settings-', delete=False) as output:
+            temporary = output.name
+            os.chmod(temporary, path.stat().st_mode & 0o777 if path.exists() else 0o600)
+            yaml.safe_dump(settings, output, allow_unicode=True, sort_keys=False)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary:
+            os.unlink(temporary)
+
+
+def save_settings_preserving_weekly(settings_path, settings):
+    """Unrelated admin forms cannot overwrite newer validated subscriptions."""
+    path = Path(settings_path)
+    with (path.parent / '.weekly-checkin.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        current = yaml.safe_load(path.read_text()) or {} if path.exists() else {}
+        saved = dict(settings)
+        if 'weekly_state_review' in current:
+            saved['weekly_state_review'] = current['weekly_state_review']
+        _replace_settings(path, saved)
+
+
 def write_weekly_config(settings_path, *, expected_revision, candidate=None,
                         actor, action, event_key=None, member_change=None):
     """CAS for admin/agent updates; authenticated member changes merge in-lock.
@@ -100,23 +134,5 @@ def write_weekly_config(settings_path, *, expected_revision, candidate=None,
             entry['event_key'] = event_key
         saved['audit'] = [*audit, entry]
         settings['weekly_state_review'] = saved
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
-                                             prefix='.weekly-settings-', delete=False) as output:
-                temporary = output.name
-                os.chmod(temporary, path.stat().st_mode & 0o777)
-                yaml.safe_dump(settings, output, allow_unicode=True, sort_keys=False)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-            temporary = None
-            directory = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
-        finally:
-            if temporary:
-                os.unlink(temporary)
+        _replace_settings(path, settings)
         return saved, True

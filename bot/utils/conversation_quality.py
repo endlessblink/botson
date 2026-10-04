@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from string import Formatter
 
 from bot.utils.config import load_yaml
+from bot.utils.freshness import near_duplicate
 from bot.utils.redaction import redact_sensitive
 
 logger = logging.getLogger(__name__)
@@ -138,14 +139,19 @@ async def suggest_conversation_alternative(
                 'community_context': list(community_context),
             }, ensure_ascii=False),
         )
-        candidate = (await generate(prompt)).strip()
+        try:
+            candidate = str(await generate(prompt) or '').strip()
+        except Exception as error:
+            safe_error = redact_sensitive(error)
+            logger.warning('Alternative generation unavailable: %s', safe_error)
+            return {'text': '', 'reason': f'alternative generation unavailable: {safe_error}', 'needs_approval': True}
         if not candidate:
             return {'text': '', 'reason': 'no worthwhile alternative', 'needs_approval': True}
         if len(candidate) > max_chars:
             last_reason = 'alternative exceeds configured length'
             continue
         failures = list(validate(candidate))
-        if candidate in history:
+        if candidate in history or near_duplicate(candidate, history):
             failures.append('alternative repeats rejected or recent text')
         if failures:
             last_reason = '; '.join(failures)

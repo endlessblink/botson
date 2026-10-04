@@ -72,6 +72,8 @@ The dashboard's weekly check-in card and these agent endpoints use **the same
 file or edit YAML directly as an agent workaround. Runtime participant IDs,
 subscriptions and audit entries must not be committed to a public repository.
 Normal deployment preserves the versioned runtime section under its write lock.
+Unrelated dashboard settings forms also preserve its latest value under that
+lock, so saving another setting cannot undo a newer member opt-out or schedule.
 
 - `GET /api/agent/weekly-checkin`: current configuration/revision and the bot's
   last observed scheduler-registration status. This is a read-only endpoint.
