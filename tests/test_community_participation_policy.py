@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import hashlib
 
 import pytest
 
@@ -14,16 +15,19 @@ NOW = datetime(2026, 1, 5, 12, tzinfo=timezone.utc)
 @pytest.fixture
 def news():
     policy = {
-        'enabled': False, 'mode': 'preview_only',
-        'sources': {'fixture': {'allowed_domains': ['example.test']}},
+        'enabled': False, 'mode': 'preview_only', 'timezone': 'UTC', 'dedupe_scope': 'chat',
+        'sources': {'fixture': {'enabled': True, 'allowed_domains': ['example.test']}},
         'topic_sources': {99: ['fixture']}, 'freshness_hours': 24,
         'verification_max_age_hours': 2, 'minimum_relevance': 0.8,
+        'context_max_age_minutes': 30,
         'global_daily_cap': 4, 'topic_daily_cap': 2, 'quiet_hours': [['23:00', '07:00']],
     }
     item = {'topic_id': 99, 'source_id': 'fixture', 'source_url': 'https://example.test/article?utm_source=fixture',
             'published_at': (NOW-timedelta(hours=3)).isoformat(), 'verified_at': NOW.isoformat(),
             'source_verified': True, 'title': 'Synthetic fixture', 'summary': 'Synthetic summary',
-            'event_id': 'fixture-story', 'relevance': 0.9}
+            'event_id': 'fixture-story', 'relevance': 0.9,
+            'context_at': NOW.isoformat(), 'context_same_topic': True, 'context_topic_id': 99,
+            'content_review_passed': True, 'reviewed_summary_digest': hashlib.sha256(b'Synthetic summary').hexdigest()}
     return policy, item
 
 
@@ -84,10 +88,13 @@ def test_default_news_and_reply_policies_cannot_enable_communications(news):
 @pytest.fixture
 def reply():
     policy = {'enabled': True, 'mode': 'preview_only', 'allowed_topics': [99],
+              'timezone': 'UTC', 'cooldown_scope': 'conversation', 'context_max_age_minutes': 30,
               'allow_unsolicited': False, 'minimum_value': 0.8,
               'global_daily_cap': 4, 'topic_daily_cap': 2, 'thread_daily_cap': 1,
               'cooldown_minutes': 30, 'quiet_hours': [['23:00', '07:00']]}
     candidate = {'topic_id': 99, 'sender_is_bot': False, 'context_same_topic': True,
+                 'context_topic_id': 99, 'context_at': NOW.isoformat(), 'sender_user_id': 101,
+                 'trigger_message_id': 202, 'conversation_key': 'fixture-thread',
                  'conversation_active': True, 'privacy_permits_reply': True,
                  'moderation_allows_reply': True, 'opted_out': False, 'sensitive': False,
                  'addressed_to_bot': True, 'value': 0.9, 'text': 'Synthetic response'}
