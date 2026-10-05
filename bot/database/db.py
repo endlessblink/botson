@@ -416,14 +416,16 @@ class Database:
         await self._db.commit()
 
     async def get_recent_community_messages(
-        self, chat_id: int, *, since: datetime, limit: int = 100, thread_id: int | None = None
+        self, chat_id: int, *, since: datetime, limit: int = 100, thread_id: int | None = None,
+        prune_expired: bool = True
     ) -> list[dict]:
         """Read unexpired message context for one configured community."""
         now_text = datetime.now(timezone.utc).isoformat(timespec="seconds")
         since_text = since.astimezone(timezone.utc).isoformat(timespec="seconds")
-        await self._db.execute(
-            "DELETE FROM recent_community_messages WHERE expires_at <= ?", (now_text,)
-        )
+        if prune_expired:
+            await self._db.execute(
+                "DELETE FROM recent_community_messages WHERE expires_at <= ?", (now_text,)
+            )
         topic_clause = " AND thread_id = ?" if thread_id is not None else ""
         parameters = [chat_id, since_text, now_text]
         if thread_id is not None:
@@ -437,7 +439,8 @@ class Database:
             parameters,
         ) as cursor:
             rows = [dict(row) for row in await cursor.fetchall()]
-        await self._db.commit()
+        if prune_expired:
+            await self._db.commit()
         rows = list(reversed(rows))
         return rows
 

@@ -1,5 +1,18 @@
-# Planning defaults only. Nothing consumes this file in the live scheduler.
-# Select sources/topics/caps/quiet hours explicitly before any future activation.
+# Public defaults stay off. Shared dashboard/agent configuration activates only
+# explicitly approved existing topics. Runtime state survives deployment.
+revision: 0
+audit: []
+runtime:
+  reload_seconds: 5
+  context_messages: 10
+  context_max_chars: 2400
+  max_reply_chars: 240
+  max_news_chars: 420
+  max_feed_bytes: 524288
+  max_articles_per_source: 3
+  max_candidates_per_cycle: 2
+  max_sends_per_cycle: 1
+  fetch_timeout_seconds: 15
 topic_news:
   enabled: false
   mode: preview_only
@@ -14,6 +27,7 @@ topic_news:
   global_daily_cap: null
   topic_daily_cap: null
   quiet_hours: null
+  times: []
 
 occasional_replies:
   enabled: false

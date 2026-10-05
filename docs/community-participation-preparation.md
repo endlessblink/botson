@@ -1,4 +1,10 @@
-# Disabled participation preparation
+# Participation policy/store preparation (historical checkpoint)
+
+The subsequent integrated runtime is documented in
+[`community-participation-runtime.md`](community-participation-runtime.md).
+The text below records the earlier disabled-only checkpoint, not the current
+runtime wiring. Public default flags remain disabled; configuration and actual
+deployment/activation evidence must be reported separately.
 
 `config/community_participation.yaml` remains disabled for news and replies.
 Sources, topics, caps, quiet hours, timezones and freshness windows stay empty

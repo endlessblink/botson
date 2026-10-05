@@ -1,8 +1,8 @@
-"""Offline preparation for durable participation review; no runtime/send hooks.
+"""Durable participation review, caps and opt-outs; no direct external sends.
 
 Initialization and approved reservations are explicit separate operations.
 Preview reads alone never record a draft, consume a cap, or change opt-outs.
-Source/context/relevance evidence must come from trusted future adapters.
+Source/context/relevance evidence must come from trusted server adapters.
 """
 
 import hashlib
@@ -79,7 +79,7 @@ def _receipt(reason, *, key=None, status=None, replay=False):
 
 
 class ParticipationReviewStore:
-    """Prepared store on an explicitly selected file, never a default live DB."""
+    """Independent explicitly initialized store, never the community database."""
 
     def __init__(self, db_path):
         if str(db_path) == ':memory:':
@@ -87,7 +87,7 @@ class ParticipationReviewStore:
         self.path = Path(db_path).resolve()
 
     async def initialize(self):
-        """Explicit setup only; no bot startup, scheduler or dashboard consumer."""
+        """Explicit setup after validated activation; previews never initialize."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(str(self.path)) as connection:
             await connection.executescript(SCHEMA)
@@ -99,7 +99,7 @@ class ParticipationReviewStore:
         mode = 'rw' if write else 'ro'
         return aiosqlite.connect('file:'+quote(str(self.path), safe='/')+'?mode='+mode, uri=True)
 
-    async def _state(self, connection, kind, candidate, policy, now, chat_id):
+    async def _state(self, connection, kind, candidate, policy, now, chat_id, exclude_key=None):
         topic = candidate.get('topic_id')
         _scope(kind, chat_id, topic)
         local = _local_now(now, policy)
@@ -108,7 +108,7 @@ class ParticipationReviewStore:
         async with connection.execute(
             "SELECT topic_id,conversation_key,source_url,event_id,intended_at,day_key "
             "FROM participation_review_items WHERE kind=? AND chat_id=? "
-            "AND status IN ('reserved','scheduled','sent','uncertain')", (kind, chat_id),
+            "AND status IN ('reserved','scheduled','sent','uncertain') AND idempotency_key<>?", (kind, chat_id, exclude_key or ''),
         ) as cursor:
             rows = await cursor.fetchall()
         # Stored day_key is the approval-time audit. Counters follow the current
@@ -129,14 +129,14 @@ class ParticipationReviewStore:
             opted_out = await cursor.fetchone() is not None
         return counts, seen, max(recent) if recent else None, opted_out
 
-    async def _evaluate(self, connection, kind, candidate, policy, now, chat_id, verified_topics):
+    async def _evaluate(self, connection, kind, candidate, policy, now, chat_id, verified_topics, exclude_key=None):
         initial = (preview_news(candidate, policy, now=now, verified_topics=verified_topics,
                                 counts={'global':0,'topic':0}, seen=set()) if kind == 'topic_news' else
                    preview_reply(candidate, policy, now=now, verified_topics=verified_topics,
                                  counts={'global':0,'topic':0,'thread':0}))
         if not initial['accepted']:
             return initial
-        counts, seen, last, opted_out = await self._state(connection, kind, candidate, policy, now, chat_id)
+        counts, seen, last, opted_out = await self._state(connection, kind, candidate, policy, now, chat_id, exclude_key)
         if opted_out:
             return {'accepted': False, 'reason': 'persisted_opt_out', 'preview': None, 'can_publish': False}
         if kind == 'topic_news':
@@ -160,10 +160,11 @@ class ParticipationReviewStore:
 
     async def reserve_approved(self, kind, candidate, policy, *, approved_digest,
                                idempotency_key, now, chat_id, verified_topics):
-        """Future explicit approval hook; recheck state inside a SQLite lock.
+        """Reserve the exact reviewed snapshot under the owner's active policy.
 
-        Callers must authenticate the owner and exact approval separately.
-        This function has no public endpoint, calendar insertion or delivery.
+        Callers must authenticate/approve configuration and enforce the exact
+        reviewed payload separately. This function does not insert calendar
+        rows or perform an external delivery.
         """
         _scope(kind, chat_id, candidate.get('topic_id'))
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
@@ -229,6 +230,42 @@ class ParticipationReviewStore:
                              (status,external_message_id,timestamp,key))
             await connection.commit()
             return _receipt('state_recorded', key=key, status=status)
+
+    async def status(self, key):
+        async with self._connect() as connection:
+            async with connection.execute('SELECT status FROM participation_review_items WHERE idempotency_key=?', (key,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+
+    async def available(self, kind, candidate, policy, *, now, chat_id):
+        """Check durable opt-outs/caps before source/model work costs anything."""
+        from .community_participation import _at_cap, _quiet
+        async with self._connect() as connection:
+            counts, _, last, opted_out = await self._state(connection, kind, candidate, policy, now, chat_id)
+        names = ('global', 'topic') if kind == 'topic_news' else ('global', 'topic', 'thread')
+        if opted_out or _quiet(_local_now(now, policy), policy['quiet_hours']) or _at_cap(policy, counts, names):
+            return False
+        if kind == 'occasional_replies' and last:
+            from datetime import timedelta
+            return now-last >= timedelta(minutes=policy['cooldown_minutes'])
+        return True
+
+    async def recent_news(self, chat_id, *, limit):
+        async with self._connect() as connection:
+            async with connection.execute(
+                "SELECT payload_json FROM participation_review_items WHERE kind='topic_news' AND chat_id=? "
+                "AND status IN ('reserved','scheduled','sent','uncertain') ORDER BY updated_at DESC LIMIT ?", (chat_id, limit),
+            ) as cursor:
+                return [json.loads(row[0]) for row in await cursor.fetchall()]
+
+    async def revalidate(self, key, policy, *, now, chat_id, verified_topics):
+        """Recheck persisted exact approved payload, caps and opt-outs before send."""
+        async with self._connect() as connection:
+            async with connection.execute('SELECT kind,payload_json,chat_id,status FROM participation_review_items WHERE idempotency_key=?', (key,)) as cursor:
+                row = await cursor.fetchone()
+            if not row or row[2] != chat_id or row[3] != 'scheduled':
+                return {'accepted': False, 'reason': 'reservation_unavailable', 'can_publish': False}
+            return await self._evaluate(connection, row[0], json.loads(row[1]), policy, now, chat_id, verified_topics, key)
 
     async def _opt_out(self, kind, chat_id, subject_kind, subject_id, opted_out, at):
         _scope(kind, chat_id, subject_id)

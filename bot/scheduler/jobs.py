@@ -109,6 +109,11 @@ def setup_jobs(app: Application) -> None:
         return
 
     settings = get_settings()
+    from ..handlers import community_participation
+    participation = community_participation.read_config()
+    community_participation.register_news_jobs(app, participation)
+    jq.run_repeating(community_participation.reload_job,
+                     interval=participation['runtime']['reload_seconds'], name='participation_reload')
     schedule = settings.get("schedule", {})
 
     # ── Weekly leaderboard ──

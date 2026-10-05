@@ -681,6 +681,7 @@ async def settings_page(request: Request, db: Database = Depends(get_db)):
         "verified_topics": verified_topics,
         "merged_topics": merged_topics,
         "handler_routings": handler_routings,
+        "participation_link_copy": (load_copy_block('participation', default={}) or {}).get('title'),
     })
 
 
@@ -1046,6 +1047,99 @@ async def update_weekly_state_review(request: Request, db: Database = Depends(ge
     reloaded = _signal_weekly_reload()
     return await _complete_agent_api_action(request, db, {"status": "ok", "bot_reloaded": reloaded,
                                                         "weekly_state_review": saved})
+
+
+@app.get("/participation", response_class=HTMLResponse)
+async def participation_page(request: Request, db: Database = Depends(get_db)):
+    require_auth(request)
+    from bot.utils.participation_config import read_config
+    from bot.utils.copy import load_copy_block
+    return templates.TemplateResponse(request, name='participation.html', context={
+        'config': read_config(CONFIG_DIR / 'community_participation.yaml'),
+        'topics': await db.get_verified_forum_topics(),
+        'copy': load_copy_block('participation', default={}), 'active_page': 'settings'})
+
+
+@app.get('/api/agent/participation')
+@app.get('/api/settings/participation')
+async def get_participation_settings(request: Request):
+    _require_calendar_api_auth(request)
+    from bot.utils.participation_config import read_config
+    runtime = CONFIG_DIR.parent / 'data' / 'participation-runtime-status.json'
+    cycle = CONFIG_DIR.parent / 'data' / 'participation-cycle-status.json'
+    return {'config': read_config(CONFIG_DIR / 'community_participation.yaml'),
+            'runtime': json.loads(runtime.read_text()) if runtime.exists() else None,
+            'last_cycle': json.loads(cycle.read_text()) if cycle.exists() else None}
+
+
+async def _participation_candidate(data, db):
+    from bot.utils.participation_config import read_config, validate_config
+    current = read_config(CONFIG_DIR / 'community_participation.yaml')
+    if not isinstance(data, dict) or not isinstance(data.get('config'), dict):
+        raise HTTPException(status_code=422, detail='A configuration object is required')
+    if type(data.get('expected_revision')) is not int or data['expected_revision'] != current.get('revision', 0):
+        raise HTTPException(status_code=409, detail='Configuration changed; reload before saving')
+    try:
+        topics = {row['topic_id'] for row in await db.get_verified_forum_topics()}
+        candidate = validate_config(data['config'], topics)
+        candidate['revision'] = data['expected_revision']
+        candidate.pop('audit', None)
+        return candidate, topics
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post('/api/agent/participation/preview')
+@app.post('/api/settings/participation/preview')
+async def preview_participation_settings(request: Request, db: Database = Depends(get_db)):
+    _require_calendar_api_auth(request)
+    candidate, _ = await _participation_candidate(await request.json(), db)
+    return {'config': candidate, 'preview_receipt': _weekly_preview_receipt(candidate),
+            'preview_only': True, 'can_publish': False}
+
+
+@app.put('/api/agent/participation')
+@app.post('/api/settings/participation')
+async def update_participation_settings(request: Request, db: Database = Depends(get_db)):
+    _require_calendar_api_auth(request)
+    if replay := await _begin_agent_api_action(request, db):
+        return replay
+    data = await request.json()
+    candidate, topics = await _participation_candidate(data, db)
+    if any(candidate[k]['enabled'] for k in ('topic_news', 'occasional_replies')) and (
+            data.get('activation_approved') is not True or
+            not _validate_weekly_preview_receipt(data.get('preview_receipt'), candidate)):
+        raise HTTPException(status_code=409, detail='Approve the exact configuration preview before activation')
+    from bot.utils.participation_config import save_config
+    try:
+        saved = save_config(CONFIG_DIR / 'community_participation.yaml', candidate,
+            expected_revision=data['expected_revision'], verified_topics=topics,
+            actor='agent' if _is_agent_api_request(request) else 'dashboard')
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    flag = CONFIG_DIR.parent / 'data' / 'reload_participation.flag'
+    flag.parent.mkdir(parents=True, exist_ok=True)
+    flag.write_text('reload participation only')
+    return await _complete_agent_api_action(request, db, {'config': saved, 'reload_requested': True})
+
+
+@app.post('/api/agent/participation/news/preview')
+@app.post('/api/settings/participation/news/preview')
+async def preview_participation_news(request: Request, db: Database = Depends(get_db)):
+    _require_calendar_api_auth(request)
+    if _is_agent_api_request(request):
+        await _require_community_context_receipt(request, db)
+    from bot.handlers.community_participation import prepare_news
+    from bot.utils.participation_config import read_config
+    data = await request.json()
+    # Only identities are accepted. Source, factual and relevance evidence are
+    # produced by the trusted server path, never supplied by an HTTP client.
+    if not isinstance(data, dict) or set(data) != {'topic_id', 'source_id'} or type(data['topic_id']) is not int or not isinstance(data['source_id'], str):
+        raise HTTPException(status_code=422, detail='Only selected topic/source identities are accepted')
+    prepared, reason = await prepare_news(db, read_config(CONFIG_DIR / 'community_participation.yaml'),
+        topic_id=data['topic_id'], source_id=data['source_id'], now=datetime.now(ZoneInfo('UTC')))
+    return {'preview': prepared['candidate'] if prepared else None, 'reason': reason,
+            'preview_only': True, 'can_publish': False}
 
 
 @app.post("/api/settings/holiday-blackouts")
@@ -14399,7 +14493,7 @@ async def _send_scheduled_row(db: Database, msg: dict, target: str) -> int:
         """
         if target == "test":
             return
-        if msg.get("auto_pin") and sent_message_id:
+        if msg.get("auto_pin") and sent_message_id and msg.get("created_by") != "weekly-checkin":
             from bot.handlers.calendar import pin_notifies_members
             from bot.utils.pin_manager import pin_replacing_previous
             try:

@@ -123,6 +123,8 @@ async def post_init(app: Application):
     db = Database()
     await db.init()
     app.bot_data["db"] = db
+    from .handlers.community_participation import configure_jobs
+    await configure_jobs(app)
 
     # Register the bot's command list so Telegram shows a tappable "Menu"
     # button in DMs (a second discovery path alongside the persistent keyboard).
@@ -373,6 +375,8 @@ def main():
     tagall.register(app)            # Admin announcement with known-member mentions
     member_activity.register(app)   # Activity measurement and reversible cleanup opt-in
     weekly_state_review.register(app)  # Own-ID opt-in/out replies to recorded check-in posts
+    from .handlers import community_participation
+    community_participation.register(app)
     reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 

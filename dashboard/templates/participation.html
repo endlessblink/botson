@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ copy.title }}{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold">{{ copy.title }}</h1>
+  <p class="text-sm text-zinc-400">{{ copy.description }}</p>
+  {% for kind in ['topic_news', 'occasional_replies'] %}
+  {% set policy = config[kind] %}
+  <section class="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4" data-kind="{{ kind }}">
+    <h2 class="text-lg font-medium">{{ copy.news if kind == 'topic_news' else copy.replies }}</h2>
+    <label class="flex gap-3"><input type="checkbox" name="enabled" {% if policy.enabled %}checked{% endif %}>{{ copy.enabled }}</label>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <label class="text-sm">{{ copy.timezone }}<input class="block w-full p-2 bg-zinc-900 rounded mt-1" dir="ltr" name="timezone" value="{{ policy.timezone or '' }}"></label>
+      {% set quality_key = 'minimum_relevance' if kind == 'topic_news' else 'minimum_value' %}
+      <label class="text-sm">{{ copy.quality_threshold }}<input class="block w-full p-2 bg-zinc-900 rounded mt-1" type="number" min="0" max="1" step="0.01" name="quality_threshold" value="{{ policy[quality_key] if policy[quality_key] is not none else '' }}"></label>
+      {% for key, label in [('global_daily_cap', copy.global_cap), ('topic_daily_cap', copy.topic_cap)] %}
+      <label class="text-sm">{{ label }}<input class="block w-full p-2 bg-zinc-900 rounded mt-1" type="number" min="1" name="{{ key }}" value="{{ policy[key] or '' }}"></label>
+      {% endfor %}
+      <label class="text-sm">{{ copy.quiet_start }}<input class="block p-2 bg-zinc-900 rounded" type="time" name="quiet_start" value="{{ policy.quiet_hours[0][0] if policy.quiet_hours else '' }}"></label>
+      <label class="text-sm">{{ copy.quiet_end }}<input class="block p-2 bg-zinc-900 rounded" type="time" name="quiet_end" value="{{ policy.quiet_hours[0][1] if policy.quiet_hours else '' }}"></label>
+    </div>
+    {% if kind == 'topic_news' %}
+    <label class="block text-sm">{{ copy.freshness }}<input class="block p-2 bg-zinc-900 rounded" type="number" min="1" name="freshness_hours" value="{{ policy.freshness_hours or '' }}"></label>
+    <label class="block text-sm">{{ copy.times }}<input class="block w-full p-2 bg-zinc-900 rounded mt-1" name="times" value="{{ policy.times|default([])|join(', ') }}"></label>
+    <h3>{{ copy.sources }}</h3>
+    {% for source_id, source in policy.sources.items() %}
+    <div class="border border-zinc-800 rounded-lg p-3 space-y-2" data-source="{{ source_id }}">
+      <label class="block text-sm">{{ copy.source_url }}<input class="block w-full p-2 bg-zinc-900 rounded" dir="ltr" type="url" name="feed_url" value="{{ source.feed_url }}"></label>
+      <label class="block text-sm">{{ copy.domains }}<input class="block w-full p-2 bg-zinc-900 rounded" dir="ltr" name="allowed_domains" value="{{ source.allowed_domains|join(', ') }}"></label>
+      <label class="block text-sm">{{ copy.source_label }}<input class="block w-full p-2 bg-zinc-900 rounded" name="topic_label" value="{{ source.topic_label }}"></label>
+      <select name="source_topic" class="w-full p-2 bg-zinc-900 rounded">
+        {% for topic in topics %}<option value="{{ topic.topic_id }}" {% if source_id in policy.topic_sources.get(topic.topic_id, []) %}selected{% endif %}>{{ topic.verified_name }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+    {% else %}
+    <label class="block text-sm">{{ copy.cooldown }}<input class="block p-2 bg-zinc-900 rounded" type="number" min="1" name="cooldown_minutes" value="{{ policy.cooldown_minutes or '' }}"></label>
+    <label class="block text-sm">{{ copy.topics }}<select class="block w-full p-2 bg-zinc-900 rounded" multiple name="allowed_topics">
+      {% for topic in topics %}<option value="{{ topic.topic_id }}" {% if topic.topic_id in policy.allowed_topics %}selected{% endif %}>{{ topic.verified_name }}</option>{% endfor %}
+    </select></label>
+    {% endif %}
+  </section>
+  {% endfor %}
+  <button class="rounded bg-white text-black px-5 py-2" id="save-participation">{{ copy.save }}</button>
+  <p id="participation-status" role="status" class="text-sm"></p>
+</div>
+<script>
+const participationConfig = {{ config|tojson }};
+const participationCopy = {{ copy|tojson }};
+document.getElementById('save-participation').addEventListener('click', async () => {
+  const value = JSON.parse(JSON.stringify(participationConfig));
+  for (const section of document.querySelectorAll('[data-kind]')) {
+    const kind = section.dataset.kind, policy = value[kind];
+    policy.enabled = section.querySelector('[name=enabled]').checked;
+    if (policy.enabled) policy.mode = 'auto_send';
+    policy.timezone = section.querySelector('[name=timezone]').value.trim();
+    policy[kind === 'topic_news' ? 'minimum_relevance' : 'minimum_value'] = Number(section.querySelector('[name=quality_threshold]').value);
+    for (const name of ['global_daily_cap', 'topic_daily_cap']) policy[name] = Number(section.querySelector(`[name=${name}]`).value);
+    const start = section.querySelector('[name=quiet_start]').value, end = section.querySelector('[name=quiet_end]').value;
+    if (start && end) policy.quiet_hours = [[start, end]];
+    if (kind === 'topic_news') {
+      policy.freshness_hours = Number(section.querySelector('[name=freshness_hours]').value);
+      policy.times = section.querySelector('[name=times]').value.split(',').map(x => x.trim()).filter(Boolean);
+      const boxes = section.querySelectorAll('[data-source]');
+      if (boxes.length) policy.topic_sources = {};
+      for (const box of boxes) {
+        const id = box.dataset.source, source = policy.sources[id];
+        source.feed_url = box.querySelector('[name=feed_url]').value.trim();
+        source.allowed_domains = box.querySelector('[name=allowed_domains]').value.split(',').map(x => x.trim()).filter(Boolean);
+        source.topic_label = box.querySelector('[name=topic_label]').value.trim();
+        const topic = box.querySelector('[name=source_topic]').value;
+        (policy.topic_sources[topic] ||= []).push(id);
+      }
+    } else {
+      policy.cooldown_minutes = Number(section.querySelector('[name=cooldown_minutes]').value);
+      policy.allowed_topics = [...section.querySelector('[name=allowed_topics]').selectedOptions].map(o => Number(o.value));
+    }
+  }
+  const body = {config: value, expected_revision: participationConfig.revision || 0};
+  const status = document.getElementById('participation-status');
+  try {
+    const previewResponse = await fetch('/api/settings/participation/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if (!previewResponse.ok) throw new Error();
+    const preview = await previewResponse.json();
+    body.config = preview.config;
+    body.preview_receipt = preview.preview_receipt;
+    body.activation_approved = true;
+    const response = await fetch('/api/settings/participation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if (!response.ok) throw new Error();
+    const saved = await response.json();
+    Object.assign(participationConfig, saved.config);
+    status.textContent = participationCopy.saved;
+  } catch (_) { status.textContent = participationCopy.error; }
+});
+</script>
+{% endblock %}
