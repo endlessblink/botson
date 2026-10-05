@@ -213,7 +213,7 @@ def _extract_generated_text(raw: str) -> str | None:
     return text if any(0x0590 <= ord(ch) <= 0x05FF for ch in text) else None
 
 
-async def _generate_with_claude(prompt: str) -> str | None:
+async def _generate_with_claude(prompt: str, *, allow_paid_fallback: bool = True) -> str | None:
     import asyncio
 
     import time as _time
@@ -224,14 +224,26 @@ async def _generate_with_claude(prompt: str) -> str | None:
     if claude_bin and os.path.exists(claude_bin):
         try:
             env = claude_cli_env()
+            if not allow_paid_fallback:
+                # Participation uses only the already-installed subscription
+                # login. Never let inherited API keys/provider routing bill it.
+                for key in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL',
+                            'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'):
+                    env.pop(key, None)
             budget = cli_timeout_seconds("claude", _CLAUDE_CLI_TIMEOUT)
             started = _time.monotonic()
+            participation_flags = ([] if allow_paid_fallback else [
+                '--tools', '', '--disallowedTools', '*', '--no-session-persistence',
+                '--setting-sources', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+                '--disable-slash-commands',
+            ])
             proc = await asyncio.create_subprocess_exec(
                 claude_bin,
                 "-p",
                 prompt,
                 "--model",
                 "haiku",
+                *participation_flags,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -256,6 +268,8 @@ async def _generate_with_claude(prompt: str) -> str | None:
         except Exception as e:
             logger.warning("[materializer] claude CLI generation failed: %s", e)
 
+    if not allow_paid_fallback:
+        return None
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
         logger.warning("[materializer] no Claude CLI/API available; skipping fresh slot generation")

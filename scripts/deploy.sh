@@ -41,6 +41,19 @@ touch config/.weekly-checkin.lock
 chown "$SERVICE_USER:$SERVICE_USER" config/.weekly-checkin.lock
 exec 9<>config/.weekly-checkin.lock
 flock 9
+touch config/community_participation.lock
+chown "$SERVICE_USER:$SERVICE_USER" config/community_participation.lock
+exec 8<>config/community_participation.lock
+flock 8
+PARTICIPATION_SNAPSHOT=$(mktemp "$REPO_DIR/data/participation-deploy.XXXXXX")
+chmod 600 "$PARTICIPATION_SNAPSHOT"
+.venv/bin/python - "$PARTICIPATION_SNAPSHOT" <<'PY'
+import json,sys,yaml
+from pathlib import Path
+path=Path('config/community_participation.yaml')
+value=(yaml.safe_load(path.read_text()) or {}) if path.exists() else {}
+Path(sys.argv[1]).write_text(json.dumps(value if value.get('revision',0)>0 else None))
+PY
 WEEKLY_SNAPSHOT=$(mktemp "$REPO_DIR/data/weekly-checkin-deploy.XXXXXX")
 chmod 600 "$WEEKLY_SNAPSHOT"
 .venv/bin/python - "$WEEKLY_SNAPSHOT" <<'PY'
@@ -85,6 +98,23 @@ if weekly is not None:
     os.replace(temporary,path)
 PY
 chown "$SERVICE_USER:$SERVICE_USER" config/settings.yaml
+.venv/bin/python - "$PARTICIPATION_SNAPSHOT" <<'PY'
+import json,os,sys,tempfile,yaml
+from pathlib import Path
+value=json.loads(Path(sys.argv[1]).read_text())
+if value is not None:
+    path=Path('config/community_participation.yaml')
+    with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False) as output:
+        os.chmod(output.name,0o640)
+        yaml.safe_dump(value,output,allow_unicode=True,sort_keys=False)
+        output.flush()
+        os.fsync(output.fileno())
+        temporary=output.name
+    os.replace(temporary,path)
+PY
+chown "$SERVICE_USER:$SERVICE_USER" config/community_participation.yaml
+flock -u 8
+rm -f "$PARTICIPATION_SNAPSHOT"
 flock -u 9
 rm -f "$WEEKLY_SNAPSHOT"
 

@@ -1128,7 +1128,9 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             # Auto-pin if requested
             if msg.get("auto_pin") and sent.message_id and msg.get("created_by") != "weekly-checkin":
                 try:
-                    await bot.pin_chat_message(
+                    from ..utils.pin_manager import pin_replacing_previous
+                    await pin_replacing_previous(
+                        bot, db, topic_id=msg.get("channel_topic_id"),
                         chat_id=group_id,
                         message_id=sent.message_id,
                         disable_notification=not pin_notifies_members(msg.get("auto_pin")),
