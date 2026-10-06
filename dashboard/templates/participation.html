@@ -34,6 +34,9 @@
     </div>
     {% endfor %}
     {% else %}
+    {% for key, label in [('thread_daily_cap', copy.thread_cap), ('conversation_turn_limit', copy.turn_limit), ('followup_max_age_minutes', copy.followup_age)] %}
+    <label class="block text-sm">{{ label }}<input class="block p-2 bg-zinc-900 rounded" type="number" min="1" name="{{ key }}" value="{{ policy[key] or '' }}"></label>
+    {% endfor %}
     <label class="block text-sm">{{ copy.cooldown }}<input class="block p-2 bg-zinc-900 rounded" type="number" min="1" name="cooldown_minutes" value="{{ policy.cooldown_minutes or '' }}"></label>
     <label class="block text-sm">{{ copy.topics }}<select class="block w-full p-2 bg-zinc-900 rounded" multiple name="allowed_topics">
       {% for topic in topics %}<option value="{{ topic.topic_id }}" {% if topic.topic_id in policy.allowed_topics %}selected{% endif %}>{{ topic.verified_name }}</option>{% endfor %}
@@ -72,6 +75,7 @@ document.getElementById('save-participation').addEventListener('click', async ()
         (policy.topic_sources[topic] ||= []).push(id);
       }
     } else {
+      for (const name of ['thread_daily_cap', 'conversation_turn_limit', 'followup_max_age_minutes']) policy[name] = Number(section.querySelector(`[name=${name}]`).value);
       policy.cooldown_minutes = Number(section.querySelector('[name=cooldown_minutes]').value);
       policy.allowed_topics = [...section.querySelector('[name=allowed_topics]').selectedOptions].map(o => Number(o.value));
     }

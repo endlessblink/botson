@@ -1,0 +1,23 @@
+enabled: false
+allowed_topics: []
+public_url: null
+service:
+  enabled: false
+  origin: null
+  bind_host: 127.0.0.1
+  port: 8082
+  auth_max_age_seconds: 180
+  session_seconds: 600
+  membership_recheck_seconds: 60
+  max_sessions: 100
+  max_rounds: 8
+  pads: 4
+  flash_ms: 500
+  gap_ms: 150
+  ready_ms: 300
+  answer_window_seconds: 12
+  run_lifetime_seconds: 240
+  start_cooldown_seconds: 20
+  daily_attempts: 20
+  points_per_round: 100
+  leaderboard_size: 10

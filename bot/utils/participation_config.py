@@ -81,10 +81,16 @@ def validate_config(value, verified_topics):
                 if source.get('enabled') is not True or not source.get('allowed_domains') or not source.get('topic_label'):
                     raise ValueError('enabled publisher/domain/topic label required')
         else:
+            for name in ('conversation_turn_limit', 'followup_max_age_minutes'):
+                number = policy.get(name, 1)
+                if type(number) is not int or number < 1:
+                    raise ValueError('positive conversation bound required: ' + name)
             if type(policy.get('allow_unsolicited')) is not bool or policy['allow_unsolicited']:
                 raise ValueError('only explicit mentions/replies are supported')
             if type(policy.get('thread_daily_cap')) is not int or policy['thread_daily_cap'] < 1:
                 raise ValueError('positive thread cap required')
+            if policy.get('conversation_turn_limit', 1) > policy['thread_daily_cap']:
+                raise ValueError('conversation turns must fit the thread cap')
             if policy.get('cooldown_scope') not in {'topic', 'conversation'} or type(policy.get('cooldown_minutes')) not in (int, float) or not math.isfinite(policy['cooldown_minutes']) or policy['cooldown_minutes'] <= 0:
                 raise ValueError('explicit reply cooldown required')
     runtime = result.get('runtime') or {}

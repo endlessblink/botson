@@ -53,6 +53,10 @@ async def start_command(update, context):
     """
     if context.args:
         start_arg = context.args[0]
+        if start_arg == 'arcade':
+            from .handlers.arcade import open_arcade
+            await open_arcade(update, context)
+            return
         if start_arg == "menu":
             await dm_menu.show_menu(update, context)
             return
@@ -377,6 +381,8 @@ def main():
     weekly_state_review.register(app)  # Own-ID opt-in/out replies to recorded check-in posts
     from .handlers import community_participation
     community_participation.register(app)
+    from .handlers import arcade
+    arcade.register(app)
     reactions.register(app)        # Phase B: track reactions on bot's scheduled messages
     topic_tracker.register(app)  # Forum topic auto-detection (group 99)
 

@@ -29,6 +29,15 @@ generation and review reject sensitive personal topics, profiling and invented
 context. Names/account IDs are not included in model context; handles, phone
 numbers, emails and recognizable secret forms are redacted.
 
+Short multi-turn exchanges can be configured explicitly. Only a reply to a
+confirmed ledger-owned Botson answer, from the same person in the same topic,
+inside the configured follow-up window can continue the existing conversation.
+That verified continuation avoids the initial-conversation cooldown; group,
+topic, thread and turn caps, quiet hours, opt-outs, review and send revalidation
+still apply. Another person, fabricated/uncertain parent or expired exchange
+cannot claim this exception. The prompt uses the prior bot answer without
+inventing memories, repeating introductions or automatically adding questions.
+
 The existing CLI/model supplies generation. For this path inherited paid API
 routing is removed, API fallback is disabled, tools/MCP/setting discovery are
 restricted and session persistence is disabled. No new provider, paid API,

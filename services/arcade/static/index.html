@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ copy.title }}</title>
+  <link rel="stylesheet" href="/assets/game.css">
+  {% if not demo %}<script src="https://telegram.org/js/telegram-web-app.js" defer></script>{% endif %}
+  <script id="arcade-copy" type="application/json">{{ copy|tojson }}</script>
+  <script id="arcade-mode" type="application/json">{{ demo|tojson }}</script>
+  <script src="/assets/game.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header><span class="brand-mark" aria-hidden="true">◈</span><strong>{{ copy.title }}</strong><span class="kicker">{{ copy.kicker }}</span></header>
+    {% if demo %}<p class="demo">{{ copy.demo }}</p>{% endif %}
+    <main>
+      <section class="game-card">
+        <div class="game-heading"><div><span class="eyebrow">{{ copy.kicker }}</span><h1>{{ copy.game }}</h1></div><span class="status-dot" aria-hidden="true"></span></div>
+        <p class="intro">{{ copy.intro }}</p>
+        <div class="readout"><div><span>{{ copy.round }}</span><output id="round">—</output></div><div><span>{{ copy.score }}</span><output id="score">0</output></div></div>
+        <p class="status" id="status" role="status" aria-live="polite">{{ copy.play }}</p>
+        <div class="pads" id="pads"></div>
+        <button class="start" id="start" disabled>{{ copy.play }} <span aria-hidden="true">↖</span></button>
+        <p class="consent">{{ copy.consent }}</p>
+      </section>
+      <aside class="board-card">
+        <div class="board-heading"><span aria-hidden="true">↗</span><h2>{{ copy.leaderboard }}</h2></div>
+        <p class="your-alias" id="alias"></p>
+        <ol id="leaderboard"></ol>
+        <p id="empty" class="empty">{{ copy.empty }}</p>
+        <p class="privacy">{{ copy.privacy }}</p>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

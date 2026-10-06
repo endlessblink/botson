@@ -246,12 +246,18 @@ async def handle_reply(update, context):
         return
     identity = {'topic_id': topic, 'sender_user_id': user.id,
                 'conversation_key': str(getattr(replied, 'message_id', None) or message.message_id)}
+    parent = await ledger.reply_parent(GROUP_ID, topic, user.id, getattr(replied, 'message_id', None),
+                                      now=now, policy=policy) if replied else None
+    if parent:
+        identity.update(conversation_key=parent['conversation_key'], parent_message_id=replied.message_id,
+                        turn_number=parent.get('turn_number', 1) + 1)
     if not await ledger.available('occasional_replies', identity, policy, now=now, chat_id=GROUP_ID):
         return
     context_text, marker, _ = await context_for(db, topic, config, now=now)
     incoming = private_context_text((message.text or '')[:config['runtime']['context_max_chars']])
     prompts = load_yaml('participation_prompts.yaml')
     result = _json(await generate(prompts['reply'].format(context=context_text, incoming=incoming,
+        previous_reply=parent['text'] if parent else '',
                                                          max_chars=config['runtime']['max_reply_chars'])))
     text = result.get('text')
     if result.get('decision') != 'reply' or result.get('sensitive') is not False or not isinstance(text, str) or not text.strip() or len(text) > config['runtime']['max_reply_chars'] or not any('\u0590' <= c <= '\u05ff' for c in text):
@@ -259,8 +265,7 @@ async def handle_reply(update, context):
     review = _json(await generate(prompts['reply_review'].format(context=context_text, incoming=incoming, text=text)))
     if review.get('pass') is not True or review.get('sensitive') is not False:
         return
-    candidate = {'topic_id': topic, 'sender_user_id': user.id, 'trigger_message_id': message.message_id,
-        'conversation_key': str(getattr(replied, 'message_id', None) or message.message_id), 'text': text.strip(),
+    candidate = {**identity, 'trigger_message_id': message.message_id, 'text': text.strip(),
         'value': review.get('value'), 'context_at': now.isoformat(), 'context_same_topic': True,
         'context_topic_id': topic, 'sender_is_bot': False, 'conversation_active': True,
         'privacy_permits_reply': True, 'moderation_allows_reply': True, 'opted_out': False,
