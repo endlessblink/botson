@@ -20,6 +20,13 @@ or model scores. A separate reviewer binds the exact Hebrew summary to the
 publisher excerpt, checks topic/context relevance and cross-publisher event
 duplication. Failure or no worthwhile fresh story produces no filler.
 
+News and replies each use their own configured context freshness window during
+preparation and send revalidation; a longer reply window cannot admit old news
+context. Reads stay topic-scoped and do not prune the stored cache.
+Member preference buttons retain both opt-out and opt-in actions for everyone.
+A click changes only that member's preference and private callback acknowledgement,
+without rewriting the shared message's keyboard for other members.
+
 Replies are limited to configured verified topics and recent explicit mentions
 or replies to the bot. There is no unsolicited reply mode. Their handler is
 nonblocking and is the sole registered owner of this feature; the original

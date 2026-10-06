@@ -2,7 +2,7 @@
 const C=JSON.parse(document.getElementById('arcade-copy').textContent);
 const demo=JSON.parse(document.getElementById('arcade-mode').textContent);
 const status=document.getElementById('status'),start=document.getElementById('start');
-let admission='',challenge=null,moves=[],accepting=false;
+let admission='',challenge=null,moves=[],accepting=false,pendingAnswer=null;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const pads=C.pad_labels.map((label,index)=>{
   const pad=document.createElement('button');pad.className='pad';pad.disabled=true;
@@ -31,16 +31,32 @@ async function show(next){
   for(const index of next.sequence){pads[index].classList.add('lit');await sleep(next.flash_ms);pads[index].classList.remove('lit');await sleep(next.gap_ms);}
   await sleep(next.ready_ms);accepting=true;pads.forEach(p=>p.disabled=false);status.textContent=C.repeat;
 }
+async function submitPending(){
+  start.disabled=true;status.textContent=C.checking;
+  try{
+    const next=await api(pendingAnswer.path,pendingAnswer.body);
+    pendingAnswer=null;await show(next);
+  }catch(error){
+    if(pendingAnswer){
+      status.textContent=error.message==='watch_sequence'?C.wait:C.retry_answer;
+      start.firstChild.textContent=C.retry+' ';start.disabled=false;
+    }else{status.textContent=C.unavailable;}
+  }
+}
 async function press(index){
   if(!accepting)return;moves.push(index);pads[index].classList.add('lit');setTimeout(()=>pads[index].classList.remove('lit'),challenge.gap_ms);
   if(moves.length!==challenge.round)return;
   accepting=false;pads.forEach(p=>p.disabled=true);status.textContent=C.checking;
   await sleep(challenge.gap_ms);pads.forEach(p=>p.classList.remove('lit'));
-  try{await show(await api('/api/runs/'+challenge.run_id+'/answer',{round:challenge.round,sequence:moves}));}
-  catch(error){status.textContent=error.message==='watch_sequence'?C.wait:C.unavailable;}
+  pendingAnswer={path:'/api/runs/'+challenge.run_id+'/answer',body:{round:challenge.round,sequence:[...moves]}};
+  await submitPending();
 }
 document.addEventListener('keydown',event=>{const index=Number(event.key)-1;if(!event.repeat&&index>=0&&index<pads.length){event.preventDefault();press(index);}});
-start.addEventListener('click',async()=>{start.disabled=true;try{await show(await api('/api/runs',{}));}catch(_){status.textContent=C.unavailable;start.disabled=false;}});
+start.addEventListener('click',async()=>{
+  if(start.disabled)return;
+  if(pendingAnswer){await submitPending();return;}
+  start.disabled=true;try{await show(await api('/api/runs',{}));}catch(_){status.textContent=C.unavailable;start.disabled=false;}
+});
 (async()=>{
   try{
     const initData=window.Telegram?.WebApp?.initData||'';
