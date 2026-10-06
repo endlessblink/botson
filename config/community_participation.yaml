@@ -41,5 +41,7 @@ occasional_replies:
   thread_daily_cap: null
   cooldown_minutes: null
   cooldown_scope: null  # Explicit choice: topic or conversation.
+  conversation_turn_limit: 1
+  followup_max_age_minutes: 10
   context_max_age_minutes: null
   quiet_hours: null

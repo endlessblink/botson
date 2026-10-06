@@ -130,6 +130,11 @@ class ParticipationReviewStore:
         return counts, seen, max(recent) if recent else None, opted_out
 
     async def _evaluate(self, connection, kind, candidate, policy, now, chat_id, verified_topics, exclude_key=None):
+        continuation = False
+        if kind == 'occasional_replies' and candidate.get('parent_message_id') is not None:
+            continuation = await self._continuation(connection, candidate, policy, now, chat_id)
+            if not continuation:
+                return {'accepted':False,'reason':'conversation_parent_invalid','preview':None,'can_publish':False}
         initial = (preview_news(candidate, policy, now=now, verified_topics=verified_topics,
                                 counts={'global':0,'topic':0}, seen=set()) if kind == 'topic_news' else
                    preview_reply(candidate, policy, now=now, verified_topics=verified_topics,
@@ -147,7 +152,38 @@ class ParticipationReviewStore:
         if event in seen:
             return {'accepted': False, 'reason': 'duplicate_reply', 'preview': None, 'can_publish': False}
         return preview_reply(candidate, policy, now=now, verified_topics=verified_topics,
-                             counts=counts, last_reply=last)
+                             counts=counts, last_reply=None if continuation else last)
+
+    async def _continuation(self, connection, candidate, policy, now, chat_id):
+        parent = await self._reply_parent(connection, chat_id, candidate.get('topic_id'),
+            candidate.get('sender_user_id'), candidate.get('parent_message_id'), now, policy)
+        return bool(parent and candidate.get('conversation_key') == parent['conversation_key'] and
+                    candidate.get('turn_number') == parent.get('turn_number', 1) + 1)
+
+    async def _reply_parent(self, connection, chat_id, topic_id, user_id, message_id, now, policy):
+        from datetime import timedelta
+        if type(message_id) is not int or message_id < 1:
+            return None
+        async with connection.execute(
+            "SELECT payload_json,updated_at FROM participation_review_items WHERE kind='occasional_replies' "
+            "AND chat_id=? AND topic_id=? AND external_message_id=? AND status='sent'",
+            (chat_id, topic_id, message_id),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        if len(rows) != 1:
+            return None
+        payload = json.loads(rows[0][0])
+        age = now - datetime.fromisoformat(rows[0][1])
+        if (payload.get('sender_user_id') != user_id or
+                not timedelta(0) <= age <= timedelta(minutes=policy.get('followup_max_age_minutes', 0)) or
+                payload.get('turn_number', 1) >= policy.get('conversation_turn_limit', 1)):
+            return None
+        return payload
+
+    async def reply_parent(self, chat_id, topic_id, user_id, message_id, *, now, policy):
+        """Only a confirmed same-person/topic reply can continue a short exchange."""
+        async with self._connect() as connection:
+            return await self._reply_parent(connection, chat_id, topic_id, user_id, message_id, now, policy)
 
     async def preview(self, kind, candidate, policy, *, now, chat_id, verified_topics):
         """Read persisted counters/identities; no claim, source fetch or write."""
@@ -242,10 +278,14 @@ class ParticipationReviewStore:
         from .community_participation import _at_cap, _quiet
         async with self._connect() as connection:
             counts, _, last, opted_out = await self._state(connection, kind, candidate, policy, now, chat_id)
+            continuation = (await self._continuation(connection, candidate, policy, now, chat_id)
+                if kind == 'occasional_replies' and candidate.get('parent_message_id') is not None else False)
+        if candidate.get('parent_message_id') is not None and not continuation:
+            return False
         names = ('global', 'topic') if kind == 'topic_news' else ('global', 'topic', 'thread')
         if opted_out or _quiet(_local_now(now, policy), policy['quiet_hours']) or _at_cap(policy, counts, names):
             return False
-        if kind == 'occasional_replies' and last:
+        if kind == 'occasional_replies' and last and not continuation:
             from datetime import timedelta
             return now-last >= timedelta(minutes=policy['cooldown_minutes'])
         return True

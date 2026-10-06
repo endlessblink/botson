@@ -18,7 +18,8 @@ _NEWS_FIELDS = {'topic_id','source_id','source_url','published_at','verified_at'
                 'content_review_passed','reviewed_summary_digest'}
 _REPLY_FIELDS = {'topic_id','sender_user_id','trigger_message_id','conversation_key','text','value',
                  'context_at','context_same_topic','context_topic_id','sender_is_bot','conversation_active',
-                 'privacy_permits_reply','moderation_allows_reply','opted_out','sensitive','addressed_to_bot'}
+                 'privacy_permits_reply','moderation_allows_reply','opted_out','sensitive','addressed_to_bot',
+                 'parent_message_id','turn_number'}
 
 
 def normalized_preview(kind, candidate):
