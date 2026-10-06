@@ -1,6 +1,7 @@
 """Independent opt-in arcade; does not import or start Botson."""
 import logging
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -8,7 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import yaml
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -39,6 +40,13 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
                group_id=None, membership=None, clock=time.time):
     cfg = settings or yaml.safe_load((ROOT/'config/arcade.yaml').read_text())['service']
     cfg = dict(cfg)
+    base_path = cfg.get('base_path', '')
+    if not isinstance(base_path, str):
+        raise ValueError('invalid_base_path')
+    base_path = '' if base_path == '/' else base_path.removesuffix('/')
+    if base_path and not re.fullmatch(r'(?:/[A-Za-z0-9_-]+)+', base_path):
+        raise ValueError('invalid_base_path')
+    cfg['base_path'] = base_path
     copy = yaml.safe_load((ROOT/'config/copy/arcade.yaml').read_text())
     if demo:
         if cfg['bind_host'] not in {'127.0.0.1','::1','localhost'}:
@@ -69,15 +77,16 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
         engine=Engine(cfg,path,secret=secrets.token_bytes(32) if demo else player_key(token,group).encode(),
                       clock=clock,alias_prefix=copy['alias_prefix'])
     app=FastAPI(title='Botson Arcade',docs_url=None,redoc_url=None,openapi_url=None)
+    router=APIRouter(prefix=base_path)
     app.state.engine, app.state.config = engine, cfg
-    app.mount('/assets',StaticFiles(directory=HERE/'static'),name='assets')
+    app.mount(base_path+'/assets',StaticFiles(directory=HERE/'static'),name='assets')
     templates=Environment(loader=FileSystemLoader(HERE/'static'),autoescape=select_autoescape(['html']))
 
     @app.middleware('http')
     async def boundaries(request, call_next):
         if demo and (not request.client or request.client.host not in {'127.0.0.1','::1'}):
             return HTMLResponse(status_code=403)
-        if cfg['enabled'] and request.url.path.startswith('/api/'):
+        if cfg['enabled'] and request.url.path.startswith(base_path+'/api/'):
             expected=urlsplit(cfg['origin'])
             if request.headers.get('host') != expected.netloc or request.headers.get('origin',cfg['origin']) != cfg['origin']:
                 return HTMLResponse(status_code=403)
@@ -121,11 +130,11 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
             session['membership_at']=clock()
         return value
 
-    @app.get('/',response_class=HTMLResponse)
+    @router.get('/',response_class=HTMLResponse)
     async def index():
-        return templates.get_template('index.html').render(copy=copy,demo=demo)
+        return templates.get_template('index.html').render(copy=copy,demo=demo,base_path=base_path)
 
-    @app.post('/api/session')
+    @router.post('/api/session')
     async def session(body: Admission):
         available()
         try:
@@ -141,7 +150,7 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
             raise HTTPException(403,'admission_refused') from None
         return {'session':admission,'alias':engine.alias(key)}
 
-    @app.post('/api/runs')
+    @router.post('/api/runs')
     async def start(request: Request, body: dict):
         admission=await authenticated(request)
         if body:
@@ -151,7 +160,7 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
         except GameError as error:
             raise HTTPException(409,str(error)) from None
 
-    @app.post('/api/runs/{run_id}/answer')
+    @router.post('/api/runs/{run_id}/answer')
     async def answer(run_id: str, body: Moves, request: Request):
         admission=await authenticated(request)
         try:
@@ -159,11 +168,12 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
         except GameError as error:
             raise HTTPException(409,str(error)) from None
 
-    @app.get('/api/leaderboard')
+    @router.get('/api/leaderboard')
     async def board(request: Request):
         await authenticated(request)
         return {'players':engine.leaderboard()}
 
+    app.include_router(router)
     return app
 
 

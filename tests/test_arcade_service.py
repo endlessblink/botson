@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock
 from urllib.parse import urlencode
@@ -150,3 +151,62 @@ def test_nonmember_or_missing_existing_configuration_never_gets_session(cfg,tmp_
 def test_disabled_service_has_no_store_or_implicit_demo(cfg,tmp_path):
     path=tmp_path/'disabled.db';app=create_app(cfg,db_path=path,bot_token='',group_id=0)
     assert not path.exists() and app.state.engine is None
+
+
+@pytest.mark.parametrize('base_path',['','/arcade','/arcade/','/games/arcade/'])
+def test_base_path_serves_assets_admission_play_and_page_reload(cfg,tmp_path,base_path):
+    prefix=base_path.rstrip('/')
+    cfg.update(enabled=True,origin='https://existing-host.example.test',base_path=base_path)
+    clock=Clock();member=AsyncMock(return_value=True)
+    app=create_app(cfg,db_path=tmp_path/'prefix.db',bot_token=TOKEN,
+                   group_id=-10099,membership=member,clock=clock)
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url=cfg['origin']) as client:
+            entry=prefix+'/'
+            page=await client.get(entry)
+            assert page.status_code==200
+            assert 'no-store' in page.headers['cache-control']
+            embedded=re.search(r'id="arcade-base-path" type="application/json">(.*?)</script>',page.text)
+            assert json.loads(embedded.group(1))==prefix
+            assets=re.findall(r'(?:href|src)="([^"]*/assets/[^"]+)"',page.text)
+            assert assets==[prefix+'/assets/game.css',prefix+'/assets/game.js']
+            for path in assets:
+                assert (await client.get(path)).status_code==200
+            # A reload/request carrying a query stays in the selected path.
+            assert (await client.get(entry+'?reload=1')).text==page.text
+            if prefix:
+                redirect=await client.get(prefix)
+                assert redirect.status_code==307
+                assert redirect.headers['location']==cfg['origin']+entry
+                for path in ['/','/assets/game.js','/api/session','/arcadex/api/leaderboard']:
+                    response=await client.get(path)
+                    assert response.status_code==404
+            api=prefix+'/api'
+            assert (await client.get(api+'/leaderboard')).status_code==401
+            assert (await client.post(api+'/session',json={'init_data':signed()},
+                headers={'Origin':'https://other.example.test'})).status_code==403
+            assert (await client.post(api+'/session',json={'init_data':signed()},
+                headers={'Host':'other.example.test'})).status_code==403
+            session=await client.post(api+'/session',json={'init_data':signed()})
+            assert session.status_code==200
+            headers={'Authorization':'Bearer '+session.json()['session']}
+            run=(await client.post(api+'/runs',json={},headers=headers)).json()
+            ready(app.state.engine,clock,1)
+            payload={'round':1,'sequence':run['sequence']}
+            answer=await client.post(api+'/runs/'+run['run_id']+'/answer',json=payload,headers=headers)
+            assert answer.status_code==200 and answer.json()['score']==cfg['points_per_round']
+            replay=await client.post(api+'/runs/'+run['run_id']+'/answer',json=payload,headers=headers)
+            assert replay.json()==answer.json()
+            board=await client.get(api+'/leaderboard',headers=headers)
+            assert board.json()['players'][0]['score']==cfg['points_per_round']
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('base_path',[None,2,'arcade','//','/arcade//','/../arcade','/arcade/..',
+    '/arcade?x=1','/arcade#fragment','/arcade%2Fother','/arcade\\other','/arcade /other'])
+def test_ambiguous_base_path_is_refused_before_store_creation(cfg,tmp_path,base_path):
+    cfg['base_path']=base_path
+    path=tmp_path/'bad-prefix.db'
+    with pytest.raises(ValueError,match='invalid_base_path'):
+        create_app(cfg,db_path=path,bot_token='',group_id=0)
+    assert not path.exists()

@@ -57,8 +57,15 @@ Before a future approved production release, confirm an existing HTTPS origin
 and authorized hosting route without adding costs or weakening access. Then
 test an opt-in launch, real membership/refusal and shared scoring. Do not claim
 production UI success without the authenticated visual check required by AGENTS.
-The current origin must be a dedicated HTTPS root: mounting below `/arcade/`
-needs additional prefix support. A separate process receiving the existing bot
+The HTTPS `service.origin` contains only scheme and host. `service.base_path`
+defaults to empty for root hosting; `/arcade` or `/arcade/` selects `/arcade/`
+for the entry page, assets and every API. Set Botson's `public_url` to that exact
+entry URL. Forward the entire path unchanged at the proxy; do not use a path
+stripping route. `/arcade` redirects to the canonical trailing-slash entry.
+Reloads retain the prefix, and client API calls omit cookies. Reusing the
+dashboard origin still requires approval for the public path and shared origin;
+strip cookies at that proxy route and preserve dashboard authentication elsewhere.
+A separate process receiving the existing bot
 token is a new credential-access boundary requiring explicit approval and scoped
 delivery; sharing a complete environment or unrelated credentials is not implied.
 Disabling the configured entry prevents new game invitations; disabling/stopping
