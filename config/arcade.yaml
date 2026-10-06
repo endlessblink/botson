@@ -4,6 +4,7 @@ public_url: null
 service:
   enabled: false
   origin: null
+  base_path: ""
   bind_host: 127.0.0.1
   port: 8082
   auth_max_age_seconds: 180

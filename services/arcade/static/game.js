@@ -1,6 +1,7 @@
 "use strict";
 const C=JSON.parse(document.getElementById('arcade-copy').textContent);
 const demo=JSON.parse(document.getElementById('arcade-mode').textContent);
+const basePath=JSON.parse(document.getElementById('arcade-base-path').textContent);
 const status=document.getElementById('status'),start=document.getElementById('start');
 let admission='',challenge=null,moves=[],accepting=false,pendingAnswer=null;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -10,7 +11,7 @@ const pads=C.pad_labels.map((label,index)=>{
   pad.addEventListener('click',()=>press(index));document.getElementById('pads').append(pad);return pad;
 });
 async function api(path,body){
-  const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(admission?{Authorization:'Bearer '+admission}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  const response=await fetch(basePath+path,{method:body===undefined?'GET':'POST',credentials:'omit',headers:{'Content-Type':'application/json',...(admission?{Authorization:'Bearer '+admission}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
   const result=await response.json();if(!response.ok)throw new Error(result.detail||'unavailable');return result;
 }
 async function leaderboard(){

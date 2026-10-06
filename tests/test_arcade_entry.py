@@ -35,8 +35,9 @@ def test_private_entry_requires_existing_group_membership(monkeypatch,status):
     asyncio.run(arcade.open_arcade(update,ctx));message.reply_text.assert_not_called()
 
 
-def test_requested_private_member_entry_uses_mini_app_and_no_extra_post(monkeypatch):
-    monkeypatch.setattr(arcade,'load_yaml',lambda _:{'enabled':True,'public_url':'https://arcade.example.test'})
+@pytest.mark.parametrize('url',['https://arcade.example.test','https://arcade.example.test/arcade/'])
+def test_requested_private_member_entry_uses_mini_app_and_no_extra_post(monkeypatch,url):
+    monkeypatch.setattr(arcade,'load_yaml',lambda _:{'enabled':True,'public_url':url})
     monkeypatch.setattr(arcade,'load_copy',lambda *_:'[configured copy]')
     message=SimpleNamespace(reply_text=AsyncMock())
     ctx=SimpleNamespace(bot=SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status='member'))))
@@ -44,4 +45,4 @@ def test_requested_private_member_entry_uses_mini_app_and_no_extra_post(monkeypa
     asyncio.run(arcade.open_arcade(update,ctx));message.reply_text.assert_awaited_once()
     args=message.reply_text.call_args.kwargs
     assert args['disable_notification'] is True
-    assert args['reply_markup'].inline_keyboard[0][0].web_app.url=='https://arcade.example.test'
+    assert args['reply_markup'].inline_keyboard[0][0].web_app.url==url
