@@ -3,7 +3,7 @@ import asyncio
 import hashlib
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -351,6 +351,40 @@ def test_member_button_changes_only_own_opt_out(config,integrated):
     assert asyncio.run(check())==(False,True)
     query.data='participation_opt_in'; asyncio.run(runtime.member_opt_out(update,SimpleNamespace()))
     assert asyncio.run(check())==(True,True)
+    query.edit_message_reply_markup.assert_not_called()
+
+
+def test_context_freshness_is_separate_for_news_and_replies(config, monkeypatch, tmp_path):
+    from bot.database import db as database
+    monkeypatch.setattr(database, 'datetime', Frozen)
+    monkeypatch.setattr(runtime, 'GROUP_ID', -10099)
+    config['topic_news']['context_max_age_minutes'] = 30
+    config['occasional_replies']['context_max_age_minutes'] = 180
+
+    async def scenario():
+        db = database.Database(str(tmp_path/'context.db'))
+        db._db = await aiosqlite.connect(db.db_path)
+        db._db.row_factory = aiosqlite.Row
+        try:
+            await db._db.execute('CREATE TABLE recent_community_messages '
+                '(chat_id INTEGER, message_id INTEGER, thread_id INTEGER, sender_name TEXT, '
+                'source TEXT, text TEXT, occurred_at TEXT, expires_at TEXT)')
+            for ident, topic, age, expiry in [(1,99,15,60),(2,99,90,60),(3,98,5,60),(4,99,10,-1)]:
+                await db._db.execute('INSERT INTO recent_community_messages VALUES (?,?,?,?,?,?,?,?)',
+                    (-10099,ident,topic,'Synthetic','member',f'Fixture {ident}',
+                     (NOW-timedelta(minutes=age)).isoformat(),
+                     (NOW+timedelta(minutes=expiry)).isoformat()))
+            await db._db.commit()
+            _, _, news = await runtime.context_for(db,99,config,kind='topic_news',now=NOW)
+            _, _, replies = await runtime.context_for(db,99,config,kind='occasional_replies',now=NOW)
+            assert {r['message_id'] for r in news} == {1}
+            assert {r['message_id'] for r in replies} == {1,2}
+            # Context reads must not prune or otherwise change the cache.
+            async with db._db.execute('SELECT COUNT(*) FROM recent_community_messages') as cursor:
+                assert (await cursor.fetchone())[0] == 4
+        finally:
+            await db._db.close()
+    asyncio.run(scenario())
 
 
 def test_private_context_redacts_identifiers_before_generation():

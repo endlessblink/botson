@@ -53,13 +53,12 @@ def private_context_text(value):
     return re.sub(r'(?<!\w)@[A-Za-z0-9_]{4,32}', '[member]', text)
 
 
-async def context_for(db, topic, config, *, now):
+async def context_for(db, topic, config, *, kind, now):
     runtime = config['runtime']
-    policy = config['topic_news']
-    hours = max(policy.get('context_max_age_minutes') or 0,
-                config['occasional_replies'].get('context_max_age_minutes') or 0) / 60
+    policy = config[kind]
     rows = await db.get_recent_community_messages(GROUP_ID, thread_id=topic,
-        since=now-timedelta(hours=hours), limit=runtime['context_messages'], prune_expired=False)
+        since=now-timedelta(minutes=policy['context_max_age_minutes']),
+        limit=runtime['context_messages'], prune_expired=False)
     rows = [row for row in rows if row.get('thread_id') == topic]
     # No names, account identities or raw-context copies in preview/storage.
     texts, remaining = [], runtime['context_max_chars']
@@ -90,7 +89,7 @@ async def prepare_news(db, config, *, topic_id, source_id, now):
         return None, 'unverified_topic'
     if not await store().available('topic_news', {'topic_id': topic_id}, policy, now=now, chat_id=GROUP_ID):
         return None, 'quiet_hours_rate_cap_or_opt_out'
-    context, marker, rows = await context_for(db, topic_id, config, now=now)
+    context, marker, rows = await context_for(db, topic_id, config, kind='topic_news', now=now)
     if not rows:
         return None, 'current_context_unavailable'
     source = policy['sources'][source_id]
@@ -145,7 +144,7 @@ async def deliver(bot, db, config, kind, prepared, *, reply_to=None):
         return reservation['reason']
     await ledger.transition(key, expected_status='reserved', status='scheduled', at=now)
     current = read_config()
-    _, marker, _ = await context_for(db, candidate['topic_id'], current, now=now)
+    _, marker, _ = await context_for(db, candidate['topic_id'], current, kind=kind, now=now)
     outcome = await ledger.revalidate(key, preview_policy(current, kind), now=now,
                                      chat_id=GROUP_ID, verified_topics=topics)
     if (configuration.config_digest(current) != configuration.config_digest(config) or
@@ -160,7 +159,9 @@ async def deliver(bot, db, config, kind, prepared, *, reply_to=None):
     if reply_to:
         kwargs['reply_to_message_id'] = reply_to
         kwargs['reply_markup'] = InlineKeyboardMarkup([[InlineKeyboardButton(
-            load_copy('participation', 'opt_out'), callback_data='participation_opt_out')]])
+            load_copy('participation', 'opt_out'), callback_data='participation_opt_out'),
+            InlineKeyboardButton(load_copy('participation', 'opt_in'),
+                                 callback_data='participation_opt_in')]])
     try:
         sent = await safe_send(bot, db, 'send_message', **kwargs)
         message_id = getattr(sent, 'message_id', None)
@@ -253,7 +254,7 @@ async def handle_reply(update, context):
                         turn_number=parent.get('turn_number', 1) + 1)
     if not await ledger.available('occasional_replies', identity, policy, now=now, chat_id=GROUP_ID):
         return
-    context_text, marker, _ = await context_for(db, topic, config, now=now)
+    context_text, marker, _ = await context_for(db, topic, config, kind='occasional_replies', now=now)
     incoming = private_context_text((message.text or '')[:config['runtime']['context_max_chars']])
     prompts = load_yaml('participation_prompts.yaml')
     result = _json(await generate(prompts['reply'].format(context=context_text, incoming=incoming,
@@ -285,9 +286,8 @@ async def member_opt_out(update, context):
     await store().set_member_opt_out(GROUP_ID, user.id, actor_user_id=user.id,
                                     opted_out=query.data == 'participation_opt_out', at=datetime.now(timezone.utc))
     await query.answer(load_copy('participation', 'opted_out' if query.data == 'participation_opt_out' else 'opted_in'))
-    await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
-        load_copy('participation', 'opt_in' if query.data == 'participation_opt_out' else 'opt_out'),
-        callback_data='participation_opt_in' if query.data == 'participation_opt_out' else 'participation_opt_out')]]))
+    # This keyboard is visible to every member. Both actions remain available;
+    # only the clicker's preference and private callback acknowledgement change.
 
 
 def register(app):

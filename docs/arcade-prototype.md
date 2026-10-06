@@ -21,6 +21,12 @@ membership. Sessions/runs are invalid after process restart. Best scores survive
 rotating the existing bot token changes pseudonymous keys, so migration/reset
 must be considered separately if that happens.
 
+If an answer response is lost, the player can explicitly retry the same stored
+run/round/sequence payload. The server's exact replay receipt returns the original
+result without awarding points twice. Pads remain disabled while that answer is
+unconfirmed. Session expiry still requires reopening the Mini App; a process
+restart invalidates active runs and receipts while preserving best scores.
+
 Production admission validates Telegram-signed Mini App initData and freshness
 with the existing Botson token, then calls getChatMember for the existing group.
 Membership is rechecked during play. No new persistent credential is created.
@@ -51,5 +57,9 @@ Before a future approved production release, confirm an existing HTTPS origin
 and authorized hosting route without adding costs or weakening access. Then
 test an opt-in launch, real membership/refusal and shared scoring. Do not claim
 production UI success without the authenticated visual check required by AGENTS.
+The current origin must be a dedicated HTTPS root: mounting below `/arcade/`
+needs additional prefix support. A separate process receiving the existing bot
+token is a new credential-access boundary requiring explicit approval and scoped
+delivery; sharing a complete environment or unrelated credentials is not implied.
 Disabling the configured entry prevents new game invitations; disabling/stopping
 this separate service ends play without restarting Botson or touching weekly state.
