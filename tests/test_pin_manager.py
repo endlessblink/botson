@@ -41,5 +41,10 @@ class PinReplacementTests(IsolatedAsyncioTestCase):
         self.bot.pin_chat_message.assert_awaited_with(
             chat_id=-100, message_id=11, disable_notification=True
         )
+        # The failed unpin stays recorded so a later pin retries it.
+        cur = await self.conn.execute("SELECT message_id FROM bot_pins ORDER BY message_id")
+        self.assertEqual([r[0] for r in await cur.fetchall()], [10, 11])
+        self.bot.unpin_chat_message.side_effect = None
+        await self._pin(7, 12)
         cur = await self.conn.execute("SELECT message_id FROM bot_pins")
-        self.assertEqual([r[0] for r in await cur.fetchall()], [11])
+        self.assertEqual([r[0] for r in await cur.fetchall()], [12])
