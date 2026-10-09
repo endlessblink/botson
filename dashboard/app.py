@@ -14732,8 +14732,7 @@ def _cover_response(path: Path) -> dict:
 @app.post("/api/covers/upload")
 async def upload_cover(request: Request, file: UploadFile = File(...)):
     """Accept an uploaded image and save to MEDIA_DIR/covers/."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401)
+    _require_calendar_api_auth(request)
     data = await file.read(_MAX_COVER_BYTES + 1)
     if len(data) > _MAX_COVER_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 8MB)")
