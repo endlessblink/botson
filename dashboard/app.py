@@ -1581,6 +1581,31 @@ async def whatsapp_throttle_report(request: Request, hours: int = 168):
         raise HTTPException(status_code=502, detail="Botty report unavailable")
 
 
+@app.post("/api/agent/whatsapp/summary")
+async def whatsapp_summary(request: Request):
+    """Write a WhatsApp group summary with the Codex CLI login (no API key).
+
+    Botty (the WhatsApp delivery bot) sends its own instructions plus the
+    transcript lines; Botson only runs the generation, so the wording rules
+    stay in Botty's config. Agent-token only.
+    """
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    data = await request.json()
+    instructions = str(data.get("instructions") or "").strip()
+    lines = [str(x) for x in (data.get("lines") or []) if str(x).strip()]
+    if not instructions or not lines:
+        raise HTTPException(status_code=400, detail="instructions and lines are required")
+    transcript = "\n".join(lines)[-60000:]
+    prompt = f"{instructions}\n\n---\n{transcript}\n---"
+    try:
+        summary = await _generate_via_codex_cli(prompt)
+    except Exception as exc:
+        logger.warning("whatsapp summary via codex failed: %s", exc)
+        raise HTTPException(status_code=502, detail="summary generation failed")
+    return {"summary": str(summary or "").strip()}
+
+
 @app.get("/spam", response_class=HTMLResponse)
 async def spam_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):

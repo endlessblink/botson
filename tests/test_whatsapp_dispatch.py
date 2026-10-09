@@ -173,6 +173,39 @@ class WhatsAppDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
 
+class WhatsAppSummaryEndpointTests(unittest.IsolatedAsyncioTestCase):
+    def _req(self, token, body):
+        return SimpleNamespace(headers={"authorization": f"Bearer {token}"}, json=AsyncMock(return_value=body))
+
+    async def test_summary_uses_codex_and_requires_agent_token(self):
+        from dashboard import app as dashboard_app
+
+        body = {"instructions": "סכמו", "lines": ["דנה: שלום", "רון: פיקניק ב-5"]}
+        codex = AsyncMock(return_value=" • סיכום ")
+        with patch.dict("os.environ", {"BOTSON_AGENT_API_TOKEN": "tok"}), \
+             patch.object(dashboard_app, "_generate_via_codex_cli", new=codex):
+            with self.assertRaises(HTTPException) as ctx:
+                await dashboard_app.whatsapp_summary(self._req("wrong", body))
+            self.assertEqual(ctx.exception.status_code, 401)
+            result = await dashboard_app.whatsapp_summary(self._req("tok", body))
+        self.assertEqual(result, {"summary": "• סיכום"})
+        prompt = codex.call_args.args[0]
+        self.assertTrue(prompt.startswith("סכמו"))
+        self.assertIn("רון: פיקניק ב-5", prompt)
+
+    async def test_summary_rejects_empty_input_and_reports_codex_failure(self):
+        from dashboard import app as dashboard_app
+
+        with patch.dict("os.environ", {"BOTSON_AGENT_API_TOKEN": "tok"}), \
+             patch.object(dashboard_app, "_generate_via_codex_cli", new=AsyncMock(side_effect=RuntimeError("down"))):
+            with self.assertRaises(HTTPException) as ctx:
+                await dashboard_app.whatsapp_summary(self._req("tok", {"instructions": "x", "lines": []}))
+            self.assertEqual(ctx.exception.status_code, 400)
+            with self.assertRaises(HTTPException) as ctx:
+                await dashboard_app.whatsapp_summary(self._req("tok", {"instructions": "x", "lines": ["a"]}))
+            self.assertEqual(ctx.exception.status_code, 502)
+
+
 class WhatsAppTargetValidationTests(unittest.TestCase):
     def test_dashboard_accepts_whatsapp_targets(self):
         from dashboard.app import _validated_target_group
