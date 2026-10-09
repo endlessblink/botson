@@ -31,6 +31,8 @@ from ..utils.copy import default_theme_label, load_copy
 from ..utils.pin_manager import pin_replacing_previous
 from ..utils.scheduling_errors import SkippedActivity
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
+from ..utils import whatsapp_sender
+from ..utils.whatsapp_sender import is_whatsapp_target
 
 logger = logging.getLogger(__name__)
 
@@ -769,6 +771,56 @@ def _scheduler_authored_conversation(msg: dict) -> bool:
     return source in {"manual-prompt", "manual-drawer", "dashboard", "weekplan", "recurrence", "ai-fill-flex", "agent"}
 
 
+async def _dispatch_whatsapp_row(bot, db: Database, msg: dict, target: str) -> None:
+    """Send one due row to WhatsApp via Botty's WAHA session.
+
+    Same content gates as the Telegram path; only delivery differs. Types
+    with no WhatsApp equivalent (live games, RSVP buttons) are skipped.
+    """
+    mtype = msg.get("message_type")
+    try:
+        if mtype not in whatsapp_sender.SUPPORTED_TYPES:
+            raise SkippedActivity(f"whatsapp_unsupported_type:{mtype}")
+        chat_id = whatsapp_sender.resolve_chat_id(target)
+        text = str(msg.get("text") or "")
+        if mtype in {"custom", "poll"}:
+            from ..utils.freshness import freshness_rejection
+
+            rejection = freshness_rejection(text, scheduled_date=msg.get("scheduled_date"))
+            if rejection:
+                raise SkippedActivity(f"content_quality_rejected:{rejection}")
+        if mtype in {"morning", "evening", "discussion"}:
+            if not _scheduler_authored_conversation(msg):
+                raise SkippedActivity("conversation_not_scheduler_authored")
+            rejection = await _conversation_gate(db, mtype, text, msg.get("scheduled_date"))
+            if rejection:
+                await notify_admins(bot, load_copy(
+                    "calendar", "hard_rule_blocked_alert",
+                    slot=f"{msg.get('scheduled_date')} {msg.get('scheduled_time')}",
+                    reason=rejection,
+                ))
+                raise SkippedActivity(f"conversation_hard_rule_blocked:{rejection}")
+        if msg.get("cover_path"):
+            logger.warning("whatsapp row %s has a cover image; phase 1 sends text only", msg.get("id"))
+        poll_options = _parse_poll_options(msg.get("poll_options"))
+        if mtype == "poll" and len(poll_options) >= 2:
+            wa_id = await whatsapp_sender.send_poll(chat_id, text, poll_options)
+        else:
+            wa_id = await whatsapp_sender.send_text(chat_id, text)
+        await db.mark_message_sent(msg["id"], None)
+        logger.info("whatsapp_sent: msg=%s type=%s wa_id=%s", msg.get("id"), mtype, wa_id)
+    except SkippedActivity as e:
+        mark_skipped = getattr(db, "mark_message_skipped", None)
+        if mark_skipped:
+            await mark_skipped(msg["id"], str(e))
+        else:
+            await db.mark_message_failed(msg["id"], f"skipped: {e}")
+        logger.info("Skipped whatsapp message %s: %s", msg.get("id"), e)
+    except Exception as e:
+        await db.mark_message_failed(msg["id"], f"whatsapp: {e}")
+        logger.exception("whatsapp send failed for msg %s", msg.get("id"))
+
+
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
     """Runs every minute. Checks for due messages and sends them."""
     now = datetime.now(_IL_TZ)
@@ -853,6 +905,9 @@ async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):
             group_id = test_group
         elif target == "main":
             group_id = main_group
+        elif is_whatsapp_target(target):
+            await _dispatch_whatsapp_row(context.bot, db, msg, target)
+            continue
         else:
             await db.mark_message_failed(msg["id"], f"Unsupported target_group '{target}'")
             continue
