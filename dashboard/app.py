@@ -1581,13 +1581,30 @@ async def whatsapp_throttle_report(request: Request, hours: int = 168):
         raise HTTPException(status_code=502, detail="Botty report unavailable")
 
 
+_WA_SUMMARY_JOBS: dict[str, dict] = {}
+_WA_SUMMARY_JOB_TTL_S = 1800
+
+
+async def _run_whatsapp_summary_job(job_id: str, prompt: str) -> None:
+    job = _WA_SUMMARY_JOBS[job_id]
+    started = time.monotonic()
+    try:
+        summary = await _generate_via_codex_cli(prompt)
+        job.update(status="done", summary=str(summary or "").strip())
+        logger.info("whatsapp summary job %s done in %.1fs", job_id, time.monotonic() - started)
+    except Exception as exc:
+        job.update(status="failed", error=str(exc)[:300])
+        logger.warning("whatsapp summary job %s failed after %.1fs: %s", job_id, time.monotonic() - started, exc)
+
+
 @app.post("/api/agent/whatsapp/summary")
 async def whatsapp_summary(request: Request):
-    """Write a WhatsApp group summary with the Codex CLI login (no API key).
+    """Start a WhatsApp group summary written with the Codex CLI login (no API key).
 
-    Botty (the WhatsApp delivery bot) sends its own instructions plus the
-    transcript lines; Botson only runs the generation, so the wording rules
-    stay in Botty's config. Agent-token only.
+    Botty sends its own instructions plus the transcript lines and gets a job
+    id back at once, then polls GET .../summary/{job_id}. Generation can
+    outlast the 100s proxy limit in front of the dashboard, so it never runs
+    inside the request. Agent-token only.
     """
     if not _is_agent_api_request(request):
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -1598,12 +1615,26 @@ async def whatsapp_summary(request: Request):
         raise HTTPException(status_code=400, detail="instructions and lines are required")
     transcript = "\n".join(lines)[-60000:]
     prompt = f"{instructions}\n\n---\n{transcript}\n---"
-    try:
-        summary = await _generate_via_codex_cli(prompt)
-    except Exception as exc:
-        logger.warning("whatsapp summary via codex failed: %s", exc)
-        raise HTTPException(status_code=502, detail="summary generation failed")
-    return {"summary": str(summary or "").strip()}
+    now = time.time()
+    for old_id in [k for k, v in _WA_SUMMARY_JOBS.items() if now - v["created"] > _WA_SUMMARY_JOB_TTL_S]:
+        _WA_SUMMARY_JOBS.pop(old_id, None)
+    job_id = secrets.token_hex(8)
+    _WA_SUMMARY_JOBS[job_id] = {"status": "pending", "created": now}
+    asyncio.create_task(_run_whatsapp_summary_job(job_id, prompt))
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/api/agent/whatsapp/summary/{job_id}")
+async def whatsapp_summary_status(job_id: str, request: Request):
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    job = _WA_SUMMARY_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown job")
+    out = {"job_id": job_id, "status": job["status"]}
+    if job["status"] == "done":
+        out["summary"] = job.get("summary", "")
+    return out
 
 
 @app.get("/spam", response_class=HTMLResponse)

@@ -1,4 +1,5 @@
 """Botson rows targeted at WhatsApp are delivered through Botty's WAHA session."""
+import asyncio
 import json
 import unittest
 from types import SimpleNamespace
@@ -187,8 +188,15 @@ class WhatsAppSummaryEndpointTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await dashboard_app.whatsapp_summary(self._req("wrong", body))
             self.assertEqual(ctx.exception.status_code, 401)
-            result = await dashboard_app.whatsapp_summary(self._req("tok", body))
-        self.assertEqual(result, {"summary": "• סיכום"})
+            started = await dashboard_app.whatsapp_summary(self._req("tok", body))
+            self.assertEqual(started["status"], "pending")
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            result = await dashboard_app.whatsapp_summary_status(started["job_id"], self._req("tok", {}))
+            with self.assertRaises(HTTPException) as ctx:
+                await dashboard_app.whatsapp_summary_status(started["job_id"], self._req("wrong", {}))
+            self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(result, {"job_id": started["job_id"], "status": "done", "summary": "• סיכום"})
         prompt = codex.call_args.args[0]
         self.assertTrue(prompt.startswith("סכמו"))
         self.assertIn("רון: פיקניק ב-5", prompt)
@@ -201,9 +209,15 @@ class WhatsAppSummaryEndpointTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await dashboard_app.whatsapp_summary(self._req("tok", {"instructions": "x", "lines": []}))
             self.assertEqual(ctx.exception.status_code, 400)
+            started = await dashboard_app.whatsapp_summary(self._req("tok", {"instructions": "x", "lines": ["a"]}))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            result = await dashboard_app.whatsapp_summary_status(started["job_id"], self._req("tok", {}))
+            self.assertEqual(result["status"], "failed")
+            self.assertNotIn("summary", result)
             with self.assertRaises(HTTPException) as ctx:
-                await dashboard_app.whatsapp_summary(self._req("tok", {"instructions": "x", "lines": ["a"]}))
-            self.assertEqual(ctx.exception.status_code, 502)
+                await dashboard_app.whatsapp_summary_status("nope", self._req("tok", {}))
+            self.assertEqual(ctx.exception.status_code, 404)
 
 
 class WhatsAppTargetValidationTests(unittest.TestCase):
