@@ -1849,3 +1849,14 @@ Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, 
 - `vps-admin.sh` read-only diagnostics (`8cf24fa`, `0ff262d`, `f941ae7`): `schedule [days]`, `applog [n] [pat]` (searches rotated logs), `activity [n] [filter]`. These are the sanctioned prod-read path (SSH+SQL is classifier-blocked).
 
 **Verify:** `vps-admin.sh schedule 4`, `vps-admin.sh applog 100000 'pre-roll ready gate|CANCELLED at pre-roll'`, `vps-admin.sh activity 400 trivia_round`. Local: `pytest tests/test_scheduler_e2e_trivia_launch.py` (incl. the duplicate-marker regression).
+
+### T-199: Botson content on WhatsApp via Botty — IN PROGRESS (2026-10-09)
+
+Owner decision: reuse Botson (not a new bot). Botson writes/approves/schedules; Botty (worlds-greatest-bot, WAHA :3051, +972505332864) only delivers. Real group: אלהוריים וזה `120363411214878038@g.us` (Botty admin). Test group: טסטים לבוטי 2 `120363400961082631@g.us`. Nothing from Botson reaches WhatsApp automatically — only rows explicitly targeted `whatsapp`.
+
+**Live (verified on prod 2026-10-09):**
+- Calendar rows `target_group=whatsapp|whatsapp_test` → WAHA sendText/sendPoll; counted sent only on WhatsApp ack ≥1; failure → marked failed + admin Telegram alert (rows 928 sent ack=2, 929 failed+alerted). Same freshness/conversation gates; unsupported types refused. Planner drawer has a Telegram/WhatsApp destination picker; WhatsApp rows tagged in calendar. `WHATSAPP_GROUP_ID` (real group) is deliberately **unset** until the first real post is approved.
+- Botty watch-only throttle (8 msgs/60s) in the real group; report on the dashboard Spam page. Enforcement shelved by operator (WhatsApp has no per-member mute; bot DMs risk a ban).
+- Tag-for-summary in Botty: only "@בוטי תקציר" (real mention, @number, or typed "@בוטי") summarizes the last 400 messages; one new summary per group per 3h (operator exempt); other tags get one light reply per member per day; failures reply lightly. Summary written by Botson's Codex CLI login via `POST /api/agent/whatsapp/summary` (background job, Botty polls — Cloudflare cuts requests at 100s). Test group summarizes the real group privately (`WHATSAPP_SUMMARY_SOURCE_MAP`). RTL layout verified visually: RLM + "– " bullets, invisible trailing RLM line.
+
+**Open:** first real Botson post in the group (operator deferred twice; must not imply anyone is organizing a meetup — rule taught 2026-10-09). Botty only sees messages since it joined (2026-10-09), so summaries grow toward 400 over time.
