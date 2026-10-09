@@ -807,8 +807,13 @@ async def _dispatch_whatsapp_row(bot, db: Database, msg: dict, target: str) -> N
             wa_id = await whatsapp_sender.send_poll(chat_id, text, poll_options)
         else:
             wa_id = await whatsapp_sender.send_text(chat_id, text)
+        # WAHA accepts the request even when WhatsApp later rejects it, so only
+        # a server/device ack counts as sent.
+        ack = await whatsapp_sender.confirm_delivery(chat_id, wa_id)
+        if ack is None or ack < 1:
+            raise RuntimeError(f"delivery_unconfirmed:ack={ack} wa_id={wa_id}")
         await db.mark_message_sent(msg["id"], None)
-        logger.info("whatsapp_sent: msg=%s type=%s wa_id=%s", msg.get("id"), mtype, wa_id)
+        logger.info("whatsapp_sent: msg=%s type=%s wa_id=%s ack=%s", msg.get("id"), mtype, wa_id, ack)
     except SkippedActivity as e:
         mark_skipped = getattr(db, "mark_message_skipped", None)
         if mark_skipped:
@@ -819,6 +824,15 @@ async def _dispatch_whatsapp_row(bot, db: Database, msg: dict, target: str) -> N
     except Exception as e:
         await db.mark_message_failed(msg["id"], f"whatsapp: {e}")
         logger.exception("whatsapp send failed for msg %s", msg.get("id"))
+        try:
+            await notify_admins(bot, load_copy(
+                "calendar", "dispatch_failed_alert",
+                message_id=msg.get("id"), message_type=mtype,
+                slot=f"{msg.get('scheduled_date')} {msg.get('scheduled_time')} ({target})",
+                reason=f"whatsapp: {e}",
+            ))
+        except Exception:
+            logger.warning("admin alert for whatsapp failure %s failed", msg.get("id"), exc_info=True)
 
 
 async def check_and_send_due_messages(context: ContextTypes.DEFAULT_TYPE):

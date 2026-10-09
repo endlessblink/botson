@@ -14,6 +14,7 @@ Rows opt in with scheduled_messages.target_group = "whatsapp" or
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -67,6 +68,40 @@ async def _post(path: str, payload: dict) -> str | None:
     if isinstance(msg_id, dict):
         msg_id = msg_id.get("_serialized")
     return str(msg_id) if msg_id else None
+
+
+async def delivery_ack(chat_id: str, msg_id: str) -> int | None:
+    """WhatsApp ack for a sent message: -1 error, 0 pending, 1 server, 2 device, 3 read."""
+    base, key, session = _config()
+    url = f"{base}/api/{session}/chats/{chat_id}/messages/{msg_id}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(url, params={"downloadMedia": "false"}, headers={"X-Api-Key": key})
+    resp.raise_for_status()
+    ack = resp.json().get("ack")
+    return int(ack) if ack is not None else None
+
+
+async def confirm_delivery(chat_id: str, msg_id: str | None, *, attempts: int = 5, delay_s: float = 3.0) -> int | None:
+    """Poll until WhatsApp reports the message reached its server (ack >= 1) or failed (-1).
+
+    WAHA answers 201 even when WhatsApp later rejects the message (e.g. the
+    account was removed from the group), so the HTTP status alone is not proof.
+    Returns the last ack seen (None when it could not be read).
+    """
+    if not msg_id:
+        return None
+    ack = None
+    for i in range(attempts):
+        if i:
+            await asyncio.sleep(delay_s)
+        try:
+            ack = await delivery_ack(chat_id, msg_id)
+        except Exception:
+            logger.warning("whatsapp ack lookup failed for %s", msg_id, exc_info=True)
+            continue
+        if ack is not None and (ack >= 1 or ack < 0):
+            return ack
+    return ack
 
 
 async def send_text(chat_id: str, text: str) -> str | None:

@@ -210,7 +210,7 @@
     .type-card.selected .type-card-label { color: #fbbf24; }
 
     /* Channel chips */
-    .channel-chip {
+    .channel-chip, .target-chip {
         display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
         min-height: 30px; padding: 5px 12px; border-radius: 6px; font-size: 14px;
         background: transparent; border: 1px solid #272727; color: #ffffff;
@@ -218,8 +218,8 @@
         max-width: 100%; overflow: hidden; text-overflow: ellipsis;
         line-height: 1.35; text-align: right;
     }
-    .channel-chip:hover { border-color: #52525b; color: #ffffff; background: #18181b; }
-    .channel-chip.selected { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.5); }
+    .channel-chip:hover, .target-chip:hover { border-color: #52525b; color: #ffffff; background: #18181b; }
+    .channel-chip.selected, .target-chip.selected { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.5); }
 
     /* Day toggle buttons */
     .day-toggle {
@@ -806,8 +806,18 @@
                     <img id="cover-preview" class="hidden mt-2 rounded-md border border-[#272727]" style="max-width:240px;max-height:140px;object-fit:cover;">
                 </div>
 
-                <!-- Channel chips -->
+                <!-- Destination: Telegram (default) or the WhatsApp group via Botty -->
                 <div>
+                    <label class="text-xs text-[#71717a] mb-1.5 block">יעד</label>
+                    <div id="target-chips" class="flex flex-wrap gap-1.5">
+                        <button type="button" class="target-chip selected" data-target="main" onclick="selectTarget('main')">טלגרם</button>
+                        <button type="button" class="target-chip" data-target="whatsapp" onclick="selectTarget('whatsapp')">🟢 וואטסאפ</button>
+                    </div>
+                    <p id="target-whatsapp-note" class="hidden text-[11px] text-[#71717a] mt-1.5">נשלח לקבוצת הוואטסאפ דרך בוטי. רק שאלות, הודעות וסקרים.</p>
+                </div>
+
+                <!-- Channel chips -->
+                <div id="channel-section">
                     <label class="text-xs text-[#71717a] mb-1.5 block">ערוץ</label>
                     <div id="channel-chips" class="space-y-3">
                         <div class="flex flex-wrap gap-1.5">
@@ -1291,6 +1301,7 @@ const AI_FILL_HARD_LIMIT_MS = 2400000;
 // ─── Wizard State ───
 var wizardState = {
     step: 1, type: null, text: '', channelTopicId: null, category: null,
+    targetGroup: 'main',
     date: '{{ now_date }}', time: '18:00',
     recurrence: null, recurrenceDays: [],
     autoPin: false,
@@ -1779,6 +1790,27 @@ async function stopTriviaRound() {
     }
 }
 
+// ─── Destination (Telegram / WhatsApp) ───
+function selectTarget(target) {
+    wizardState.targetGroup = target || 'main';
+    var isWa = wizardState.targetGroup.indexOf('whatsapp') === 0;
+    document.querySelectorAll('.target-chip').forEach(function(chip) {
+        chip.classList.toggle('selected', chip.getAttribute('data-target') === wizardState.targetGroup);
+    });
+    var section = document.getElementById('channel-section');
+    if (section) section.classList.toggle('hidden', isWa);
+    var note = document.getElementById('target-whatsapp-note');
+    if (note) note.classList.toggle('hidden', !isWa);
+    if (isWa) {
+        // WhatsApp groups have no forum topics.
+        wizardState.channelTopicId = null;
+        document.querySelectorAll('.channel-chip').forEach(function(chip) {
+            chip.classList.remove('selected');
+            chip.style.borderColor = '';
+        });
+    }
+}
+
 // ─── Channel Selection ───
 function selectChannel(el, topicId, category) {
     var prev = wizardState.channelTopicId;
@@ -2207,6 +2239,7 @@ function openEditDrawer(id, props, start) {
     wizardState.type = props.messageType || 'custom';
     wizardState.text = props.fullText || '';
     wizardState.channelTopicId = props.channelTopicId ? String(props.channelTopicId) : null;
+    selectTarget(props.targetGroup || 'main');
     wizardState.date = formatLocalDate(start);
     wizardState.time = start.toTimeString().substring(0, 5);
     wizardState.recurrence = props.recurrence || null;
@@ -2322,6 +2355,7 @@ function resetWizard() {
     wizardState.text = '';
     wizardState.channelTopicId = null;
     wizardState.category = null;
+    selectTarget('main');
     wizardState.date = '{{ now_date }}';
     wizardState.time = '18:00';
     wizardState.recurrence = null;
@@ -2434,6 +2468,7 @@ async function scheduleMsg() {
                 scheduled_date: domDate,
                 scheduled_time: domTime,
                 channel_topic_id: wizardState.channelTopicId ? parseInt(wizardState.channelTopicId) : null,
+                target_group: wizardState.targetGroup || 'main',
                 recurrence: wizardState.recurrence || null,
                 auto_pin: wizardState.autoPin,
                 cover_path: wizardState.coverPath,
@@ -2457,7 +2492,7 @@ async function scheduleMsg() {
                 channel_topic_id: wizardState.channelTopicId || null,
                 recurrence: wizardState.recurrence || null,
                 auto_pin: wizardState.autoPin,
-                target_group: 'main',
+                target_group: wizardState.targetGroup || 'main',
                 cover_path: wizardState.coverPath,
                 poll_options: wizardState.type === 'poll' ? wizardState.pollOptions.filter(function(o) { return o.trim(); }) : undefined,
                 poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
@@ -2503,7 +2538,7 @@ async function saveAsDraft() {
             });
         } else {
             // Create with default status='scheduled', then flip to draft.
-            body.target_group = 'main';
+            body.target_group = wizardState.targetGroup || 'main';
             var res = await fetch('/api/calendar', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},

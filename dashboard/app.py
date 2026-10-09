@@ -1466,6 +1466,27 @@ async def restart_bot(request: Request):
 
 # ── Spam API ─────────────────────────────────────────────
 
+@app.get("/api/whatsapp/throttle-report")
+async def whatsapp_throttle_report(request: Request, hours: int = 168):
+    """Botty's watch-only throttle report (who would have been rate-limited)."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    url = os.getenv("WHATSAPP_THROTTLE_REPORT_URL", "").strip()
+    key = os.getenv("WHATSAPP_WAHA_API_KEY", "").strip()
+    if not url or not key:
+        raise HTTPException(status_code=503, detail="WhatsApp throttle report not configured")
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, params={"hours": max(1, min(hours, 24 * 90))}, headers={"X-Api-Key": key})
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPError as exc:
+        logger.warning("whatsapp throttle report fetch failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Botty report unavailable")
+
+
 @app.get("/spam", response_class=HTMLResponse)
 async def spam_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
@@ -13272,9 +13293,11 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
             except (TypeError, ValueError):
                 poll_options = None
 
+        target_group = str(m.get("target_group") or "main")
+        title_prefix = "🟢 WhatsApp · " if target_group.startswith("whatsapp") else ""
         event = {
             "id": str(m["id"]),
-            "title": m.get("text", "")[:60],
+            "title": title_prefix + m.get("text", "")[:60],
             "start": f"{m['scheduled_date']}T{m.get('scheduled_time', '09:00')}:00",
             "allDay": False,
             "backgroundColor": color if status != "sent" else "#1a1a2e",
@@ -13290,6 +13313,7 @@ async def get_calendar(request: Request, db: Database = Depends(get_db)):
                 "errorMessage": error_message,
                 "messageType": m.get("message_type", "custom"),
                 "channelTopicId": m.get("channel_topic_id"),
+                "targetGroup": target_group,
                 "recurrence": m.get("recurrence"),
                 "sentAt": m.get("sent_at"),
                 "createdBy": m.get("created_by"),
@@ -13878,6 +13902,22 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
     fields = {k: v for k, v in data.items() if k in allowed}
     if "target_group" in fields:
         fields["target_group"] = _validated_target_group(fields["target_group"])
+        from bot.utils.whatsapp_sender import SUPPORTED_TYPES as _WA_TYPES, is_whatsapp_target
+
+        if is_whatsapp_target(fields["target_group"]):
+            effective_type = data.get("message_type")
+            if effective_type is None:
+                async with db._db.execute(
+                    "SELECT message_type FROM scheduled_messages WHERE id = ?", (msg_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                effective_type = (row["message_type"] if row else None) or "custom"
+            if effective_type not in _WA_TYPES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{effective_type}' is not available on WhatsApp yet (supported: {sorted(_WA_TYPES)})",
+                )
+            fields["channel_topic_id"] = None  # WhatsApp groups have no forum topics
     if "text" in fields or "message_type" in fields:
         # REG-T155-a fix: when the body sends only `text` (no message_type),
         # preserve the existing row's message_type instead of defaulting

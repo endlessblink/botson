@@ -216,10 +216,79 @@
     </div>
 </div>
 
+<!-- WhatsApp throttle (Botty, watch-only) -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4" id="wa-throttle-card">
+    <div class="px-4 py-3 border-b border-[#1f1f1f] flex items-center justify-between">
+        <div>
+            <h2 class="text-sm font-semibold text-[#fafafa]">🟢 וואטסאפ — מי כותב מהר מדי</h2>
+            <p class="text-xs text-[#71717a] mt-0.5" id="wa-throttle-sub">מצב צפייה בלבד: נרשם, לא נחסם אף אחד.</p>
+        </div>
+        <span class="text-xs text-[#71717a]">7 ימים אחרונים</span>
+    </div>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-[#71717a] text-xs border-b border-[#1f1f1f]">
+                <th class="px-4 py-2 text-right font-medium">חבר/ה</th>
+                <th class="px-4 py-2 text-right font-medium">פעמים</th>
+                <th class="px-4 py-2 text-right font-medium">שיא בדקה</th>
+                <th class="px-4 py-2 text-right font-medium">אחרון</th>
+            </tr>
+        </thead>
+        <tbody id="wa-throttle-body">
+            <tr><td colspan="4" class="px-4 py-6 text-center text-sm text-[#71717a]">טוען…</td></tr>
+        </tbody>
+    </table>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+(async function loadWaThrottle() {
+    var body = document.getElementById('wa-throttle-body');
+    var sub = document.getElementById('wa-throttle-sub');
+    function row(cells) {
+        var tr = document.createElement('tr');
+        tr.className = 'border-b border-[#1f1f1f]';
+        cells.forEach(function(c) {
+            var td = document.createElement('td');
+            td.className = 'px-4 py-2 text-[#e4e4e7]';
+            td.textContent = c;
+            tr.appendChild(td);
+        });
+        return tr;
+    }
+    function message(text) {
+        body.innerHTML = '';
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 4;
+        td.className = 'px-4 py-6 text-center text-sm text-[#71717a]';
+        td.textContent = text;
+        tr.appendChild(td);
+        body.appendChild(tr);
+    }
+    try {
+        var res = await fetch('/api/whatsapp/throttle-report');
+        if (!res.ok) { message('הדוח לא זמין כרגע'); return; }
+        var data = await res.json();
+        if (data.limit) {
+            sub.textContent = 'מצב צפייה בלבד: נרשם מי ששלח יותר מ-' + data.limit.maxMessages
+                + ' הודעות ב-' + data.limit.windowSeconds + ' שניות. לא נחסם אף אחד.';
+        }
+        var senders = data.senders || [];
+        if (!senders.length) { message('אף אחד לא עבר את הקצב'); return; }
+        body.innerHTML = '';
+        senders.forEach(function(s) {
+            var who = s.senderName || String(s.senderId || '').split('@')[0];
+            var last = s.last ? new Date(s.last).toLocaleString('he-IL') : '';
+            body.appendChild(row([who, String(s.bursts), String(s.peak), last]));
+        });
+    } catch (e) {
+        message('הדוח לא זמין כרגע');
+    }
+})();
+
 async function toggleFeature(feature, enabled) {
     try {
         var data = {{ settings.features | tojson }};
