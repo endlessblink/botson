@@ -1,6 +1,6 @@
-enabled: false
-allowed_topics: []
-public_url: null
+enabled: true
+allowed_topics: [4037]
+public_url: https://botson.noamn.com/arcade/
 service:
   enabled: false
   origin: null
