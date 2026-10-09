@@ -501,7 +501,8 @@ async def _agent_publish_guard(
       picture riddle (a poll with an image the reviewer cannot see) or to the
       answer reveal of a guess poll. Hard content rules still apply to both.
     """
-    if not _is_agent_api_request(request) or (target_group or "main") != "main":
+    # The real WhatsApp group is public like main; only test targets skip review.
+    if not _is_agent_api_request(request) or (target_group or "main") not in {"main", "whatsapp"}:
         return
     max_rejections, early_minutes = _agent_guardrail_settings()
     now = datetime.now(ZoneInfo("Asia/Jerusalem"))
@@ -13735,6 +13736,15 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     elif message_type in {"free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
         routing = await db.get_handler_routing(message_type)
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
+    from bot.utils.whatsapp_sender import SUPPORTED_TYPES as _WA_TYPES, is_whatsapp_target
+
+    if is_whatsapp_target(target_group):
+        if message_type not in _WA_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{message_type}' is not available on WhatsApp yet (supported: {sorted(_WA_TYPES)})",
+            )
+        channel_topic_id = None  # WhatsApp groups have no forum topics
     if message_type in {"morning", "evening", "discussion"}:
         _reject_bad_planner_text(data["text"])
     await _reject_calendar_slot_clash(
@@ -13779,7 +13789,9 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
 
 def _validated_target_group(target_group: str | None) -> str:
     target = str(target_group or "main").strip() or "main"
-    if target not in {"main", "test"}:
+    from bot.utils.whatsapp_sender import WHATSAPP_TARGETS
+
+    if target not in {"main", "test", *WHATSAPP_TARGETS}:
         raise HTTPException(status_code=400, detail=f"unsupported target_group {target!r}")
     return target
 
