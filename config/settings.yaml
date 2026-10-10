@@ -227,6 +227,7 @@ copy:
     # Description shown next to /menu in Telegram's command (Menu) button.
     cmd_menu_desc: "התפריט האישי שלי"
     cmd_help_desc: "עזרה ורשימת פקודות"
+    cmd_arcade_desc: "משחק הזיכרון של בוטסון"
     cmd_tagall_desc: "תיוג כל חברי הקבוצה"
     cmd_tagall_test_desc: "בדיקת תיוג אישי"
     cmd_activity_report_desc: "דוח פעילות חברים"

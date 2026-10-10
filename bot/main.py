@@ -16,7 +16,7 @@ from .database.db import Database
 from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity, weekly_state_review
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
-from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts
+from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts, load_yaml
 from .utils.copy import load_copy
 
 # Configure logging — file + stdout
@@ -142,6 +142,8 @@ async def post_init(app: Application):
             BotCommand("menu", load_copy("dm_menu", "cmd_menu_desc")),
             BotCommand("help", load_copy("dm_menu", "cmd_help_desc")),
         ]
+        if load_yaml("arcade.yaml").get("enabled"):
+            commands.append(BotCommand("arcade", load_copy("dm_menu", "cmd_arcade_desc")))
         await app.bot.set_my_commands(commands)
         await app.bot.set_my_commands(
             commands,
