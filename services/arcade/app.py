@@ -13,9 +13,12 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from .auth import player_key, verify_init_data
+from .beat import BeatRunner
 from .dungeon import Dungeon
 from .engine import Engine, GameError
 
@@ -34,6 +37,17 @@ class Admission(BaseModel):
 class Pick(BaseModel):
     model_config = ConfigDict(extra='forbid')
     pick: StrictInt
+
+
+class Tap(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    t: StrictInt
+    a: Literal['jump', 'slide']
+
+
+class Replay(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    inputs: list[Tap] = Field(max_length=256)
 
 
 class Moves(BaseModel):
@@ -83,6 +97,7 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
         engine=Engine(cfg,path,secret=secrets.token_bytes(32) if demo else player_key(token,group).encode(),
                       clock=clock,alias_prefix=copy['alias_prefix'])
     dungeon=Dungeon(engine) if engine and cfg.get('dungeon') else None
+    beat=BeatRunner(engine) if engine and cfg.get('beat') else None
     app=FastAPI(title='Botson Arcade',docs_url=None,redoc_url=None,openapi_url=None)
     router=APIRouter(prefix=base_path)
     app.state.engine, app.state.config = engine, cfg
@@ -206,6 +221,33 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
         if dungeon is None:
             raise HTTPException(503,'disabled')
         return {'players':dungeon.leaderboard(),'week':dungeon.week()}
+
+    @router.post('/api/beat/runs')
+    async def beat_start(request: Request, body: dict):
+        admission=await authenticated(request)
+        if body or beat is None:
+            raise HTTPException(422,'no_client_score_or_rules')
+        try:
+            return beat.start(admission)
+        except GameError as error:
+            raise HTTPException(409,str(error)) from None
+
+    @router.post('/api/beat/runs/{run_id}/finish')
+    async def beat_finish(run_id: str, body: Replay, request: Request):
+        admission=await authenticated(request)
+        if beat is None:
+            raise HTTPException(503,'disabled')
+        try:
+            return beat.finish(admission,run_id,[tap.model_dump() for tap in body.inputs])
+        except GameError as error:
+            raise HTTPException(409,str(error)) from None
+
+    @router.get('/api/beat/leaderboard')
+    async def beat_board(request: Request):
+        await authenticated(request)
+        if beat is None:
+            raise HTTPException(503,'disabled')
+        return {'players':beat.leaderboard(),'week':beat.week()}
 
     app.include_router(router)
     return app

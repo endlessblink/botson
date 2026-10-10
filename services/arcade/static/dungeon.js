@@ -6,9 +6,11 @@ let run=null,busy=false;
 const hintIcon={noise:'🔊',shine:'✨',warm:'🔥',fog:'🌫️',boss:'👹',monster:'👹',trap:'🪤',treasure:'💰',shrine:'⛲'};
 const relicIcon={sword:'⚔️',shield:'🛡️',potion:'🧪',coin:'🪙',lantern:'🏮'};
 function tab(name){
-  $('dungeon').hidden=name!=='dungeon';$('memory').hidden=name!=='memory';
-  $('tab-dungeon').classList.toggle('on',name==='dungeon');$('tab-memory').classList.toggle('on',name==='memory');
+  for(const id of ['dungeon','beat','memory']){
+    $(id).hidden=id!==name;$('tab-'+id).classList.toggle('on',id===name);
+  }
 }
+window.arcadeTab=tab;
 $('tab-dungeon').addEventListener('click',()=>tab('dungeon'));
 $('tab-memory').addEventListener('click',()=>tab('memory'));
 async function board(){

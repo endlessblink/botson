@@ -37,3 +37,21 @@ service:
     floor_points: 25
     victory_points: 300
     hp_points: 20
+  beat:
+    bpm: 120
+    beats: 64
+    intro_beats: 4
+    lead_ms: 2000
+    lives: 5
+    perfect_ms: 70
+    good_ms: 150
+    min_gap_ms: 100
+    perfect_points: 100
+    good_points: 60
+    coin_points: 30
+    stray_penalty: 25
+    combo_step: 8
+    max_multiplier: 4
+    daily_attempts: 10
+    finish_slack_seconds: 3
+    finish_window_seconds: 60
