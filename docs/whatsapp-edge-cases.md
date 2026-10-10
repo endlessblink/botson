@@ -37,6 +37,11 @@ Botson tests: `tests/test_whatsapp_dispatch.py`.
 | Very long member message | Shortened to 600 chars, not dropped | long member messages are shortened |
 | Media-only / deleted messages | Not in the transcript | transcript test |
 | Botty only sees messages since it joined (2026-10-09) | Summary covers what exists; grows to 400 over time | — |
+| Little or no conversation since the last summary | No new summary, no "working" message, no AI call; Botty points at the previous summary | too little new since the last summary |
+| A later summary | Covers only messages after the previous summary (header says so) | a later summary covers only what was written since |
+| Tags to Botty inside the conversation | Left out of what gets summarized | tags to Botty are not part of what gets summarized |
+| Someone shared something personal (health, family, money…) | Prompt: mention that a personal share happened, no details, no name | prompt in config |
+| Wording implies summaries are automatic | Texts say "you can ask at most once every 3 hours" | config copy |
 
 ## Hebrew layout (WhatsApp RTL)
 
