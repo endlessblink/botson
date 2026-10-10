@@ -10,12 +10,32 @@
   <script id="arcade-mode" type="application/json">{{ demo|tojson }}</script>
   <script id="arcade-base-path" type="application/json">{{ base_path|tojson }}</script>
   <script src="{{ base_path }}/assets/game.js" defer></script>
+  <script src="{{ base_path }}/assets/dungeon.js" defer></script>
 </head>
 <body>
   <div class="shell">
     <header><span class="brand-mark" aria-hidden="true">◈</span><strong>{{ copy.title }}</strong><span class="kicker">{{ copy.kicker }}</span></header>
     {% if demo %}<p class="demo">{{ copy.demo }}</p>{% endif %}
-    <main>
+    <nav class="tabs"><button class="tab on" id="tab-dungeon">{{ copy.dd_tab }}</button><button class="tab" id="tab-memory">{{ copy.game }}</button></nav>
+    <main id="dungeon">
+      <section class="game-card">
+        <div class="game-heading"><div><span class="eyebrow">{{ copy.dd_kicker }}</span><h1>{{ copy.dd_title }}</h1></div></div>
+        <p class="intro">{{ copy.dd_intro }}</p>
+        <div class="readout dd-stats"><div><span>{{ copy.dd_floor }}</span><output id="dd-floor">—</output></div><div><span>{{ copy.dd_hp }}</span><output id="dd-hp">—</output></div><div><span>{{ copy.dd_power }}</span><output id="dd-power">—</output></div><div><span>{{ copy.dd_gold }}</span><output id="dd-gold">0</output></div></div>
+        <p class="dd-relics" id="dd-relics"></p>
+        <p class="status" id="dd-status" role="status" aria-live="polite"></p>
+        <div class="dd-choices" id="dd-choices"></div>
+        <button class="start" id="dd-start" disabled>{{ copy.dd_play }} <span aria-hidden="true">↖</span></button>
+      </section>
+      <aside class="board-card">
+        <div class="board-heading"><span aria-hidden="true">↗</span><h2>{{ copy.dd_board }}</h2></div>
+        <p class="your-alias" id="dd-week"></p>
+        <ol id="dd-leaderboard"></ol>
+        <p id="dd-empty" class="empty">{{ copy.empty }}</p>
+        <p class="privacy">{{ copy.privacy }}</p>
+      </aside>
+    </main>
+    <main id="memory" hidden>
       <section class="game-card">
         <div class="game-heading"><div><span class="eyebrow">{{ copy.kicker }}</span><h1>{{ copy.game }}</h1></div><span class="status-dot" aria-hidden="true"></span></div>
         <p class="intro">{{ copy.intro }}</p>

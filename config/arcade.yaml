@@ -22,3 +22,18 @@ service:
   daily_attempts: 20
   points_per_round: 100
   leaderboard_size: 10
+  dungeon:
+    floors: 8
+    doors: 3
+    start_hp: 3
+    max_hp: 5
+    daily_attempts: 10
+    monster_gold: 8
+    treasure_gold: 12
+    trap_damage: 1
+    shrine_heal: 2
+    potion_heal: 2
+    boss_strength: 4
+    floor_points: 25
+    victory_points: 300
+    hp_points: 20

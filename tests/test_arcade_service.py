@@ -169,7 +169,7 @@ def test_base_path_serves_assets_admission_play_and_page_reload(cfg,tmp_path,bas
             embedded=re.search(r'id="arcade-base-path" type="application/json">(.*?)</script>',page.text)
             assert json.loads(embedded.group(1))==prefix
             assets=re.findall(r'(?:href|src)="([^"]*/assets/[^"]+)"',page.text)
-            assert assets==[prefix+'/assets/game.css',prefix+'/assets/game.js']
+            assert assets==[prefix+'/assets/game.css',prefix+'/assets/game.js',prefix+'/assets/dungeon.js']
             for path in assets:
                 assert (await client.get(path)).status_code==200
             # A reload/request carrying a query stays in the selected path.

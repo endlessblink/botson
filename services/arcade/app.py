@@ -16,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from .auth import player_key, verify_init_data
+from .dungeon import Dungeon
 from .engine import Engine, GameError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +29,11 @@ logging.getLogger('httpcore').setLevel(logging.CRITICAL)
 class Admission(BaseModel):
     model_config = ConfigDict(extra='forbid')
     init_data: StrictStr = Field(default='', max_length=8192)
+
+
+class Pick(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    pick: StrictInt
 
 
 class Moves(BaseModel):
@@ -76,6 +82,7 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
         path.parent.mkdir(parents=True,exist_ok=True)
         engine=Engine(cfg,path,secret=secrets.token_bytes(32) if demo else player_key(token,group).encode(),
                       clock=clock,alias_prefix=copy['alias_prefix'])
+    dungeon=Dungeon(engine) if engine and cfg.get('dungeon') else None
     app=FastAPI(title='Botson Arcade',docs_url=None,redoc_url=None,openapi_url=None)
     router=APIRouter(prefix=base_path)
     app.state.engine, app.state.config = engine, cfg
@@ -172,6 +179,33 @@ def create_app(settings=None, *, db_path=None, demo=False, bot_token=None,
     async def board(request: Request):
         await authenticated(request)
         return {'players':engine.leaderboard()}
+
+    @router.post('/api/dungeon/runs')
+    async def dungeon_start(request: Request, body: dict):
+        admission=await authenticated(request)
+        if body or dungeon is None:
+            raise HTTPException(422,'no_client_score_or_rules')
+        try:
+            return dungeon.start(admission)
+        except GameError as error:
+            raise HTTPException(409,str(error)) from None
+
+    @router.post('/api/dungeon/runs/{run_id}/choose')
+    async def dungeon_choose(run_id: str, body: Pick, request: Request):
+        admission=await authenticated(request)
+        if dungeon is None:
+            raise HTTPException(503,'disabled')
+        try:
+            return dungeon.choose(admission,run_id,body.pick)
+        except GameError as error:
+            raise HTTPException(409,str(error)) from None
+
+    @router.get('/api/dungeon/leaderboard')
+    async def dungeon_board(request: Request):
+        await authenticated(request)
+        if dungeon is None:
+            raise HTTPException(503,'disabled')
+        return {'players':dungeon.leaderboard(),'week':dungeon.week()}
 
     app.include_router(router)
     return app
