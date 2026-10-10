@@ -33,8 +33,9 @@ async def open_arcade(update, context):
         topics={row['topic_id'] for row in await context.bot_data['db'].get_verified_forum_topics()}
         if message.message_thread_id not in topics:
             return
+        link=deep_link('arcade') or f"https://t.me/{context.bot.username}?start=arcade"
         markup=InlineKeyboardMarkup([[InlineKeyboardButton(load_copy('arcade','bot_private'),
-                                                          url=deep_link('arcade'))]])
+                                                          url=link)]])
         await safe_send(context.bot,context.bot_data['db'],'send_message',chat_id=GROUP_ID,
             message_thread_id=message.message_thread_id,text=load_copy('arcade','bot_entry'),
             reply_to_message_id=message.message_id,reply_markup=markup,disable_notification=True)
