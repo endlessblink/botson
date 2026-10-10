@@ -57,10 +57,14 @@ def run(coro_factory, tmp_path):
 
 
 def guard(db, *, row_id=5, text="post", message_type="custom", group="main",
-          when=None, sending_now=False, request=None):
+          when=None, sending_now=False, request=None, receipt=True):
     when = when or datetime.now(ZoneInfo("Asia/Jerusalem"))
+    request = request or agent_request()
+    if receipt and "x-content-check-receipt" not in request.headers:
+        request.headers["x-content-check-receipt"] = dash._sign_content_gate(
+            int(__import__("time").time()), dash._content_gate_digest(text))
     return dash._agent_publish_guard(
-        request or agent_request(), db, row_id=row_id, text=text, message_type=message_type,
+        request, db, row_id=row_id, text=text, message_type=message_type,
         target_group=group, scheduled_date=when.strftime("%Y-%m-%d"),
         scheduled_time=when.strftime("%H:%M"), sending_now=sending_now,
     )
@@ -221,10 +225,58 @@ def test_picture_riddle_and_answer_reveal_skip_the_discussion_rubric(env):
         )
         # A text-only poll is still reviewed.
         with pytest.raises(HTTPException):
+            plain = agent_request()
+            plain.headers["x-content-check-receipt"] = dash._sign_content_gate(
+                int(__import__("time").time()), dash._content_gate_digest("plain poll"))
             await dash._agent_publish_guard(
-                agent_request(), db, row_id=13, text="plain poll", message_type="poll", target_group="main",
+                plain, db, row_id=13, text="plain poll", message_type="poll", target_group="main",
                 scheduled_date=when.strftime("%Y-%m-%d"), scheduled_time=when.strftime("%H:%M"),
                 sending_now=False, poll_options='["A", "B"]',
             )
     run(body, tmp_path)
     review.assert_awaited_once()
+
+
+def test_post_without_content_check_receipt_is_refused_even_when_operator_approved(env):
+    tmp_path, review = env
+    request = agent_request()
+    request.headers["x-operator-approved"] = "true"
+
+    async def body(db):
+        with pytest.raises(HTTPException) as error:
+            await guard(db, text="approved but never checked", request=request, receipt=False)
+        return error.value.status_code
+    assert run(body, tmp_path) == 428
+
+
+def test_receipt_for_other_text_is_refused(env):
+    tmp_path, review = env
+    request = agent_request()
+    request.headers["x-content-check-receipt"] = dash._sign_content_gate(
+        int(__import__("time").time()), dash._content_gate_digest("a different text entirely"))
+
+    async def body(db):
+        with pytest.raises(HTTPException) as error:
+            await guard(db, text="the text that was actually sent", request=request)
+        return error.value.status_code
+    assert run(body, tmp_path) == 428
+
+
+def test_content_check_rejects_repeat_of_recent_post_and_passes_fresh_text(env):
+    tmp_path, review = env
+
+    async def body(db):
+        today = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
+        await db.create_scheduled_message(
+            message_type="custom", text="איזו סדרה הפחידה אתכם הכי הרבה השנה שם אחד",
+            channel_topic_id=54, target_group="main", scheduled_date=today,
+            scheduled_time="23:59", created_by="test", status="scheduled")
+        with pytest.raises(HTTPException) as error:
+            await dash.agent_content_check(
+                agent_request(), {"text": "איזו סדרה הכי הפחידה אתכם השנה שם אחד"}, db)
+        assert error.value.status_code == 422
+        ok = await dash.agent_content_check(
+            agent_request(), {"text": "הצעת נישואין מוזרה בכל רחבי העולם בתוך המעלית"}, db)
+        return ok
+    ok = run(body, tmp_path)
+    assert ok["passed"] and ok["receipt"].startswith("g1.")

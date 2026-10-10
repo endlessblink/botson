@@ -476,6 +476,44 @@ async def _agent_rejections(db: Database, *, since: str, row_id: int | None = No
     return int(row[0] if row else 0)
 
 
+CONTENT_GATE_TTL_HOURS = 48
+CONTENT_GATE_HISTORY_DAYS = 56
+
+
+def _content_gate_digest(text: str) -> str:
+    from bot.utils.freshness import hebrew_normalize
+
+    return hashlib.sha256(hebrew_normalize(text or "").encode("utf-8")).hexdigest()[:24]
+
+
+def _sign_content_gate(issued_at: int, digest: str) -> str:
+    secret = os.getenv("BOTSON_AGENT_API_TOKEN", "").encode()
+    payload = f"g1.{issued_at}.{digest}"
+    return f"{payload}.{hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()[:32]}"
+
+
+def _require_content_gate_receipt(request: Request, text: str) -> None:
+    """Agent posts to the group must carry a receipt proving this exact text
+    already passed POST /api/agent/content-check (history repeat + quality
+    review). Operator approval does not replace it: approval is asked only
+    for items that already cleared the gate."""
+    receipt = (getattr(request, "headers", {}) or {}).get("x-content-check-receipt", "").strip()
+    parts = receipt.split(".")
+    if len(parts) != 4 or parts[0] != "g1" or not parts[1].isdigit():
+        raise HTTPException(
+            status_code=428,
+            detail="Run POST /api/agent/content-check on this exact text first and send its "
+                   "receipt as X-Content-Check-Receipt",
+        )
+    issued_at = int(parts[1])
+    if (not hmac.compare_digest(_sign_content_gate(issued_at, parts[2]), receipt)
+            or parts[2] != _content_gate_digest(text)):
+        raise HTTPException(status_code=428, detail="Content-check receipt does not match this text")
+    if time.time() - issued_at > CONTENT_GATE_TTL_HOURS * 3600:
+        raise HTTPException(status_code=428, detail="Content-check receipt expired; run the check again")
+
+
+
 async def _agent_publish_guard(
     request: Request,
     db: Database,
@@ -524,6 +562,8 @@ async def _agent_publish_guard(
 
     if _quiz_marker(poll_options) or (message_type == "poll" and cover_path):
         return
+    # Hard gate: the text must have passed the content check, approval or not.
+    _require_content_gate_receipt(request, text)
     # The operator reviewed this exact post and approved it (the agent says so
     # with the X-Operator-Approved header). Operator approval outranks the
     # automated reviewer and its daily budget; every use is logged for audit.
@@ -13657,6 +13697,39 @@ async def get_agent_calendar(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail="date range must be ordered and no longer than 94 days")
     rows = await db.get_scheduled_messages(date_from, date_to, include_cancelled=True)
     return {"start": date_from, "end": date_to, "items": rows}
+
+
+@app.post("/api/agent/content-check")
+async def agent_content_check(request: Request, body: dict, db: Database = Depends(get_db)):
+    """Pre-flight for agent-written group content. Rejects a repeat of anything
+    posted or scheduled in the last eight weeks (same subject or same shape,
+    not only the same words) and then runs the quality review. A pass returns
+    the receipt every later draft/schedule call must carry."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="Agent API token required")
+    from bot.utils.freshness import hebrew_normalize, near_duplicate
+
+    text = str(body.get("text") or "").strip()
+    if len(text) < 10:
+        raise HTTPException(status_code=422, detail="Text too short to check")
+    today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
+    rows = await db.get_scheduled_messages(
+        (today - timedelta(days=CONTENT_GATE_HISTORY_DAYS)).isoformat(),
+        (today + timedelta(days=14)).isoformat(),
+    )
+    history = [str(r.get("text") or "") for r in rows if r.get("message_type") not in {"quiz_reveal"}]
+    repeat = near_duplicate(text, history, threshold=0.4)
+    if repeat:
+        raise HTTPException(status_code=422, detail=f"Repeat of an earlier post: {repeat[:120]}")
+    opener = " ".join(hebrew_normalize(text).split()[:2])
+    if opener and sum(1 for t in history if " ".join(hebrew_normalize(t).split()[:2]) == opener) >= 2:
+        raise HTTPException(status_code=422, detail="Same opening shape as two or more recent posts")
+    passed, reason = await _review_discussion_quality(text, category=str(body.get("message_type") or "custom"), recent_texts=history[-60:])
+    if not passed:
+        raise HTTPException(status_code=422, detail=f"Quality review rejected this post: {reason}")
+    issued = int(time.time())
+    digest = _content_gate_digest(text)
+    return {"passed": True, "receipt": _sign_content_gate(issued, digest)}
 
 
 @app.get("/api/agent/community/messages")
