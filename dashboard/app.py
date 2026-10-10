@@ -1595,6 +1595,19 @@ async def _run_whatsapp_summary_job(job_id: str, prompt: str) -> None:
     except Exception as exc:
         job.update(status="failed", error=str(exc)[:300])
         logger.warning("whatsapp summary job %s failed after %.1fs: %s", job_id, time.monotonic() - started, exc)
+        # Members only see a light "try later" line, so the operator must hear
+        # about it (e.g. the Codex login expired).
+        try:
+            from telegram import Bot
+            from bot.utils.admin_alerts import notify_admins
+            from bot.utils.copy import load_copy
+
+            await notify_admins(
+                Bot(os.getenv("BOT_TOKEN", "")),
+                load_copy("whatsapp", "summary_failed_alert", reason=redact_sensitive(str(exc))[:200]),
+            )
+        except Exception:
+            logger.warning("whatsapp summary failure alert could not be sent", exc_info=True)
 
 
 @app.post("/api/agent/whatsapp/summary")
@@ -13990,14 +14003,17 @@ async def create_calendar_item(request: Request, db: Database = Depends(get_db))
     elif message_type in {"free_games", "facts_tidbit", "facts_spooky", "weekly_roundup", "weekly_leaderboard"} and not raw_topic:
         routing = await db.get_handler_routing(message_type)
         channel_topic_id = routing["play_topic_id"] if routing and routing.get("play_topic_id") is not None else raw_topic
-    from bot.utils.whatsapp_sender import SUPPORTED_TYPES as _WA_TYPES, is_whatsapp_target
+    from bot.utils.whatsapp_sender import is_whatsapp_target
 
     if is_whatsapp_target(target_group):
-        if message_type not in _WA_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{message_type}' is not available on WhatsApp yet (supported: {sorted(_WA_TYPES)})",
-            )
+        from bot.utils.whatsapp_sender import row_problem as _wa_row_problem
+
+        problem = _wa_row_problem(
+            target_group, message_type, text=data["text"],
+            poll_options=poll_options, cover_path=data.get("cover_path"),
+        )
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
         channel_topic_id = None  # WhatsApp groups have no forum topics
     if message_type in {"morning", "evening", "discussion"}:
         _reject_bad_planner_text(data["text"])
@@ -14132,21 +14148,25 @@ async def update_calendar_item(msg_id: int, request: Request, db: Database = Dep
     fields = {k: v for k, v in data.items() if k in allowed}
     if "target_group" in fields:
         fields["target_group"] = _validated_target_group(fields["target_group"])
-        from bot.utils.whatsapp_sender import SUPPORTED_TYPES as _WA_TYPES, is_whatsapp_target
+        from bot.utils.whatsapp_sender import is_whatsapp_target
 
         if is_whatsapp_target(fields["target_group"]):
-            effective_type = data.get("message_type")
-            if effective_type is None:
-                async with db._db.execute(
-                    "SELECT message_type FROM scheduled_messages WHERE id = ?", (msg_id,),
-                ) as cur:
-                    row = await cur.fetchone()
-                effective_type = (row["message_type"] if row else None) or "custom"
-            if effective_type not in _WA_TYPES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"'{effective_type}' is not available on WhatsApp yet (supported: {sorted(_WA_TYPES)})",
-                )
+            from bot.utils.whatsapp_sender import row_problem as _wa_row_problem
+
+            async with db._db.execute(
+                "SELECT message_type, text, poll_options, cover_path FROM scheduled_messages WHERE id = ?", (msg_id,),
+            ) as cur:
+                row = await cur.fetchone()
+            current = dict(row) if row else {}
+            problem = _wa_row_problem(
+                fields["target_group"],
+                data.get("message_type") or current.get("message_type") or "custom",
+                text=data.get("text", current.get("text") or ""),
+                poll_options=data.get("poll_options", current.get("poll_options")),
+                cover_path=data.get("cover_path", current.get("cover_path")),
+            )
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
             fields["channel_topic_id"] = None  # WhatsApp groups have no forum topics
     if "text" in fields or "message_type" in fields:
         # REG-T155-a fix: when the body sends only `text` (no message_type),

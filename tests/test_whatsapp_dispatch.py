@@ -121,10 +121,27 @@ class WhatsAppDashboardTests(unittest.IsolatedAsyncioTestCase):
 
         db, msg_id = await self._db_with_row("custom")
         try:
-            await dashboard_app.update_calendar_item(msg_id, FakeCalendarRequest({"target_group": "whatsapp"}), db)
+            with patch.dict("os.environ", WA_ENV):
+                await dashboard_app.update_calendar_item(msg_id, FakeCalendarRequest({"target_group": "whatsapp"}), db)
             row = await self._row(db, msg_id)
             self.assertEqual(row["target_group"], "whatsapp")
             self.assertIsNone(row["channel_topic_id"])
+        finally:
+            await db.close()
+            self._tmp.close()
+
+    async def test_edit_to_unconfigured_whatsapp_group_is_refused(self):
+        from dashboard import app as dashboard_app
+        from test_planner_coercion_and_chips import FakeCalendarRequest
+
+        db, msg_id = await self._db_with_row("custom")
+        try:
+            with patch.dict("os.environ", {**WA_ENV, "WHATSAPP_GROUP_ID": ""}):
+                with self.assertRaises(HTTPException) as ctx:
+                    await dashboard_app.update_calendar_item(msg_id, FakeCalendarRequest({"target_group": "whatsapp"}), db)
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("not set up", ctx.exception.detail)
+            self.assertEqual((await self._row(db, msg_id))["target_group"], "main")
         finally:
             await db.close()
             self._tmp.close()
@@ -204,7 +221,9 @@ class WhatsAppSummaryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_summary_rejects_empty_input_and_reports_codex_failure(self):
         from dashboard import app as dashboard_app
 
-        with patch.dict("os.environ", {"BOTSON_AGENT_API_TOKEN": "tok"}), \
+        alert = AsyncMock(return_value=1)
+        with patch.dict("os.environ", {"BOTSON_AGENT_API_TOKEN": "tok", "BOT_TOKEN": "123:test"}), \
+             patch("bot.utils.admin_alerts.notify_admins", new=alert), \
              patch.object(dashboard_app, "_generate_via_codex_cli", new=AsyncMock(side_effect=RuntimeError("down"))):
             with self.assertRaises(HTTPException) as ctx:
                 await dashboard_app.whatsapp_summary(self._req("tok", {"instructions": "x", "lines": []}))
@@ -215,9 +234,48 @@ class WhatsAppSummaryEndpointTests(unittest.IsolatedAsyncioTestCase):
             result = await dashboard_app.whatsapp_summary_status(started["job_id"], self._req("tok", {}))
             self.assertEqual(result["status"], "failed")
             self.assertNotIn("summary", result)
+            alert.assert_awaited_once()  # operator hears about it; members only see a light line
             with self.assertRaises(HTTPException) as ctx:
                 await dashboard_app.whatsapp_summary_status("nope", self._req("tok", {}))
             self.assertEqual(ctx.exception.status_code, 404)
+
+
+class WhatsAppEdgeCaseTests(unittest.TestCase):
+    def test_multiline_hebrew_is_rtl_with_invisible_last_line(self):
+        out = whatsapp_sender.rtl_text("שורה ראשונה\nAI בשורה שנייה\n\nסוף")
+        lines = out.split("\n")
+        self.assertEqual(lines[0], "‏שורה ראשונה‏")
+        self.assertEqual(lines[1], "‏AI בשורה שנייה‏")
+        self.assertEqual(lines[2], "")
+        self.assertEqual(lines[-1], "‏")
+
+    def test_poll_limits(self):
+        p = whatsapp_sender.poll_problem
+        self.assertIsNone(p("שאלה", ["א", "ב"]))
+        self.assertIn("at least", p("שאלה", ["א"]))
+        self.assertIn("at most", p("שאלה", [str(i) for i in range(13)]))
+        self.assertIn("unique", p("שאלה", ["א", "א"]))
+        self.assertIn("100", p("שאלה", ["א", "ב" * 101]))
+        self.assertIn("255", p("ש" * 256, ["א", "ב"]))
+
+    def test_row_problems_are_caught_before_scheduling(self):
+        rp = whatsapp_sender.row_problem
+        with patch.dict("os.environ", WA_ENV):
+            self.assertIsNone(rp("whatsapp", "discussion", text="שאלה"))
+            self.assertIn("not available", rp("whatsapp", "trivia_round"))
+            self.assertIn("images", rp("whatsapp", "custom", cover_path="covers/x.png"))
+            self.assertIn("at least", rp("whatsapp", "poll", text="ש", poll_options='["רק אחד"]'))
+            self.assertIsNone(rp("whatsapp", "poll", text="ש", poll_options=["א", "ב"]))
+        with patch.dict("os.environ", {**WA_ENV, "WHATSAPP_GROUP_ID": ""}):
+            self.assertIn("not set up", rp("whatsapp", "custom"))
+
+    def test_invalid_poll_fails_at_send_instead_of_posting(self):
+        import asyncio as _asyncio
+
+        with patch.dict("os.environ", WA_ENV), patch.object(whatsapp_sender, "_post", new=AsyncMock()) as post:
+            with self.assertRaises(ValueError):
+                _asyncio.run(whatsapp_sender.send_poll("111@g.us", "ש", ["א"]))
+            post.assert_not_called()
 
 
 class WhatsAppTargetValidationTests(unittest.TestCase):

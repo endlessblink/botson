@@ -2476,11 +2476,9 @@ async function scheduleMsg() {
                 poll_duration: wizardState.type === 'poll' ? wizardState.pollDuration : undefined,
             };
             if (wizardState.openedFromDraft) putBody.status = 'scheduled';
-            await fetch('/api/calendar/' + wizardState.editingId, {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(putBody)
-            });
+            // apiCall throws with the server's reason (e.g. a type WhatsApp can't
+            // take) instead of reporting "updated" on a refused edit.
+            await apiCall('/api/calendar/' + wizardState.editingId, putBody, 'PUT');
             showToast('עודכן');
         } else {
             // Create new message via POST
@@ -2501,7 +2499,10 @@ async function scheduleMsg() {
         }
         calendar.refetchEvents();
         closeDrawer();
-    } catch (e) { showToast('שגיאה', 'error'); }
+    } catch (e) {
+        var reason = (e && e.message && e.message.indexOf('[object') !== 0) ? e.message : '';
+        showToast(reason ? ('שגיאה: ' + reason) : 'שגיאה', 'error');
+    }
 }
 
 // ─── Save as draft from anywhere in the wizard ───

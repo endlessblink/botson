@@ -146,6 +146,10 @@ copy:
   # rejected by the send-time quality gate AND the automatic fresh replacement
   # was also rejected — i.e. the slot posted nothing. {slot} and {reason} are
   # filled by the dispatcher.
+  # WhatsApp (via Botty). Admin DM when a member asked Botty for a summary and
+  # Botson's Codex generation failed. {reason} is filled by the dashboard.
+  whatsapp:
+    summary_failed_alert: "⚠️ תקציר וואטסאפ נכשל.\nחבר/ה ביקש/ה תקציר מבוטי ובוטסון לא הצליח לכתוב אותו.\nסיבה: {reason}"
   calendar:
     dispatch_failed_alert: "⚠️ הודעה מתוזמנת נכשלה בשליחה.\nמזהה: {message_id}\nסוג: {message_type}\nסלוט: {slot}\nשגיאה: {reason}"
     # Send-time block of an approved post — only hard rules (banned fragment / recent duplicate) can do this.

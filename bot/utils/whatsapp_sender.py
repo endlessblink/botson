@@ -104,11 +104,76 @@ async def confirm_delivery(chat_id: str, msg_id: str | None, *, attempts: int = 
     return ack
 
 
+RLM = "‏"
+
+# WhatsApp poll limits (the app rejects or truncates beyond these).
+POLL_MAX_OPTIONS = 12
+POLL_MIN_OPTIONS = 2
+POLL_OPTION_MAX_CHARS = 100
+POLL_QUESTION_MAX_CHARS = 255
+
+
+def rtl_text(text: str) -> str:
+    """Lay out Hebrew text right-to-left in WhatsApp.
+
+    Each non-empty line is wrapped in right-to-left marks, and the message ends
+    with an invisible RLM-only line: WhatsApp renders a message's final line LTR
+    beside the timestamp, so that line takes the flip instead of real content
+    (verified visually in the Botty test group, 2026-10-09).
+    """
+    lines = [f"{RLM}{line}{RLM}" if line.strip() else line for line in str(text or "").split("\n")]
+    return "\n".join(lines) + f"\n{RLM}"
+
+
+def poll_problem(question: str, options: list[str]) -> str | None:
+    """Why WhatsApp would reject this poll, or None when it fits."""
+    if len(options) < POLL_MIN_OPTIONS:
+        return f"WhatsApp polls need at least {POLL_MIN_OPTIONS} options"
+    if len(options) > POLL_MAX_OPTIONS:
+        return f"WhatsApp polls allow at most {POLL_MAX_OPTIONS} options"
+    if len(set(options)) != len(options):
+        return "WhatsApp poll options must be unique"
+    if any(len(o) > POLL_OPTION_MAX_CHARS for o in options):
+        return f"WhatsApp poll options are limited to {POLL_OPTION_MAX_CHARS} characters"
+    if len(question or "") > POLL_QUESTION_MAX_CHARS:
+        return f"WhatsApp poll questions are limited to {POLL_QUESTION_MAX_CHARS} characters"
+    return None
+
+
+def row_problem(target: str, message_type: str, *, text: str = "", poll_options=None, cover_path: str | None = None) -> str | None:
+    """Why a calendar row can't go to this WhatsApp target, checked at create/edit
+    time so the operator hears it immediately instead of at send time."""
+    if message_type not in SUPPORTED_TYPES:
+        return f"'{message_type}' is not available on WhatsApp yet (supported: {sorted(SUPPORTED_TYPES)})"
+    if cover_path:
+        return "images are not sent to WhatsApp yet; remove the image or post to Telegram"
+    try:
+        resolve_chat_id(target)
+    except WhatsAppNotConfigured:
+        return f"WhatsApp target '{target}' is not set up yet"
+    if message_type == "poll":
+        opts = poll_options if isinstance(poll_options, list) else []
+        if not opts and isinstance(poll_options, str):
+            import json
+
+            try:
+                parsed = json.loads(poll_options)
+                opts = parsed if isinstance(parsed, list) else []
+            except ValueError:
+                opts = []
+        opts = [str(o).strip() for o in opts if str(o).strip()]
+        return poll_problem(text, opts)
+    return None
+
+
 async def send_text(chat_id: str, text: str) -> str | None:
-    return await _post("/api/sendText", {"chatId": chat_id, "text": text})
+    return await _post("/api/sendText", {"chatId": chat_id, "text": rtl_text(text)})
 
 
 async def send_poll(chat_id: str, question: str, options: list[str]) -> str | None:
+    problem = poll_problem(question, options)
+    if problem:
+        raise ValueError(problem)
     return await _post(
         "/api/sendPoll",
         {"chatId": chat_id, "poll": {"name": question, "options": options, "multipleAnswers": False}},
