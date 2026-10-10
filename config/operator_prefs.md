@@ -89,6 +89,14 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-05-16 — operator: "humor-as-discussion-question doesn't work; remove channel from rotation or generate jokes instead."_
 - חידה שמוגדרת "קשה" לא מאיירת את שם השיר, הסרט או היצירה ולא מתרגמת אותו לתמונה. הרמז מגיע ממשהו שרק מי שמכיר יודע — הקליפ, שורה מהמילים (לא השם), עטיפת האלבום, היסטוריית היוצרים או אסוציאציה עקיפה — והמסיחים בנויים באותו היגיון, כך שקריאה מילולית של התמונה לא מספיקה כדי לפתור.
   _**Source:** music room feedback relayed by operator, 2026-09-30 — a member showed a "super hard" image riddle was solvable without knowing the song because the image illustrated the title; operator: "when I ask for a hard question it shouldn't be like this."_
+- שאלת סקר גנרית ("מה אתם עושים כש...", "איזה סוג X אתם אוהבים", "מה אתם דוחים") משעממת ופסולה. נדרש תרחיש קונקרטי, התלבטות חדה, משחק קטן או פורמט שובב עם זווית אמיתית.
+  _**Source:** chat via /teach-bot, 2026-10-10 — operator rejected several week-plan candidates as boring survey-style questions with bad wording._
+- לפני שמציעים שאלה בודקים אותה מול מה שהבוט כבר פרסם בשמונה השבועות האחרונים ומול מה שהחברים כבר דנו בו. אותה צורה או אותו נושא = חזרה, גם בלי אותן מילים.
+  _**Source:** chat via /teach-bot, 2026-10-10 — operator asked why questions that were already asked keep coming back._
+- אל תבססו פוסט על נושא שרק חלק מהקבוצה מתחבר אליו (למשל סדרות מפחידות), ואל תחיו שיחה שכבר נדונה (למשל מעבר לחו"ל).
+  _**Source:** chat via /teach-bot, 2026-10-10 — operator rejected a niche-theme question and a topic already discussed._
+- חידת תמונה: הסוכן סוקר בעצמו את התמונה ומוודא שחובבי הסרט מזהים אותו בבירור לפני שמתזמנים. המפעיל לא רואה את התמונה או את התשובה.
+  _**Source:** chat via /teach-bot, 2026-10-10 — operator wants to play along but the riddles must be good enough; a first image did not look like its film._
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
