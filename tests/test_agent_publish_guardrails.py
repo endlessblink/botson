@@ -62,7 +62,7 @@ def guard(db, *, row_id=5, text="post", message_type="custom", group="main",
     request = request or agent_request()
     if receipt and "x-content-check-receipt" not in request.headers:
         request.headers["x-content-check-receipt"] = dash._sign_content_gate(
-            int(__import__("time").time()), dash._content_gate_digest(text))
+            int(__import__("time").time()), dash._content_gate_digest(text, dash._content_platform(group)))
     return dash._agent_publish_guard(
         request, db, row_id=row_id, text=text, message_type=message_type,
         target_group=group, scheduled_date=when.strftime("%Y-%m-%d"),
@@ -280,3 +280,41 @@ def test_content_check_rejects_repeat_of_recent_post_and_passes_fresh_text(env):
         return ok
     ok = run(body, tmp_path)
     assert ok["passed"] and ok["receipt"].startswith("g1.")
+
+
+def test_telegram_post_may_be_copied_to_whatsapp_but_not_repeated_there(env):
+    tmp_path, review = env
+    text = "מה הכי מעצבן בדייט ראשון לדעתכם?"
+
+    async def body(db):
+        today = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
+        await db.create_scheduled_message(
+            message_type="poll", text=text, channel_topic_id=59, target_group="main",
+            scheduled_date=today, scheduled_time="23:58", created_by="test", status="sent")
+        with pytest.raises(HTTPException) as again_on_telegram:
+            await dash.agent_content_check(agent_request(), {"text": text}, db)
+        copied = await dash.agent_content_check(
+            agent_request(), {"text": text, "target_group": "whatsapp"}, db)
+        await db.create_scheduled_message(
+            message_type="poll", text=text, channel_topic_id=None, target_group="whatsapp",
+            scheduled_date=today, scheduled_time="23:59", created_by="test", status="scheduled")
+        with pytest.raises(HTTPException) as again_on_whatsapp:
+            await dash.agent_content_check(
+                agent_request(), {"text": text, "target_group": "whatsapp"}, db)
+        return again_on_telegram.value.status_code, copied, again_on_whatsapp.value.status_code
+    tg, copied, wa = run(body, tmp_path)
+    assert tg == 422 and wa == 422 and copied["passed"]
+
+
+def test_whatsapp_receipt_does_not_clear_a_telegram_post(env):
+    tmp_path, review = env
+    text = "פוסט שנבדק רק בשביל וואטסאפ"
+    request = agent_request()
+    request.headers["x-content-check-receipt"] = dash._sign_content_gate(
+        int(__import__("time").time()), dash._content_gate_digest(text, "whatsapp"))
+
+    async def body(db):
+        with pytest.raises(HTTPException) as error:
+            await guard(db, text=text, group="main", request=request)
+        return error.value.status_code
+    assert run(body, tmp_path) == 428

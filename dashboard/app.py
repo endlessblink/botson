@@ -480,10 +480,20 @@ CONTENT_GATE_TTL_HOURS = 48
 CONTENT_GATE_HISTORY_DAYS = 56
 
 
-def _content_gate_digest(text: str) -> str:
+def _content_platform(target_group: str | None) -> str:
+    """Telegram and WhatsApp are separate audiences: the repeat check compares a
+    post only with earlier posts on the same app."""
+    from bot.utils.whatsapp_sender import is_whatsapp_target
+
+    return "whatsapp" if is_whatsapp_target(target_group) else "telegram"
+
+
+def _content_gate_digest(text: str, platform: str = "telegram") -> str:
     from bot.utils.freshness import hebrew_normalize
 
-    return hashlib.sha256(hebrew_normalize(text or "").encode("utf-8")).hexdigest()[:24]
+    # A receipt is bound to its app, so a WhatsApp pass cannot clear a Telegram post.
+    key = hebrew_normalize(text or "") if platform == "telegram" else f"{platform}:{hebrew_normalize(text or '')}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
 
 
 def _sign_content_gate(issued_at: int, digest: str) -> str:
@@ -492,7 +502,7 @@ def _sign_content_gate(issued_at: int, digest: str) -> str:
     return f"{payload}.{hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()[:32]}"
 
 
-def _require_content_gate_receipt(request: Request, text: str) -> None:
+def _require_content_gate_receipt(request: Request, text: str, target_group: str | None = None) -> None:
     """Agent posts to the group must carry a receipt proving this exact text
     already passed POST /api/agent/content-check (history repeat + quality
     review). Operator approval does not replace it: approval is asked only
@@ -507,7 +517,7 @@ def _require_content_gate_receipt(request: Request, text: str) -> None:
         )
     issued_at = int(parts[1])
     if (not hmac.compare_digest(_sign_content_gate(issued_at, parts[2]), receipt)
-            or parts[2] != _content_gate_digest(text)):
+            or parts[2] != _content_gate_digest(text, _content_platform(target_group))):
         raise HTTPException(status_code=428, detail="Content-check receipt does not match this text")
     if time.time() - issued_at > CONTENT_GATE_TTL_HOURS * 3600:
         raise HTTPException(status_code=428, detail="Content-check receipt expired; run the check again")
@@ -563,7 +573,7 @@ async def _agent_publish_guard(
     if _quiz_marker(poll_options) or (message_type == "poll" and cover_path):
         return
     # Hard gate: the text must have passed the content check, approval or not.
-    _require_content_gate_receipt(request, text)
+    _require_content_gate_receipt(request, text, target_group)
     # The operator reviewed this exact post and approved it (the agent says so
     # with the X-Operator-Approved header). Operator approval outranks the
     # automated reviewer and its daily budget; every use is logged for audit.
@@ -13712,12 +13722,17 @@ async def agent_content_check(request: Request, body: dict, db: Database = Depen
     text = str(body.get("text") or "").strip()
     if len(text) < 10:
         raise HTTPException(status_code=422, detail="Text too short to check")
+    platform = _content_platform(body.get("target_group"))
     today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
     rows = await db.get_scheduled_messages(
         (today - timedelta(days=CONTENT_GATE_HISTORY_DAYS)).isoformat(),
         (today + timedelta(days=14)).isoformat(),
     )
-    history = [str(r.get("text") or "") for r in rows if r.get("message_type") not in {"quiz_reveal"}]
+    history = [
+        str(r.get("text") or "") for r in rows
+        if r.get("message_type") not in {"quiz_reveal"}
+        and _content_platform(r.get("target_group")) == platform
+    ]
     repeat = near_duplicate(text, history, threshold=0.4)
     if repeat:
         raise HTTPException(status_code=422, detail=f"Repeat of an earlier post: {repeat[:120]}")
@@ -13728,7 +13743,7 @@ async def agent_content_check(request: Request, body: dict, db: Database = Depen
     if not passed:
         raise HTTPException(status_code=422, detail=f"Quality review rejected this post: {reason}")
     issued = int(time.time())
-    digest = _content_gate_digest(text)
+    digest = _content_gate_digest(text, platform)
     return {"passed": True, "receipt": _sign_content_gate(issued, digest)}
 
 
