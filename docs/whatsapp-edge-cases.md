@@ -9,7 +9,7 @@ Botson tests: `tests/test_whatsapp_dispatch.py`.
 
 | Case | Handling | Test |
 |---|---|---|
-| `@בוטי תקציר` (real mention, `@number`, or typed `@בוטי`) | "Working" reply (deleted after), then a summary of what was written since the previous one | tagging the bot posts a summary; the working message is deleted |
+| `@בוטי תקציר` (real mention, `@number`, or typed `@בוטי`) | "Working" reply at once, before the slow history read (deleted after, whatever the outcome), then a summary of what was written since the previous one. A summary request is always answered | tagging the bot posts a summary; the working message is deleted |
 | `תקציר` without a tag | Ignored | the keyword alone, without a tag, does nothing |
 | Tag with anything else (question, "help", insult, "מה קורה") | First time that day: explanation (only `@בוטי תקציר`, once a day, more later). Then silent that day | a tag that is not תקציר gets the explanation |
 | Same member tags again and again | Silent after the explanation; resets next Israel day | same test |
@@ -28,11 +28,12 @@ Botson tests: `tests/test_whatsapp_dispatch.py`.
 
 | Case | Handling | Test |
 |---|---|---|
+| Reading the group history is slow (~22s measured 2026-10-11; a 20s limit broke summaries) | History read gets 90s; a test fails if the limit drops below 60s |
 | WAHA delivers the same message twice | Deduplicated by message id | duplicate deliveries |
 | Reconnect replays old tags | Tags older than 10 min ignored | replayed old tags |
 | AI slow (>100s Cloudflare limit) | Botson runs a background job; Botty polls up to 4 min | Botson summarizer polls |
 | Botson restarts mid-job | Poll gets 404 → stop at once → light failure line | stops waiting at once |
-| Codex / Botson fails | Members get a light line (once, then the explanation); operator gets a Telegram alert | failure tests (both repos) |
+| Codex / Botson / WhatsApp fails | Members always get a light line (never the technical reason); the operator gets the reason in the test group (and a Telegram alert when Botson itself failed) | failure tests (both repos) |
 | A failed summary | Doesn't mark anything as summarized; the next request retries | a failed summary does not use up the allowance |
 | Model adds headings, `**bold**`, links, numbering, blank lines | Stripped and rebuilt as clean points | model markdown and headings are cleaned |
 | Model output too long | Capped at 8 points / 1500 chars, whole points only | capped on whole points |
@@ -41,7 +42,7 @@ Botson tests: `tests/test_whatsapp_dispatch.py`.
 | Very long member message | Shortened to 600 chars, not dropped | long member messages are shortened |
 | Media-only / deleted messages | Not in the transcript | transcript test |
 | Botty only sees messages since it joined (2026-10-09) | Summary covers what exists; grows to 400 over time | — |
-| Little or no conversation since the last summary | No new summary, no "working" message, no AI call; Botty points at the previous summary | too little new since the last summary |
+| Little or no conversation since the last summary | No new summary, no AI call; the working message is removed and Botty points at the previous summary | too little new since the last summary |
 | A later summary | Covers only messages after the previous summary (header says so) | a later summary covers only what was written since |
 | Tags to Botty inside the conversation | Left out of what gets summarized | tags to Botty are not part of what gets summarized |
 | Someone shared something personal (health, family, money…) | Prompt: mention that a personal share happened, no details, no name | prompt in config |
