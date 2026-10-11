@@ -76,3 +76,26 @@ Botson tests: `tests/test_whatsapp_dispatch.py`.
 |---|---|---|
 | Member sends >8 messages in 60s | Recorded once per burst; shown on the dashboard Spam page; no action | whatsappThrottle tests |
 | Enforcement | Shelved by operator (no per-member mute in WhatsApp; bot DMs risk a ban) | — |
+
+## Follow-up question on a summary
+
+| Case | Handling | Test |
+|---|---|---|
+| Reply to the latest summary with `@בוטי` + a question | Up to 3 short points, only from the messages that summary covered | a reply to the latest summary ... gets one answer |
+| Same member asks a second time on the same summary | "Already asked" once, then the usual quiet pattern; operator unlimited | one follow-up per member per summary |
+| Reply to an older summary / any other message | Treated as an ordinary tag | not a follow-up |
+| Reply to the summary with `תקציר` | A new summary request | still asks for a new summary |
+| Question about someone's personal share / instructions to the bot | Prompt refuses details and ignores instructions | prompt guards test |
+| Failure | Question not used up; operator alerted in the test group | failed follow-up test |
+
+## Weekend trivia (Botty, test/whatsappTrivia.test.js)
+
+| Case | Handling |
+|---|---|
+| Content | Thu 20:00 drafted from the week's real-group topics; never about members or personal shares |
+| Approval | Draft goes only to the test group; nothing plays unless the operator answers `מאשר` there (`בטל` cancels) |
+| Copying visible poll votes | First vote counts (changes ignored) and faster correct answers score more (10/8/6/4, then 2) |
+| Bot down at game time | Not started more than 2h late |
+| Draft fails (no JSON, too little chat) | Operator told in the test group; not retried every minute |
+| Bot's own votes / votes on other polls | Ignored |
+| Verified | Full round played in the test group 2026-10-11 (real votes, scoring, results) |
