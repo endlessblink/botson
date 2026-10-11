@@ -46,6 +46,15 @@ CREATE TABLE IF NOT EXISTS recent_community_messages (
 CREATE INDEX IF NOT EXISTS idx_recent_community_messages_expiry
     ON recent_community_messages(chat_id, expires_at, occurred_at);
 
+CREATE TABLE IF NOT EXISTS community_reply_receipts (
+    chat_id INTEGER NOT NULL,
+    inbound_message_id INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('claimed', 'sent', 'skipped', 'failed')),
+    reply_message_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(chat_id, inbound_message_id)
+);
+
 CREATE TABLE IF NOT EXISTS member_cleanup_campaigns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id INTEGER NOT NULL,

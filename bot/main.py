@@ -13,7 +13,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity, weekly_state_review
+from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity, weekly_state_review, community_replies
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts, load_yaml
@@ -364,6 +364,7 @@ def main():
 
     # Register feature handlers
     antispam.register(app)   # Group 0 — highest priority
+    community_replies.register(app)  # Group 1 — explicit, quality-reviewed replies
     topic_router.register(app)   # Group 5 — observe-only off-topic classifier
     welcome.register(app)    # Default group
     goals.register(app)      # Group 2

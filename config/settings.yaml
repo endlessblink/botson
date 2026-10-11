@@ -30,6 +30,17 @@ bot:
     הקבוצה הראשית פעילה ב-RTL, התרבות ביתית-חברית, התוכן הומור-ענייני, גמיש בנושאים אבל מכבד את הקו ה-childfree.
     כתבו בשפה טבעית, ישירה, ללא סלוגנים שיווקיים. אל תשתמשו ב"אנחנו, הקהילה" — דברו אל החברים.
   community_context_recent_hours: 24
+  # Agents must re-read the chat feed at most this long before any content mutation.
+  agent_context_receipt_ttl_minutes: 20
+
+# Automatic replies are considered only for explicit Botson mentions/replies.
+# Off until the overlap with community_participation's reply handler is settled.
+community_replies:
+  enabled: false
+  context_hours: 24
+  context_messages: 10
+  context_max_chars: 1800
+  max_reply_chars: 240
 
 # Centralized user-facing copy. Every Hebrew template the bot or
 # dashboard surfaces should read from here via `bot/utils/copy.py:load_copy`.
@@ -415,6 +426,23 @@ llm:
     claude_seconds: 180
     codex_seconds: 240
   prompt_rules: {}  # Phase B.6 populates from dashboard/app.py:1080+, 3000+
+
+engagement_verdict:
+  # Read-only keep/watch/pause label per content type on the Engagement page.
+  # Never changes the schedule; the operator decides. Cutoffs are per-post
+  # engagement (reactions + replies + RSVPs + poll votes, community only).
+  min_sends: 3        # fewer sends than this in the window -> "watch" (too little data)
+  pause_below: 0.5    # per-post engagement under this -> "pause"
+  keep_at_least: 1.5  # per-post engagement at/above this -> "keep"
+  header: "המלצה"
+  labels:
+    keep: "להמשיך"
+    watch: "לעקוב"
+    pause: "להשהות"
+  tooltips:
+    keep: "מעורבות טובה לפוסט"
+    watch: "אין מספיק נתונים או מעורבות בינונית"
+    pause: "כמעט אין מעורבות לפוסט, כדאי לשקול להשהות"
 
 learning:
   # Ceiling on the auto-learned Hebrew rule list. Past a few dozen

@@ -160,20 +160,22 @@ def test_capture_ignores_other_chats_commands_and_bots(tmp_path, monkeypatch):
                 message = SimpleNamespace(
                     chat_id=chat_id, message_id=message_id, message_thread_id=4037,
                     text=text, caption=None, date=datetime.now(timezone.utc),
+                    forum_topic_closed=None, forum_topic_created=None,
+                    forum_topic_edited=None, reply_to_message=None,
                 )
                 sender = SimpleNamespace(**{**vars(user), "is_bot": is_bot})
                 return SimpleNamespace(message=message, effective_user=sender)
 
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100999, message_id=1, text="other group"), context
             )
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100123, message_id=2, text="/admin hidden-value"), context
             )
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100123, message_id=3, text="bot message", is_bot=True), context
             )
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100123, message_id=4, text="A useful reply"), context
             )
             result = await db.get_recent_community_messages(

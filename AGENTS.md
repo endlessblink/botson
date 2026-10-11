@@ -33,6 +33,15 @@ The operator (Noam) wants dynamic learning from feedback signals — NOT to manu
   - Dashboard proposal banner at N≥5 new content_feedback rows → `POST /api/operator-prefs/apply-proposal`
   - Direct markdown edit of the file
 - Remove paths: `/untrain-bot <substring>` skill or `POST /api/operator-prefs/untrain`.
+
+## Required Botson content preflight
+
+Read `docs/botson-task-routing.md` before selecting work on every Botson task.
+Before drafting, evaluating, or recommending Botson-facing content, read `config/operator_prefs.md` and `config/question_quality.md`; check the relevant current good and bad anchors and recent feedback instead of relying on memory or generic engagement patterns. Apply the operator's learned quality bar: Botson supplies the concrete topic/activity, and easy participation is not enough unless the hook is genuinely interesting and relevant to this group. Never replace an interesting prompt with generic small talk, forced humor, or a request that members invent the content. If no idea meets the bar, do not manufacture filler. Before replying to group members, inspect the available recent community context for the correct topic and conversational thread; say plainly when deleted or expired messages are unavailable rather than claiming to have reviewed them. Persist substantive operator corrections as abstract rules in `config/operator_prefs.md`, without reproducing rejected copy verbatim.
+
+**Read the real chat before any group-content proposal.** Fetch `GET /api/agent/community/messages` (private bearer token, read on the VPS so the token never leaves it) and base every draft on those messages, not on the schedule or activity log. Agent content mutations are mechanically refused without the fresh `context_receipt` from that read (see `docs/agent-api.md`). If the feed is unreachable, say chat context is unverified and do not propose copy. Show exact text and destination topic for approval before anything is scheduled or sent.
+
+Before choosing Botson work, apply the **task-selection order** in `config/operator_prefs.md` and `docs/botson-task-routing.md`. The user's latest correction overrides an earlier interpretation; “next” means the earliest outstanding outcome in the user's stated order. If the requested outcome is a live group activity for today, inspect production schedule and topic, prepare one high-quality candidate, and show its exact text for approval before starting unrelated backend work. After a scope correction, stop the mistaken branch and handle the corrected outcome first. In the response, answer the requested outcome before reporting implementation details. Add `tests/test_botson_task_selection_policy.py` whenever this guard changes.
 - Hard rules (immutable spec) remain in `config/question_quality.md` and are NOT touched by this loop. Runtime configs (schedule, toggles, routing) remain in `config/settings.yaml` and friends.
 - If you find a rule restated in another file (CLAUDE.md, a skill, a SQLite column), that's a duplicate — `config/operator_prefs.md` wins.
 - Plan & sources: `~/.claude/plans/i-need-to-understand-elegant-goblet.md`.

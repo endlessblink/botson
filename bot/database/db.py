@@ -444,6 +444,36 @@ class Database:
         rows = list(reversed(rows))
         return rows
 
+    async def claim_community_reply(self, chat_id: int, inbound_message_id: int) -> bool:
+        """Atomically allow at most one automatic reply attempt per inbound message."""
+        async with self._db.execute(
+            """INSERT OR IGNORE INTO community_reply_receipts
+               (chat_id, inbound_message_id, status) VALUES (?, ?, 'claimed')""",
+            (chat_id, inbound_message_id),
+        ) as cursor:
+            claimed = cursor.rowcount == 1
+        await self._db.commit()
+        return claimed
+
+    async def finish_community_reply(
+        self,
+        chat_id: int,
+        inbound_message_id: int,
+        *,
+        status: str,
+        reply_message_id: int | None = None,
+    ) -> None:
+        """Record the terminal result for one claimed automatic reply."""
+        if status not in {"sent", "skipped", "failed"}:
+            raise ValueError("invalid community reply receipt status")
+        await self._db.execute(
+            """UPDATE community_reply_receipts
+               SET status = ?, reply_message_id = ?
+               WHERE chat_id = ? AND inbound_message_id = ?""",
+            (status, reply_message_id, chat_id, inbound_message_id),
+        )
+        await self._db.commit()
+
     async def get_recent_scheduled_community_messages(
         self, *, since: datetime, limit: int = 100, thread_id: int | None = None
     ) -> list[dict]:

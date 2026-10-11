@@ -76,11 +76,12 @@ If a correction doesn't fit any of these, add a new context category.
 - אם רעיון נדחה פעם אחת בקטגוריה — אל תייצר אותו שוב, גם לא בנוסח שונה (פאראפראזה נחשבת חזרה).
 - מגוון תבניות הוא חובה ולא המלצה. אותה תבנית פעמיים ברצף = פסילה אוטומטית.
 - שאלות חכמות > שאלות פילר רגשי. עוגן קונקרטי (חפץ, פעולה, החלטה, רגע) > קופי פואטי.
+- קלות מענה אינה תחליף לעניין: לפני יצירת שאלה או פעילות, ודא שיש בה זווית מסקרנת או בעלת ערך אמיתי לחברי הערוץ. שאלה כללית, בדיחה מאולצת או ניסוח שמבקש תגובה בלי לתת סיבה טובה להגיב — נפסלים; אם אין רעיון שבאמת שווה לפרסם, דלג.
+- "איך היה היום" / "מה הדבר הטוב היום" / "הריטואל שסוגר" — פסולים גם אם נראים תמימים, כי הם פילר.
 - עדיף עוגן טרי: שאלה שנולדה ממה שהקבוצה באמת מדברת עליו בימים האחרונים (נושאים, משחקים, סרטים או ויכוחים שעלו) עדיפה על שאלה שמתאימה לכל קבוצה. בנוסף, חפש זווית שאפשר להתווכח עליה, כדי שיהיה לאנשים מה להגיב. אם אין עוגן טרי וגם אין זווית כזו — דלג.
   _**Source:** chat via /teach-bot, 2026-10-03 — operator said blocked questions were generic filler, forced in tone, or too hard to answer, and wants concrete, fresh, arguable questions._
 - אל תחזור מילה במילה על משפט או בדיחה שנאמרו בערוץ אחר, ואל תבנה פוסט על שיחה שכבר הסתיימה ואין בה מה להוסיף. קח מהשיחה רק נושא שעדיין חי, ונסח אותו במילים חדשות.
   _**Source:** chat via /teach-bot, 2026-10-03 — operator rejected a poll that restated a joke from another channel one to one, about a conversation that had already ended._
-- "איך היה היום" / "מה הדבר הטוב היום" / "הריטואל שסוגר" — פסולים גם אם נראים תמימים, כי הם פילר.
 - שאלת מאמץ (פסקה, רשימה, הסבר) פסולה. תמיד בקש פרט אחד, שם אחד, החלטה אחת.
 - עברית של חבר בקבוצה, לא של קופירייטר. אם זה נשמע כמו תרגום מ-engagement prompt באנגלית — לפסול ולנסח שוב.
 - אל תשתמש ב-"נקודה" לבד כשהכוונה לאירוע, מועד, או נקודת ציון. השם המופשט "נקודה" נשמע כמו טקסט-מציין-מקום. נסח עם המילה הספציפית: "נקודת ציון", "אירוע", "מועד", "משהו ספציפי", או שם הדבר עצמו (פגישה, ארוחה, יציאה, סרט, התחלה).
@@ -207,6 +208,13 @@ When a UI element transforms (button → chip, card → tile), the SAME DOM elem
 
 ### Visual style
 
+#### Documentary characters: bright, toy-like 3D mannequins, animation over text
+For documentary/explainer videos, Noam wants faceless glossy-porcelain mannequin characters with real hair and clothes (the reference-channel idea), rendered in a bright, soft, slightly toy-like stylised 3D look: simplified rounded shapes, matte vinyl materials, high-key lighting. Not photorealistic, not dark, and never glowing hologram or wireframe figures. Worlds should be conceptual and memorable (e.g. an endless glossy white hall as "the sandbox", a friendly pastel backrooms-style maze as "the outside"), not generic realistic offices. Tell the story mostly through animation; the narration carries the facts. On-screen text should be kept to a minimum (title and sources cards, a rare prop word).
+- **Context:** Documentary and explainer storyboards, draft frames, and final stills for AI-motion documentaries.
+- **Why:** Noam rejected the cyan hologram agent ("I want that 3D feel like in the reference"), then rejected the realistic dark office version as "too realistic and too dark", and asked why there was so much text: "it will be better if most will be animation".
+- **How to apply:** Lock one character block and repeat it word for word in every shot. Pick a conceptual environment per act. Convert data beats into visual metaphors (a blizzard of paper notes for 70,000 messages, clones for 1,200 agents) instead of text graphics.
+- **Source:** Agent 417 storyboard review, 2026-09-28 (two rounds).
+
 #### Artist-talk slides should feel like cinematic case files, not presentation templates
 For artist-talk / artwork-process slideshows, Noam prefers a dark, image-led, strongly art-directed structure that feels like a cinematic forensic/case-file sequence rather than a safe deck template. Avoid repeated two-column layouts, square cards as the default unit, spiritual/new-age diagrams, bright editorial cream pages, and generic “headline plus panel” rhythm. Use full-bleed or aggressively cropped artwork/reference imagery, hard cuts, contact sheets, dark screening-room frames, clinical labels, and strong typography. Multi-part ideas should reveal step-by-step on click, not appear all at once.
 - **Context:** Frontend Slides / HTML slideshow decks for artist talks, especially artwork/process presentations with video, film references, and generative-AI workflow material.
@@ -299,6 +307,12 @@ Two competing constraints: text must communicate enough to be understood without
 *(No rules captured yet.)*
 
 ### AI collaboration
+
+#### Follow the user's outcome order before choosing work
+An unfinished broad goal does not authorize choosing any convenient subtask. The latest explicit correction controls the next action, and “next thing” means the earliest outstanding outcome in the order the operator gave. If the operator wants today's group activity, first inspect the live schedule and correct topic, prepare one specific high-quality candidate, and show the exact message for approval before taking unrelated backend work. If the operator corrects scope, stop the mistaken branch and deliver the corrected outcome first. Report the requested result before explaining code or process.
+- **Why:** The operator asked for an immediate discussion starter or game; the agent instead implemented a local reply handler and reported that work as progress. That repeated the failure to do the user-visible action first.
+- **How to apply:** At each Botson turn, identify the latest requested outcome, the earliest unfinished item in its stated order, and its evidence gate before acting. Do not infer that “next” means the next task the agent happens to be able to code. For a proposed public post, show the exact copy first when approval was requested; do not post until approved.
+- **Source:** Operator correction, 2026-09-28.
 
 #### Before every motion-design output, re-cite which rules apply (Meta / Self-enforcement)
 The storage of rules is reliable; the **application** is not. Without an explicit citation step, the agent reverts to intuition and ships outputs that violate rules added in the same session.
