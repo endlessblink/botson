@@ -98,6 +98,10 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-10-10 — operator rejected a niche-theme question and a topic already discussed._
 - חידת תמונה: הסוכן סוקר בעצמו את התמונה ומוודא שחובבי הסרט מזהים אותו בבירור לפני שמתזמנים. המפעיל לא רואה את התמונה או את התשובה.
   _**Source:** chat via /teach-bot, 2026-10-10 — operator wants to play along but the riddles must be good enough; a first image did not look like its film._
+- מדדו שאלה לפני שמציעים אותה: היא צריכה פורמט משחקי או עוגן מוחשי (שלט על הדלת, מדבקה לאוטו, טיסה מחר בבוקר), לא תרחיש גנרי מהסוג "מה הייתם עושים ב..." ולא סקר העדפות. מי שנדחה שוב ושוב על ידי שער האיכות או המפעיל מקבל פורמט אחר, לא ניסוח אחר של אותו רעיון.
+  _**Source:** chat via /teach-bot, 2026-10-13 — about 15 candidates for Wed–Sat were rejected by the quality gate or skipped by the operator; only concrete, playful formats survived._
+- אל תסתמכו על חדשות יבשות (הכרזות, תאריכי יציאה, מחקרים) כבסיס לשאלה בלי זווית אישית וחמה לחברי הקהילה; חדשות מחקר מוצלחות רק כשהן מלוות בתמונה ובשאלה שהכל יכולים לענות עליה בשורה אחת.
+  _**Source:** chat via /teach-bot, 2026-10-13 — operator skipped three researched news-based posts in a row and chose group-life formats._
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
