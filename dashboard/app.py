@@ -1890,6 +1890,41 @@ async def levels_page(request: Request, db: Database = Depends(get_db)):
     })
 
 
+@app.get("/api/levels/leaders")
+async def levels_leaders(request: Request, db: Database = Depends(get_db), limit: int = 10):
+    _require_calendar_api_auth(request)
+    rows = await db.get_leaderboard(max(1, min(limit, 50)))
+    return {"leaders": [{**r, "level": get_level(r["karma_points"])["level"]} for r in rows]}
+
+
+@app.post("/api/levels/award")
+async def award_member_points(request: Request, db: Database = Depends(get_db)):
+    """Give one member points, or raise them to the minimum of a level."""
+    _require_calendar_api_auth(request)
+    body = await request.json()
+    try:
+        user_id = int(body["user_id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="user_id required")
+    member = await db.get_member(user_id)
+    if not member:
+        raise HTTPException(status_code=404, detail="member not found")
+    current = int(member.get("karma_points") or 0)
+    if body.get("to_level") is not None:
+        from bot.utils.levels import _levels
+        tier = next((t for t in _levels() if t["level"] == int(body["to_level"])), None)
+        if not tier:
+            raise HTTPException(status_code=422, detail="unknown level")
+        grant = max(0, tier["min_points"] - current)
+    else:
+        grant = int(body.get("points") or 0)
+    if grant:
+        await db.add_points(user_id, grant)
+    await db.log_activity("points", f"+{grant} points (operator award) {member.get('display_name','')}", user_id, "operator")
+    return {"status": "ok", "granted": grant, "total": current + grant,
+            "level": get_level(current + grant)["level"]}
+
+
 @app.post("/api/levels/reset")
 async def reset_levels(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):

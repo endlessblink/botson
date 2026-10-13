@@ -705,6 +705,182 @@ levels:
       min_points: 500
       tag: "אלוף/ה"
       emoji: "👑"
+    - level: 7
+      min_points: 750
+      tag: "מנצח/ת"
+      emoji: "🏆"
+    - level: 8
+      min_points: 1000
+      tag: "גיבור/ה"
+      emoji: "🦸"
+    - level: 9
+      min_points: 1300
+      tag: "מלך/ת הקבוצה"
+      emoji: "🤴"
+    - level: 10
+      min_points: 1570
+      tag: "אוצר קהילתי"
+      emoji: "💎"
+    - level: 11
+      min_points: 1880
+      tag: "שועל מנוסה"
+      emoji: "🦊"
+    - level: 12
+      min_points: 2230
+      tag: "חכם/ה"
+      emoji: "🧠"
+    - level: 13
+      min_points: 2620
+      tag: "מאסטר/ית"
+      emoji: "🎯"
+    - level: 14
+      min_points: 3050
+      tag: "סופר-גיבור/ה"
+      emoji: "⚡"
+    - level: 15
+      min_points: 3520
+      tag: "נץ"
+      emoji: "🦅"
+    - level: 16
+      min_points: 4030
+      tag: "אריה/ית"
+      emoji: "🦁"
+    - level: 17
+      min_points: 4580
+      tag: "דרקון/ית"
+      emoji: "🐉"
+    - level: 18
+      min_points: 5170
+      tag: "פיניקס"
+      emoji: "🪶"
+    - level: 19
+      min_points: 5800
+      tag: "קוסם/ת"
+      emoji: "🪄"
+    - level: 20
+      min_points: 6470
+      tag: "מכשף/ה"
+      emoji: "🔮"
+    - level: 21
+      min_points: 7180
+      tag: "אביר/ה"
+      emoji: "🛡️"
+    - level: 22
+      min_points: 7930
+      tag: "מגן/ה הקהילה"
+      emoji: "🏰"
+    - level: 23
+      min_points: 8720
+      tag: "אגדה חיה"
+      emoji: "🌠"
+    - level: 24
+      min_points: 9550
+      tag: "כוכב/ת על"
+      emoji: "🌌"
+    - level: 25
+      min_points: 10420
+      tag: "שביט"
+      emoji: "☄️"
+    - level: 26
+      min_points: 11330
+      tag: "ירח"
+      emoji: "🌙"
+    - level: 27
+      min_points: 12280
+      tag: "שמש"
+      emoji: "☀️"
+    - level: 28
+      min_points: 13270
+      tag: "גלקסיה"
+      emoji: "🪐"
+    - level: 29
+      min_points: 14300
+      tag: "קוסמוס"
+      emoji: "🚀"
+    - level: 30
+      min_points: 15370
+      tag: "אינסוף"
+      emoji: "♾️"
+    - level: 31
+      min_points: 16480
+      tag: "חצי אל"
+      emoji: "🔱"
+    - level: 32
+      min_points: 17630
+      tag: "טיטאן"
+      emoji: "🗿"
+    - level: 33
+      min_points: 18820
+      tag: "אולימפוס"
+      emoji: "🏛️"
+    - level: 34
+      min_points: 20050
+      tag: "שליט/ה"
+      emoji: "⚜️"
+    - level: 35
+      min_points: 21320
+      tag: "קיסר/ית"
+      emoji: "🎖️"
+    - level: 36
+      min_points: 22630
+      tag: "סולטן/ית"
+      emoji: "🕌"
+    - level: 37
+      min_points: 23980
+      tag: "מלך/ת המלכים"
+      emoji: "👑"
+    - level: 38
+      min_points: 25370
+      tag: "אורקל"
+      emoji: "🔭"
+    - level: 39
+      min_points: 26800
+      tag: "נצחי/ת"
+      emoji: "🕰️"
+    - level: 40
+      min_points: 28270
+      tag: "מיתולוגי/ת"
+      emoji: "📜"
+    - level: 41
+      min_points: 29780
+      tag: "על-זמני/ת"
+      emoji: "⏳"
+    - level: 42
+      min_points: 31330
+      tag: "בלתי מנוצח/ת"
+      emoji: "🥇"
+    - level: 43
+      min_points: 32920
+      tag: "אגדת-על"
+      emoji: "💫"
+    - level: 44
+      min_points: 34550
+      tag: "רוח הקבוצה"
+      emoji: "🌈"
+    - level: 45
+      min_points: 36220
+      tag: "לב הקהילה"
+      emoji: "❤️"
+    - level: 46
+      min_points: 37930
+      tag: "עמוד התווך"
+      emoji: "🏺"
+    - level: 47
+      min_points: 39680
+      tag: "מלכת/מלך הקהילה"
+      emoji: "🎪"
+    - level: 48
+      min_points: 41470
+      tag: "מורה דרך"
+      emoji: "🧭"
+    - level: 49
+      min_points: 43300
+      tag: "שומר/ת הסף"
+      emoji: "🗝️"
+    - level: 50
+      min_points: 45170
+      tag: "אלוף/ת העולם"
+      emoji: "🌍"
 # Limits for AI agents publishing to the main group through the agent API.
 # Rejected posts cannot be retried; after this many quality rejections in a
 # day, agent publishing pauses until the next day.
