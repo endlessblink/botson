@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -94,6 +95,8 @@ def test_private_feed_requires_auth_and_returns_only_recent_messages(tmp_path, m
 def test_safe_send_captures_bot_output_once_and_only_after_success(monkeypatch):
     monkeypatch.setattr(topic_guard, "GROUP_ID", -100123)
     monkeypatch.setattr(topic_guard, "TEST_GROUP_ID", -100999)
+    notify = AsyncMock(return_value=1)
+    monkeypatch.setattr(topic_guard, "notify_admins", notify)
 
     class DB:
         def __init__(self):
@@ -131,6 +134,9 @@ def test_safe_send_captures_bot_output_once_and_only_after_success(monkeypatch):
         assert db.records[0]["source"] == "botson"
         assert db.records[0]["thread_id"] == 4037
         assert db.records[0]["text"] == "A Botson reply"
+        notify.assert_awaited_once()
+        assert "4037" in notify.await_args.args[1]
+        assert "77" in notify.await_args.args[1]
 
         await topic_guard.safe_send(
             bot, db, "send_message", chat_id=123,
@@ -142,6 +148,8 @@ def test_safe_send_captures_bot_output_once_and_only_after_success(monkeypatch):
                 message_thread_id=4037, question="A poll?", options=["Yes", "No"],
             )
         assert len(db.records) == 1
+        assert notify.await_count == 2
+        assert "failure type: RuntimeError" in notify.await_args.args[1]
 
     asyncio.run(scenario())
 
@@ -160,20 +168,22 @@ def test_capture_ignores_other_chats_commands_and_bots(tmp_path, monkeypatch):
                 message = SimpleNamespace(
                     chat_id=chat_id, message_id=message_id, message_thread_id=4037,
                     text=text, caption=None, date=datetime.now(timezone.utc),
+                    forum_topic_closed=None, forum_topic_created=None,
+                    forum_topic_edited=None, reply_to_message=None,
                 )
                 sender = SimpleNamespace(**{**vars(user), "is_bot": is_bot})
                 return SimpleNamespace(message=message, effective_user=sender)
 
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100999, message_id=1, text="other group"), context
             )
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100123, message_id=2, text="/admin hidden-value"), context
             )
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100123, message_id=3, text="bot message", is_bot=True), context
             )
-            await topic_tracker.capture_recent_community_message(
+            await topic_tracker.track_topic(
                 update(chat_id=-100123, message_id=4, text="A useful reply"), context
             )
             result = await db.get_recent_community_messages(

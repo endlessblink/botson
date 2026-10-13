@@ -13,6 +13,30 @@
 set -euo pipefail
 
 REPO_DIR="/opt/robotnik"
+SCRIPT_REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--preflight-only" ) ]]; then
+  echo "Usage: scripts/deploy.sh [--preflight-only] (VPS); scripts/deploy-from-local.sh [--preflight-only] (workstation)" >&2
+  exit 2
+fi
+if [[ "$SCRIPT_REPO" != "$REPO_DIR" ]]; then
+  echo "Deployment stopped: this is not the registered VPS checkout $REPO_DIR. Use scripts/deploy-from-local.sh from the workstation checkout." >&2
+  exit 2
+fi
+REGISTRY_DIR="${BOT_REGISTRY_DIR:-/opt/bots-directory}"
+CHECKER="${BOT_WORKFLOW_CHECKER:-$REGISTRY_DIR/tools/check_bot_workflow.py}"
+REGISTRY="${BOT_REGISTRY_PATH:-$REGISTRY_DIR/bot-registry.yaml}"
+if [[ ! -f "$CHECKER" || ! -f "$REGISTRY" ]]; then
+  echo "Deployment stopped: registry preflight is unavailable. Use scripts/deploy-from-local.sh, which supplies a temporary non-secret registry bundle, or configure BOT_WORKFLOW_CHECKER and BOT_REGISTRY_PATH." >&2
+  exit 2
+fi
+"${BOT_WORKFLOW_PYTHON:-$REPO_DIR/.venv/bin/python}" "$CHECKER" --registry "$REGISTRY" \
+  --bot botson --checkout "$SCRIPT_REPO" --checkout-host 84.46.253.137 --intent deploy \
+  --deployment-host 84.46.253.137 --deployment-path "$REPO_DIR" || {
+    echo "Deployment stopped before git fetch/reset: reconcile Botson's registry reference, current checkout and release target." >&2
+    exit 2
+  }
+if [[ "${1:-}" == "--preflight-only" ]]; then exit 0; fi
+
 SERVICE_USER="botson"
 SERVICES=("botson.service" "botson-dashboard.service")
 

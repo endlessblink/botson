@@ -60,3 +60,101 @@ CLAUDE.md "Content review workflow" (items 1-6 plus 5a/5b), memory files feedbac
 2. Answer Noam's pending question plainly: Tuesday 18:00 question not scheduled yet (needs deploy of 8114dc5). Get his "deploy", push once, deploy, verify (`vps-admin.sh status`, guardians passed), then schedule 907 with the header.
 3. Continue the day-by-day AskUserQuestion walk: Tuesday done after 907; Wednesday +2, Thursday +3, Friday +4. For each slot bring candidates only when no strong live idea; avoid recycling chat phrases; texts/polls only. Poll note: server calls generic either-or polls "no concrete angle" — give concrete angles.
 4. Update pages/week-plan.html when the week is final; commit only own files.
+
+<!-- termfleet:user-words:begin -->
+## Noam's messages, verbatim (added automatically by termfleet-child: his opening request, then the newest; the last one is the newest)
+Treat these as instructions/corrections that may not appear above. Do not skip any. The NEWEST message is usually the task you must carry out FIRST, before any side investigation, unless the handoff above says it is already done.
+
+1. 2026-10-02T16:44:52.559Z
+   > Read /media/endlessblink/data/my-projects/ai-development/bots+automation/botson/HANDOFF.md. It is a handoff from the previous instance: continue exactly where it left off, and start by confirming what you understood.
+
+2. 2026-10-02T16:51:39.680Z
+   > what are the riddles? in waht subject etc?
+
+3. 2026-10-02T17:59:16.586Z
+   > approve riddles
+
+4. 2026-10-02T17:59:27.534Z
+   > 2. Tell me how to handle the smoke check: tests only, run everything, or skip. explain in simpler terms what this is
+
+5. 2026-10-02T19:44:54.020Z
+   > tests only
+
+6. 2026-10-03T09:04:36.674Z
+   > why nothing for today? we can fit two riddles today maybe + posts if there arent any
+
+7. 2026-10-03T09:17:48.164Z
+   > so lets build a system that can enable that from here - a structured table that you can show me instead of just through the temrinal and we can approve them from here
+
+8. 2026-10-03T09:22:43.102Z
+   > deploy and scehduled for the week
+
+9. 2026-10-03T09:28:42.218Z
+   > no, I want to see it here + have you use the questions tool to review each one
+
+10. 2026-10-03T09:32:15.238Z
+   > next when you want me to approve riddles, make sure to not show me the answers so that I can also join
+
+11. 2026-10-03T09:32:32.277Z
+   > and what about the rest of the scehdule? I want to do the full weekly schedule
+
+12. 2026-10-03T09:36:04.028Z
+   > we need to talk about the quality of the questions and why i blocked them
+
+13. 2026-10-03T09:46:06.945Z
+   > I want this to always be with thq querstions tool! so I can see the question and respond to it
+
+14. 2026-10-03T09:49:02.121Z
+   > I meant to show me each question in the questions tool so that I can respond to you
+
+15. 2026-10-03T09:49:14.379Z
+   > and what we are finetuning here should be updated anywhere to get better content
+
+16. 2026-10-03T10:13:46.519Z
+   > why arent you going with me over every question one by one from today till the end of the week?
+
+17. 2026-10-03T10:14:04.310Z
+   > and now you asked me twice about the same questions
+
+18. 2026-10-03T10:15:40.123Z
+   > today is saturday, ask me for each day in order...
+
+19. 2026-10-03T10:16:00.459Z
+   > what I tell you here should be changed in the harness of how you approach this so it wont default again and again
+
+20. 2026-10-03T10:21:17.138Z
+   > I changed several channels yesterday, willt his appear in the correct one?
+
+21. 2026-10-03T11:49:58.546Z
+   > go
+
+22. 2026-10-03T12:23:37.523Z
+   > I need to see how many content slots there are for each day of the week we scheudled
+
+23. 2026-10-03T12:33:58.352Z
+   > show that in a table with emojis etc... structured
+
+24. 2026-10-03T12:35:06.239Z
+   > ok this is too little in my opinion and should be minimum 4
+
+25. 2026-10-03T16:43:21.902Z
+   > why did it reject them if I approved them? that shouldnt happen!
+
+26. 2026-10-03T16:47:05.370Z
+   > ok so that is bad + how did it deny them? for what reason? which ones? It ususally doesnt produce that great results when I use the autoamted version...
+
+27. 2026-10-03T16:48:51.228Z
+   > - Monday's board-game question ("a game you explain in 30 seconds"): it said the idea of recommending a game to friends had already come up several times in other wording, so it felt repetitive. - it is repetetaive but not by that much and it must suggest something else that is better! a system that just disqulifies results is a bad system. Also if I approved it that goes above that system because I built it, because I disapproved many of the posts and wanted an autoated system that could reduce that!
+
+28. 2026-10-03T16:55:11.729Z
+   > unblock
+
+29. 2026-10-03T17:47:21.644Z
+   > how do we unblock this properly?
+
+30. 2026-10-03T17:47:37.316Z
+   > ok, add it
+
+31. 2026-10-03T17:54:52.712Z
+   > ok so did you scheudle them?
+<!-- termfleet:user-words:end -->

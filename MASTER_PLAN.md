@@ -2,12 +2,30 @@
 
 > Telegram bot for the "אלהוריים וזה" childfree community (81 members, forum-style group with topic channels). All user-facing messages in Hebrew.
 
+## Current execution order — reconciled 2026-10-06 11:02 UTC
+
+Owner approval for continued build/deploy and the conversational/arcade scope is recorded from Oct6 07:26 UTC. Heavy work remains paused for system load; this checkpoint used only lightweight source/config/service reads. Exact per-feature evidence: `/home/endlessblink/Documents/Codex/2026-10-05/task-10/evidence/oct6/status-all-upgrades-1102.md`.
+
+| Order | Work | Current status / checkpoint | Dependencies / decision |
+|---|---|---|---|
+| 1 | T-191/T-192/T-149/T-150: deploy coherent integration | Exact tested local candidate **6f690ea** supersedes c22e33f as the complete requested release; production/public main still **fa5252b**, services running, no intervening restart observed | Earlier automatic-review public-main rejection remains unresolved; no retry/bypass. Owner feature/deploy approval is already recorded |
+| 2 | **T-193**: topic-relevant news | Verified-source/review/dedupe/caps runtime and dashboard/agent controls implemented/tested in6f690ea; live OFF/preview_only | Selected existing topics/free RSS only; publication/deploy/preset activation and real semantic/delivery observation remain |
+| 3 | **T-194**: natural addressed conversation | Confirmed same-person/topic follow-ups, turn/window limits, durable opt-out/caps and shared controls implemented/tested in6f690ea; live OFF | Proposed3 answers,10-minute follow-up window,6 global/3 topic/thread per day; initial120min cooldown, quiet hours and no-unsolicited boundary retained |
+| 4 | **T-197**: weekly AI invitation and self-service | DEPLOYED/ENABLED revision1 infa5252b; question/progress/no-time acceptance and one recipient confirmed; registered due **Oct10 19:00 Asia/Jerusalem** | Shared question/tag/day/time controls and own-ID reply opt-in/out code deployed; authenticated production visual and first real delivery/pin/self-service remain unobserved |
+| 5 | General own-pin replacement | Reconciled general pin ledger/serialization implemented/tested in6f690ea; NOT DEPLOYED. Separate owned-weekly pin/unpin code is already live/enabled | Publish/deploy integration; never discover/unpin unknown/member/weekly pins from the general ledger |
+| 6 | **T-198**: separate opt-in arcade + shared scores | Independent memory-pattern service and requested Botson entry implemented/tested in6f690ea; real local demo8 rounds/800 points, mobile390px/no overflow; production code/config ABSENT | Confirm existing authorized HTTPS origin/hosting route; actual Mini App/member admission/shared scoring after accepted deployment authorization; no new costs/credentials/audience/security changes |
+| 7 | Thursday/Friday schedule coverage | Last recorded Oct5 05:30UTC shortage: ThuOct8 needs3, FriOct9 needs4; no fresh count/context or seven drafts is claimed | Prior private-context drafting rejection not retried; exact drafts and per-item review required. No filler or unapproved calendar writes |
+
+**Execution boundaries:** latest owner decisions authorize routine implementation and normal tested deployment within the existing audience. The earlier exact public-main publication denial is an execution-review barrier still unresolved in this delegated environment. No push, deployment, restart, activation, model call, private-chat read or new suite occurred in this status reconciliation. The arcade is now explicitly within implementation scope; older statements that it was merely exploratory retain their historical dates. It remains a separate opt-in service, with disabled public defaults and no selected hosting origin. The canonical source remains6d17a89 with unrelated WIP preserved; do not reset or wholesale-stage it. The earlier c22e33f prompt/handoff is stale for the full requested feature set.
+
+**ID reconciliation:** T-111 remains scheduled-game auto-start (its detailed section). The other former T-111 (real Telegram launch verification) is **T-195**. T-112 remains drawer/hard-refresh verification (its detailed section); the former duplicate T-112 pre-flight admin DM is **T-196**. T-182–T-190 already exist in code and are reserved; T-181 also appears as an older prefs-store alias in code and is not a new task. See the evidence ledger for mappings.
+
 ## Summary
 
 | ID | Phase | Task | Status | Priority | Deps |
 |----|-------|------|--------|----------|------|
 | T-111 | 18 | Auto-start trivia/emoji scheduled game rows | DONE | P1 | T-023, T-026 |
-| T-112 | 18 | Pre-flight admin DM 5min before trivia/emoji round announcements ("round at HH:MM in botson's corner — /trivia to start") | TODO | P1 | — |
+| T-196 | 18 | Legacy duplicate T-112: pre-flight admin DM before round announcements — reconcile with current personal reminders | NEEDS DECISION | P2 | T-175 |
 | T-001 | 0 | Project scaffolding & git init | DONE | P0 | — |
 | T-002 | 0 | Database layer (SQLite + aiosqlite) | DONE | P0 | T-001 |
 | T-003 | 0 | Config system (YAML loader + settings) | DONE | P0 | T-001 |
@@ -71,16 +89,16 @@
 | T-061 | 12 | Bot version check — dashboard shows if bot needs restart | DONE | P1 | T-058 |
 | T-062 | 12 | Persistent bot logging (log to file, not temp) | DONE | P0 | T-004 |
 | T-063 | 12 | Dashboard log viewer (tail bot logs in real-time) | TODO | P2 | T-062 |
-| T-064 | 13 | Dashboard: send test message to any topic | TODO | P1 | T-047 |
-| T-065 | 13 | Dashboard: trigger morning/evening prompt manually | TODO | P1 | T-044 |
-| T-066 | 13 | Dashboard: trigger discussion prompt manually | TODO | P1 | T-044 |
-| T-067 | 13 | Dashboard: start trivia question from dashboard | TODO | P1 | T-023 |
-| T-068 | 13 | Dashboard: view/manage member levels + reset | TODO | P1 | T-031 |
-| T-069 | 13 | Dashboard: view/manage streaks | TODO | P1 | T-011 |
-| T-070 | 13 | Dashboard: whitelist management (add/remove patterns) | TODO | P1 | T-008 |
-| T-071 | 13 | Dashboard: view group stats (same as /stats) | TODO | P1 | T-004 |
+| T-064 | 13 | Dashboard: send test message to any topic | DONE (verified present in dashboard 2026-10-05) | P1 | T-047 |
+| T-065 | 13 | Dashboard: trigger morning/evening prompt manually | DONE (verified present in dashboard 2026-10-05) | P1 | T-044 |
+| T-066 | 13 | Dashboard: trigger discussion prompt manually | DONE (verified present in dashboard 2026-10-05) | P1 | T-044 |
+| T-067 | 13 | Dashboard: start trivia question from dashboard | DONE (verified present in dashboard 2026-10-05) | P1 | T-023 |
+| T-068 | 13 | Dashboard: view/manage member levels + reset | DONE (verified present in dashboard 2026-10-05) | P1 | T-031 |
+| T-069 | 13 | Dashboard: view/manage streaks | DONE (verified present in dashboard 2026-10-05) | P1 | T-011 |
+| T-070 | 13 | Dashboard: whitelist management (add/remove patterns) | DONE (verified present in dashboard 2026-10-05) | P1 | T-008 |
+| T-071 | 13 | Dashboard: view group stats (same as /stats) | DONE (verified present in dashboard 2026-10-05) | P1 | T-004 |
 | ~~T-072~~ | 13 | ✅ Dashboard: create event from dashboard (cover + pin + topic + from-poll picker) | ✅ DONE (2026-04-19) | P1 | T-020 |
-| T-073 | 13 | Dashboard: send weekly roundup manually | TODO | P2 | T-015 |
+| T-073 | 13 | Dashboard: send weekly roundup manually | DONE (verified present in dashboard 2026-10-05) | P2 | T-015 |
 | T-074 | 13 | Dashboard: activity analytics (charts/graphs) | DONE | P2 | T-034 |
 | T-075 | — | Investigate: levels points given to only some users | TODO | P1 | T-031 |
 | T-076 | — | Rotating admin titles for top members (weekly) | TODO | P1 | T-031 |
@@ -107,10 +125,10 @@
 | T-097 | 16 | Free Games: daily GG.deals feed with LLM reranker | IN PROGRESS | P2 | T-005 |
 | T-098 | 16 | Free Games: add Epic Games API as second source | TODO | P2 | T-097 |
 | T-099 | 16 | Free Games: activate in main group (topic 1517) | TODO | P2 | T-097 |
-| T-100 | — | Configure git remote and push WIP commits | TODO | P1 | — |
-| T-101 | — | Handle media assets (gitignore / LFS / commit) | TODO | P3 | — |
-| T-111 | 18 | Trivia: end-to-end real Telegram launch verification | TODO | P1 | — |
-| T-112 | 18 | Trivia: verify drawer stays open on launch after hard-refresh | TODO | P2 | T-111 |
+| T-100 | — | Configure git remote and push WIP commits | DONE (historical; remote and deployed git revision observed 2026-10-04) | P1 | — |
+| T-101 | — | Handle media assets (gitignore / LFS / commit) | DONE (historical detail 2026-04-17; tracked assets present) | P3 | — |
+| T-195 | 18 | Legacy duplicate T-111: real Telegram launch verification | NEEDS EXPLICIT APPROVAL | P1 | T-111, T-191 |
+| T-112 | 18 | Trivia: verify drawer stays open on launch after hard-refresh | TODO | P2 | T-195 |
 | T-115 | 18 | Trivia flow: audit + remove hardcoded strings in generation/teaser | DONE | P1 | — |
 | T-116 | 20 | Events: stop overwriting user content with date/time line | DONE | P1 | — |
 | T-117 | 21 | Bulk-cancel future auto-scheduled rows endpoint + dashboard button (purge AI-generated content created before quality-rules wiring) | DONE | P1 | — |
@@ -145,14 +163,14 @@
 | T-140 | 25 | Day-anchor output validation 🔧 (Layer 2) — extend freshness_rejection to reject text naming the wrong Hebrew day | DONE | P0 | T-139 |
 | T-141 | 25 | Facts caption preface 🧪 — pool-specific bot-voice line ("🕯️ סיפור מסתורי מבוטסון" / "🔎 ידעתם?") loaded from settings.yaml:copy.facts.preface_* | DONE | P2 | — |
 | T-142 | 25 | Facts preview-image button 🔧 — POST /api/facts/{pool}/{id}/generate-image, kie.ai call, writes image_url back into facts.yaml | DONE | P2 | — |
-| T-143 | 25 | Calendar checker delete-race 🔧 — re-SELECT status before send so dashboard cancels in the dispatch window stop the post | TODO | P1 | — |
+| T-143 | 25 | Calendar checker delete-race 🔧 — re-read + atomic claim already present | CODE DEPLOYED; BEHAVIOR UNVERIFIED | P1 | T-191 |
 | T-144 | 25 | Phase A onboarding follow-up cadence 🔧 — +24h topic-mention + +72h DM + +7d lurker tag, opt-out per user, dashboard /onboarding admin page | TODO | P2 | T-136 |
 | T-145 | 25 | Layer 3 nightly smoke test 🔧 — periodic real-LLM call against next-week slots, asserts day-anchor + freshness pass | TODO | P3 | T-139, T-140 |
 | T-146 | 25 | Discussion seeds for חדר מוסיקה 🌱 — add `music` category to discussions.yaml (≥25 Hebrew questions). Topic id 4502 verified + settings wired 2026-05-10; only the content half remains. | DONE | P2 | — |
 | T-147 | 26 | Planner Populate flex slots 🔧 — config-driven non-game suggestions after fixed slots fail | DONE | P0 | T-123 |
 | T-148 | 26 | Populate skip diagnostics 🔧 — show exact reasons instead of generic empty modal | DONE | P1 | T-147 |
-| T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | TODO | P1 | T-147 |
-| T-150 | 26 | Populate flex regression suite 🧪 — evening fallback, custom commit, no hardcoding | TODO | P1 | T-147, T-148, T-149 |
+| T-149 | 26 | Populate flex routing config 🔧 — operator-controlled custom/discussion topic strategy | PREPARED; VERIFIED OFFLINE; NOT DEPLOYED | P1 | T-147 |
+| T-150 | 26 | Populate flex regression suite 🧪 — evening fallback, custom commit, no hardcoding | OFFLINE REGRESSIONS VERIFIED; ROUTING DEPLOY/REAL UI PENDING | P1 | T-147, T-148, T-149 |
 | T-151 | 26 | Long-form facts pass 🌱 — expand fact previews into richer 5–8 line mini-stories, starting with spooky | DONE | P2 | T-133 |
 | T-152 | 27 | E2E lane: control-surface action inventory | DONE | P0 | — |
 | T-153 | 27 | E2E lane: scheduled-card persistence invariant | DONE | P0 | T-152 |
@@ -164,17 +182,17 @@
 | T-159 | 27 | E2E lane: Sherlocks Den smoke harness | DONE | P1 | T-153..T-158 |
 | T-160 | 27 | E2E lane: one-command local/CI gate | DONE | P1 | T-153..T-159 |
 | T-161 | 27 | E2E lane: audit remaining dashboards | TODO | P2 | T-152 |
-| T-162 | 28 | Question quality review queue | IN PROGRESS | P0 | T-134, T-135 |
-| T-163 | 28 | Draft review quality approval loop | IN PROGRESS | P0 | T-162 |
+| T-162 | 28 | Question quality review queue | IN PROGRESS; REAL QUEUE REVIEW BLOCKED | P0 | T-134, T-135 |
+| T-163 | 28 | Draft review quality approval loop | IN PROGRESS; OFFLINE FLOW VERIFIED; VISUAL PENDING | P0 | T-162 |
 | T-164 | 28 | Real-output regression corpus | TODO | P1 | T-162 |
 | ~~T-165~~ | 28 | ✅ Channel-specific question rubrics | ✅ DONE (2026-06-08) | P1 | T-162 |
 | T-166 | 29 | Reaction-informed bot cadence loop | TODO | P1 | T-136 |
 | T-167 | 29 | Trivia emoji facts review flows | TODO | P2 | T-163 |
 | T-168 | 29 | Community health metrics loop | TODO | P2 | T-136 |
-| T-169 | 30 | Materializer dedup + source-echo fix 🩸 — bulk auto-refill quality leak | TODO | P0 | T-134, T-135 |
-| T-170 | 30 | Planner Populate hardening — loud failures + retry budget + near-dup | TODO | P0 | T-169 |
-| T-171 | 30 | Discussion pool validator + CLI + guardian test | TODO | P0 | T-169 |
-| T-172 | 30 | Operator feedback capture — content_feedback schema + dashboard controls | TODO | P0 | T-163 |
+| T-169 | 30 | Materializer dedup + source-echo fix 🩸 — bulk auto-refill quality leak | PARTIAL CODE DEPLOYED; NEW HARDENING PREPARED | P0 | T-134, T-135 |
+| T-170 | 30 | Planner Populate hardening — loud failures + retry budget + near-dup | PARTIAL CODE DEPLOYED; NEW HARDENING PREPARED | P0 | T-169 |
+| T-171 | 30 | Discussion pool validator + CLI + guardian test | CODE ALREADY DEPLOYED; CLI/GUARDIAN VERIFIED OFFLINE | P0 | T-169 |
+| T-172 | 30 | Operator feedback capture — content_feedback schema + dashboard controls | CAPTURE CODE DEPLOYED; OFFLINE HTTP VERIFIED; LIVE LEARNING UNVERIFIED | P0 | T-163 |
 | T-173 | 30 | Regression corpus + per-channel rubrics injected into prompts | TODO | P1 | T-172 |
 | T-174 | 30 | Style-profile learning loop — operator-approved generation guidance updates | TODO | P1 | T-172, T-173 |
 | T-175 | 23 | Trivia 'never fired' diagnosis + pre-roll gate logging + vps-admin diagnostics | DONE | P1 | T-127 |
@@ -185,10 +203,18 @@
 | ~~T-180~~ | 23 | ✅ Watchdog classifies CLI health and alerts; blind-monitor guard | ✅ **DONE** (2026-07-28) | P1 | T-179 |
 | ~~T-181~~ | 30 | ✅ Rephrase-with-anchors — keep the idea, redo the wording (planner cards, prompt drawer, review page); one-off edit that never writes a learned rule | ✅ **DONE** (2026-07-28) | P1 | T-172 |
 
+| T-191 | 31 | Reliability reconciliation: reported planner failures, prompt budget and faithful offline dispatch fixtures | CODE DEPLOYED; VERIFIED OFFLINE; LIVE FLOW UNVERIFIED | P0 | T-152..T-160 |
+| T-192 | 31 | Constructive alternatives for rejected drafts, preview before moderator decision | CODE DEPLOYED; VISUAL/SEMANTIC UNVERIFIED | P1 | T-163, T-191 |
+| T-193 | 32 | Topic-relevant current news with verified sources, bounded cadence and moderator preview | POLICY CODE DEPLOYED; INTEGRATION TODO | P2 | T-149, T-163, T-192 |
+| T-194 | 32 | Tentative occasional contextual replies with privacy/value/rate gates | NEEDS DECISION; DISABLED | P3 | T-168, T-191 |
+| T-197 | 33 | Weekly AI-topic invitation: selected members share what they built | DEPLOYED AND ENABLED; VISUAL/FIRST DELIVERY PENDING | P1 | T-163, T-191 |
+
 ## Lanes (active queues)
 
+Historical queue notes are retained below; the reconciled execution order above takes precedence. Starter pools were retired in September (see `docs/conversation-starter-cleanup-plan.md`); historical pool-growth tasks do not authorize restoring them.
+
 #### T-170: Planner Populate hardening — loud failures + retry budget + near-dup
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** PARTIAL CODE DEPLOYED; NEW HARDENING PREPARED
 Planner Populate should fail loudly when generation quality fails, retry with useful guidance, avoid near-duplicates/source echoes, and reduce samey suggestions across a Populate run.
 
 **Progress (2026-05-18):** Gap 1 implemented locally: Populate now rotates configured generation patterns per retry, rejects repeated openers from recent history/current run, and passes configurable temperature to the Anthropic API fallback. Focused planner and guardian tests pass.
@@ -198,22 +224,22 @@ Planner Populate should fail loudly when generation quality fails, retry with us
 Active queues should reflect what to work on next, not historical shipped phases. Tasks in different lanes don't block each other; tasks within a lane run sequentially.
 
 ### 🌱 Question quality lane (curation + review)
-- **T-162** — Question quality review queue (IN PROGRESS, P0) — review generated/scheduled/pending discussion prompts against `config/question_quality.md`, rewrite or reject weak rows, and capture every new failure pattern as a rule/test.
+- **T-162** — Question quality review queue (IN PROGRESS; REAL QUEUE REVIEW BLOCKED, P0) — review generated/scheduled/pending discussion prompts against `config/question_quality.md`, rewrite or reject weak rows, and capture every new failure pattern as a rule/test.
 - ~~**T-165**~~ — ✅ Channel-specific question rubrics (DONE 2026-06-08, P1) — channel-aware guidance now lives in `config/channel_rubrics.yaml`; support/fitness category mappings and regression coverage prevent stale topic/category prompt leakage.
 - **T-164** — Real-output regression corpus (TODO, P1) — turn bad and good real generated outputs into fixtures that guard `_validate_draft_text`, quality prompts, and pool false positives.
-- ✅ **T-133** — Grow content pools (DONE) — facts and discussions pool sizes are sufficient; future work is quality review, not raw volume.
+- ✅ **T-133** — Grow content pools (DONE) — historical pool-growth result; curated facts remain, reusable discussion starters were retired in September and must not be restored.
 
 ### 🔧 Bot enhancement lane (runtime/product behavior)
 - **T-166** — Reaction-informed bot cadence loop (TODO, P1) — use `message_engagement` to tune which slots/content types continue, pause, or move.
-- **T-149** — Populate flex routing config (TODO, P1) — custom/discussion topic choice must be operator-controlled, not inferred from hardcoded defaults.
-- **T-143** — Calendar checker delete-race fix (TODO, P1) — re-check row status in dispatch window so dashboard cancels stop the send.
+- **T-149** — Populate flex routing config (PREPARED; VERIFIED OFFLINE; NOT DEPLOYED, P1) — isolated patch reads the selected strategy, requires a configured verified destination, and reports missing routing. Current live routes/schedules are unchanged.
+- **T-143** — Calendar checker delete-race (CODE DEPLOYED; BEHAVIOR UNVERIFIED, P1) — re-read and atomic claim exist in local/deployed revision; preserve them and verify offline under T-191. No fresh Telegram send proof.
 - **T-110** — Emoji Night cleanup + dry-run in Den (TODO, P2).
 - **T-144** — Phase A onboarding follow-up cadence (TODO, P2) — depends on T-136 telemetry + opt-out wiring before deploy.
 - **T-168** — Community health metrics loop (TODO, P2) — expose lightweight health signals so bot changes are based on participation, not vibes.
 
 ### 🧪 Quality systems lane (code + content together)
-- **T-163** — Draft review quality approval loop (IN PROGRESS, P0) — make dashboard draft review enforce quality decisions before scheduling/sending.
-- **T-150** — Populate flex regression suite (TODO, P1) — tests must prove today-evening non-game fallback, custom commit support, config-driven windows, and guardian compatibility.
+- **T-163** — Draft review quality approval loop (IN PROGRESS; OFFLINE VERIFIED; VISUAL PENDING, P0) — make dashboard draft review enforce quality decisions before scheduling/sending.
+- **T-150** — Populate flex regression suite (OFFLINE VERIFIED; ROUTING DEPLOY/REAL UI PENDING, P1) — 297 tests/191 subtests cover configured day/week routes, write-free preview, checked commit, evening fallback, windows, occupied/past skips and guardians. Real operator UI remains unverified.
 - **T-145** — Layer 3 nightly smoke test (TODO, P3) — periodic real-LLM call asserting day-anchor + freshness; now belongs after the review/corpus loop, not before it.
 - **T-167** — Trivia emoji facts review flows (TODO, P2) — apply the same preview/approve/reject discipline beyond discussion prompts.
 - ✅ **T-134** — Wire `config/question_quality.md` into every prompt path (DONE).
@@ -233,1057 +259,120 @@ Active queues should reflect what to work on next, not historical shipped phases
 
 ## Detailed Tasks
 
----
-
-#### T-152: E2E lane: control-surface action inventory
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** —
-
-Create the authoritative action inventory for Botson's dashboard/control surfaces. This is the root map for discovering unknown holes before adding more tests.
-
-Scope:
-- Inventory planner, weekplan, prompt modal, review-drafts modal, puzzles, trivia, settings/routing, moderation, facts/pools, and send-now controls.
-- For each action, map: UI entry -> JS handler -> API endpoint -> DB mutation -> worker/scheduler owner -> external side effect -> terminal state -> visible feedback.
-- Mark every unknown explicitly. Do not assume a flow works because a function exists.
-- Classify each action's lifecycle states: preview, draft, scheduled, running, sent/succeeded, failed, skipped, cancelled, unknown.
-
-Deliverable:
-- `docs/control-surface-action-inventory.md` with one table per dashboard area.
-
-Verification:
-- Table covers every `/api/calendar`, `/api/weekplan`, `/api/trivia`, `/api/pool`, `/api/bot`, and `/api/diagnostics` route used by dashboard JS.
-- Every row has either a known test reference or an explicit missing-test note.
-
----
-
-#### T-153: E2E lane: scheduled-card persistence invariant
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
-
-Prove the planner calendar cannot show a sendable card unless the backend has durable scheduled state.
-
-Scope:
-- Add a DB-backed test for `/api/calendar` asserting every event with `extendedProps.willSend=true` maps to exactly one `scheduled_messages` row with `status='scheduled'`.
-- Add a browser/HTML assertion that preview, draft, scheduled, sent, failed, and skipped cards have distinct labels/tooltips.
-- Ensure preview rows, if reintroduced later, always carry `willSend=false` and `diagnosticLabel='תצוגה בלבד'`.
-
-Regression target:
-- A visible card must never imply it will send when no persisted scheduled row exists.
-
-Verification:
-- `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`
-- `PYTHONPATH=. uv run pytest tests/test_planner_visual.py -q`
-
----
-
-#### T-154: E2E lane: create drawer state isolation
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
-
-Convert the create-drawer trust fixes into real browser E2E coverage.
-
-Scope:
-- Make `tests/test_planner_edit_browser.py` active or replace it with a stable Playwright/pytest browser spec.
-- Test type switches: morning -> event, event -> poll, poll -> morning, custom -> event.
-- Assert generated text, poll options, event fields, cover state, and preview UI do not leak across incompatible types.
-- Assert fake RSVP buttons never render in draft preview; real event RSVP is only tested in dispatch-layer tests.
-
-Regression target:
-- A morning/daily prompt cannot appear as an event preview with RSVP controls.
-
-Verification:
-- Browser test runs headless without unconditional skip.
-- DB bootstrap is isolated with `DB_PATH` temp file.
-
----
-
-#### T-155: E2E lane: review-draft lifecycle proof
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
-
-Prove the review-drafts modal has a reliable lifecycle from generated draft to durable terminal state.
-
-Scope:
-- Seed AI drafts in a temp DB.
-- Browser or route-level E2E: edit text/time/topic -> save -> schedule -> send now -> delete/dismiss.
-- Assert each action mutates the expected DB row and updates visible UI state.
-- Assert dirty-state warnings do not accidentally send unsaved edits.
-- Assert schedule refuses past/too-soon slots unless `force=true` is explicitly confirmed.
-
-Regression target:
-- Draft cards cannot disappear from the modal without a durable state change.
-
-Verification:
-- New focused test file, e.g. `tests/test_planner_review_drafts_e2e.py`.
-- Include at least one negative path: failed schedule/send remains visible with error.
-
----
-
-#### T-156: E2E lane: scheduler due-row lifecycle proof
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P0 | **Status:** DONE | **Deps:** T-152
-
-Prove scheduled rows move through the scheduler lifecycle exactly once and always reach a visible terminal state.
-
-Scope:
-- For plain message, poll, event, trivia_round, emoji_puzzle, facts_tidbit, facts_spooky, weekly_roundup, weekly_leaderboard: create due rows in temp DB, run `check_and_send_due_messages` with mocked Telegram/handlers, assert status and message IDs.
-- Add stale-row and missing-routing/topic cases.
-- Assert `sent`, `failed`, and `skipped` appear in `/api/calendar` and `/api/diagnostics/planner-day` with useful details.
-
-Regression target:
-- A due row cannot remain silently `scheduled` after a send attempt unless the worker never ran, which diagnostics must reveal.
-
-Verification:
-- Extend `tests/test_calendar_scheduled_games.py` or create `tests/test_scheduler_lifecycle_e2e.py`.
-
----
-
-#### T-157: E2E lane: send-now vs scheduler parity
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-156
-
-Make the two dispatch paths intentionally consistent, and document the differences that must remain.
-
-Scope:
-- Compare `/api/calendar/{id}/send-now` via `_send_scheduled_row` against `check_and_send_due_messages` for each executable type.
-- Decide whether event RSVP, emoji media filters, fact pinned IDs, trivia warm-up gate, failed/skipped distinctions, and test-target behavior should be shared or explicitly different.
-- Add tests for every documented difference.
-
-Regression target:
-- A row should not behave differently just because the operator clicked Send Now instead of waiting for the scheduler, unless that difference is documented and tested.
-
-Verification:
-- Contract tests pass and reference the documented behavior table.
-
----
-
-#### T-158: E2E lane: failure visibility diagnostics
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-153, T-156
-
-Make every failure mode visible from the dashboard without reading logs.
-
-Scope:
-- Calendar cards expose `diagnosticLabel`, `diagnosticDetail`, `errorMessage`, `willSend`, and terminal status.
-- `/api/diagnostics/planner-day` reports due eligibility, stale/past reasons, topic verification, routing, payload shape, and last error.
-- Add dashboard affordance or tooltip/modal for "why won't/wouldn't this send?".
-- Cover failed, skipped, stale-drop, draft, missing group ID, missing topic, invalid poll options, and executable handler failure.
-
-Regression target:
-- Operators must not need SSH/log access to understand why a visible row did or did not send.
-
-Verification:
-- API tests for diagnostics payload.
-- Browser/HTML test for visible diagnostic entry point.
-
----
-
-#### T-159: E2E lane: Sherlocks Den smoke harness
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158
-
-Create a production-safe dry-run harness that proves the full lane against Sherlocks Den only.
-
-Scope:
-- Use `target_group='test'` or test-only env routing. Never send to main chat.
-- Create one row per safe content type with unique marker text.
-- Exercise schedule and send-now paths where safe.
-- Record scheduled row ID, Telegram message ID/session ID, terminal status, topic, and cleanup status.
-- Include a dry-run mode that prints planned actions without sending.
-
-Regression target:
-- A real-world smoke can prove the dashboard + API + DB + bot integration without risking the main group.
-
-Verification:
-- `PYTHONPATH=. uv run python scripts/e2e_den_smoke.py --dry-run`
-- Explicit approval required before non-dry-run send.
-
----
-
-#### T-160: E2E lane: one-command local/CI gate
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P1 | **Status:** DONE | **Deps:** T-153, T-154, T-155, T-156, T-157, T-158, T-159
-
-Bundle the trust suite into one reliable command that can run locally and in CI-like checks.
-
-Scope:
-- Add a script or Make target that runs: scheduler lifecycle tests, planner API tests, planner browser tests, hardcoded-content guardian, and optional Den dry-run.
-- Ensure browser tests skip only when browsers are genuinely unavailable, not because fixtures are WIP.
-- Emit a concise pass/fail summary and point to artifacts/logs on failure.
-
-Regression target:
-- Future dashboard changes cannot bypass the E2E trust lane by only running narrow unit tests.
-
-Verification:
-- Example command: `PYTHONPATH=. uv run python scripts/run_control_surface_e2e.py` or documented equivalent.
-
----
-
-#### T-161: E2E lane: audit remaining dashboards
-**Phase:** 27 — Control-surface E2E reliability | **Priority:** P2 | **Status:** TODO | **Deps:** T-152
-
-Repeat the control-surface audit beyond the planner/scheduler.
-
-Scope:
-- Run `control-surface-audit` separately for puzzles/Emoji Night, trivia live + trivia pool, settings/routing, moderation/spam, content pools/facts, onboarding/welcome, and levels/engagement.
-- For each area, add or link follow-up tasks only when a trust gap has concrete evidence.
-- Do not turn this into generic cleanup. Every new task must name the broken promise and the test/diagnostic needed.
-
-Deliverable:
-- Add sections to `docs/control-surface-action-inventory.md` or split into `docs/control-surface-*.md` if it gets too large.
-
-Verification:
-- Each audited area has an action inventory, lifecycle map, trust gaps, invariants, and test matrix.
-
----
-
-#### T-162: Question quality review queue
-**Phase:** 28 — Question quality review | **Priority:** P0 | **Status:** IN PROGRESS | **Deps:** T-134, T-135
-
-The next work is not adding more raw questions. It is reviewing real generated and scheduled prompts against `config/question_quality.md`, removing weak sendable content, and feeding concrete failures back into the validator and prompt rules.
-
-Scope:
-- Inspect upcoming `scheduled_messages`, pending review drafts, and any recent generated text available locally.
-- Classify each questionable prompt as keep, rewrite, reject, or needs-channel-context.
-- Promote only concrete recurring failures into `config/question_quality.md` and `_validate_draft_text` tests.
-- Avoid broad subjective rules. Every new rule needs at least one real bad output and one false-positive check against curated pools.
-- Rewrite weak `config/discussions.yaml` entries only when they are genuinely likely to underperform or violate the rules.
-
-Deliverable:
-- A short review log in the task notes or a dedicated doc, plus targeted config/test changes.
-
-Verification:
-- `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py tests/test_quality_rules_wiring.py tests/test_quality_gate.py -q`
-- If `config/discussions.yaml` changes: `PYTHONPATH=. uv run pytest tests/test_facts_pool.py -q` only if fact/content validators are touched.
-
-Progress:
-- 2026-05-14: First concrete review batch inspected local `data/bot.db` scheduled/draft rows, `data/pending_reviews.json`, `config/prompts.yaml`, and `config/discussions.yaml`. The existing validator had zero failures on live rows/pools, but manual review found weak legacy text patterns: English `Done` in Hebrew prompt copy, generic day/evening check-ins (`איך היה היום`, `הרגע הכי שווה מהיום`, `מה עשיתם היום בשביל עצמכם`), broad fandom fantasy (`לחיות בעולם של סדרה/משחק/ספר`), and generic movie rewatch (`סרט שראיתם יותר מ-3 פעמים`).
-- Rewrote the tiny morning/evening pool in `config/prompts.yaml` to use more concrete micro-scenes and no English jargon.
-- Added the concrete failures to `config/question_quality.md`, `config/freshness.yaml`, `_validate_draft_text`, and `tests/test_digest_quality_consolidation.py` so the same weak drafts are rejected before scheduling.
-- Verified with `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py tests/test_quality_rules_wiring.py tests/test_quality_gate.py -q` — 29 passed, 55 subtests passed.
-
----
-
-#### T-163: Draft review quality approval loop
-**Phase:** 28 — Question quality review | **Priority:** P0 | **Status:** IN PROGRESS | **Deps:** T-162
-
-Dashboard review should make weak AI drafts hard to accidentally schedule. The operator needs explicit quality status, visible rejection reasons, and a durable approve/rewrite/reject path before content becomes sendable.
-
-Scope:
-- Add quality status to review-draft rows: unreviewed, accepted, rejected, needs rewrite.
-- Surface validator failures and quality-rule excerpts near the draft text.
-- Ensure schedule/send-now refuses rejected or failing drafts unless the operator explicitly overrides with a visible reason.
-- Persist edits and review decisions so drafts cannot disappear without a durable state change.
-- Keep `/api/weekplan/ai-suggest` preview-only; only the commit/review path may write scheduled rows.
-
-Regression target:
-- A draft with known-bad wording cannot silently become a scheduled message.
-
-Verification:
-- Add/extend focused review-draft tests, likely alongside T-155.
-- `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py tests/test_planner_coercion_and_chips.py -q`
-
-Progress:
-- 2026-05-14: Closed the first bypass: saving edited draft text was already validated, but approving/scheduling an existing draft with no text payload, scheduling through `/api/calendar/{id}/schedule`, and send-now paths could reuse bad stored text. Added a shared row-level quality gate for `morning`, `evening`, and `discussion` rows.
-- `/api/calendar` now exposes `qualityStatus` and `qualityFailures` for draft rows so the review modal can show a visible rejection panel before the operator clicks schedule/send.
-- The review modal now formats `quality_rejected` API errors instead of showing `[object Object]`, keeps failed send-now cards in place, and shows quality warnings next to failing drafts.
-- Added regressions proving low-quality drafts remain `draft` when scheduled via the review endpoint or promoted through `PUT /api/calendar/{id}` without a replacement text payload.
-- Verified with `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py tests/test_digest_quality_consolidation.py -q` — 108 passed, 172 subtests passed; and `PYTHONPATH=. uv run pytest tests/test_quality_rules_wiring.py tests/test_quality_gate.py tests/test_no_hardcoded_content.py -q` — 22 passed, 13 subtests passed.
-
----
-
-#### T-164: Real-output regression corpus
-**Phase:** 28 — Question quality review | **Priority:** P1 | **Status:** TODO | **Deps:** T-162
-
-The quality gate should learn from real misses, not imagined generic examples. Create a small corpus of actual accepted/rejected outputs that can be reused by tests and future prompt work.
-
-Scope:
-- Store bad outputs, corrected rewrites, channel/category, failure reason, and expected validator result in a versioned fixture.
-- Include good borderline examples to protect against over-aggressive validator rules.
-- Wire the corpus into `tests/test_digest_quality_consolidation.py` or a focused quality-corpus suite.
-- Keep private/user-identifying text out of fixtures unless already public and safe.
-
-Verification:
-- Corpus tests fail when a known-bad output passes or a known-good curated output is rejected.
-- `PYTHONPATH=. uv run pytest tests/test_digest_quality_consolidation.py -q`
-
----
-
-#### T-165: Channel-specific question rubrics
-**Phase:** 28 — Question quality review | **Priority:** P1 | **Status:** DONE (2026-06-08) | **Deps:** T-162
-
-The global rules are useful but still too generic. Each active channel should have a compact rubric with local examples: what a good prompt sounds like there, what fails, and which participation pattern it is trying to trigger.
-
-Scope:
-- Add channel-specific examples for active discussion categories in `config/question_quality.md` or a linked config file loaded by generation prompts.
-- Cover at least: general, movies, gaming, vegan, art, politics, singles, cute, music.
-- For each channel, include positive examples, reject examples, and 2-3 preferred prompt patterns.
-- Keep the prompt payload short enough for current CLI timeout constraints.
-
-Verification:
-- `PYTHONPATH=. uv run pytest tests/test_quality_rules_wiring.py tests/test_digest_quality_consolidation.py -q`
-- Manual review of generated prompts for at least three channels.
-
-**Shipped 2026-06-08:** `config/channel_rubrics.yaml` is loaded by discussion generation, and the active discussion set now includes dedicated `support` (`מרימים אחד לשני/ה!`, topic 347) and `fitness` (`כושר`, topic 5438) categories with starter pools and rubrics. The stale `art:347` mapping was replaced so support/uplift generation no longer receives art/יצירה context. Regression coverage pins renamed-topic prompt behavior, category/topic mismatch handling, planner topic payloads, and support/fitness Populate mappings.
-
-**Verification:** `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py tests/test_planner_generation_pipeline.py -q`; `PYTHONPATH=. uv run python scripts/validate_discussions.py`; `npx playwright test tests/playwright/planner-discussion-topic.spec.js --reporter=line`. Production was also verified after restart: `support` and `fitness` are active, have pools/rubrics, and services were healthy.
-
----
-
-#### T-166: Reaction-informed bot cadence loop
-**Phase:** 29 — Bot enhancement | **Priority:** P1 | **Status:** TODO | **Deps:** T-136
-
-Now that reaction tracking exists, cadence decisions should be based on actual participation. Add a lightweight loop that shows which content types and slots are working and lets the operator adjust the schedule deliberately.
-
-Scope:
-- Aggregate recent engagement by content type, channel/topic, weekday, and time slot.
-- Flag slots with repeated low engagement or high replies/reactions.
-- Show recommendations as diagnostics only; do not auto-change schedule.
-- Keep copy and thresholds config-driven.
-
-Verification:
-- API tests for aggregation and empty-data behavior.
-- Dashboard smoke or HTML test for visible cadence diagnostics.
-
----
-
-#### T-167: Trivia emoji facts review flows
-**Phase:** 29 — Bot enhancement | **Priority:** P2 | **Status:** TODO | **Deps:** T-163
-
-The review discipline should not stop at discussion prompts. Trivia launches, Emoji Night announcements, and facts captions also need preview/approve/reject flows before they become scheduled content.
-
-Scope:
-- Inventory current preview/review behavior for trivia, emoji, and facts suggestions.
-- Add missing quality status and rejection reasons where generated text can become sendable.
-- Ensure pinned executable payloads match previewed content.
-- Avoid duplicating question-quality rules where a content type needs its own rubric.
-
-Verification:
-- Focused tests for preview payload matching committed/sent payload.
-- `PYTHONPATH=. uv run pytest tests/test_calendar_scheduled_games.py tests/test_digest_quality_consolidation.py -q`
-
----
-
-#### T-168: Community health metrics loop
-**Phase:** 29 — Bot enhancement | **Priority:** P2 | **Status:** TODO | **Deps:** T-136
-
-Bot enhancements should preserve the community's feel: useful prompts, low spam, enough quiet space, and no forced participation. Add small health signals that help decide what to change next.
-
-Scope:
-- Track simple signals: active responders, unique reactors, unanswered bot prompts, muted/disabled content types, and manual sends.
-- Show trends without gamifying members or shaming quiet users.
-- Use metrics to inform future queue ordering, not automatic interventions.
-
-Verification:
-- API tests for aggregation with empty and populated DBs.
-- Manual dashboard check that labels are neutral and not member-shaming.
-
----
-
-#### T-151: Long-form facts pass 🌱
-**Phase:** 26 — Content polish | **Priority:** P2 | **Status:** DONE (2026-05-11) | **Deps:** T-133
-
-**Shipped 2026-05-11:** Expanded every `spooky` entry to a 5–8 line mini-story and every `tidbit` entry to at least 4 lines. Added `test_fact_previews_have_enough_story_depth` so future entries cannot regress into short captions.
-
-The new fact pools are large enough, but some previews still read like short captions. Future curation should expand every `config/facts.yaml` entry, starting with `spooky`, into a richer 5–8 line mini-story that gives setup, concrete details, source/caveat, and a satisfying final beat.
-
-Reference bar: `spooky/borley_rectory` after the 2026-05-11 expansion. It includes location, time period, reported phenomena, investigator/source context, skepticism, and a final framing line.
-
-Scope:
-- Audit all `spooky` entries first; then decide whether `tidbit` should use the same length or a slightly tighter 4–6 line format.
-- Preserve every existing `source`, `source_url`, and `image_prompt`/`image_url`.
-- Do not add unsourced claims. If a richer version needs extra detail, either verify from the existing source or replace the source.
-- Keep Hebrew natural and Telegram-readable; no walls of text.
-
-Verification:
-- `PYTHONPATH=. uv run pytest tests/test_facts_pool.py -q`
-- Spot-check several dashboard previews for truncation/readability.
-
-Files: `config/facts.yaml`; optionally `tests/test_facts_pool.py` if a safe line-count/readability assertion is useful.
-
----
-
-#### T-147: Planner Populate flex slots
-**Phase:** 26 — Planner Populate flexibility | **Priority:** P0 | **Status:** DONE (2026-05-10) | **Deps:** T-123
-
-AI Populate currently only previews rows at fixed `schedule.*.time(s)` values, so an evening with several hours left can still return zero suggestions if games need past warm-up slots or exact game/facts slots are occupied. Add config-driven flex windows so Populate can propose non-game content during remaining free time without hardcoded hours or hardcoded Hebrew themes.
-
-**Scope:**
-- Add `config/settings.yaml:ai_populate.flex` windows and caps.
-- Expand `/api/weekplan/ai-suggest` to generate non-game flex candidates after fixed candidates are exhausted or under-filled.
-- Keep preview-before-commit invariant: suggest writes nothing; approve inserts only selected rows.
-- Preserve trivia/emoji RSVP safety. A missed warm-up skips the game, but must not block non-game flex posts.
-
-**Pass criteria:** day-level Populate after fixed slots fail can still return a future discussion/custom row if a configured flex window is available.
-
-**Shipped 2026-05-10:** Added `settings.yaml:ai_populate.flex` day windows, flex candidate expansion, `custom` suggestion commit support, and modal icon rendering. Day-level Populate can now return non-game flex suggestions in configured future windows while keeping trivia/emoji RSVP safety intact.
-
-#### T-148: Populate skip diagnostics
-**Phase:** 26 — Planner Populate flexibility | **Priority:** P1 | **Status:** DONE (2026-05-10) | **Deps:** T-147
-
-Replace the generic empty-state explanation with concrete skip diagnostics from the backend. The response should surface reasons such as past fixed time, occupied exact slot, warm-up RSVP time already passed, disabled feature, missing routing/topic, empty pool, or exhausted flex window.
-
-**Pass criteria:** when `suggestions=[]`, the modal shows actionable reasons rather than only "all slots occupied".
-
-**Shipped 2026-05-10:** `/api/weekplan/ai-suggest` now returns `skip_reasons` with code/date/time/type metadata, and the modal renders the top reasons when no suggestions are returned. Current codes cover past slots, occupied exact slots, occupied flex times, and flex windows that are too soon.
-
-#### T-149: Populate flex routing config
-**Phase:** 26 — Planner Populate flexibility | **Priority:** P1 | **Status:** TODO | **Deps:** T-147
-
-Make flex suggestion routing operator-controlled. Do not infer a default topic in code. Supported strategies should be config-backed, e.g. active discussion category, `topics.welcome`, `topics.goals`, or a handler-routing row for a future flex handler.
-
-**Pass criteria:** custom/discussion flex rows always use verified/configured topics, and missing routing produces a visible skip reason.
-
-#### T-150: Populate flex regression suite
-**Phase:** 26 — Planner Populate flexibility | **Priority:** P1 | **Status:** TODO | **Deps:** T-147, T-148, T-149
-
-Add focused tests for the flexible Populate behavior: evening fallback, config-defined windows, occupied/past skips, `custom` commit support, diagnostic reasons, and hardcoded-content guardian compatibility.
-
-**Verification:**
-- `PYTHONPATH=. uv run pytest tests/test_planner_coercion_and_chips.py -q`
-- `PYTHONPATH=. uv run pytest tests/test_calendar_scheduled_games.py -q`
-- `PYTHONPATH=. uv run pytest tests/test_no_hardcoded_content.py -q`
-
----
-
-#### T-001: Project scaffolding & git init
-**Phase:** 0 — Setup | **Priority:** P0 | **Status:** TODO
-
-Create the full directory structure:
-```
-elhoriim-bot/
-├── bot/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── handlers/
-│   │   ├── __init__.py
-│   │   ├── welcome.py
-│   │   ├── goals.py
-│   │   ├── karma.py
-│   │   ├── antispam.py
-│   │   └── roundup.py
-│   ├── database/
-│   │   ├── __init__.py
-│   │   ├── models.py
-│   │   └── db.py
-│   ├── scheduler/
-│   │   ├── __init__.py
-│   │   └── jobs.py
-│   └── utils/
-│       ├── __init__.py
-│       ├── config.py
-│       └── helpers.py
-├── config/
-│   ├── prompts.yaml
-│   ├── settings.yaml
-│   └── spam_patterns.yaml
-├── requirements.txt
-├── Dockerfile
-├── .env.example
-└── .gitignore
-```
-
-Files: requirements.txt, .gitignore, .env.example, all `__init__.py` stubs
-
----
-
-#### T-002: Database layer (SQLite + aiosqlite)
-**Phase:** 0 — Setup | **Priority:** P0 | **Status:** TODO | **Deps:** T-001
-
-- `bot/database/models.py` — SQL schema definitions for all 5 tables:
-  - `members` (user_id PK, username, display_name, joined_at, karma_points DEFAULT 0)
-  - `karma_log` (id PK autoincrement, giver_id, receiver_id, timestamp, message_id)
-  - `daily_prompts` (id PK autoincrement, type TEXT, text TEXT, last_used_at TIMESTAMP NULL)
-  - `spam_log` (id PK autoincrement, user_id, message_text, rule_triggered, action, timestamp)
-  - `streaks` (user_id PK, current_streak DEFAULT 0, longest_streak DEFAULT 0, last_post_date DATE NULL)
-- `bot/database/db.py` — Async DB class: init/migrate, CRUD helpers for each table
-- DB path from `DB_PATH` env var, default `./data/bot.db`
-- Auto-create `data/` directory if missing
-
----
-
-#### T-003: Config system (YAML loader + settings)
-**Phase:** 0 — Setup | **Priority:** P0 | **Status:** TODO | **Deps:** T-001
-
-- `bot/utils/config.py` — Load YAML files from `config/` directory
-- `config/settings.yaml` — Bot settings: group_id, topic IDs, thresholds, schedule times
-- `config/spam_patterns.yaml` — Regex patterns for spam detection
-- `config/prompts.yaml` — Placeholder (filled in T-009)
-- Environment variables loaded via `python-dotenv`
-
----
-
-#### T-004: Bot entry point & handler registration
-**Phase:** 0 — Setup | **Priority:** P0 | **Status:** TODO | **Deps:** T-002, T-003
-
-- `bot/main.py` — Application entry point:
-  - Initialize `python-telegram-bot` Application with bot token
-  - Initialize database on startup
-  - Register all handlers (welcome, goals, karma, antispam, roundup)
-  - Register command handlers (/start, /help, /karma, /leaderboard, /streak, /stats, /whitelist, /resetkarma)
-  - Setup APScheduler
-  - Graceful shutdown handling
-  - Logging configuration
-- `bot/utils/helpers.py` — Shared utilities: admin check, bot check, rate limiting
-
----
-
-#### T-005: Scheduler setup (APScheduler)
-**Phase:** 0 — Setup | **Priority:** P0 | **Status:** TODO | **Deps:** T-004
-
-- `bot/scheduler/jobs.py` — Define all scheduled jobs:
-  - Morning prompt: 08:00 Asia/Jerusalem daily
-  - Evening prompt: 21:00 Asia/Jerusalem daily
-  - Weekly karma leaderboard: Friday 18:00
-  - Weekly roundup: Friday 18:00
-- Use `AsyncIOScheduler` with `CronTrigger`
-- Jobs call handler functions from respective modules
-
----
-
-#### T-006: Docker + deployment config
-**Phase:** 0 — Setup | **Priority:** P0 | **Status:** TODO | **Deps:** T-001
-
-- `Dockerfile` — Python 3.11-slim, copy code, install deps, run bot
-- `requirements.txt`:
-  - python-telegram-bot[ext]>=20.0
-  - aiosqlite>=0.19.0
-  - APScheduler>=3.10.0
-  - PyYAML>=6.0
-  - python-dotenv>=1.0.0
-- `.env.example` — Template with all env vars documented
-
----
-
-#### T-007: Welcome bot handler
-**Phase:** 1 | **Priority:** P0 | **Status:** TODO | **Deps:** T-004
-
-- `bot/handlers/welcome.py`
-- Trigger: `ChatMemberHandler` or `MessageHandler` for `new_chat_members`
-- Send to "מצטרפים חדשים + עדכונים" topic (via `message_thread_id`)
-- Use member's Telegram display name (`first_name`)
-- Skip if `is_bot` is True
-- Batch: collect joins within 30 seconds, send single combined message
-- Hebrew welcome template from spec
-- Register/update member in database
-
----
-
-#### T-008: Anti-spam handler
-**Phase:** 1 | **Priority:** P0 | **Status:** TODO | **Deps:** T-004, T-002
-
-- `bot/handlers/antispam.py`
-- Run on every incoming message (high priority group handler)
-- Detection rules:
-  1. Forwarded from unknown channels → delete + warn via DM
-  2. 3+ links from members < 7 days old → hold for admin review
-  3. Crypto/betting/adult regex patterns (from `spam_patterns.yaml`) → auto-delete + log
-  4. Repeated identical messages > 3 in 60s → delete dupes + mute 10 min
-  5. New member message in first 30 seconds → flag for review
-- Log all actions to admin (via DM or private admin channel)
-- `/whitelist <pattern>` command for admins
-- Store spam events in `spam_log` table
-
----
-
-#### T-009: Prompts YAML (30+ morning + 30+ evening Hebrew prompts)
-**Phase:** 2 | **Priority:** P0 | **Status:** TODO | **Deps:** T-003
-
-- `config/prompts.yaml` — Structure:
-  ```yaml
-  morning:
-    - "☀️ בוקר טוב! מה המטרה שלכם להיום?"
-    - "מה דבר אחד שאתם רוצים להספיק היום?"
-    ... (30+ variations)
-  evening:
-    - "🌙 ערב טוב! מה הדבר הטוב שקרה לכם היום?"
-    - "על מה אתם גאים מהיום?"
-    ... (30+ variations)
-  ```
-- All prompts in Hebrew, varied tone (motivational, reflective, fun, grateful)
-
----
-
-#### T-010: Daily goals handler + prompt rotation
-**Phase:** 2 | **Priority:** P0 | **Status:** TODO | **Deps:** T-005, T-009
-
-- `bot/handlers/goals.py`
-- Prompt rotation logic: pick random unused prompt, mark used in DB, reset pool when all used
-- Morning job (08:00): send random morning prompt to "הישגים ומטרות 🌟" topic
-- Evening job (21:00): send random evening prompt to same topic
-- Track participation for streak system
-
----
-
-#### T-011: Streak tracking system
-**Phase:** 2 | **Priority:** P0 | **Status:** TODO | **Deps:** T-010, T-002
-
-- Part of `bot/handlers/goals.py`
-- When a member posts in the goals channel, update their streak in `streaks` table
-- `/streak` command shows current and longest streak
-- Celebrate milestones (7-day, 30-day streaks) with a congratulatory message
-
----
-
-#### T-012: Karma handler (give/check/leaderboard)
-**Phase:** 3 | **Priority:** P1 | **Status:** TODO | **Deps:** T-004, T-002
-
-- `bot/handlers/karma.py`
-- Detect karma triggers in reply messages: `+1`, `תודה`, `👏`
-- Add karma point to original poster, log in `karma_log`
-- React with confirmation emoji (silent)
-- Commands:
-  - `/karma` — show your points
-  - `/karma @user` — check someone's points
-  - `/leaderboard` — top 10
-
----
-
-#### T-013: Karma anti-abuse rules
-**Phase:** 3 | **Priority:** P1 | **Status:** TODO | **Deps:** T-012
-
-- No self-karma (giver_id != receiver_id)
-- Max 5 karma given per user per day (check karma_log)
-- Can't give karma to bots
-- Silent rejection (no error messages to avoid spam)
-
----
-
-#### T-014: Weekly karma leaderboard (scheduled)
-**Phase:** 3 | **Priority:** P1 | **Status:** TODO | **Deps:** T-012, T-005
-
-- Scheduled job: every Friday at 18:00 Israel time
-- Post top 10 karma earners to general channel
-- Hebrew formatting with emoji medals (🥇🥈🥉)
-
----
-
-#### T-015: Weekly roundup handler (scheduled)
-**Phase:** 4 | **Priority:** P2 | **Status:** TODO | **Deps:** T-005, T-012, T-002
-
-- `bot/handlers/roundup.py`
-- Friday 18:00 Israel time → "כל מה שאין לו ערוץ" (General) topic
-- Contents:
-  - Most active topic channels this week (message count per topic)
-  - Top 3 karma earners
-  - Number of new members this week
-  - Quiet channels that could use some love
-  - Achievement streak highlights
-- Hebrew formatting
-
----
-
-#### T-016: README.md with setup guide
-**Priority:** P1 | **Status:** TODO | **Deps:** T-006
-
-Full setup guide covering:
-- BotFather setup steps
-- Adding bot to group + admin permissions
-- Creating the הישגים ומטרות topic
-- Environment variables
-- Local development
-- Docker deployment
-- Railway/Render deployment
-
----
-
-#### T-017: End-to-end testing & verification
-**Priority:** P1 | **Status:** TODO | **Deps:** All
-
-- Verify bot starts without errors
-- Test welcome message (add a test user)
-- Test spam detection rules
-- Test prompt rotation
-- Test karma give/check/leaderboard
-- Test scheduled jobs fire correctly
-- Test graceful shutdown
-
----
-
-#### T-045: Top navbar — move brand to horizontal header
-**Phase:** 11 — Dashboard UX | **Priority:** P0 | **Status:** TODO | **Deps:** T-041
-
-Move "Botson" from sidebar header to a horizontal top navbar spanning the full width (like Contractor app reference). Sidebar starts below the navbar. This gives a more professional app feel.
-
-Files: `dashboard/templates/base.html`
-
----
-
-#### T-046: Day-of-week selectors for scheduled items
-**Phase:** 11 — Dashboard UX | **Priority:** P0 | **Status:** TODO | **Deps:** T-044
-
-Each scheduled item (morning, evening, discussions, roundup) needs clickable day-of-week chips: א׳ ב׳ ג׳ ד׳ ה׳ ו׳ ש׳. Selected days are highlighted, unselected are gray. Saved to `settings.yaml` under each schedule item.
-
-Requires:
-- Update schedule config format to include days per item
-- Update schedule API endpoint
-- Update bot scheduler to check days
-- Add day chips UI to prompts schedule tab
-
-Files: `dashboard/templates/prompts.html`, `dashboard/app.py`, `config/settings.yaml`, `bot/scheduler/jobs.py`
-
----
-
-#### T-047: Auto-detect forum topics from messages
-**Phase:** 11 — Bot | **Priority:** P0 | **Status:** TODO | **Deps:** T-004
-
-Telegram Bot API has no `getForumTopics` method. Workaround: track `message_thread_id` + topic name from every incoming message.
-
-- Add `forum_topics` table to DB: `topic_id (PK), name, last_seen_at`
-- Add a low-priority message handler that captures `message.message_thread_id` and `message.reply_to_message.forum_topic_created.name` (or from `message.forum_topic_created`)
-- Expose via `/api/topics/forum` dashboard endpoint
-
-Files: `bot/database/models.py`, `bot/database/db.py`, `bot/handlers/` (new tracker), `dashboard/app.py`
-
----
-
-#### T-048: Topic dropdown in schedule (replace ID input)
-**Phase:** 11 — Dashboard UX | **Priority:** P0 | **Status:** TODO | **Deps:** T-047
-
-Replace all `<input type="number">` Topic ID fields with `<select>` dropdowns populated from the forum_topics table. Dropdown shows topic name + ID. Auto-refreshes when page loads.
-
-Files: `dashboard/templates/prompts.html`, `dashboard/app.py`
-
----
-
-#### T-049: Clickable dots — instant visual toggle on/off
-**Phase:** 11 — Dashboard UX | **Priority:** P1 | **Status:** TODO | **Deps:** T-044
-
-Schedule timeline dots must visually toggle instantly on click:
-- Colored dot + full opacity = on
-- Gray dot + 40% opacity = off
-- JS swaps CSS classes immediately, then saves async via API
-- Uses a color map per dot type (amber=morning, sky=discussion, indigo=evening, orange=roundup)
-
-Files: `dashboard/templates/prompts.html`
-
----
-
-#### T-050: Schedule tab — show loaded question per slot
-**Phase:** 11 — Dashboard UX | **Priority:** P1 | **Status:** TODO | **Deps:** T-044
-
-Each schedule row should show the actual next message/question that will be sent in that slot, not just "קטגוריה אקראית מהמאגר". Pull from the prompts pool to show a real preview.
-
-Files: `dashboard/templates/prompts.html`
-
----
-
-#### T-051: End-to-end dashboard QA pass
-**Priority:** P1 | **Status:** TODO | **Deps:** T-045..T-050
-
-- All pages load without 500 errors
-- All toggles save correctly
-- Schedule saves and reflects in timeline
-- Topic dropdowns populate
-- Day-of-week chips save
-- Mobile responsive check
-- RTL consistency check
-
----
-
-#### T-058: Auto-restart bot on code changes (file watcher)
-**Phase:** 12 — Reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-052
-
-Watch `bot/` and `config/` directories for file changes. When a change is detected, gracefully restart the bot process. Prevents stale code from running after edits.
-
-Options:
-- `watchdog` Python library to monitor filesystem changes
-- Simple shell loop with `inotifywait`
-- Integrate into `run_bot.sh` wrapper
-
-Files: new `run_bot.sh` or `bot/watcher.py`
-
----
-
-#### T-059: Bot process supervisor script (run_bot.sh)
-**Phase:** 12 — Reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-052
-
-A wrapper script that:
-- Ensures only one instance runs (via PID lock)
-- Redirects logs to a persistent file (`data/bot.log`)
-- Auto-restarts on crash
-- Handles SIGTERM gracefully
-- Can be used with systemd or run standalone
-
-Files: `run_bot.sh`
-
----
-
-#### T-060: Dashboard "restart bot" button
-**Phase:** 12 — Reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-059
-
-Add a button to the health page that sends SIGHUP or restarts the bot process. Dashboard reads the PID from `data/bot.pid` and sends a signal.
-
-Files: `dashboard/app.py`, `dashboard/templates/health.html`
-
----
-
-#### T-061: Bot version check — dashboard shows if bot needs restart
-**Phase:** 12 — Reliability | **Priority:** P1 | **Status:** TODO | **Deps:** T-058
-
-Track a version hash (git commit or file mtime) at bot startup. Dashboard compares the running version against current code on disk. Shows a warning banner if they differ: "Bot is running old code — restart required."
-
-Files: `bot/main.py`, `dashboard/templates/health.html`
-
----
-
-#### T-062: Persistent bot logging (log to file, not temp)
-**Phase:** 12 — Reliability | **Priority:** P0 | **Status:** TODO | **Deps:** T-004
-
-Bot should always log to `data/bot.log` with rotation (10MB max, 3 backups). Currently logs go to whatever stdout/stderr the process was started with (often temp files that get deleted).
-
-Files: `bot/main.py` (logging config)
-
----
-
-#### T-063: Dashboard log viewer (tail bot logs in real-time)
-**Phase:** 12 — Reliability | **Priority:** P2 | **Status:** TODO | **Deps:** T-062
-
-Add a section to the health page that shows the last 50 lines of `data/bot.log`. Auto-refreshes every 10 seconds via JS polling. Lets you monitor the bot from the dashboard without SSH.
-
-Files: `dashboard/app.py`, `dashboard/templates/health.html`
-
----
-
-#### T-064: Dashboard: send test message to any topic
-**Phase:** 13 — Dashboard Parity | **Priority:** P1 | **Status:** TODO
-
-API endpoint `POST /api/bot/send` that sends a message to a selected topic. Dashboard UI: text input + topic dropdown + send button. Useful for testing and announcements.
-
----
-
-#### T-065: Dashboard: trigger morning/evening prompt manually
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-"Send now" button on the prompts schedule tab. Calls bot to pick a random prompt from the pool and send it to the goals topic immediately. Same as what the scheduler does, but on demand.
-
----
-
-#### T-066: Dashboard: trigger discussion prompt manually
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-"Send now" button for discussion prompts. Picks a random category with a configured topic ID, selects a prompt, and sends it.
-
----
-
-#### T-067: Dashboard: start trivia question from dashboard
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-Button on the trivia page to start a trivia question in the group. Equivalent to `/trivia` command. Shows the question in Telegram with answer buttons.
-
----
-
-#### T-068: Dashboard: view/manage member levels + reset
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-Levels page already shows leaderboard + reset. Enhance with: individual member level edit, point adjustment, search. Currently partially done.
-
----
-
-#### T-069: Dashboard: view/manage streaks
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-Add streak data to the members or levels page. Show current streak, longest streak, last post date. Equivalent to `/streak` for all users.
-
----
-
-#### T-070: Dashboard: whitelist management
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-Already partially done on spam page (textarea). Enhance: individual add/remove, test pattern against sample text, import/export.
-
----
-
-#### T-071: Dashboard: view group stats
-**Phase:** 13 | **Priority:** P1 | **Status:** TODO
-
-Equivalent to `/stats` command. Show on overview or health page: top karma earners, top streaks, member count, active topics, messages per day.
-
----
-
-#### T-072: Dashboard: create event from dashboard
-**Phase:** 13 | **Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
-
-Dashboard `/events` page rebuilt as a two-tab form:
-- **Blank tab**: title, description, date, time, location, topic dropdown, target group, cover image (upload / AI-generate via kie.ai / URL-scrape), auto-pin checkbox.
-- **From-Poll tab**: dropdown of recent polls (via `GET /api/polls`); picking a poll auto-fills title (cleaned), cover, topic, target group; clicking an option button adds date/time parsed from the option label.
-
-`POST /api/events/create` now actually posts to Telegram via `bot.handlers.calendar.send_message_with_optional_cover`, attaches RSVP inline buttons (`rsvp_yes_{event_id}` / `rsvp_maybe_{event_id}`), pins if requested, persists `message_id` + provenance (`source_poll_message_id`, `source_poll_option_key`).
-
-New "שמור בלי לפרסם" button creates the DB row without sending to Telegram (draft mode).
-
-Cache-Control: no-store middleware on HTML responses prevents stale-JS issues.
-
-Bugs fixed along the way: title was option-label not poll-text; date rolled to next year for slightly-past polls; cover preview rendered above viewport (added scrollIntoView); RSVP `callback_data` lacked event_id; literal `*` markdown asterisks rendered in caption; `edit_message_text` failed on photo+caption messages (switched to `edit_message_reply_markup`).
-
-**Files:** `bot/database/{db,models}.py` (events columns: cover_path, auto_pin, topic_id, source_poll_*), `bot/handlers/{events,polls}.py`, `dashboard/app.py` (events routes, /api/polls, no-cache middleware), `dashboard/templates/events.html` (full rewrite of form + JS), `scripts/{demo_event_to_den,repair_event_rsvp_buttons}.py`.
-
----
-
-#### T-073: Dashboard: send weekly roundup manually
-**Phase:** 13 | **Priority:** P2 | **Status:** TODO
-
-"Send now" button for the weekly roundup. Generates and posts the roundup to the general channel immediately.
-
----
-
-#### T-074: Dashboard: activity analytics (charts/graphs)
-**Phase:** 13 | **Priority:** P2 | **Status:** TODO
-
-Add simple charts to the overview page: activity over time (line chart), messages per topic (bar chart), member growth. Use Chart.js via CDN.
-
----
-
-#### T-075: Investigate: levels points given to only some users
-**Priority:** P1 | **Status:** TODO
-
-**Finding:** Not a bug. The `goals` feature is enabled, so the `track_goals_participation` handler gives 2-3 points to anyone who posts in the יום יום topic (thread 2184). The `levels` feature (1 point per message in ANY topic) is NOT enabled. Only goals-topic posters got points. This is by design.
-
-**Action needed:** Decide whether to enable the `levels` feature for all-topic points, or keep it goals-only. Update dashboard to make this clearer.
-
----
-
-#### T-076: Rotating admin titles for top members (weekly)
-**Priority:** P1 | **Status:** TODO | **Deps:** T-031
-
-Use `setChatAdministratorCustomTitle` to give top-performing members visible titles in the group.
-
-**Design:**
-- Weekly scheduled job (e.g., during roundup): check top 3-5 members by weekly activity/points
-- Promote them to admin with **zero permissions** (all flags false)
-- Set custom title matching their level: "🔥 Fire Starter", "⭐ Rising Star", etc.
-- **Expire after 1 week**: next week's job demotes previous winners and promotes new ones
-- Track promoted users in a `title_holders` DB table to manage demotion
-
-**Constraints:**
-- Max 50 admins per group (Telegram limit) — keep to 3-5 title holders max
-- Bot must have "Add admins" permission
-- Users WILL see they're admin (unavoidable) — frame it as an achievement/reward
-- Zero-permission admin can't do anything harmful
-
-**Flow:**
-1. Weekly job runs → get top N members by points this week
-2. Demote previous title holders (remove admin)
-3. Promote new winners (add admin, zero permissions)
-4. Set custom title via `setChatAdministratorCustomTitle`
-5. Announce in group: "השבוע הזוכים בתואר..."
-6. Dashboard shows current title holders on health/levels page
-
-Files: `bot/handlers/titles.py` (new), `bot/database/models.py`, `bot/scheduler/jobs.py`
-
----
-
-#### T-077: Configurable validation-based scoring system
-**Priority:** P1 | **Status:** TODO | **Deps:** T-031, T-003
-
-Replace hardcoded point values with a validation-based scoring model loaded from YAML config. No points for raw message sending — only for actions validated by the bot or community.
-
-**Scoring model:**
-- Reply to bot prompt (morning/evening/discussion): 3-5 pts
-- Reaction received on your message: 1 pt
-- Reply received on your message: 2 pts
-- Correct trivia answer: 12-15 pts
-- Trivia round winner: 20-25 pts
-- Event participation: 6-8 pts
-- Daily streak bonus: 3 pts (ramps at day 7/14/30)
-
-**Implementation:**
-- Add `gamification` section to `config/settings.yaml` with all point values
-- Create `bot/utils/scoring.py` — central scoring logic reading from config
-- Update `bot/handlers/levels.py`, `trivia.py`, `events.py`, `goals.py` to use config values
-- Track bot prompt replies (detect replies to bot's scheduled messages)
-- Track reactions received (new handler)
-- Dashboard page to view/edit scoring config
-- Display scoring breakdown on levels dashboard page
-
-**Key principle:** System is self-limiting by design — bot sends finite prompts/day, trivia is scheduled, reactions require others. No artificial cooldowns needed.
-
----
-
-#### T-097: Free Games — daily GG.deals feed with LLM reranker
-**Priority:** P2 | **Status:** IN PROGRESS (2026-04-13) — shipped disabled, awaits activation
-**Commit:** `37f12e9 wip: free games daily feed with LLM reranker`
-
-Daily scheduler fetches GG.deals RSS, filters `/freebie/` entries (skipping aggregator/roundup posts), dedups via `free_games_posted` SQLite table, then asks Claude Haiku (via `claude -p` CLI) to pick the most interesting candidate for a gaming community. Posts one curated drop per day to topic 1517 (gaming) or to the test group without a topic.
-
-**Current config** (`config/settings.yaml`): `features.free_games.enabled=false, groups=[test]` — safe default. Dashboard at `/free-games` has toggle, schedule, test/main send-now buttons, unpost button.
-
-**Files:** `bot/handlers/free_games.py` (new), `bot/database/{models,db}.py`, `bot/scheduler/jobs.py`, `dashboard/app.py` (5 new routes), `dashboard/templates/{base,free-games}.html`, `requirements.txt` (+feedparser, +httpx), `config/settings.yaml`.
-
-**Key decisions made:**
-- Source is GG.deals RSS (`https://gg.deals/eu/news/feed/`), filtered by `"/freebie/" in entry.link`. Reddit r/FreeGameFindings is config-swappable fallback.
-- Aggregator tokens skipped: `roundup, weekend, weekly, this week, best deals, best free, best freebies, top deals, deals of`. Catches trial/free-play-days entries too (lower quality than permanent "keep" drops).
-- Reranker uses `claude -p "..." --model haiku` subprocess — ~37s runtime but once/day so fine. No ANTHROPIC_API_KEY needed (uses user's CLI login session). Falls back to "newest" if CLI missing/errors.
-- Dedup GUID = `entry.id` (gg.deals URL). When adding Epic, prefix with `epic:<slug>` to avoid collision.
-
-**Verified:** 24 feed entries → 3 freebie candidates → LLM correctly picks "Graveyard Keeper" (known indie, permanent keep, 3 platforms) over "LivingForest" (obscure) and "Burning Skies DLC" (DLC-only for F2P).
-
-See T-099 for activation.
-
-#### T-098: Free Games — add Epic Games API as second source
-**Priority:** P2 | **Status:** TODO
-Add Epic's weekly free-games drops (every Thursday, the most popular freebies) alongside GG.deals, since GG.deals rarely surfaces Epic's weekly drops as `/freebie/` entries.
-
-**Endpoint (public, no auth):** `https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions`
-
-**Not yet verified** — user interrupted before I fetched the endpoint. First step: `curl` + `jq` to confirm JSON shape. Expected path approximately: `data.Catalog.searchStore.elements[]` with `title`, `productSlug`, `promotions.promotionalOffers[]` (current free) vs `promotions.upcomingPromotionalOffers[]` (future).
-
-**Implementation:**
-1. New helper `_fetch_epic_candidates()` in `bot/handlers/free_games.py`, returning `[{"guid": "epic:<slug>", "title": ..., "link": "https://store.epicgames.com/en-US/p/<slug>"}]`. Filter to entries with ACTIVE promotional offer (startDate ≤ now < endDate) AND `discountPercentage == 100`.
-2. In `fetch_and_post_once()`: extend GG.deals candidate list with Epic ones, cap at `_MAX_CANDIDATES=5`.
-3. Handle Epic fetch failures gracefully — log warning, continue with GG.deals-only. Don't let Epic outage break the flow.
-
-**Files:** `bot/handlers/free_games.py` only. No schema changes (store column already supports "epic" value). No dashboard changes.
-
-#### T-099: Free Games — activate in main group (topic 1517)
-**Priority:** P2 | **Status:** TODO | **Depends on:** T-097
-
-Flip free-games from test-only → main group production.
-
-**Steps:**
-1. Open `http://localhost:8000/free-games`
-2. Toggle "פעיל" (enabled) on
-3. Add `main` to groups (remove `test` or keep both)
-4. Confirm `topics.gaming: 1517` is set in `config/settings.yaml` (already is — handler auto-uses it when posting to main)
-5. Click "שלח לקבוצה ראשית" once manually to verify format in topic 1517
-6. Save triggers `_signal_bot_reload()` → SIGHUP → `reload_jobs()` picks up new schedule
-7. First scheduled run fires at next 10:00 IDT
-
-**Optional:** Reset dedup for a fresh LLM-ranked demo post: `sqlite3 data/bot.db "DELETE FROM free_games_posted;"`
-
-**Note:** Sherlocks Den (test group) forum-topic status is UNVERIFIED. Handler already skips `message_thread_id` for test group. Main group IS forum-enabled (topic 1517 used regularly).
-
-#### T-100: Configure git remote and push WIP commits (✅ DONE 2026-04-17)
-**Priority:** P1 | **Status:** ✅ DONE
-
-Remote added: `https://github.com/endlessblink/botson.git`. Default branch renamed `master` → `main`. First push required `git filter-branch` to purge accidentally-committed `media/showcase/node_modules/` (159 MB chrome-headless-shell + webpack caches) from history — repo size dropped from 136M to 35M. All commits rewritten; hashes changed.
-
-#### T-101: Handle media assets (✅ DONE 2026-04-17)
-**Priority:** P3 | **Status:** ✅ DONE — committed directly
-
-All files small enough (1-4 MB each): `botson-showcase_Resolve.mov` 2.9M, `telegram-onboarding.gif` 2.8M, `telegram-onboarding.mp4` 1.3M. No LFS needed. Existing siblings (`botson-showcase.gif/mp4`) were already tracked — consistency wins. Committed directly.
-
-#### T-102: Cover-image support in planner wizard (✅ DONE 2026-04-17)
-**Priority:** P2 | **Status:** ✅ DONE
-
-Added optional cover images to scheduled messages and polls. Three sources from the planner wizard Step 2:
-- **📁 Upload** — POST `/api/covers/upload` (multipart, validates mime, 8MB cap)
-- **✨ AI** — POST `/api/covers/generate` via kie.ai Flux 2 Pro text-to-image (16:9)
-- **🔗 Scrape URL** — POST `/api/covers/scrape` (og:image / twitter:image / JSON-LD / img srcset; handles direct-image URLs)
-
-**Schema (non-destructive ADD COLUMN):**
-- `scheduled_messages.cover_path TEXT` — relative to MEDIA_DIR, e.g. `covers/1776369279_scrape_4e4c4b6c.jpg`
-- `scheduled_messages.poll_options TEXT` (JSON array), `poll_duration INTEGER` — promoted from wizard-only to persisted
-
-**Sending:** `bot/handlers/calendar.py::send_message_with_optional_cover()` sends `send_photo` + caption when cover set; `send_poll_message()` uses inline-button polls (`🗓️ {label}` with `callback_data=poll_{idx}`) compatible with the existing `bot/handlers/polls.py` vote tracker. Native Telegram `send_poll` was swapped out because it can't carry images and hid voter names.
-
-**Infrastructure:**
-- Doppler project `botson` created (description: "Telegram bot for the children group with a web dashboard"). All secrets migrated from `/opt/robotnik/.env` with no prefix (per-app convention).
-- `/opt/robotnik/scripts/sync-env.sh` regenerates `.env` from Doppler on every systemd restart (ExecStartPre on both `botson.service` and `botson-dashboard.service`).
-- `KIE_API_KEY` stored in Doppler `botson/prd` (imported from `~/.watchpost/.env`).
-- UFW port 8080 open to user IP only.
-- New dashboard password rotated and stored in Doppler; fetch with `doppler secrets get DASHBOARD_PASSWORD --project botson --config prd --plain`.
-
-**Files:** `bot/database/{models,db}.py`, `bot/handlers/calendar.py`, `bot/utils/kie_client.py` (new), `dashboard/app.py` (3 new routes, `/media` mount), `dashboard/templates/planner.html` (cover section in wizard, FullCalendar `defaultTimedEventDuration: '00:01'` to fix late-evening events spanning next day).
-
-**Backup before deploy:** `/opt/robotnik/backups/bot.db.backup-20260416-210946` (pre-migration).
-
----
-
-## Sprint: Emoji Night 🎬 (Phase 17)
-
-> Packaged 2026-04-18 · Tasks T-103 → T-110 · Status: 7/8 done (T-103 → T-109)
+### Integrated release checkpoint — 2026-10-05 21:47 UTC
+
+- **Exact local release:** `c22e33f69c5f816a369d3cb92156b6acf9ec2a22`, branch `codex/botson-integration-20261005`, isolated checkout `/home/endlessblink/Documents/Codex/2026-10-05/task-10/botson-release`. Includes prior combined quality/routing/store baseline `71544ef` plus the reconciled pin and active-runtime implementation. Relative to deployed `fa5252b`: 33 files. Public main was freshly verified still fa5252b immediately before the rejected push.
+- **Verification:** 27 relevant test files: **513 passed, 1 skipped, 197 subtests passed**, four existing lifecycle deprecation warnings. Final template render/JavaScript check: **1 passed**. Remaining discussion deploy guardian: **7 passed**. These overlapping suites are not an added test total. Python AST (71 files), deploy shell syntax and diff checks passed. All provider/Telegram calls used mocks or offline blocking; no paid evaluation or claim of live model quality.
+- **Selected activation preset, still inactive:** news times **11:15/17:15 Asia/Jerusalem**, global **2/day**, topic **1/day**, one send/cycle; publisher age **24h**, context **3h**, minimum relevance **0.85**. OpenAI RSS → AI 3113; Steam RSS → gaming 1517; BBC entertainment RSS filtered to movies/series → 54; BBC Middle East RSS filtered to relevant politics → 1431. All four public feed reads returned HTTP 200 with publisher-dated entries; this does not verify a particular generated story. No dating/animals destination guessed.
+- **Selected replies preset, still inactive:** explicit mention/reply only in **3113/1517/54**, global **3/day**, topic **1/day**, thread **1/day**, topic cooldown **120min**, value **0.90**, context **3h**. Both features use quiet hours **22:00–09:00**, silent delivery and fail closed without strong fresh context/source/review. Existing subscription CLI only, no API fallback or new provider.
+- **Weekly/pins:** general scheduled/send-now posts replace only recorded general bot pins after the replacement pins successfully; failed old-pin removal remains recorded. Weekly retains its separate ledger and silent weekly-only replacement. Original source HEAD `6d17a89` and all source WIP code/config remain untouched.
+- **Content:** last recorded schedule checkpoint (Oct5 05:30 UTC) needs **3 Thursday Oct8 + 4 Friday Oct9** items. No fresh production count/text read or seven draft proposals is claimed. Prepared bounded VPS-local generation/review script was rejected before execution; no fillers were substituted or scheduled. Exact new drafts require per-item review through the normal question tool.
+- **Artifacts:** private task directory `/home/endlessblink/Documents/Codex/2026-10-05/task-10/evidence`: `botson-release.patch`, `botson-release.bundle`, `release-manifest.json`, `activation-settings.yaml`, `release-final-tests.txt`, `dashboard-final-test.txt`, `discussion-guardian-final.txt`, `public-feed-verification.json`, `prepare-content-proposals.py`. Runtime identities, private plan and activation preset are excluded from the public release.
+- **Unverified/blockers:** trusted direct owner authorization for exact main publication/deploy/activation and bounded VPS-local current-context proposal generation; authenticated production dashboard visual access; actual news/reply semantic quality/delivery; weekly first delivery/pin/self-service after Oct10. Production remains fa5252b, news/replies OFF. Do not count service/API/synthetic HTML as authenticated production visual acceptance.
+
+### Content quality and routing checkpoint — 2026-10-04 22:44 UTC
+
+This checkpoint distinguishes deployed code from the further prepared changes. Production and public `origin/main` are still **fa5252ba6a36ecd4789432a3a8a670b8e70d75c1**. Further quality commit **855bec0f5fc166d19655457701ac37e0fac0b7bc** exists only on the isolated release branch; its public push was rejected before execution by automatic approval review and explicit owner approval is pending. No second deployment occurred.
+
+- **T-162:** a VPS-local deterministic scan covered 8 upcoming Botson-owned scheduled conversation rows and returned no hard-rule flags, counts only. No message text was exported and no semantic review or rewrite was performed. A separate attempted bounded scheduled-text read was rejected; explicit approval for 8 rows, at most 500 characters each, is pending. This does not prove those ideas are interesting or relevant.
+- **T-163/T-169/T-170/T-192:** 855bec0 adds same-topic exact/paraphrase dedupe across conversation types, existing sent/scheduled history and checked siblings; missing history refuses approval. It supplies the configured channel rubric, fetches alternative context inside the exact topic before LIMIT, rejects unsuitable weekly/test-group draft flows, and refuses unavailable-generator results/rejected paraphrases. Auth, context receipts, content/routing/timing/claim safeguards remain. These additions are verified offline, not deployed or semantically evaluated with a live model.
+- **T-171:** existing CLI/guardian implementation was found in deployed code. Pure-local validator output: 4 historical category-only baseline findings and **0 new failures**. Retired reusable discussion starters remain retired; no materializer refill or pool growth was restored.
+- **T-172:** existing feedback API/schema/cache recovery is present in deployed code. Synthetic authenticated HTTP tests prove rejection of unauthorized requests, capture persistence/filters and hydration after a cache reset. The learning queue is mocked; no actual learned rule/provider result or live learning is claimed.
+- **T-149/T-150:** a separate five-file candidate based on 855bec0 now consumes `topic_strategy` (`discussion_category`, `topics.welcome`, `topics.goals`, or explicit `handler_routing`), requires verified destinations and a configured category for discussion rows, and exposes `missing_flex_routing`. It also fixes missing fixed-slot arrays crashing flex-only Populate. Five old routing fixtures now explicitly supply a synthetic verified catalog; negative verification cases remain covered. This candidate is uncommitted/unpublished/undeployed and is not part of 855bec0.
+- **Verification:** quality increment **521 passed, 1 skipped, 160 subtests passed**; routing increment **297 passed, 191 subtests passed**. Counts are separate overlapping suites, not a combined total. Providers/network/Telegram remained blocked or mocked. Logs, exact patch/manifests and limits are in the reconciliation ledger.
+- **T-197 preservation:** authenticated read-back plus service checks confirm deployed fa5252b, both services active/running with ExecMainStatus 0, and every canonical weekly field unchanged (including revision 1, audience, wording, schedule, audit and quiet pin). Next registered due remains **2026-10-10T19:00:00+03:00**. No test/catch-up post or second activation.
+- **Remaining gates:** real authenticated visual dashboard verification is mandatory under AGENTS and still unavailable at the normal sign-in screen. T-166 cadence needs participation policy/threshold decisions. T-193 news stays disabled pending verified sources/topics/caps/quiet hours and integration; T-194 replies stay disabled pending product decision and reconciliation of original WIP ownership. No paid evaluation, model/provider change or new live communication occurred.
+
+### T-191: Reliability and approval workflow reconciliation
+**Priority:** P0 | **Status:** CODE DEPLOYED; VERIFIED OFFLINE; LIVE FLOW UNVERIFIED | **Deps:** T-152..T-160
+
+- Reproduce the reported planner failures with synthetic fixtures and no external provider calls. Preserve middleware/session/agent-token semantics in fake requests, Hebrew content validation, explicit test targets, and the retired-starter invariant.
+- Keep CLI digest input within the existing tested budget by removing duplicated schema descriptions, not learned operator rules or JSON validation constraints.
+- Prove that the operator-quality header does not bypass authorization, fresh-chat receipt, content bans, verified topic routing, timing or durable dispatch claims. Quality preference override is distinct from these safeguards.
+- Keep local tests, deployed code presence, and independently observed runtime behavior separate. Acceptance: focused planner/approval/dispatch guardians pass; no false DONE or live test post.
+- Evidence: final release suite passed 435 tests and 771 subtests, with one skipped test and four existing deprecation warnings. Deployment guardians also passed; no live test post. Logs and constraints are recorded in the linked reconciliation ledger.
+
+### T-192: Constructive alternatives for rejected drafts
+**Priority:** P1 | **Status:** CODE DEPLOYED; VISUAL/SEMANTIC UNVERIFIED | **Deps:** T-163, T-191
+
+- Moderator-only `POST /api/calendar/{id}/suggest-alternative` requires a draft snapshot, rejection reason, verified destination and captured current context from the same topic.
+- Return a genuinely different candidate addressing the rejection; validate content/freshness/dedupe and semantic quality. Provider outage or insufficient context returns no usable alternative, never filler.
+- Preview only: no DB write, approval, scheduling, feedback learning or Telegram send. Refuse a changed draft snapshot before/after generation. The operator still selects/reviews the exact replacement through the established review workflow.
+- Acceptance: offline tests prove auth/snapshot rejection, no unreviewed alternative and write-free preview. Review-card controls now show a write-free candidate and only transfer it to unsaved editing; saving/approving stays a separate action. Next checkpoint is authenticated visual verification, followed by separately authorized real-model evaluation. Do not install new models/providers.
+
+### T-193: Topic-relevant news updates
+**Priority:** P2 | **Status:** LOCAL RUNTIME IMPLEMENTED/TESTED 6f690ea; PRODUCTION DISABLED | **Deps:** T-149, T-163, T-192
+
+- Existing selected topics only, trusted HTTPS publisher/domain allowlists, actual publication date and canonical link. Undated/future/stale/private-network/redirected/oversized/unverified items fail closed. Current bounded same-topic context is required before generation. Configured news uses the exact conservative preset in the integrated checkpoint above.
+- Separate semantic review binds the exact Hebrew summary to publisher evidence and topic context, rejects sensitive/unsubstantiated/duplicate events, and assigns a stable cross-source event identity. Persistent ledger owns duplicate claims, daily caps, quiet hours and delivery receipts; changed configuration/context refuses a reserved send. Uncertain delivery holds identity/cap and never blindly retries. No worthwhile fresh story means no filler.
+- Shared authenticated dashboard `/participation` and scoped agent API validate the same versioned configuration. Preview is write-free and cannot publish; exact expiring preview receipt, activation approval, CAS revision and agent context/idempotency safeguards remain. Public defaults are disabled with no topics/sources/audience. Future normal deploys preserve activated participation configuration independently of weekly settings.
+- Offline acceptance passes. Real provider quality, authenticated production dashboard visual, ordinary job registration and actual sends remain unverified. Automatic review rejected the exact public push before execution; no deployment/activation occurred.
+
+### T-194: Addressed contextual replies
+**Priority:** P3 | **Status:** LOCAL RUNTIME IMPLEMENTED/TESTED 6f690ea; PRODUCTION DISABLED | **Deps:** T-168, T-191
+
+- Latest owner instruction chooses occasional useful replies; selected implementation supports explicit mentions/replies only in the three configured existing topics. Sensitive unsolicited participation and bot-originated loops are refused. Original source's independent mentions-only WIP is preserved; only the new reconciled runtime handler is registered in the isolated release.
+- Recent real Telegram trigger, verified topic/current context, separate quality/privacy review, per-group/topic/thread caps, topic cooldown, quiet hours and immutable sender-ID opt-out are enforced. The button changes only the authenticated clicker's future response preference. Weekly self-join/leave commands remain with the existing exact-post weekly handler.
+- Missing CLI/context/review or changed context/configuration refuses sending. No paid API fallback, provider/credential addition or extra audience. Offline acceptance passes; actual Telegram delivery/model quality and authenticated production visual remain unverified. Publication/deploy/activation require the direct trusted authorization identified above.
+
+### T-195: Real Telegram launch verification (former duplicate T-111)
+**Priority:** P1 | **Status:** NEEDS EXPLICIT APPROVAL | **Deps:** T-111, T-191
+
+Keep the old real-launch verification outcome, distinct from scheduled-game auto-start T-111. Current offline tests do not prove a real Telegram game or authenticated dashboard launch. No live test post is authorized by this batch.
+
+### T-196: Pre-flight admin DM (former duplicate T-112)
+**Priority:** P2 | **Status:** NEEDS DECISION | **Deps:** T-175
+
+Preserve the former admin pre-flight reminder request without duplicating the existing warm-up/personal reminder mechanisms. Reconfirm its purpose/recipient/cadence before implementation; never infer consent to new DMs from this historical TODO.
+
+### T-197: Weekly AI-topic invitation, selected mentions and own-ID subscription
+**Priority:** P1 | **Status:** DEPLOYED AND ENABLED; VISUAL/FIRST DELIVERY PENDING | **Deps:** T-163, T-191
+**Owner decisions recorded:** 2026-10-04 20:52 UTC. Replaces the earlier pending day/time/automatic-vs-draft decisions.
+
+- Approved schedule: **Saturday 19:00, Asia/Jerusalem, AI topic only**, automatic delivery through the existing Botson scheduler. First eligible date **2026-10-10**; no catch-up or test post now. No extra weekly questions or other-topic automation.
+- Approved editable invitation asks what members built/tried with AI or progressed on, accepts small/unfinished/boring steps and “no time this week”, and explains how to join or leave future mentions by replying “תייג אותי” / “הסר אותי מהתיוג”. This is an invitation, never a summary or disclosure of member-history/activity.
+- Initial named member **@Bubashvaba** was resolved against the existing group roster and independently checked with Telegram getChatMember. The second person's handle/immutable ID is unknown; exclude them and do not publish/store/search a supplied phone number. Starting with only the verified first member is authorized.
+- Shared dashboard and restricted agent API: editable question, selected handles/verified IDs, weekday/time/IANA timezone, disabled/draft/automatic mode and silent pin switch. Both use the same validated settings, exact preview receipt, explicit activation approval, revision/CAS concurrency and audit trail. Agent authentication, fresh-context receipt and idempotency rules remain active; no arbitrary code interface.
+- Self-service accepts only the requester's authenticated Telegram ID, in the correct group/topic and as a reply to a recorded check-in post. Own-ID opt-in/out merges atomically with admin changes, is idempotent, affects future posts/previews and never edits already delivered text. Confirmation stays brief in that context; no member-history report.
+- Canonical recipients bind immutable IDs; future sends recheck current membership and username. Empty/unknown/ambiguous/bot/opted-out audiences cannot be expanded to all members. Members without public handles can opt in to an ID-bound mention.
+- One durable group/topic/local-week claim; successful retries reuse receipts, uncertain delivery never retries automatically. Explicit IANA timezone; skip nonexistent DST times, first fold only; stale configuration/draft snapshots refuse sending.
+- Pin silently using existing bot permissions. Replace only the previous recorded **weekly check-in** pin after the new one is pinned; never unpin other people's or other activities' posts. No invented 24-hour expiry or wider notification.
+- Production evidence: release **fa5252ba6a36ecd4789432a3a8a670b8e70d75c1** pushed and normally deployed after a private VPS-local backup and passing guardians. Canonical weekly revision **1**, enabled **true**, mode **auto_send**, pin **true**. At **2026-10-04 21:40:42 UTC**, the actual scheduler registered the job with next due **2026-10-10T19:00:00+03:00**. The exact authenticated API preview/read-back matched the approved text and sole verified initial member. No weekly test/catch-up post was requested. Final offline suite: **435 tests and 771 subtests passed**, one skipped. Original unrelated WIP and unpublished pin-manager commit were excluded from the release; runtime participant identities were not pushed publicly.
+- Remaining verification: the browser is at the login screen and blocks the temporary localhost read-only relay; authenticated dashboard visual verification is **UNVERIFIED**, not replaced by service/API evidence. Await normal browser login. Actual Telegram delivery, silent pin replacement and real member self-service remain unobserved until the first approved post. The second handle is still unknown. News/replies remain disabled; no extra automation was created.
+
+
+### T-198: Separate opt-in arcade with shared leaderboard
+**Priority:** P2 | **Status:** PROTOTYPE IMPLEMENTED/TESTED 6f690ea; PRODUCTION ABSENT | **Deps:** T-191, existing authorized hosting/admission
+
+- Owner explicitly requested the discussed game on Oct6. Independent service under `services/arcade`; Botson supplies only requested `/arcade` and private Mini App entry. No scheduled invitation, score broadcast, audience expansion, monetary reward or service startup inside Botson.
+- Progressive memory game, same daily challenge, server-owned scoring/moves/timing/ownership/expiry/attempt limits and exact replay receipts. Shared leaderboard exposes generated aliases, score/rank; no group text, names, usernames or photos. Existing-token Telegram admission and current-group membership gating are prepared; no new persistent credential was created. Validation is not anti-automation proof against reading visible patterns.
+- Full exact candidate regression:556 passed,1 skipped,197 subtests passed. Actual ephemeral browser demo completed8 rounds/800 verified points, shared demo board, zero browser exceptions and no390px horizontal overflow. Public entry/service remain disabled/unselected; live fa5252b has no arcade files/config.
+- Remaining: verify an existing authorized HTTPS hosting origin/route and then real opt-in launch/member refusal/shared scoring. Existing publication denial is not bypassed. Heavy work awaits root's serial schedule. The staged code is in `/home/endlessblink/Documents/Codex/2026-10-05/task-10/botson-oct6`, exact SHA6f690ea856716c3d63573695a3c04f964bdca920; current source WIP remains separate.
+
+### T-199: Botson content on WhatsApp via Botty
+**Priority:** P2 | **Status:** PLANNED — unblocked 2026-10-09: Botty is admin in WhatsApp אלהוריים וזה (120363411214878038@g.us, 50 members; read-back via WAHA participants). Also joined community "ממלכת אל הוריים" (120363412910553673@g.us 54 members, 120363411360535416@g.us 2 members) as non-admin — not a target. | **Deps:** worlds-greatest-bot (Botty) WAHA session on VPS :3051
+
+- Owner decision 2026-10-09: reuse Botson (not a new bot). Botson keeps generating, approving and scheduling; Botty (worlds-greatest-bot, +972505332864) only delivers to WhatsApp. Features toggle per group via the existing `{enabled, groups}` feature shape.
+- First target group: אל הוריים וזה (WhatsApp). Read-only WAHA group list on 2026-10-09 shows Botty is in Custom Beer Node, נפגשים ומשחקים באזור ר״ג, הפרלמנט and two "טסטים לבוטי" groups — not אל הוריים וזה. Owner must add Botty's number (as admin if rate limiting/deletion is wanted).
+- Phase 1 scope: discussion questions, morning/evening posts, riddles/polls (WhatsApp native polls). Out of scope until reworked: trivia rounds, RSVP/inline buttons, forum-topic routing.
+- Build and verify in "טסטים לבוטי" first; no sends to a real group without approval.
+- 2026-10-09 local implementation: calendar rows with target_group `whatsapp` / `whatsapp_test` dispatch via WAHA sendText/sendPoll (same freshness + conversation gates as Telegram; unsupported types skipped; covers sent as text only). Dashboard API accepts the targets, rejects unsupported types, clears topic id, and applies the agent publish review to `whatsapp`. Tests: `tests/test_whatsapp_dispatch.py`. Activation needs VPS env `WHATSAPP_WAHA_URL`, `WHATSAPP_WAHA_API_KEY`, `WHATSAPP_GROUP_ID=120363411214878038@g.us`, `WHATSAPP_TEST_GROUP_ID=120363401861710408@g.us` + deploy (not done). Dashboard UI target picker not built yet.
+- 2026-10-09 15:51 DEPLOYED 94d99dd (rebased onto origin/main). Doppler has URL/key/session/TEST_GROUP_ID=120363400961082631@g.us (טסטים לבוטי 2 — Botty superadmin). WHATSAPP_GROUP_ID (real group) deliberately NOT set → real-group rows fail closed. Verified: row 927 poll delivered, WAHA ack 2 DEVICE.
+- **WhatsApp summary (operator 2026-10-09, prioritized first):** built in Botty (worlds-greatest-bot 373bd40, e3cc68a): tag Botty → reply with summary of the last 400 messages, once per member per day. Not deployed / not enabled yet; awaiting operator go-ahead. Throttle enforcement shelved by operator; watch-only stays live.
+- First real Botson post to the WhatsApp group: proposed 2026-10-09, operator deferred ("summary first").
+- 2026-10-09 e2294db deployed: ack-confirmed delivery + admin alert on failure, planner Telegram/WhatsApp destination picker, WhatsApp rows tagged in calendar, Botty throttle report card on the Spam page. Botty be1a928 deployed (app container only): watch-only throttle for אלהוריים וזה, 8 msgs/60s, report endpoint keyed. Full suite on candidate vs deployed base: identical 17 pre-existing failures, +5 new passing.
+- **E2E GOAL (operator 2026-10-09) — done only when all are true and verified live:**
+  1. Noam approves a post (AskUserQuestion review flow) → it is scheduled for WhatsApp אלהוריים וזה without touching code or SSH.
+  2. The dashboard shows and lets him pick WhatsApp as the destination, and lists WhatsApp rows with their status.
+  3. At the scheduled minute Botty posts it in the real group (text and native poll), confirmed delivered (WAHA ack ≥ 1), not just "sent".
+  4. A failed delivery is marked failed and the admin is alerted; nothing is silently recorded as sent.
+  5. Same quality gates and learned rules as Telegram apply; unsupported types are refused up front.
+  6. Per-member rate limiting runs in watch-only mode in the WhatsApp group and reports who it would have limited.
+  7. Registry, plan and tests updated; full regression shows no new failures.
+- Open: (1) WAHA returns 201 even when delivery fails (row 926 got ack -1 but was marked sent) — add post-send ack check → mark failed. (2) Dashboard target picker. (3) Set WHATSAPP_GROUP_ID after operator approves first real post via review flow. (4) Member rate limiting lives in Botty's repo (watch-only first).
+- Related ask: per-member message rate limiting — natural home is Botty's existing WhatsApp moderation (watch-only first); for Telegram, Botson anti-spam (dry_run first).
+
+## Historical detailed roadmap (original scope)
 
 ### Goal
 
@@ -1497,7 +586,7 @@ Scheduled game rows now start gameplay instead of posting only announcement text
 ---
 
 #### T-112: Trivia — verify drawer stays open on launch after hard-refresh
-**Phase:** 18 | **Priority:** P2 | **Status:** TODO | **Deps:** T-111
+**Phase:** 18 | **Priority:** P2 | **Status:** TODO | **Deps:** T-195
 
 The 2026-04-23 commit `fb8e058` removed `closeDrawer()` from `startTriviaRound` in `dashboard/templates/planner.html` so iterative test-launches don't force re-navigation. User reported drawer still closing on launch — suspected browser cache. Task: hard-refresh (Ctrl/Cmd+Shift+R) then launch; confirm drawer stays open. If it still closes, grep for other `closeDrawer` calls fired during the launch path.
 
@@ -1849,3 +938,32 @@ Critical files: `bot/scheduler/materializer.py` (new), `bot/scheduler/jobs.py`, 
 - `vps-admin.sh` read-only diagnostics (`8cf24fa`, `0ff262d`, `f941ae7`): `schedule [days]`, `applog [n] [pat]` (searches rotated logs), `activity [n] [filter]`. These are the sanctioned prod-read path (SSH+SQL is classifier-blocked).
 
 **Verify:** `vps-admin.sh schedule 4`, `vps-admin.sh applog 100000 'pre-roll ready gate|CANCELLED at pre-roll'`, `vps-admin.sh activity 400 trivia_round`. Local: `pytest tests/test_scheduler_e2e_trivia_launch.py` (incl. the duplicate-marker regression).
+
+## Bot identity (added 2026-10-02)
+
+This project's bot: `botson` — Botson (robotnik), Elhoriim community bot; candidate identity `@thebotstonbot` (unverified), VPS systemd `botson.service` + `botson-dashboard.service`. See its entry in `devops/brainiac/BOTS.md` (single source of truth for every bot; Hermes = platform only, bots are referred to by handle). Update BOTS.md when this bot's topic, profile, host, token owner or status changes. No token values in plans.
+
+## Status addendum — 2026-10-05 08:30 IDT (weekly-schedule session)
+
+- **Deployed:** `fa5252b` (VPS and `origin/main`), including the operator-approval override `8114dc5`.
+- **Un-deployed candidate:** `6d17a89` own-pin replacement (unpins only the bot's earlier pin in the same topic). Local `main` has diverged from `origin/main`; it needs a rebase/cherry-pick onto `fa5252b` and the owner's deploy approval. Reconcile with T-197's owned-weekly pin replacement first.
+- **Schedule data (not code):** rows 907, 908, 909 scheduled on explicit per-item approval; Wednesday 07/10 has 4 slots; Thursday 08/10 and Friday 09/10 are still below the 4-per-day minimum.
+- **T-193 input only:** the owner named news channels 3113, 54, 1517, 1431, plus dating and animals channels (IDs unconfirmed). News stays disabled until sources, caps and the approval flow are decided.
+- Details: addendum in `docs/master-plan-reconciliation-2026-10-04.md`.
+
+
+## 2026-10-05 — Registry check before normal deployment
+
+Workstation `scripts/deploy-from-local.sh` checks workflow `botson`, source checkout and release host/path before SSH, then supplies a temporary non-secret registry/checker bundle and checks the actual VPS checkout before the installed deploy entry. Updated `scripts/deploy.sh` adds its own check before fetch/reset/restart for the next authorized release. `--preflight-only` in either entry avoids deployment; offline script/transport fixtures passed. No server script, service or bot communication was changed; direct SSH to the older installed script remains uncovered. Existing quality/dispatch guardians and their order remain. Fleet coverage and rollback: sibling bots-directory/ENFORCEMENT_COVERAGE.md.
+
+
+## Final production read-back and preserved concurrent configuration — 2026-10-05 21:47 UTC
+
+Read-only production check at 21:47:50 UTC reconfirmed fa5252b, both services active/running with ExecMainStatus 0, weekly revision 1 enabled with next registered due Oct10 19:00 Asia/Jerusalem, and news/replies OFF. Full settings-file SHA256 remains the previously observed ed9d3aa952def5198f468461eca87990fd30ecc6a5dccb051490f0cf6da0d351. Receipt: `/home/endlessblink/Documents/Codex/2026-10-05/task-10/evidence/production-final-readback.json`.
+
+Canonical source HEAD remains 6d17a89. After the completed isolated tests, `config/settings.yaml` changed in the source checkout at 21:45:56 UTC (new SHA256 1836fea3335a11156096c702cdee30e2d5f0ac1c7855f380c6fabe17e12cadcd). This task did not write that configuration or overwrite the observed change. The other 18 tracked/untracked WIP file fingerprints remain as captured; the two plan-document updates are intentional. Recheck current source configuration and production revision before any later integration/deployment. Do not reset the source to the candidate. The candidate checkout is clean; bundle verification and patch apply-check against fa5252b passed.
+
+
+## Status update — 2026-10-09 16:00 IDT (weekly-schedule session)
+
+Production and origin/main are now **4a65f02** (deployed via deploy.sh; guardians passed, both services active): pin cleanup 5386472 (bot unpins only its own previous pin in the same topic) plus 4a65f02 (cover-image upload accepts the scoped agent token). Local `main` is still diverged and was not reset. Thursday and Friday were filled (rows 914–920); news posts 921 (movies) and 922 (politics) were sent 9 Oct, 923 (gaming) is scheduled 15 Oct. Operator judged the news posts weak (dry date announcements, no image): rows 924 (Moon cave, NASA photo, Sun 11 Oct 12:00) and 925 (comedian bots, generated image, Sat 10 Oct 12:00) are scheduled in the tech channel with images. T-193 stays disabled; news is a manual brief process (source opened and dated, image, twice a week). Arcade candidate 680b303 (based on fa5252b) is NOT deployed and conflicts with the deployed pin manager; it needs a local rebase before any publication; public route `botson.noamn.com/arcade` chosen in principle, TLS works via Cloudflare but no /arcade route exists yet.

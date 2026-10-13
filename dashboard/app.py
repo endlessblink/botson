@@ -5128,6 +5128,18 @@ def _merge_engagement_trend(this_week: list[dict], last_week: list[dict]) -> lis
     return sorted(rows, key=lambda r: (r["engaged"], r["sent"]), reverse=True)
 
 
+def _engagement_verdict(row: dict, cfg: dict) -> str:
+    """keep / watch / pause for one content type. Advisory only."""
+    if int(row.get("sent", 0)) < int(cfg.get("min_sends", 3)):
+        return "watch"
+    per_post = float(row.get("per_post", 0.0))
+    if per_post < float(cfg.get("pause_below", 0.5)):
+        return "pause"
+    if per_post >= float(cfg.get("keep_at_least", 1.5)):
+        return "keep"
+    return "watch"
+
+
 async def _engagement_view_data(db: Database, days: int = 7) -> dict:
     """Shared payload for the engagement page + API.
 
@@ -5140,6 +5152,9 @@ async def _engagement_view_data(db: Database, days: int = 7) -> dict:
     this_week = await db.get_engagement_rollup(days=days, until_days=0, exclude_user_ids=ADMIN_IDS)
     last_week = await db.get_engagement_rollup(days=days * 2, until_days=days, exclude_user_ids=ADMIN_IDS)
     rows = _merge_engagement_trend(this_week, last_week)
+    verdict_cfg = get_settings().get("engagement_verdict") or {}
+    for r in rows:
+        r["verdict"] = _engagement_verdict(r, verdict_cfg)
 
     actors = await db.get_engagement_actors(days=days, until_days=0, admin_ids=ADMIN_IDS)
     by_type = actors.get("by_type", {})
@@ -5157,6 +5172,7 @@ async def _engagement_view_data(db: Database, days: int = 7) -> dict:
     totals["delta"] = totals["engaged"] - totals["prev_engaged"]
     return {
         "days": days, "rows": rows, "totals": totals,
+        "verdict_copy": {"header": verdict_cfg.get("header") or "", "labels": verdict_cfg.get("labels") or {}, "tooltips": verdict_cfg.get("tooltips") or {}},
         "community_people": community_people, "admin_people": admin_people,
     }
 

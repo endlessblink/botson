@@ -57,6 +57,7 @@
                         <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="כמה הצבעות נרשמו בסקר (לא אדמין)">🗳️ הצבעות</th>
                         <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="סך כל הריאקציות + התגובות + ה-RSVP + ההצבעות של הקהילה">מעורבות</th>
                         <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap cursor-help" title="השינוי במעורבות לעומת השבוע הקודם">מגמה</th>
+                        <th class="text-xs text-[#71717a] font-medium px-3 py-3 text-center whitespace-nowrap">{{ verdict_copy.header or '[copy missing]' }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -82,10 +83,13 @@
                             <span class="text-xs text-[#52525b]">—</span>
                             {% endif %}
                         </td>
+                        <td class="px-3 py-3 text-center whitespace-nowrap">
+                            <span class="text-xs {{ {'keep':'text-emerald-400','watch':'text-amber-400','pause':'text-red-400'}[r.verdict] }}" title="{{ verdict_copy.tooltips.get(r.verdict, '') }}">{{ verdict_copy.labels.get(r.verdict, '[copy missing]') }}</span>
+                        </td>
                     </tr>
                     {% if r.actors %}
                     <tr id="eng-detail-{{ loop.index }}" class="hidden border-b border-[#1f1f1f] bg-[#0c0c0c]">
-                        <td colspan="8" class="px-6 py-3">
+                        <td colspan="9" class="px-6 py-3">
                             <div class="text-xs text-[#71717a] mb-2">מי היה מעורב ב{{ r.label }}:</div>
                             <div class="flex flex-col gap-1.5">
                                 {% for a in r.actors %}<div>{{ actor_line(a) }}</div>{% endfor %}

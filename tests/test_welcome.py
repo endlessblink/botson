@@ -2,10 +2,25 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, call, patch
 
+from bot.database.db import Database
 from bot.handlers import welcome
 
 
 class WelcomeBatchTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.safe_send_patcher = patch(
+            "bot.handlers.welcome.safe_send", side_effect=self._safe_send
+        )
+        self.safe_send = self.safe_send_patcher.start()
+        self.addCleanup(self.safe_send_patcher.stop)
+        # These tests cover the public greeting itself, which is off by default.
+        settings_patcher = patch.object(welcome, "get_settings", _public_welcome_enabled)
+        settings_patcher.start()
+        self.addCleanup(settings_patcher.stop)
+
+    async def _safe_send(self, bot, db, method_name, **kwargs):
+        return await getattr(bot, method_name)(**kwargs)
+
     def test_configured_public_copy_is_name_free_and_dm_templates_format(self):
         public_text = welcome.load_copy("welcome", "public_batch")
         dm_text = welcome.load_copy("welcome", "dm_single", name="A new member")
@@ -50,6 +65,10 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
         db.claim_action_cooldown.assert_awaited_once_with(
             "public_welcome:-100123:341", 86400
         )
+        self.safe_send.assert_awaited_once_with(
+            bot, db, "send_message", chat_id=-100123,
+            message_thread_id=341, text="welcome.public_batch",
+        )
 
     async def test_recent_public_welcome_is_suppressed_but_join_is_recorded(self):
         bot = SimpleNamespace(send_message=AsyncMock())
@@ -81,6 +100,35 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
             for call in bot.send_message.await_args_list
         ))
 
+    async def test_separate_join_batches_post_only_one_public_welcome_per_day(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = Database(str(Path(temp_dir) / "welcome-cooldown.db"))
+            await db.init()
+            try:
+                bot = SimpleNamespace(send_message=AsyncMock())
+                context = SimpleNamespace(bot=bot, bot_data={"db": db})
+                copy = lambda ns, key, **_: f"{ns}.{key}"
+                with patch("bot.handlers.welcome.load_copy", create=True, side_effect=copy):
+                    for user_id in (101, 202):
+                        welcome._pending_joins = [{
+                            "user_id": user_id,
+                            "username": None,
+                            "name": f"Person {user_id}",
+                        }]
+                        await welcome._flush_pending(context, chat_id=-100123, topic_id=341)
+
+                public_posts = [
+                    item for item in bot.send_message.await_args_list
+                    if item.kwargs.get("chat_id") == -100123
+                    and item.kwargs.get("message_thread_id") == 341
+                ]
+                self.assertEqual(len(public_posts), 1)
+            finally:
+                await db.close()
+
     async def test_public_welcome_is_sent_even_when_private_messages_fail(self):
         async def send_message(*, chat_id, **kwargs):
             if chat_id == -100123:
@@ -100,7 +148,6 @@ class WelcomeBatchTests(IsolatedAsyncioTestCase):
         with (
             patch.object(welcome, "_pending_joins", [{"user_id": 101, "username": None, "name": "Person"}]),
             patch.object(welcome, "_batch_task", None),
-            patch.object(welcome, "get_settings", _public_welcome_enabled),
             patch("bot.handlers.welcome.load_copy", create=True, side_effect=lambda ns, key, **_: f"{ns}.{key}"),
         ):
             await welcome._flush_pending(context, chat_id=-100123, topic_id=341)

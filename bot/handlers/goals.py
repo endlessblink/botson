@@ -43,6 +43,7 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
     db: Database = context.bot_data["db"]
 
     await db.upsert_member(user.id, user.username, user.first_name or "")
+    streak_before = (await db.get_streak(user.id))["current"]
     await db.update_streak(user.id)
 
     # Check if this is a reply to a bot prompt — bonus points
@@ -78,7 +79,8 @@ async def track_goals_participation(update: Update, context: ContextTypes.DEFAUL
 
     # Celebrate milestones
     milestones = (get_settings().get("gamification") or {}).get("streak_milestones") or []
-    if current in {int(x) for x in milestones}:
+    # Only on the message that moved the streak onto the milestone, not every later post that day.
+    if current != streak_before and current in {int(x) for x in milestones}:
         milestone_msg = load_copy(
             "goals", "milestone", default="Streak milestone: {name} {days}",
             name=user.first_name or "", days=current,

@@ -25,8 +25,18 @@ from typing import Any, Protocol
 from datetime import datetime, timezone
 
 from .config import GROUP_ID, TEST_GROUP_ID
+from .admin_alerts import notify_admins
+from .copy import load_copy
 
 logger = logging.getLogger(__name__)
+
+
+async def _notify_watchdog(bot: Any, key: str, **details: Any) -> None:
+    try:
+        message = load_copy("community_watchdog", key, **details)
+        await notify_admins(bot, message)
+    except Exception:
+        logger.exception("topic_guard: failed to deliver private watchdog alert")
 
 
 class _VerifiedTopicsLookup(Protocol):
@@ -131,8 +141,24 @@ async def safe_send(
                     logger.exception(
                         "topic_guard: sent group message but failed to record private context"
                     )
+            if sent_id is not None:
+                await _notify_watchdog(
+                    bot,
+                    "sent",
+                    topic_id=message_thread_id or "unknown",
+                    message_id=sent_id,
+                    method=method_name,
+                )
         return sent
     except Exception as e:
+        if chat_id == GROUP_ID:
+            await _notify_watchdog(
+                bot,
+                "failed",
+                topic_id=message_thread_id or "unknown",
+                error_type=type(e).__name__,
+                method=method_name,
+            )
         err = str(e).lower()
         if message_thread_id is not None and any(m in err for m in _DELETED_TOPIC_MARKERS):
             try:

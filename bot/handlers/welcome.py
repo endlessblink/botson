@@ -14,6 +14,7 @@ from ..database.db import Database
 from ..utils.config import get_settings, is_feature_enabled
 from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name, is_bot_user
+from ..utils.topic_guard import safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,10 @@ async def _flush_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: int, topic
         cooldown_seconds = int(get_settings()["welcome"]["public_cooldown_seconds"])
         if await db.claim_action_cooldown(welcome_key, cooldown_seconds):
             try:
-                await context.bot.send_message(
+                await safe_send(
+                    context.bot,
+                    db,
+                    "send_message",
                     chat_id=chat_id,
                     message_thread_id=topic_id,
                     text=load_copy("welcome", "public_batch"),

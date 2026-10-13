@@ -33,6 +33,17 @@ def test_hebrew_section_is_parsed_from_canonical_file(prefs_path):
     assert "TimeFrame" not in section
 
 
+def test_learned_interest_bar_is_injected_into_generation_prompt(prefs_path):
+    """Easy-to-answer prompts must still meet the operator's interest bar."""
+    from dashboard.app import build_generation_prompt
+
+    prompt = build_generation_prompt(
+        "discussion", "single", "", "general",
+        scheduled_date="2026-09-28", scheduled_time="19:00",
+    )
+    assert "קלות מענה אינה תחליף לעניין" in prompt
+
+
 def test_motion_section_does_not_leak_into_prompt(prefs_path):
     from dashboard.app import _active_style_profile_block_sync
     block = _active_style_profile_block_sync()
