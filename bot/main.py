@@ -5,6 +5,7 @@ import logging
 import os
 import signal
 import sys
+from .utils.duplicate_guard import install_duplicate_guard
 from logging.handlers import RotatingFileHandler
 
 from telegram.error import Forbidden
@@ -346,6 +347,7 @@ def main():
         sys.exit(1)
 
     _acquire_pid_lock()
+    install_duplicate_guard()
 
     # Build application
     app = (

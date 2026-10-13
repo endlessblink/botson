@@ -23,6 +23,9 @@ member_activity:
   report_member_limit: 50
 bot:
   name: Botson
+  # Same text to the same chat/topic within this window is dropped (0 disables).
+  duplicate_send_window_seconds: 600
+  duplicate_send_min_chars: 20
   # Identity context injected into every LLM-generated message. Was a
   # hardcoded constant in dashboard/app.py — Phase A.2.1 reads from here.
   community_context: |
