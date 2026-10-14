@@ -1737,12 +1737,23 @@ async def whatsapp_quiet_question(request: Request, db: Database = Depends(get_d
         and not any(f in p["text"] for f in skip)
         and not near_duplicate(p["text"], wa_history, threshold=0.4)
     ]
+    bank = [
+        str(b).strip() for b in (cfg.get("bank") or [])
+        if str(b).strip() and not near_duplicate(str(b), wa_history, threshold=0.4)
+    ]
     if dry_run:
-        return {"candidates": [{"id": c["id"], "repliers": c["repliers"], "text": c["text"]} for c in candidates]}
-    if not candidates:
-        raise HTTPException(status_code=404, detail="no proven question left for WhatsApp")
-    top = candidates[0]["repliers"]
-    pick = random.choice([c for c in candidates if c["repliers"] == top])
+        return {
+            "candidates": [{"id": c["id"], "repliers": c["repliers"], "text": c["text"]} for c in candidates],
+            "bank": bank,
+        }
+    if candidates:
+        top = candidates[0]["repliers"]
+        pick = random.choice([c for c in candidates if c["repliers"] == top])
+    elif bank:
+        # Proven Telegram questions ran out: next operator-approved bank question.
+        pick = {"id": None, "repliers": 0, "text": bank[0]}
+    else:
+        raise HTTPException(status_code=404, detail="no proven or bank question left for WhatsApp")
     # Vowel marks (niqqud) look odd in a WhatsApp chat; maqaf and punctuation stay.
     pick["text"] = re.sub("[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]", "", pick["text"])
     row_id = await db.create_scheduled_message(

@@ -86,7 +86,7 @@ def test_never_repeats_a_question_whatsapp_already_had(tmp_path):
         today = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
         await db.create_scheduled_message(text, "custom", None, "whatsapp", "2026-09-01", "12:00")
         out = await dash.whatsapp_quiet_question(request("dry"), db)
-        assert out["candidates"] == []
+        assert out["candidates"] == [] and out["bank"] == []
         with pytest.raises(HTTPException) as none:
             await dash.whatsapp_quiet_question(request(), db)
         assert none.value.status_code == 404
@@ -136,3 +136,31 @@ def test_niqqud_is_removed_but_maqaf_stays(tmp_path):
         rows = await db.get_scheduled_messages("2020-01-01", "2030-01-01")
         assert [r["text"] for r in rows if r["target_group"] == "whatsapp"] == [out["text"]]
     run(tmp_path, body)
+
+
+def test_bank_questions_follow_once_proven_ones_run_out(tmp_path, monkeypatch):
+    bank = ["שאלה ראשונה מהבנק על טלפורטר למאדים, נכנסים?", "שאלה שנייה מהבנק על מכונת חוויות, נכנסים?"]
+    monkeypatch.setattr(dash, "get_settings", lambda: {"whatsapp_quiet_question": {
+        **CFG["whatsapp_quiet_question"], "bank": bank, "max_per_day": 5}})
+
+    async def body(db):
+        proven = await sent_post(db, "איזה מאכל הייתם מוחקים מהעולם אם הייתם יכולים?", [1, 2, 3])
+        first = await dash.whatsapp_quiet_question(request(), db)
+        assert first["source_id"] == proven
+        second = await dash.whatsapp_quiet_question(request(), db)
+        assert second["text"] == bank[0] and second["source_id"] is None
+        third = await dash.whatsapp_quiet_question(request(), db)
+        assert third["text"] == bank[1]
+        with pytest.raises(HTTPException) as empty:
+            await dash.whatsapp_quiet_question(request(), db)
+        assert empty.value.status_code == 404
+    run(tmp_path, body)
+
+
+def test_production_bank_has_no_niqqud_or_telegram_only_wording():
+    import re
+    cfg = dash.load_yaml("settings.yaml")["whatsapp_quiet_question"]
+    assert cfg["bank"]
+    for q in cfg["bank"]:
+        assert not re.search("[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]", q), q
+        assert not any(f in q for f in cfg["skip_if_contains"]), q

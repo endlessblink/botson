@@ -68,6 +68,10 @@ If a correction doesn't fit any of these, add a new context category.
 ## Rules (newest at top within each section)
 - אל תוסיפו ניקוד למילים בפוסטים לקבוצה, גם לא למילה אחת קשה. כתבו עברית רגילה בלי ניקוד; אם מילה לא ברורה בלי ניקוד, בחרו מילה אחרת.
   _**Source:** chat via /teach-bot, 2026-10-14 — operator saw a reused question with niqqud on one word and said it isn't needed._
+- שאלה לקבוצה צריכה עוגן אמיתי שאפשר להצביע עליו: נתון ממחקר או סקר, ניסוי מחשבתי מוכר עם תוצאות, חדשה או שרשור אמיתי מקהילה דומה. שאלה שמתאימה לכל קבוצה (סרט, חטיף, אפליקציה, תחביב) נפסלת גם אם היא קלה לענות.
+  _**Source:** chat via /teach-bot, 2026-10-14 — operator skipped a whole set of self-invented everyday questions as generic and approved only researched ones built on studies and thought-experiment survey results._
+- אל תכתבו "למבוגרים בלבד" כשהכוונה למקום או שירות בלי ילדים; הביטוי נשמע כמו תוכן מיני. כתבו "בלי ילדים" ואת הגיל אם רלוונטי.
+  _**Source:** chat via /teach-bot, 2026-10-14 — operator asked to reword an adults-only flight zone question._
 
 ### Hebrew content rules
 

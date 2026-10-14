@@ -47,6 +47,14 @@ whatsapp_quiet_question:
   max_per_day: 1
   # Telegram-only references that make no sense in WhatsApp.
   skip_if_contains: ["@", "http", "ערוץ", "טלגרם", "טופיק", "בוטסון"]
+  # Operator-approved questions (researched hooks), used in order once the
+  # proven Telegram questions run out. Each goes out at most once per destination.
+  bank:
+    - "חברת התעופה Corendon פותחת בנובמבר אזור בלי ילדים במטוס (מגיל 16), מופרד בקיר ובווילון, בתוספת 45 יורו לכיוון. הייתם משלמים?"
+    - "מחקר חדש מצא שבקליפורניה 22% מהמבוגרים בלי ילדים מבחירה, ובלואיזיאנה רק 9.4%. כמה זה לדעתכם בתל אביב?"
+    - "בשרשור ברדיט מישהי סיפרה שהמשפחה כעסה כשאמרה שהירושה שלה תלך לקרן לילדים במצוקה. אצלכם הירושה הולכת לעמותה, לאחיינים, לחברים, או שהכל ייגמר לפני?"
+    - "בסקר של כמעט 1,800 פילוסופים, 36% אמרו שטלפורטר שמפרק אתכם ובונה עותק מדויק על מאדים משאיר אתכם בחיים, ו-31% אמרו שזה מוות. אתם נכנסים?"
+    - "המכונה של נוזיק: חיים מושלמים בסימולציה עד הסוף, ואתם לא תדעו שזו סימולציה. רוב הפילוסופים בסקר PhilPapers ענו שלא היו נכנסים. ואתם?"
 
 # Automatic replies are considered only for explicit Botson mentions/replies.
 # Off until the overlap with community_participation's reply handler is settled.
