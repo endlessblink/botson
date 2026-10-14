@@ -1723,7 +1723,8 @@ async def whatsapp_quiet_question(request: Request, db: Database = Depends(get_d
     if not dry_run and sent_today >= int(cfg.get("max_per_day", 1)):
         raise HTTPException(status_code=409, detail="already sent a quiet-group question today")
 
-    wa_history = [str(r.get("text") or "") for r in wa_rows if r.get("status") != "cancelled"]
+    # Repeats count per destination, so a test-group run never uses up a real-group question.
+    wa_history = [str(r.get("text") or "") for r in wa_rows if r.get("status") != "cancelled" and r.get("target_group") == target]
     skip = [str(x) for x in (cfg.get("skip_if_contains") or [])]
     proven = await db.get_proven_questions(
         since_date=(today - timedelta(days=int(cfg.get("lookback_days", 120)))).isoformat(),

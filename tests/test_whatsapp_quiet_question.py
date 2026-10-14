@@ -91,6 +91,9 @@ def test_never_repeats_a_question_whatsapp_already_had(tmp_path):
             await dash.whatsapp_quiet_question(request(), db)
         assert none.value.status_code == 404
         assert today
+        # A test-group run doesn't use the question up for the real group.
+        test_out = await dash.whatsapp_quiet_question(request(payload={"target": "whatsapp_test"}), db)
+        assert test_out["text"] == text
     run(tmp_path, body)
 
 
