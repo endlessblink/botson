@@ -2876,6 +2876,40 @@ class Database:
                 })
         return events
 
+    async def get_proven_questions(self, *, since_date: str, message_types, exclude_user_ids=()) -> list[dict]:
+        """Sent Telegram text posts of the given types, with how many distinct
+        community members replied to each (admins excluded). Most replied first."""
+        types = [str(t) for t in message_types]
+        if not types:
+            return []
+        exclude = {int(x) for x in exclude_user_ids}
+        marks = ",".join("?" for _ in types)
+        async with self._db.execute(
+            f"""SELECT s.id AS id, s.text AS text, s.message_type AS message_type,
+                       s.sent_at AS sent_at, pr.user_id AS user_id
+                  FROM scheduled_messages s
+                  JOIN prompt_replies pr ON pr.scheduled_msg_id = s.id
+                 WHERE s.status = 'sent' AND s.sent_at IS NOT NULL
+                   AND date(s.sent_at) >= ?
+                   AND s.message_type IN ({marks})
+                   AND COALESCE(s.target_group, '') NOT LIKE 'whatsapp%'
+                   AND COALESCE(s.poll_options, '') = ''""",
+            (since_date, *types),
+        ) as cur:
+            rows = await cur.fetchall()
+        by_id: dict[int, dict] = {}
+        for r in rows:
+            if int(r["user_id"]) in exclude:
+                continue
+            item = by_id.setdefault(int(r["id"]), {
+                "id": int(r["id"]), "text": str(r["text"] or ""),
+                "message_type": str(r["message_type"]), "sent_at": r["sent_at"], "repliers": set(),
+            })
+            item["repliers"].add(int(r["user_id"]))
+        out = [{**v, "repliers": len(v["repliers"])} for v in by_id.values()]
+        out.sort(key=lambda r: r["repliers"], reverse=True)
+        return out
+
     async def get_engagement_rollup(self, days: int = 7, *, until_days: int = 0,
                                     exclude_user_ids=()) -> list[dict]:
         """Engagement per message_type over the window (lo, hi].

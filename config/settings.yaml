@@ -36,6 +36,18 @@ bot:
   # Agents must re-read the chat feed at most this long before any content mutation.
   agent_context_receipt_ttl_minutes: 20
 
+# WhatsApp quiet-group question (operator 2026-10-14: fully automatic).
+# Botty decides WHEN (2h of daytime silence, max one a day); Botson decides WHAT:
+# a Telegram post members already answered, never sent to WhatsApp before.
+whatsapp_quiet_question:
+  enabled: true
+  source_types: [discussion, morning, evening]
+  min_repliers: 3        # distinct community members who replied in Telegram
+  lookback_days: 120
+  max_per_day: 1
+  # Telegram-only references that make no sense in WhatsApp.
+  skip_if_contains: ["@", "http", "ערוץ", "טלגרם", "טופיק", "בוטסון"]
+
 # Automatic replies are considered only for explicit Botson mentions/replies.
 # Off until the overlap with community_participation's reply handler is settled.
 community_replies:

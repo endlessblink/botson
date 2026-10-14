@@ -1687,6 +1687,69 @@ async def whatsapp_summary(request: Request):
     return {"job_id": job_id, "status": "pending"}
 
 
+@app.post("/api/agent/whatsapp/quiet-question")
+async def whatsapp_quiet_question(request: Request, db: Database = Depends(get_db)):
+    """Botty calls this after two daytime hours of WhatsApp silence. Botson picks
+    the Telegram question members replied to most that WhatsApp has never had,
+    and schedules it to WhatsApp now (the normal dispatcher delivers it).
+
+    It is a copy of a post that already went out in Telegram, so it skips the new
+    post content gate; the per-app repeat rule is enforced here instead.
+    ?dry_run=1 lists the candidates without scheduling anything. Agent-token only.
+    """
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    from bot.utils.freshness import near_duplicate
+    from bot.utils.whatsapp_sender import is_whatsapp_target
+
+    cfg = get_settings().get("whatsapp_quiet_question") or {}
+    if not cfg.get("enabled"):
+        raise HTTPException(status_code=409, detail="whatsapp quiet question is disabled")
+    data = await request.json() if (request.headers.get("content-type") or "").startswith("application/json") else {}
+    target = str((data or {}).get("target") or "whatsapp")
+    if not is_whatsapp_target(target):
+        raise HTTPException(status_code=400, detail="target must be a WhatsApp target")
+    dry_run = request.query_params.get("dry_run") in {"1", "true"}
+
+    now = datetime.now(ZoneInfo("Asia/Jerusalem"))
+    today = now.date()
+    rows = await db.get_scheduled_messages((today - timedelta(days=3650)).isoformat(), (today + timedelta(days=60)).isoformat())
+    wa_rows = [r for r in rows if is_whatsapp_target(r.get("target_group"))]
+    sent_today = sum(
+        1 for r in wa_rows
+        if r.get("created_by") == "whatsapp-quiet" and r.get("target_group") == target
+        and str(r.get("scheduled_date")) == today.isoformat() and r.get("status") != "cancelled"
+    )
+    if not dry_run and sent_today >= int(cfg.get("max_per_day", 1)):
+        raise HTTPException(status_code=409, detail="already sent a quiet-group question today")
+
+    wa_history = [str(r.get("text") or "") for r in wa_rows if r.get("status") != "cancelled"]
+    skip = [str(x) for x in (cfg.get("skip_if_contains") or [])]
+    proven = await db.get_proven_questions(
+        since_date=(today - timedelta(days=int(cfg.get("lookback_days", 120)))).isoformat(),
+        message_types=cfg.get("source_types") or [],
+        exclude_user_ids=ADMIN_IDS,
+    )
+    candidates = [
+        p for p in proven
+        if p["repliers"] >= int(cfg.get("min_repliers", 3))
+        and not any(f in p["text"] for f in skip)
+        and not near_duplicate(p["text"], wa_history, threshold=0.4)
+    ]
+    if dry_run:
+        return {"candidates": [{"id": c["id"], "repliers": c["repliers"], "text": c["text"]} for c in candidates]}
+    if not candidates:
+        raise HTTPException(status_code=404, detail="no proven question left for WhatsApp")
+    top = candidates[0]["repliers"]
+    pick = random.choice([c for c in candidates if c["repliers"] == top])
+    row_id = await db.create_scheduled_message(
+        pick["text"], "custom", None, target, today.isoformat(), now.strftime("%H:%M"),
+        created_by="whatsapp-quiet",
+    )
+    logger.info("whatsapp quiet question scheduled: row=%s from=%s repliers=%s", row_id, pick["id"], pick["repliers"])
+    return {"id": row_id, "source_id": pick["id"], "repliers": pick["repliers"], "text": pick["text"]}
+
+
 @app.get("/api/agent/whatsapp/summary/{job_id}")
 async def whatsapp_summary_status(job_id: str, request: Request):
     if not _is_agent_api_request(request):
