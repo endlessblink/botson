@@ -126,3 +126,13 @@ def test_production_config_is_enabled_with_sane_limits():
     cfg = dash.load_yaml("settings.yaml")["whatsapp_quiet_question"] if hasattr(dash, "load_yaml") else None
     assert cfg and cfg["enabled"] and cfg["max_per_day"] == 1 and cfg["min_repliers"] >= 2
     assert json.dumps(cfg)
+
+
+def test_niqqud_is_removed_but_maqaf_stays(tmp_path):
+    async def body(db):
+        await sent_post(db, "מתוך כל הבָּיוֹגְרָפְיוֹת שראיתם ב־2026, איזו גרמה לכם לגלול?", [1, 2, 3])
+        out = await dash.whatsapp_quiet_question(request(), db)
+        assert out["text"] == "מתוך כל הביוגרפיות שראיתם ב־2026, איזו גרמה לכם לגלול?"
+        rows = await db.get_scheduled_messages("2020-01-01", "2030-01-01")
+        assert [r["text"] for r in rows if r["target_group"] == "whatsapp"] == [out["text"]]
+    run(tmp_path, body)

@@ -1743,6 +1743,8 @@ async def whatsapp_quiet_question(request: Request, db: Database = Depends(get_d
         raise HTTPException(status_code=404, detail="no proven question left for WhatsApp")
     top = candidates[0]["repliers"]
     pick = random.choice([c for c in candidates if c["repliers"] == top])
+    # Vowel marks (niqqud) look odd in a WhatsApp chat; maqaf and punctuation stay.
+    pick["text"] = re.sub("[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]", "", pick["text"])
     row_id = await db.create_scheduled_message(
         pick["text"], "custom", None, target, today.isoformat(), now.strftime("%H:%M"),
         created_by="whatsapp-quiet",

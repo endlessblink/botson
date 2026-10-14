@@ -66,6 +66,8 @@ If a correction doesn't fit any of these, add a new context category.
 ---
 
 ## Rules (newest at top within each section)
+- אל תוסיפו ניקוד למילים בפוסטים לקבוצה, גם לא למילה אחת קשה. כתבו עברית רגילה בלי ניקוד; אם מילה לא ברורה בלי ניקוד, בחרו מילה אחרת.
+  _**Source:** chat via /teach-bot, 2026-10-14 — operator saw a reused question with niqqud on one word and said it isn't needed._
 
 ### Hebrew content rules
 
