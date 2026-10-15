@@ -121,17 +121,22 @@ async def handle_poll_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info("User %s voted for %s on msg %d", user_name, option_key, msg_id)
         await query.answer("נרשמת! ✅")
 
-    # Rebuild buttons with vote counts and names
-    buttons = []
-    for key, label in labels.items():
-        voters = _votes[msg_id].get(key, {})
-        count = len(voters)
-        if count > 0:
-            names = ", ".join(voters.values())
-            btn_text = f"🗓️ {label} ({count}) — {names}"
-        else:
-            btn_text = f"🗓️ {label}"
-        buttons.append([InlineKeyboardButton(btn_text, callback_data=f"poll_{key}")])
+    # Votes are private: buttons never show who picked what or per-option
+    # counts (counts alone give away riddle answers). The voter's own choice
+    # is confirmed in the popup above; results stay on the dashboard.
+    buttons = [
+        [InlineKeyboardButton(f"🗓️ {label}", callback_data=f"poll_{key}")]
+        for key, label in labels.items()
+    ]
+
+    current = [
+        btn.text
+        for row in (query.message.reply_markup.inline_keyboard if query.message.reply_markup else [])
+        for btn in row
+        if btn.callback_data and btn.callback_data.startswith("poll_")
+    ]
+    if current == [b[0].text for b in buttons]:
+        return  # nothing to strip; Telegram rejects no-op edits
 
     logger.info("Updating buttons for msg %d: %s", msg_id, [b[0].text for b in buttons])
     try:
