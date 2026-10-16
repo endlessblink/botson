@@ -61,6 +61,14 @@ class Database:
             "ALTER TABLE events ADD COLUMN wa_target TEXT",
             "ALTER TABLE events ADD COLUMN wa_poll_stanza TEXT",
             "ALTER TABLE events ADD COLUMN tg_chat_id INTEGER",
+            "ALTER TABLE events ADD COLUMN card_text TEXT",
+            # Member-created events: a personal form link, then operator approval.
+            "CREATE TABLE IF NOT EXISTS event_requests ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, "
+            "platform TEXT NOT NULL, requester_id TEXT NOT NULL, requester_name TEXT, "
+            "created_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', "
+            "title TEXT, description TEXT, event_date TEXT, event_time TEXT, location TEXT, link TEXT, "
+            "cover_path TEXT, submitted_at TEXT, decided_at TEXT, event_id INTEGER)",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
             "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
             "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
@@ -923,6 +931,49 @@ class Database:
                 if row["status"] in counts:
                     counts[row["status"]] = row["n"]
         return counts
+
+    async def create_event_request(self, *, token: str, platform: str, requester_id: str,
+                                   requester_name: str, created_at: str, expires_at: str) -> int:
+        async with self._db.execute(
+            """INSERT INTO event_requests (token, platform, requester_id, requester_name, created_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (token, platform, requester_id, requester_name, created_at, expires_at),
+        ) as cursor:
+            rid = cursor.lastrowid
+        await self._db.commit()
+        return rid
+
+    async def get_event_request(self, *, token: str | None = None, request_id: int | None = None) -> dict | None:
+        col, val = ("token", token) if token else ("id", request_id)
+        async with self._db.execute(f"SELECT * FROM event_requests WHERE {col} = ?", (val,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def list_event_requests(self, *, platform: str | None = None, requester_id: str | None = None,
+                                  status: str | None = None, since: str | None = None) -> list[dict]:
+        sql, args = "SELECT * FROM event_requests WHERE 1 = 1", []
+        for col, val in (("platform", platform), ("requester_id", requester_id), ("status", status)):
+            if val is not None:
+                sql += f" AND {col} = ?"
+                args.append(val)
+        if since:
+            sql += " AND created_at >= ?"
+            args.append(since)
+        async with self._db.execute(sql + " ORDER BY id DESC", args) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def update_event_request(self, request_id: int, *, expect_status: str | None = None, **fields) -> bool:
+        """Update a request; with expect_status, only if it is still in that status
+        (so a double tap or two admins can't submit or publish it twice)."""
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        sql, args = f"UPDATE event_requests SET {sets} WHERE id = ?", [*fields.values(), request_id]
+        if expect_status is not None:
+            sql += " AND status = ?"
+            args.append(expect_status)
+        async with self._db.execute(sql, args) as cursor:
+            changed = cursor.rowcount
+        await self._db.commit()
+        return changed > 0
 
     async def get_event_voters(self, event_id: int) -> dict:
         """Resolve RSVP user_ids for an event to display_name + username.

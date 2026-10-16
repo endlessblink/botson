@@ -165,6 +165,26 @@
     </div>
 </div>
 
+{% if pending_requests %}
+<!-- Member event requests waiting for approval (same as the approve DM) -->
+<div class="bg-[#0a0a0a] border border-amber-500/30 rounded-lg mt-4">
+    <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center">
+        <h2 class="text-sm font-medium text-[#fafafa]">בקשות של חברים לאירוע</h2>
+        <span class="text-xs bg-amber-500/10 text-amber-300 px-2 py-0.5 rounded-md mr-2">{{ pending_requests|length }}</span>
+    </div>
+    {% for r in pending_requests %}
+    <div class="px-5 py-4 border-b border-[#1f1f1f] last:border-0 flex flex-col md:flex-row gap-3 md:items-start">
+        {% if r.cover_path %}<img src="/media/{{ r.cover_path }}" alt="" class="w-24 h-24 object-cover rounded-md">{% endif %}
+        <pre class="flex-1 whitespace-pre-wrap text-sm text-[#d4d4d8] font-sans">{{ r.card }}</pre>
+        <div class="flex gap-2">
+            <button onclick="decideRequest({{ r.id }}, 'approve')" class="bg-emerald-600 hover:bg-emerald-500 text-white h-9 px-4 rounded-md text-sm font-medium">✅ לאשר ולפרסם</button>
+            <button onclick="decideRequest({{ r.id }}, 'reject')" class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm">✖️ לדחות</button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 <!-- Events Table Card -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
     <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center">
@@ -713,6 +733,18 @@ document.addEventListener('DOMContentLoaded', function() {
     saveDraft();        // persist the seeded defaults
     updatePreview();
 });
+
+async function decideRequest(requestId, decision) {
+    try {
+        var r = await apiCall('/api/events/requests/' + requestId + '/' + decision);
+        if (r && r.status === 'already_decided') showToast('הבקשה כבר טופלה', 'error');
+        else if (r && r.status === 'partial') showToast('פורסם בטלגרם, לא בוואטסאפ: ' + (r.whatsapp_error || ''), 'error');
+        else showToast(decision === 'approve' ? 'פורסם בשתי הקבוצות' : 'נדחה');
+        setTimeout(function() { location.reload(); }, 1000);
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
 
 function deleteEvent(eventId) {
     showConfirm('האם למחוק את האירוע?', async function() {

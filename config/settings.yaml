@@ -65,12 +65,81 @@ community_replies:
   context_max_chars: 1800
   max_reply_chars: 240
 
+# Member-created events (operator 2026-10-16). A member tags the bot in the
+# Telegram group or in WhatsApp (Botty) and asks to create an event; the bot
+# answers with a personal form link. Every submission waits for the operator's
+# one-tap approval, then goes out to both groups.
+member_events:
+  enabled: true
+  link_minutes: 60
+  max_links_per_day: 3
+  telegram_target: main        # main | test
+  whatsapp_target: whatsapp    # whatsapp | whatsapp_test | "" for Telegram only
+  # A request = the bot is tagged AND one word of each list appears.
+  create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "תיצור", "תפתח", "תקבע", "תארגן", "חדש", "חדשה", "create", "new"]
+  event_words: ["אירוע", "מפגש", "מיטאפ", "event", "meetup"]
+  max_title_chars: 80
+  max_description_chars: 400
+
 # Centralized user-facing copy. Every Hebrew template the bot or
 # dashboard surfaces should read from here via `bot/utils/copy.py:load_copy`.
 # See CLAUDE.md → "No Hardcoded User-Facing Content" for the rule.
 # This namespace is seeded by Phase F; Phase A.2 populates it as handlers
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
+  member_events:
+    # Bot reply to "create an event"; {minutes} = link lifetime.
+    link_reply: "📝 הנה טופס קצר לאירוע חדש. אחרי אישור קצר הוא יתפרסם גם בטלגרם וגם בוואטסאפ.\nהקישור תקף ל-{minutes} דקות:"
+    link_button: "📝 לטופס האירוע"
+    limit_reply: "כבר פתחת כמה טפסים היום 🙂 נסו שוב מחר."
+    # Event card (Telegram + WhatsApp). {day} comes from day_names.
+    day_names: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
+    card_when: "🕒 יום {day}, {date} · {time}"
+    card_where: "📍 {location}"
+    card_link: "🔗 {link}"
+    card_image: "🖼️ {url}"
+    card_by: "✨ נפתח ע״י {name}"
+    platform_telegram: "טלגרם"
+    platform_whatsapp: "וואטסאפ"
+    # Operator approval DM.
+    admin_request: "🆕 בקשה לאירוע מ{name} ({platform})\n\n{card}"
+    approve_button: "✅ לאשר ולפרסם"
+    reject_button: "✖️ לדחות"
+    approved_note: "✅ פורסם."
+    approved_partial_note: "⚠️ פורסם בטלגרם, אבל לא בוואטסאפ: {reason}"
+    rejected_note: "✖️ נדחה, לא פורסם."
+    already_decided: "הבקשה הזו כבר טופלה."
+    # The form page.
+    form_title: "אירוע חדש"
+    form_intro: "כמה פרטים קצרים, ואחרי אישור האירוע יתפרסם בטלגרם ובוואטסאפ."
+    form_by: "נפתח ע״י"
+    form_name: "שם האירוע"
+    form_name_hint: "למשל: ערב משחקי קופסה"
+    form_date: "תאריך"
+    form_time: "שעת התחלה"
+    form_location: "איפה"
+    form_location_hint: "כתובת, שם מקום או זום"
+    form_description: "כמה מילים על האירוע"
+    form_description_hint: "מה עושים, מה להביא, למי זה מתאים"
+    form_link: "קישור"
+    form_link_hint: "https://..."
+    form_image: "תמונה"
+    form_image_pick: "בחירת תמונה"
+    form_image_remove: "הסרה"
+    form_optional: "לא חובה"
+    form_preview: "ככה זה ייראה"
+    form_submit: "שליחה לאישור"
+    form_sending: "שולח…"
+    form_done_title: "נשלח! 🎉"
+    form_done_text: "האירוע מחכה לאישור קצר, ואז יתפרסם בשתי הקבוצות."
+    form_expired_title: "הקישור כבר לא בתוקף"
+    form_expired_text: "אפשר לתייג שוב את הבוט ולבקש טופס חדש."
+    form_error: "משהו לא עבר. בדקו את הפרטים ונסו שוב."
+    form_error_title: "צריך שם לאירוע"
+    form_error_date: "צריך תאריך מהיום והלאה"
+    form_error_time: "צריך שעת התחלה"
+    form_error_link: "הקישור צריך להתחיל ב-https://"
+    form_error_image: "התמונה צריכה להיות JPG / PNG / WEBP עד 8MB"
   polls:
     # Reply to a guess-poll answer reveal, naming who guessed right.
     quiz_winners: "🏆 ניחשו נכון: {names} — +{points} נקודות לכל אחד/ת"

@@ -14,7 +14,7 @@ from telegram.ext import AIORateLimiter, Application, CommandHandler
 PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot.pid")
 
 from .database.db import Database
-from .handlers import welcome, goals, levels, antispam, discussions, events, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity, weekly_state_review, community_replies
+from .handlers import welcome, goals, levels, antispam, discussions, events, event_requests, trivia, trivia_round, emoji_puzzle, topic_tracker, topic_router, polls, calendar_pop, daily_activity_digest, trivia_interest, reactions, dm_menu, tagall, member_activity, weekly_state_review, community_replies
 from .handlers.calendar import check_and_send_due_messages, cleanup_public_warmup_announcements
 from .scheduler.jobs import setup_jobs
 from .utils.config import BOT_TOKEN, deep_link, get_emoji_puzzles, get_prompts, load_yaml
@@ -373,6 +373,7 @@ def main():
     levels.register(app)     # Group 3
     discussions.register(app)
     events.register(app)     # Event management
+    event_requests.register(app)  # Members create events via a form; operator approves
     trivia.register(app)     # Trivia questions (single-question)
     trivia_round.register(app)   # Trivia round — 5 questions, +20 first-place bonus
     emoji_puzzle.register(app)   # Emoji Night reply watcher + reveal job

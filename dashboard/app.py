@@ -3181,8 +3181,14 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         e["wa_counts"] = await db.get_event_whatsapp_counts(e["id"]) if e.get("wa_target") else None
     settings = get_settings()
     forum_topics = await db.get_forum_topics()
+    from bot.utils.shared_events import request_card
+
+    pending = await db.list_event_requests(status="submitted")
+    for r in pending:
+        r["card"] = request_card(r)
 
     return templates.TemplateResponse(request, name="events.html", context={
+        "pending_requests": pending,
         "events": events,
         "settings": settings,
         "forum_topics": forum_topics,
@@ -3344,7 +3350,7 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
             except Exception as e:
                 logger.warning("[events] failed to pin event %d: %s", event_id, e)
 
-        await db.update_event(event_id, message_id=sent.message_id, tg_chat_id=chat_id)
+        await db.update_event(event_id, message_id=sent.message_id, tg_chat_id=chat_id, card_text=text)
         await db.log_activity("event", f"יצר אירוע: {title[:60]}", target_channel=str(topic_id or "main"))
         result = {"status": "ok", "event_id": event_id, "message_id": sent.message_id}
         if whatsapp_target:
@@ -3390,8 +3396,8 @@ async def whatsapp_event_vote(request: Request, db: Database = Depends(get_db)):
         from telegram import Bot
 
         voters = await db.get_event_voters(event["id"])
-        base = _format_event_message(event["title"], event.get("description"), event["event_date"],
-                                     event.get("event_time"), event.get("location"))
+        base = event.get("card_text") or _format_event_message(
+            event["title"], event.get("description"), event["event_date"], event.get("event_time"), event.get("location"))
         text = card_with_rsvps(base, [v["display_name"] for v in voters["yes"]],
                                [v["display_name"] for v in voters["maybe"]], await whatsapp_line(db, event))
         bot = Bot(os.getenv("BOT_TOKEN", ""))
@@ -3406,6 +3412,138 @@ async def whatsapp_event_vote(request: Request, db: Database = Depends(get_db)):
             if "not modified" not in str(e).lower():
                 logger.warning("[events] could not refresh Telegram card for event %d: %s", event["id"], e)
     return {"status": "ok", "event_id": event["id"], "whatsapp": counts}
+
+
+# ── Member-created events (public form behind a personal expiring link) ──
+
+@app.post("/api/agent/event-request")
+async def agent_event_request(request: Request, db: Database = Depends(get_db)):
+    """Botty asks for a form link for a WhatsApp member who asked to create an
+    event. Returns the reply text and link for Botty to post. Agent-token only.
+
+    Body: {chat_id, requester, name}. Only the configured WhatsApp group counts.
+    """
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    from bot.utils.shared_events import create_request_link, member_cfg
+    from bot.utils.whatsapp_sender import WhatsAppNotConfigured, resolve_chat_id
+
+    data = await request.json()
+    cfg = member_cfg()
+    if not cfg.get("enabled"):
+        raise HTTPException(status_code=409, detail="member events are off")
+    allowed = set()
+    for target in ("whatsapp", "whatsapp_test"):
+        try:
+            allowed.add(resolve_chat_id(target))
+        except WhatsAppNotConfigured:
+            pass
+    if str(data.get("chat_id") or "") not in allowed:
+        raise HTTPException(status_code=403, detail="not a Botson WhatsApp group")
+    requester = str(data.get("requester") or "").strip()
+    if not requester:
+        raise HTTPException(status_code=400, detail="requester is required")
+    return await create_request_link(db, platform="whatsapp", requester_id=requester,
+                                     requester_name=str(data.get("name") or "").strip())
+
+
+def _member_form_copy() -> dict:
+    from bot.utils.copy import load_copy_block
+
+    return load_copy_block("member_events", default={}) or {}
+
+
+@app.get("/e/{token}", response_class=HTMLResponse)
+async def member_event_form(token: str, request: Request, db: Database = Depends(get_db)):
+    from bot.utils.shared_events import member_cfg, request_is_open
+
+    req = await db.get_event_request(token=token)
+    cfg = member_cfg()
+    today = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
+    return templates.TemplateResponse(request, name="event_form.html", context={
+        "c": _member_form_copy(), "open": request_is_open(req), "token": token,
+        "by": (req or {}).get("requester_name") or "", "today": today,
+        "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),
+    })
+
+
+@app.post("/e/{token}")
+async def member_event_submit(token: str, request: Request, db: Database = Depends(get_db)):
+    """Store a member's event and DM the admins for approval. The token is single-use."""
+    import base64
+    from telegram import Bot
+    from bot.utils.shared_events import member_cfg, notify_admins_of_request, request_is_open
+
+    c = _member_form_copy()
+    req = await db.get_event_request(token=token)
+    if not request_is_open(req):
+        return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)
+    data = await request.json()
+    cfg = member_cfg()
+    title = str(data.get("title") or "").strip()
+    event_date = str(data.get("event_date") or "").strip()
+    event_time = str(data.get("event_time") or "").strip()
+    location = str(data.get("location") or "").strip()[:120]
+    description = str(data.get("description") or "").strip()[: int(cfg.get("max_description_chars", 400))]
+    link = str(data.get("link") or "").strip()[:300]
+    today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
+    errors = {}
+    if not title or len(title) > int(cfg.get("max_title_chars", 80)):
+        errors["title"] = c.get("form_error_title")
+    try:
+        if date.fromisoformat(event_date) < today:
+            raise ValueError
+    except ValueError:
+        errors["event_date"] = c.get("form_error_date")
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", event_time):
+        errors["event_time"] = c.get("form_error_time")
+    if link and not re.match(r"https?://[^\s]+$", link):
+        errors["link"] = c.get("form_error_link")
+    cover_path = None
+    image = str(data.get("image") or "")
+    if image:
+        try:
+            header, _, b64 = image.partition(",")
+            mime = header.removeprefix("data:").split(";")[0]
+            raw = base64.b64decode(b64, validate=True)
+            if len(raw) > _MAX_COVER_BYTES:
+                raise ValueError
+            ext = _validated_cover_ext(raw, mime)
+            dest = COVERS_DIR / _cover_filename("member", ext)
+            dest.write_bytes(raw)
+            cover_path = dest.relative_to(MEDIA_DIR).as_posix()
+        except (ValueError, HTTPException):
+            errors["image"] = c.get("form_error_image")
+    if errors:
+        return JSONResponse({"errors": errors}, status_code=422)
+    if not await db.update_event_request(
+        req["id"], expect_status="open", status="submitted", title=title, event_date=event_date,
+        event_time=event_time, location=location or None, description=description or None,
+        link=link or None, cover_path=cover_path, submitted_at=datetime.now(ZoneInfo("Asia/Jerusalem")).isoformat(),
+    ):
+        return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)
+    req = await db.get_event_request(request_id=req["id"])
+    try:
+        await notify_admins_of_request(Bot(os.getenv("BOT_TOKEN", "")), req)
+    except Exception:
+        logger.exception("[member_events] admin DM failed for request %s", req["id"])
+    logger.info("[member_events] request %s submitted by %s (%s)", req["id"], req["requester_id"], req["platform"])
+    return {"status": "ok"}
+
+
+@app.post("/api/events/requests/{request_id}/{decision}")
+async def decide_member_event(request_id: int, decision: str, request: Request, db: Database = Depends(get_db)):
+    """Dashboard twin of the approve / reject buttons in the admin DM."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from telegram import Bot
+    from bot.utils.shared_events import approve_request, reject_request
+
+    if decision == "approve":
+        return await approve_request(Bot(os.getenv("BOT_TOKEN", "")), db, request_id)
+    if decision == "reject":
+        return {"status": "ok" if await reject_request(db, request_id) else "already_decided"}
+    raise HTTPException(status_code=404)
 
 
 @app.post("/api/events/{event_id}/delete")
