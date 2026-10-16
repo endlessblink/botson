@@ -57,6 +57,11 @@ class Database:
             "ALTER TABLE events ADD COLUMN topic_id INTEGER",
             "ALTER TABLE events ADD COLUMN source_poll_message_id INTEGER",
             "ALTER TABLE events ADD COLUMN source_poll_option_key TEXT",
+            # Shared events: the same event also posted to WhatsApp as a poll.
+            "ALTER TABLE events ADD COLUMN wa_target TEXT",
+            "ALTER TABLE events ADD COLUMN wa_poll_stanza TEXT",
+            "ALTER TABLE events ADD COLUMN tg_chat_id INTEGER",
+            "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
             "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
             "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
             "CREATE TABLE IF NOT EXISTS bot_message_routing (handler TEXT PRIMARY KEY, play_topic_id INTEGER, teaser_topic_ids TEXT NOT NULL DEFAULT '[]', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
@@ -874,6 +879,50 @@ class Database:
             (json.dumps(yes_list), json.dumps(maybe_list), event_id),
         )
         await self._db.commit()
+
+    async def set_event_whatsapp_poll(self, event_id: int, target: str, poll_stanza: str):
+        await self._db.execute(
+            "UPDATE events SET wa_target = ?, wa_poll_stanza = ? WHERE id = ?",
+            (target, poll_stanza, event_id),
+        )
+        await self._db.commit()
+
+    async def get_event_by_whatsapp_poll(self, poll_stanza: str) -> dict | None:
+        async with self._db.execute(
+            "SELECT * FROM events WHERE wa_poll_stanza = ? AND active = 1 ORDER BY id DESC LIMIT 1",
+            (poll_stanza,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def set_event_whatsapp_rsvp(self, event_id: int, voter_id: str, status: str | None):
+        """Record a WhatsApp member's answer; status None clears it (vote removed)."""
+        if status in ("yes", "maybe"):
+            await self._db.execute(
+                """INSERT INTO event_whatsapp_rsvps (event_id, voter_id, status) VALUES (?, ?, ?)
+                   ON CONFLICT(event_id, voter_id) DO UPDATE SET status = excluded.status,
+                   updated_at = CURRENT_TIMESTAMP""",
+                (event_id, voter_id, status),
+            )
+        else:
+            await self._db.execute(
+                "DELETE FROM event_whatsapp_rsvps WHERE event_id = ? AND voter_id = ?",
+                (event_id, voter_id),
+            )
+        await self._db.commit()
+
+    async def get_event_whatsapp_counts(self, event_id: int) -> dict:
+        """{'yes': n, 'maybe': n} from WhatsApp. Counts only: WhatsApp members'
+        identities are never shown in the Telegram group."""
+        counts = {"yes": 0, "maybe": 0}
+        async with self._db.execute(
+            "SELECT status, COUNT(*) AS n FROM event_whatsapp_rsvps WHERE event_id = ? GROUP BY status",
+            (event_id,),
+        ) as cursor:
+            for row in await cursor.fetchall():
+                if row["status"] in counts:
+                    counts[row["status"]] = row["n"]
+        return counts
 
     async def get_event_voters(self, event_id: int) -> dict:
         """Resolve RSVP user_ids for an event to display_name + username.

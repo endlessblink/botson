@@ -3178,6 +3178,7 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         e["rsvp_maybe"] = voters["maybe"]
         e["rsvp_yes_count"] = len(voters["yes"])
         e["rsvp_maybe_count"] = len(voters["maybe"])
+        e["wa_counts"] = await db.get_event_whatsapp_counts(e["id"]) if e.get("wa_target") else None
     settings = get_settings()
     forum_topics = await db.get_forum_topics()
 
@@ -3252,6 +3253,17 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
     source_poll_message_id = data.get("source_poll_message_id")
     source_poll_option_key = data.get("source_poll_option_key")
     publish = data.get("publish", True)
+    whatsapp_target = str(data.get("whatsapp_target") or "").strip()
+    if whatsapp_target:
+        from bot.utils.whatsapp_sender import WhatsAppNotConfigured, is_whatsapp_target, resolve_chat_id
+
+        if not is_whatsapp_target(whatsapp_target):
+            raise HTTPException(status_code=400, detail="whatsapp_target must be whatsapp or whatsapp_test")
+        try:
+            resolve_chat_id(whatsapp_target)
+        except WhatsAppNotConfigured as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        # A cover image stays Telegram-only; WhatsApp gets the card text and poll.
 
     logger.info("[events.create] publish=%s title=%r date=%s time=%s topic=%s "
                 "group=%s cover=%s auto_pin=%s source_poll=%s/%s",
@@ -3332,12 +3344,68 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
             except Exception as e:
                 logger.warning("[events] failed to pin event %d: %s", event_id, e)
 
-        await db.update_event(event_id, message_id=sent.message_id)
+        await db.update_event(event_id, message_id=sent.message_id, tg_chat_id=chat_id)
         await db.log_activity("event", f"יצר אירוע: {title[:60]}", target_channel=str(topic_id or "main"))
-        return {"status": "ok", "event_id": event_id, "message_id": sent.message_id}
+        result = {"status": "ok", "event_id": event_id, "message_id": sent.message_id}
+        if whatsapp_target:
+            # Shared event: same card plus a sign-up poll in the WhatsApp group.
+            from bot.utils.shared_events import publish_to_whatsapp
+
+            try:
+                result["whatsapp_poll"] = await publish_to_whatsapp(db, event_id, whatsapp_target, text)
+            except Exception as e:
+                logger.exception("[events] failed to post event %d to WhatsApp", event_id)
+                result.update(status="partial", whatsapp_error=str(e)[:300])
+        return result
     except Exception as e:
         logger.exception("[events] failed to post event %d to telegram", event_id)
         return {"status": "partial", "event_id": event_id, "error": str(e)}
+
+
+@app.post("/api/agent/whatsapp/event-vote")
+async def whatsapp_event_vote(request: Request, db: Database = Depends(get_db)):
+    """Botty forwards every WhatsApp poll vote here. Votes on a shared event's
+    sign-up poll are stored and the Telegram card's WhatsApp count is refreshed;
+    any other poll gets 404 and Botty ignores it. Agent-token only.
+
+    Body: {poll_id, voter, option}; an empty option means the vote was removed.
+    """
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    from bot.utils.shared_events import card_with_rsvps, stanza_of, status_for_option, whatsapp_line
+
+    data = await request.json()
+    stanza = stanza_of(data.get("poll_id"))
+    voter = str(data.get("voter") or "").strip()
+    if not stanza or not voter:
+        raise HTTPException(status_code=400, detail="poll_id and voter are required")
+    event = await db.get_event_by_whatsapp_poll(stanza)
+    if not event:
+        raise HTTPException(status_code=404, detail="not an event poll")
+    status = status_for_option(data.get("option"))
+    await db.set_event_whatsapp_rsvp(event["id"], voter, status)
+    counts = await db.get_event_whatsapp_counts(event["id"])
+
+    if event.get("tg_chat_id") and event.get("message_id") and os.getenv("BOT_TOKEN"):
+        from telegram import Bot
+
+        voters = await db.get_event_voters(event["id"])
+        base = _format_event_message(event["title"], event.get("description"), event["event_date"],
+                                     event.get("event_time"), event.get("location"))
+        text = card_with_rsvps(base, [v["display_name"] for v in voters["yes"]],
+                               [v["display_name"] for v in voters["maybe"]], await whatsapp_line(db, event))
+        bot = Bot(os.getenv("BOT_TOKEN", ""))
+        kwargs = {"chat_id": event["tg_chat_id"], "message_id": event["message_id"],
+                  "reply_markup": _event_rsvp_markup(event["id"])}
+        try:
+            if event.get("cover_path"):
+                await bot.edit_message_caption(caption=text, **kwargs)
+            else:
+                await bot.edit_message_text(text=text, **kwargs)
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.warning("[events] could not refresh Telegram card for event %d: %s", event["id"], e)
+    return {"status": "ok", "event_id": event["id"], "whatsapp": counts}
 
 
 @app.post("/api/events/{event_id}/delete")

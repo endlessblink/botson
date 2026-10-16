@@ -17,6 +17,8 @@ from ..utils.topic_guard import UnverifiedTopicError, safe_send
 from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
+from ..utils import whatsapp_sender
+from ..utils.shared_events import card_with_rsvps, whatsapp_line
 
 logger = logging.getLogger(__name__)
 
@@ -249,15 +251,8 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     maybe_names = [v["display_name"] for v in voters["maybe"]]
 
     original = query.message.caption or query.message.text or ""
-    base = original.split("\n\n✅ מגיעים", 1)[0]
-    if yes_names or maybe_names:
-        new_text = (
-            f"{base}\n\n"
-            f"✅ מגיעים ({len(yes_names)}): {', '.join(yes_names) if yes_names else '—'}\n"
-            f"🤔 אולי ({len(maybe_names)}): {', '.join(maybe_names) if maybe_names else '—'}"
-        )
-    else:
-        new_text = base
+    # Shared events also carry a WhatsApp sign-up count (numbers only).
+    new_text = card_with_rsvps(original, yes_names, maybe_names, await whatsapp_line(db, event))
 
     try:
         if query.message.caption is not None:
@@ -335,6 +330,14 @@ async def send_event_reminder(context: ContextTypes.DEFAULT_TYPE):
         if event.get("location"):
             text += f"📍 {event['location']}\n"
         text += f"\n✅ {yes_count} מגיעים"
+        wa_line = await whatsapp_line(db, event)
+        if wa_line:
+            text += f"\n{wa_line}"
+            # Shared event: WhatsApp members get the same reminder.
+            try:
+                await whatsapp_sender.send_text(whatsapp_sender.resolve_chat_id(event["wa_target"]), text)
+            except Exception as e:
+                logger.error("Failed to send WhatsApp event reminder %s: %s", event["id"], e)
 
         try:
             await safe_send(

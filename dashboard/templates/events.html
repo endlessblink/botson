@@ -115,6 +115,15 @@
                     <option value="test">קבוצת בדיקות</option>
                 </select>
             </div>
+            <div>
+                <label class="text-xs text-[#71717a] block mb-1.5">גם בוואטסאפ</label>
+                <select id="event-whatsapp-target"
+                    class="bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+                    <option value="">לא, רק טלגרם</option>
+                    <option value="whatsapp">כן, קבוצת הוואטסאפ</option>
+                    <option value="whatsapp_test">כן, קבוצת הבדיקות של וואטסאפ</option>
+                </select>
+            </div>
             <div class="md:col-span-2">
                 <label class="text-xs text-[#71717a] block mb-1.5">תמונת כותרת (אופציונלי)</label>
                 <div class="flex items-center gap-2 flex-wrap">
@@ -200,6 +209,9 @@
                                 <span class="text-[#71717a]">—</span>
                                 {% endfor %}
                             </div>
+                            {% if e.wa_counts %}
+                            <div class="text-[#a1a1aa]">📱 וואטסאפ: {{ e.wa_counts.yes }} מגיעים · {{ e.wa_counts.maybe }} אולי</div>
+                            {% endif %}
                         </div>
                     </td>
                     <td class="px-5 py-3">
@@ -516,6 +528,7 @@ async function submitEvent(opts) {
             auto_pin: document.getElementById('event-auto-pin').checked,
             topic_id: topicVal ? parseInt(topicVal, 10) : null,
             target_group: document.getElementById('event-target-group').value,
+            whatsapp_target: document.getElementById('event-whatsapp-target').value,
             source_poll_message_id: pollSourceMessageId,
             source_poll_option_key: pollSourceOptionKey,
             publish: !!opts.publish,

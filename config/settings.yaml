@@ -183,6 +183,15 @@ copy:
   # WhatsApp (via Botty). Admin DM when a member asked Botty for a summary and
   # Botson's Codex generation failed. {reason} is filled by the dashboard.
   whatsapp:
+    # Shared events: the card goes to WhatsApp followed by this sign-up poll.
+    # Option order matters: first = coming, second = maybe, third = not coming.
+    event_poll_question: "מי מגיע/ה?"
+    event_poll_yes: "✅ מגיע/ה"
+    event_poll_maybe: "🤔 אולי"
+    event_poll_no: "❌ לא הפעם"
+    # Added under the Telegram event card and reminders. Counts only, no names.
+    event_whatsapp_counts: "📱 מוואטסאפ: {yes} מגיעים · {maybe} אולי"
+    event_rsvp_maybe_label: "🤔 אולי"
     summary_failed_alert: "⚠️ תקציר וואטסאפ נכשל.\nחבר/ה ביקש/ה תקציר מבוטי ובוטסון לא הצליח לכתוב אותו.\nסיבה: {reason}"
   calendar:
     dispatch_failed_alert: "⚠️ הודעה מתוזמנת נכשלה בשליחה.\nמזהה: {message_id}\nסוג: {message_type}\nסלוט: {slot}\nשגיאה: {reason}"
