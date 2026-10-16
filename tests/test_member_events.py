@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+import bot.handlers.calendar  # noqa: F401  (loads telegram.ext before telegram.Bot is patched)
 from bot.database.db import Database
 from bot.utils import config, shared_events, whatsapp_sender
 from bot.utils.copy import load_copy
