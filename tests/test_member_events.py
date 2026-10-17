@@ -321,3 +321,14 @@ def test_templates_can_be_updated_and_deleted(tmp_path, monkeypatch):
     for n in shipped + ["פוקר חדש"]:
         shared_events.delete_template(n)
     assert shared_events.load_templates() == []
+
+
+def test_trusted_people_are_not_held_to_the_daily_form_limit(tmp_path):
+    async def body(db):
+        for _ in range(3):
+            tok = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+            await db.update_event_request((await db.get_event_request(token=tok))["id"], status="submitted")
+        assert (await whatsapp_link(db))["status"] == "limit"
+        await shared_events.trust_requester(db, (await db.get_event_request(token=tok))["id"])
+        assert (await whatsapp_link(db))["status"] == "ok"
+    run(tmp_path, body)

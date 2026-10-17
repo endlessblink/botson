@@ -186,6 +186,15 @@ async def add_trusted_by_phone(db, phone: str, name: str) -> dict:
     return {"phone": digits, "ids": ids}
 
 
+async def _is_privileged(db, platform: str, requester_id: str) -> bool:
+    """The operator and trusted co-admins are not held to the members' daily form limit."""
+    from .config import ADMIN_IDS
+
+    if platform == "telegram" and str(requester_id).isdigit() and int(requester_id) in ADMIN_IDS:
+        return True
+    return await db.is_trusted_creator(platform, norm_id(requester_id))
+
+
 async def create_request_link(db, *, platform: str, requester_id: str, requester_name: str) -> dict:
     """A personal, expiring form link for a member, or a 'limit' answer."""
     import secrets
@@ -211,7 +220,7 @@ async def create_request_link(db, *, platform: str, requester_id: str, requester
         name = str(requester_name or "").strip()[:60]
         if name and name != live[0].get("requester_name"):  # the card says who opened it: keep that current
             await db.update_event_request(live[0]["id"], requester_name=name)
-    elif len(mine) >= int(cfg.get("max_links_per_day", 3)):
+    elif len(mine) >= int(cfg.get("max_links_per_day", 3)) and not await _is_privileged(db, platform, requester_id):
         return {"status": "limit", "text": load_copy("member_events", "limit_reply")}
     else:
         token = secrets.token_urlsafe(16)
