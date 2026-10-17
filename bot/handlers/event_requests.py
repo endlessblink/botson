@@ -30,17 +30,29 @@ async def handle_event_request(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     db: Database = context.bot_data["db"]
     if chat.type == "private":
-        # A private message works for the operator and for trusted co-admins only.
-        if user.id not in ADMIN_IDS and not await is_trusted(db, "telegram", str(user.id)):
-            return
-        reply = apply_mode_command(message.text)
-        if reply:
-            await message.reply_text(reply)
-            return
+        # Anyone may ask for a form in a private chat; only the operator and trusted
+        # co-admins may flip the live/test switch there.
+        if user.id in ADMIN_IDS or await is_trusted(db, "telegram", str(user.id)):
+            reply = apply_mode_command(message.text)
+            if reply:
+                await message.reply_text(reply)
+                return
     elif chat.id not in (GROUP_ID, TEST_GROUP_ID) or not _is_addressed_to_bot(
             message, int(context.bot.id), getattr(context.bot, "username", None)):
         return
     if not asks_for_event(message.text, private=chat.type == "private"):
+        return
+    if chat.type != "private" and not member_cfg().get("link_in_group", True):
+        # The link is personal, so it is never posted where everyone can open it.
+        username = getattr(context.bot, "username", None)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(load_copy("member_events", "private_button"),
+                                                             url=f"https://t.me/{username}")]]) if username else None
+        try:
+            await safe_send(context.bot, db, "send_message", chat_id=chat.id, text=load_copy("member_events", "private_only_reply"),
+                            message_thread_id=message.message_thread_id, reply_to_message_id=message.message_id,
+                            reply_markup=markup)
+        except UnverifiedTopicError as e:
+            logger.warning("event_requests: guard refused reply: %s", e)
         return
     ack = str(member_cfg().get("ack_reaction") or "")
     if ack:  # "got it" the moment the message arrives; the link follows

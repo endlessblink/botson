@@ -59,7 +59,7 @@ FORM = {"title": "ערב משחקי קופסה", "event_date": "2099-01-01", "ev
 
 
 async def whatsapp_link(db, requester="5@lid", name="דנה"):
-    return await dash.agent_event_request(req({"chat_id": "111@g.us", "requester": requester, "name": name}, agent=True), db)
+    return await dash.agent_event_request(req({"chat_id": requester, "requester": requester, "name": name}, agent=True), db)
 
 
 async def submit(db, token, form=None):
@@ -206,7 +206,7 @@ def test_trusted_member_events_publish_without_waiting_for_approval(tmp_path):
     run(tmp_path, body)
 
 
-def test_co_admin_added_by_number_can_open_the_form_in_a_private_chat_but_strangers_cannot(tmp_path):
+def test_co_admin_added_by_number_can_open_the_form_in_a_private_chat_and_strangers_get_a_form_that_waits_for_approval(tmp_path):
     async def body(db):
         with patch.object(whatsapp_sender, "lid_for_phone", new=AsyncMock(return_value="145543674253364@lid")):
             added = await shared_events.add_trusted_by_phone(db, "+972 54-564-7477", "עמרי")
@@ -214,9 +214,9 @@ def test_co_admin_added_by_number_can_open_the_form_in_a_private_chat_but_strang
         for spelling in ("972545647477@c.us", "145543674253364@lid"):
             r = await dash.agent_event_request(req({"chat_id": spelling, "requester": spelling, "name": "עמרי"}, agent=True), db)
             assert r["status"] == "ok"
-        with pytest.raises(HTTPException) as e:
-            await dash.agent_event_request(req({"chat_id": "972500000000@c.us", "requester": "972500000000@c.us"}, agent=True), db)
-        assert e.value.status_code == 403
+        stranger = await dash.agent_event_request(req({"chat_id": "972500000000@c.us", "requester": "972500000000@c.us"}, agent=True), db)
+        assert stranger["status"] == "ok"                           # anyone may ask for a form privately
+        assert not await shared_events.is_trusted(db, "whatsapp", "972500000000@c.us")  # but publishing still needs approval
         with patch.object(shared_events, "member_cfg", return_value={"trusted_max_per_day": 0}):
             assert not await shared_events.is_trusted(db, "whatsapp", "972545647477@c.us")  # daily cap reached
         await db.remove_trusted_creator("whatsapp", "972545647477")
@@ -392,3 +392,13 @@ def test_template_edge_cases(tmp_path, monkeypatch):
         shared_events.save_template(title=f"t{i}")
     assert sum(1 for n in names() if n.startswith("t") and n[1:].isdigit()) == cfg.get("max_saved_templates", 30)
     assert "t44" in names() and "t0" not in names()
+
+
+def test_tagging_in_a_group_points_to_a_private_chat_instead_of_posting_the_link(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHATSAPP_GROUP_ID", "111@g.us")
+
+    async def body(db):
+        r = await dash.agent_event_request(req({"chat_id": "111@g.us", "requester": "5@lid", "name": "דנה"}, agent=True), db)
+        assert r["status"] == "private_only" and "url" not in r and "http" not in r["text"]
+        assert await db.list_event_requests(platform="whatsapp", requester_id="5@lid", since="2000-01-01") == []
+    run(tmp_path, body)

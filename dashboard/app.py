@@ -3444,13 +3444,14 @@ async def agent_event_request(request: Request, db: Database = Depends(get_db)):
     requester = str(data.get("requester") or "").strip()
     if not requester:
         raise HTTPException(status_code=400, detail="requester is required")
-    if chat_id not in allowed:
-        # A private message to Botty counts only from a trusted co-admin.
-        from bot.utils.shared_events import is_trusted
+    private = chat_id.endswith(("@c.us", "@lid")) and chat_id == requester
+    if not private and chat_id not in allowed:
+        raise HTTPException(status_code=403, detail="not a Botson WhatsApp group")
+    if not private and not cfg.get("link_in_group", True):
+        # A personal link is never posted where everyone can open it: send them to a private chat.
+        from bot.utils.copy import load_copy
 
-        private = chat_id.endswith(("@c.us", "@lid")) and chat_id == requester
-        if not (private and await is_trusted(db, "whatsapp", requester)):
-            raise HTTPException(status_code=403, detail="not a Botson WhatsApp group")
+        return {"status": "private_only", "text": load_copy("member_events", "private_only_reply")}
     return await create_request_link(db, platform="whatsapp", requester_id=requester,
                                      requester_name=str(data.get("name") or "").strip())
 

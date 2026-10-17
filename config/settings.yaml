@@ -84,6 +84,9 @@ member_events:
   # real = the real Telegram + WhatsApp groups, test = the two test groups.
   # Members the operator marked as trusted are published straight to this too.
   default_mode: test
+  # false = tagging the bot in a group only points people to a private chat, where the
+  # personal form link is sent (the link is never posted for everyone to open).
+  link_in_group: false
   ack_reaction: "👀"      # emoji put on the member's message the moment the bot gets it
   trusted_max_per_day: 5   # events one trusted co-admin can publish a day without approval
   # A request = the bot is tagged AND one word of each list appears.
@@ -128,6 +131,8 @@ copy:
     # Bot reply to "create an event"; {minutes} = link lifetime.
     link_reply: "📝 הנה טופס קצר לאירוע חדש. אחרי אישור קצר הוא יתפרסם גם בטלגרם וגם בוואטסאפ.\nהקישור תקף ל-{minutes} דקות:"
     link_button: "📝 לטופס האירוע"
+    private_only_reply: "הטפסים נשלחים בפרטי 🙂 כתבו לי הודעה פרטית עם המילה איוונט, ואשלח לכם טופס אישי."
+    private_button: "💬 לפתוח שיחה פרטית"
     limit_reply: "כבר פתחת כמה טפסים היום 🙂 נסו שוב מחר."
     # Event card (Telegram + WhatsApp). {day} comes from day_names.
     day_names: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
