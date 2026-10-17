@@ -196,11 +196,14 @@
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
     <div class="px-5 py-4 border-b border-[#1f1f1f]">
         <h2 class="text-sm font-medium text-[#fafafa]">מורשים לפתוח אירועים בלי אישור</h2>
-        <p class="text-xs text-[#a1a1aa] mt-1">האירועים שלהם מתפרסמים ישר ואתה מקבל הודעה. לאן הם יוצאים:</p>
-        <div class="flex gap-2 mt-2">
-            <button onclick="setMemberMode('real')" class="h-8 px-3 rounded-md text-xs border {{ 'bg-emerald-600 border-emerald-600 text-white' if member_default_mode == 'real' else 'border-[#272727] text-[#d4d4d8]' }}">✅ הקבוצות האמיתיות</button>
-            <button onclick="setMemberMode('test')" class="h-8 px-3 rounded-md text-xs border {{ 'bg-amber-600 border-amber-600 text-white' if member_default_mode == 'test' else 'border-[#272727] text-[#d4d4d8]' }}">🧪 קבוצות הבדיקה</button>
-        </div>
+        <p class="text-xs text-[#a1a1aa] mt-1">האירועים שלהם מתפרסמים ישר ואתה מקבל הודעה.</p>
+        <label class="flex items-center gap-2 mt-3 text-sm text-[#fafafa] cursor-pointer">
+            <input type="checkbox" id="member-live" {% if member_default_mode == 'real' %}checked{% endif %} onchange="setMemberMode(this.checked ? 'real' : 'test')">
+            לפרסם בקבוצות האמיתיות
+            <span class="text-xs {{ 'text-emerald-400' if member_default_mode == 'real' else 'text-amber-300' }}">
+                {{ '— פועל: האירועים יוצאים לקבוצות האמיתיות' if member_default_mode == 'real' else '— כבוי: האירועים יוצאים רק לקבוצות הבדיקה' }}
+            </span>
+        </label>
     </div>
     <div class="px-5 py-3 border-b border-[#1f1f1f] flex flex-wrap gap-2 items-center">
         <input id="trust-name" placeholder="שם" class="bg-[#0a0a0a] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] w-40">

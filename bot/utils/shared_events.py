@@ -188,6 +188,11 @@ async def create_request_link(db, *, platform: str, requester_id: str, requester
     cfg = member_cfg()
     minutes = int(cfg.get("link_minutes", 60))
     now = _israel_now()
+    if not str(requester_name or "").strip():  # the card names who opened it: use the name the operator gave them
+        for t in await db.list_trusted_creators():
+            if t["platform"] == platform and t["user_id"] == norm_id(requester_id) and t.get("name"):
+                requester_name = t["name"]
+                break
     if not PUBLIC_DASHBOARD_URL:
         raise RuntimeError("PUBLIC_DASHBOARD_URL is not set")
     mine = await db.list_event_requests(platform=platform, requester_id=str(requester_id),

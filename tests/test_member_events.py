@@ -117,6 +117,15 @@ def test_asking_again_refreshes_the_opener_name_on_the_open_link(tmp_path):
     run(tmp_path, body)
 
 
+def test_a_trusted_member_without_a_whatsapp_name_is_still_named_on_the_card(tmp_path):
+    async def body(db):
+        await db.add_trusted_creator("whatsapp", "5", "נועם", "2026-10-17T00:00:00")
+        link = await whatsapp_link(db, name="")
+        saved = await db.get_event_request(token=link["url"].rsplit("/", 1)[1])
+        assert saved["requester_name"] == "נועם"
+    run(tmp_path, body)
+
+
 def test_form_validates_then_is_single_use_and_dms_the_admin_with_buttons(tmp_path):
     async def body(db):
         token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
