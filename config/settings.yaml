@@ -84,6 +84,7 @@ member_events:
   # real = the real Telegram + WhatsApp groups, test = the two test groups.
   # Members the operator marked as trusted are published straight to this too.
   default_mode: test
+  ack_reaction: "👀"      # emoji put on the member's message the moment the bot gets it
   trusted_max_per_day: 5   # events one trusted co-admin can publish a day without approval
   # A request = the bot is tagged AND one word of each list appears.
   create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "להרים", "להקים", "לתכנן", "לעשות", "תיצור", "תפתח", "תקבע", "תארגן", "תרים", "תקים", "תתכנן", "תעשה", "חדש", "חדשה", "create", "new", "make", "organize", "organise", "plan", "schedule", "host", "set up"]
