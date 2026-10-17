@@ -107,6 +107,16 @@ def test_a_link_with_invisible_marks_glued_on_by_whatsapp_still_opens(tmp_path):
     run(tmp_path, body)
 
 
+def test_asking_again_refreshes_the_opener_name_on_the_open_link(tmp_path):
+    async def body(db):
+        first = await whatsapp_link(db, name="בדיקה")
+        again = await whatsapp_link(db, name="דנה")
+        assert again["url"] == first["url"]
+        saved = await db.get_event_request(token=first["url"].rsplit("/", 1)[1])
+        assert saved["requester_name"] == "דנה"
+    run(tmp_path, body)
+
+
 def test_form_validates_then_is_single_use_and_dms_the_admin_with_buttons(tmp_path):
     async def body(db):
         token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]

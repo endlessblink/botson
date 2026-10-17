@@ -195,6 +195,9 @@ async def create_request_link(db, *, platform: str, requester_id: str, requester
     live = [r for r in mine if r["status"] == "open" and r["expires_at"] > now.isoformat()]
     if live:
         token = live[0]["token"]
+        name = str(requester_name or "").strip()[:60]
+        if name and name != live[0].get("requester_name"):  # the card says who opened it: keep that current
+            await db.update_event_request(live[0]["id"], requester_name=name)
     elif len(mine) >= int(cfg.get("max_links_per_day", 3)):
         return {"status": "limit", "text": load_copy("member_events", "limit_reply")}
     else:
