@@ -139,6 +139,8 @@ textarea { min-height: 96px; resize: vertical; }
   <div class="card">
     <label class="live"><input type="checkbox" id="live"{% if live %} checked{% endif %}>
       <span><b>{{ c.form_live }}</b><small>{{ c.form_live_hint }}</small></span></label>
+    <label class="live" style="margin-top:14px"><input type="checkbox" id="save-tpl">
+      <span><b>{{ c.form_save_template }}</b><small>{{ c.form_save_template_hint }}</small></span></label>
   </div>
   {% endif %}
 
@@ -244,6 +246,7 @@ $('send').addEventListener('click', async function () {
         location: $('location').value.trim(), description: $('description').value.trim(),
         link: $('link').value.trim(), image: imageData,
         live: $('live') ? $('live').checked : null,
+        save_template: $('save-tpl') ? $('save-tpl').checked : false,
       }),
     });
     var data = await r.json().catch(function () { return {}; });

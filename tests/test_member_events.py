@@ -283,3 +283,24 @@ def test_form_checkbox_sets_live_or_test_for_trusted_only(tmp_path, monkeypatch)
         page = await dash.member_event_form(third, req({}), db)
         assert b'id="live" checked' in page.body                   # the form remembers the switch
     run(tmp_path, body)
+
+
+def test_saved_template_shows_up_on_the_next_form(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "bot.db"))
+
+    async def body(db):
+        first = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        await submit(db, first)
+        rid = (await db.get_event_request(token=first))["id"]
+        await shared_events.trust_requester(db, rid)
+        await db.update_event_request(rid, status="approved")
+        second = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        tg = AsyncMock(return_value=SimpleNamespace(message_id=9))
+        with patch("bot.handlers.calendar.send_message_with_optional_cover", new=tg), \
+             patch.object(whatsapp_sender, "send_text", new=AsyncMock(return_value="x")), \
+             patch.object(whatsapp_sender, "send_poll", new=AsyncMock(return_value="true_222@g.us_P3_x")):
+            await submit(db, second, {**FORM, "title": "ערב פוקר", "save_template": True})
+        third = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        page = await dash.member_event_form(third, req({}), db)
+        assert "ערב פוקר".encode() in page.body and b'id="save-tpl"' in page.body
+    run(tmp_path, body)

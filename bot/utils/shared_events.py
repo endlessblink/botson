@@ -282,6 +282,41 @@ async def notify_admins_of_request(bot, req: dict, *, auto_published: bool = Fal
     return delivered
 
 
+def _templates_file():
+    from pathlib import Path
+
+    from . import config
+
+    return Path(config.DB_PATH).parent / "member_events_templates.json"
+
+
+def load_templates() -> list[dict]:
+    """Templates from settings.yaml plus the ones people saved from the form
+    (kept in the data folder so a deploy never wipes them)."""
+    import json
+
+    try:
+        saved = json.loads(_templates_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        saved = []
+    return list(member_cfg().get("templates") or []) + [t for t in saved if isinstance(t, dict)]
+
+
+def save_template(*, title: str, description: str = "", location: str = "", time: str = "", link: str = "") -> None:
+    """Remember a form as a reusable template named after its title; same name replaces it."""
+    import json
+
+    path = _templates_file()
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        saved = []
+    entry = {"name": title, "title": title, "description": description, "location": location, "time": time, "link": link}
+    saved = [t for t in saved if t.get("name") != title] + [entry]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+
+
 def _mode_file():
     from pathlib import Path
 
