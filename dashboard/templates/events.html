@@ -178,15 +178,12 @@
         <pre class="flex-1 whitespace-pre-wrap text-sm text-[#d4d4d8] font-sans">{{ r.card }}</pre>
         <div class="flex flex-col gap-2">
             <label class="flex items-center gap-2 text-xs text-[#d4d4d8]">
-                <input type="checkbox" id="req-test-{{ r.id }}" {% if settings.member_events.default_mode != 'real' %}checked{% endif %}>
-                🧪 רק בקבוצות הבדיקה (בלי לסמן: הקבוצות האמיתיות)
-            </label>
-            <label class="flex items-center gap-2 text-xs text-[#d4d4d8]">
                 <input type="checkbox" id="req-trust-{{ r.id }}">
                 ✅ לסמוך על {{ r.requester_name or 'המשתמש' }} להבא (בלי אישור)
             </label>
-        <div class="flex gap-2">
-            <button onclick="decideRequest({{ r.id }}, 'approve')" class="bg-emerald-600 hover:bg-emerald-500 text-white h-9 px-4 rounded-md text-sm font-medium">✅ לאשר ולפרסם</button>
+        <div class="flex flex-wrap gap-2">
+            <button onclick="decideRequest({{ r.id }}, 'approve', 'real')" class="bg-emerald-600 hover:bg-emerald-500 text-white h-9 px-4 rounded-md text-sm font-medium">✅ לפרסם בקבוצות האמיתיות</button>
+            <button onclick="decideRequest({{ r.id }}, 'approve', 'test')" class="bg-transparent border border-amber-500/50 hover:border-amber-400 text-amber-300 h-9 px-4 rounded-md text-sm">🧪 לבדיקה (קבוצות הבדיקה)</button>
             <button onclick="decideRequest({{ r.id }}, 'reject')" class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm">✖️ לדחות</button>
         </div>
         </div>
@@ -199,7 +196,11 @@
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
     <div class="px-5 py-4 border-b border-[#1f1f1f]">
         <h2 class="text-sm font-medium text-[#fafafa]">מורשים לפתוח אירועים בלי אישור</h2>
-        <p class="text-xs text-[#a1a1aa] mt-1">האירועים שלהם מתפרסמים ישר ({{ 'בקבוצות הבדיקה' if settings.member_events.default_mode != 'real' else 'בקבוצות האמיתיות' }}) ואתה מקבל הודעה.</p>
+        <p class="text-xs text-[#a1a1aa] mt-1">האירועים שלהם מתפרסמים ישר ואתה מקבל הודעה. לאן הם יוצאים:</p>
+        <div class="flex gap-2 mt-2">
+            <button onclick="setMemberMode('real')" class="h-8 px-3 rounded-md text-xs border {{ 'bg-emerald-600 border-emerald-600 text-white' if member_default_mode == 'real' else 'border-[#272727] text-[#d4d4d8]' }}">✅ הקבוצות האמיתיות</button>
+            <button onclick="setMemberMode('test')" class="h-8 px-3 rounded-md text-xs border {{ 'bg-amber-600 border-amber-600 text-white' if member_default_mode == 'test' else 'border-[#272727] text-[#d4d4d8]' }}">🧪 קבוצות הבדיקה</button>
+        </div>
     </div>
     <div class="px-5 py-3 border-b border-[#1f1f1f] flex flex-wrap gap-2 items-center">
         <input id="trust-name" placeholder="שם" class="bg-[#0a0a0a] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] w-40">
@@ -765,12 +766,12 @@ document.addEventListener('DOMContentLoaded', function() {
     updatePreview();
 });
 
-async function decideRequest(requestId, decision) {
+async function decideRequest(requestId, decision, mode) {
     try {
         var body = null;
         if (decision === 'approve') {
             body = {
-                mode: document.getElementById('req-test-' + requestId).checked ? 'test' : 'real',
+                mode: mode,
                 trust: document.getElementById('req-trust-' + requestId).checked
             };
         }
@@ -779,6 +780,16 @@ async function decideRequest(requestId, decision) {
         else if (r && r.status === 'partial') showToast('פורסם בטלגרם, לא בוואטסאפ: ' + (r.whatsapp_error || ''), 'error');
         else showToast(decision === 'approve' ? 'פורסם' : 'נדחה');
         setTimeout(function() { location.reload(); }, 1000);
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+async function setMemberMode(mode) {
+    try {
+        await apiCall('/api/events/default-mode', {mode: mode});
+        showToast('נשמר');
+        setTimeout(function() { location.reload(); }, 600);
     } catch (e) {
         showToast('שגיאה: ' + e.message, 'error');
     }

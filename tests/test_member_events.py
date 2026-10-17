@@ -205,6 +205,17 @@ def test_co_admin_added_by_number_can_open_the_form_in_a_private_chat_but_strang
     run(tmp_path, body)
 
 
+def test_operator_switch_decides_where_trusted_events_go(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "bot.db"))
+    assert shared_events.default_mode() == "test"            # the shipped default is the safe one
+    shared_events.set_default_mode("real")
+    assert shared_events.targets_for(None) == ("main", "whatsapp")
+    shared_events.set_default_mode("test")
+    assert shared_events.targets_for(None) == ("test", "whatsapp_test")
+    with pytest.raises(ValueError):
+        shared_events.set_default_mode("everywhere")
+
+
 def test_rejected_requests_are_never_published(tmp_path):
     async def body(db):
         token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]

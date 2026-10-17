@@ -3190,6 +3190,7 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
     return templates.TemplateResponse(request, name="events.html", context={
         "pending_requests": pending,
         "trusted_creators": await db.list_trusted_creators(),
+        "member_default_mode": __import__("bot.utils.shared_events", fromlist=["default_mode"]).default_mode(),
         "events": events,
         "settings": settings,
         "forum_topics": forum_topics,
@@ -3646,6 +3647,21 @@ async def add_trusted_creator(request: Request, db: Database = Depends(get_db)):
         return await add_trusted_by_phone(db, str(data.get("phone") or ""), str(data.get("name") or "").strip())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/events/default-mode")
+async def set_member_events_mode(request: Request):
+    """Switch where trusted members' events (and the DM defaults) go: real or test groups."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils.shared_events import set_default_mode
+
+    data = await request.json()
+    try:
+        set_default_mode(str(data.get("mode") or ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "ok"}
 
 
 @app.post("/api/events/trusted/remove")

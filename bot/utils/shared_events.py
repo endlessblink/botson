@@ -266,10 +266,38 @@ async def notify_admins_of_request(bot, req: dict, *, auto_published: bool = Fal
     return delivered
 
 
+def _mode_file():
+    from pathlib import Path
+
+    from . import config
+
+    return Path(config.DB_PATH).parent / "member_events_mode.txt"
+
+
+def default_mode() -> str:
+    """Where trusted members' events go: the operator's switch on the Events page
+    (kept in the data folder so a deploy never resets it), else settings.yaml."""
+    try:
+        saved = _mode_file().read_text(encoding="utf-8").strip()
+        if saved in ("real", "test"):
+            return saved
+    except OSError:
+        pass
+    return "real" if str(member_cfg().get("default_mode")) == "real" else "test"
+
+
+def set_default_mode(mode: str) -> None:
+    if mode not in ("real", "test"):
+        raise ValueError("mode must be real or test")
+    path = _mode_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(mode, encoding="utf-8")
+
+
 def targets_for(mode: str | None) -> tuple[str, str]:
     """(telegram group, whatsapp group) for a destination mode: 'real' or 'test'.
     No mode means the operator's default from settings."""
-    mode = mode or str(member_cfg().get("default_mode") or "test")
+    mode = mode or default_mode()
     return ("test", "whatsapp_test") if mode == "test" else ("main", "whatsapp")
 
 
