@@ -324,8 +324,16 @@ def load_templates() -> list[dict]:
     """Templates from settings.yaml plus the ones people saved from the form, minus the
     ones they deleted (kept in the data folder so a deploy never brings them back)."""
     data = _read_templates()
-    every = list(member_cfg().get("templates") or []) + data["saved"]
-    return [t for t in every if t.get("name") not in data["removed"]]
+    saved_names = {t.get("name") for t in data["saved"]}
+    shipped = [t for t in member_cfg().get("templates") or [] if t.get("name") not in saved_names]
+    seen: set = set()
+    out = []
+    for t in shipped + data["saved"]:  # one template per name; a saved copy replaces the shipped one
+        if t.get("name") in data["removed"] or t.get("name") in seen:
+            continue
+        seen.add(t.get("name"))
+        out.append(t)
+    return out
 
 
 def save_template(*, title: str, description: str = "", location: str = "", time: str = "", link: str = "",

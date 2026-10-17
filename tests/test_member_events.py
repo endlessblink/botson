@@ -332,3 +332,13 @@ def test_trusted_people_are_not_held_to_the_daily_form_limit(tmp_path):
         await shared_events.trust_requester(db, (await db.get_event_request(token=tok))["id"])
         assert (await whatsapp_link(db))["status"] == "ok"
     run(tmp_path, body)
+
+
+def test_saving_over_a_shipped_template_does_not_duplicate_and_delete_removes_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "bot.db"))
+    name = shared_events.member_cfg()["templates"][0]["name"]
+    shared_events.save_template(title=name, description="חדש")
+    same = [t for t in shared_events.load_templates() if t["name"] == name]
+    assert len(same) == 1 and same[0]["description"] == "חדש"
+    shared_events.delete_template(name)
+    assert all(t["name"] != name for t in shared_events.load_templates())
