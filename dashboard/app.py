@@ -3623,6 +3623,12 @@ async def agent_add_trusted(request: Request, db: Database = Depends(get_db)):
     from bot.utils.shared_events import add_trusted_by_phone
 
     data = await request.json()
+    if data.get("whatsapp_id"):  # a person already seen by Botty, by their WhatsApp id
+        from bot.utils.shared_events import _israel_now, norm_id
+
+        wid = norm_id(data["whatsapp_id"])
+        await db.add_trusted_creator("whatsapp", wid, str(data.get("name") or "").strip(), _israel_now().isoformat())
+        return {"ids": [wid]}
     try:
         return await add_trusted_by_phone(db, str(data.get("phone") or ""), str(data.get("name") or "").strip())
     except ValueError as e:
