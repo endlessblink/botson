@@ -299,62 +299,93 @@ def _templates_file():
     return Path(config.DB_PATH).parent / "member_events_templates.json"
 
 
+def _tname(raw) -> str:
+    """Template names compare without surrounding spaces, repeated spaces or letter case."""
+    return " ".join(str(raw or "").split()).casefold()
+
+
 def _read_templates() -> dict:
     import json
 
     try:
         data = json.loads(_templates_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # missing or damaged file: start clean, never crash the form
         data = {}
     if isinstance(data, list):  # first version stored just the list
         data = {"saved": data}
-    return {"saved": [t for t in data.get("saved", []) if isinstance(t, dict)],
-            "removed": [str(n) for n in data.get("removed", [])]}
+    if not isinstance(data, dict):
+        data = {}
+    saved = data.get("saved") if isinstance(data.get("saved"), list) else []
+    removed = data.get("removed") if isinstance(data.get("removed"), list) else []
+    return {"saved": [t for t in saved if isinstance(t, dict) and _tname(t.get("name"))],
+            "removed": [_tname(n) for n in removed if _tname(n)]}
 
 
 def _write_templates(data: dict) -> None:
     import json
+    import os
 
     path = _templates_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)  # a crash mid-write never leaves a half file
 
 
 def load_templates() -> list[dict]:
     """Templates from settings.yaml plus the ones people saved from the form, minus the
-    ones they deleted (kept in the data folder so a deploy never brings them back)."""
+    ones they deleted (kept in the data folder so a deploy never brings them back).
+    One template per name: a saved copy replaces the shipped one."""
     data = _read_templates()
-    saved_names = {t.get("name") for t in data["saved"]}
-    shipped = [t for t in member_cfg().get("templates") or [] if t.get("name") not in saved_names]
+    saved_names = {_tname(t["name"]) for t in data["saved"]}
+    shipped = [t for t in member_cfg().get("templates") or [] if _tname(t.get("name")) not in saved_names]
     seen: set = set()
     out = []
-    for t in shipped + data["saved"]:  # one template per name; a saved copy replaces the shipped one
-        if t.get("name") in data["removed"] or t.get("name") in seen:
+    for t in shipped + data["saved"]:
+        key = _tname(t.get("name"))
+        if not key or key in data["removed"] or key in seen:
             continue
-        seen.add(t.get("name"))
+        seen.add(key)
         out.append(t)
     return out
 
 
 def save_template(*, title: str, description: str = "", location: str = "", time: str = "", link: str = "",
-                  replaces: str = "") -> None:
+                  replaces: str = "") -> bool:
     """Remember a form as a reusable template named after its title. Same name replaces it,
-    and `replaces` updates the template the form was started from even if it was renamed."""
+    and `replaces` updates the template the form was started from even if it was renamed.
+    Returns False when there is nothing worth saving (no title)."""
+    import re
+
+    cfg = member_cfg()
+    name = " ".join(str(title or "").split())[: int(cfg.get("max_title_chars", 80))]
+    if not name:
+        return False
     data = _read_templates()
-    if replaces and replaces != title:
-        delete_template(replaces)
-        data = _read_templates()
-    entry = {"name": title, "title": title, "description": description, "location": location, "time": time, "link": link}
-    data["saved"] = [t for t in data["saved"] if t.get("name") != title] + [entry]
-    data["removed"] = [n for n in data["removed"] if n != title]
+    if replaces and _tname(replaces) != _tname(name):
+        data["saved"] = [t for t in data["saved"] if _tname(t["name"]) != _tname(replaces)]
+        if _tname(replaces) not in data["removed"]:
+            data["removed"].append(_tname(replaces))
+    entry = {"name": name, "title": name,
+             "description": str(description or "").strip()[: int(cfg.get("max_description_chars", 400))],
+             "location": str(location or "").strip()[:120],
+             "time": time if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(time or "")) else "",
+             "link": str(link or "").strip()[:300]}
+    data["saved"] = [t for t in data["saved"] if _tname(t["name"]) != _tname(name)] + [entry]
+    data["saved"] = data["saved"][-int(cfg.get("max_saved_templates", 30)):]
+    data["removed"] = [n for n in data["removed"] if n != _tname(name)]
     _write_templates(data)
+    return True
 
 
 def delete_template(name: str) -> None:
+    key = _tname(name)
+    if not key:
+        return
     data = _read_templates()
-    data["saved"] = [t for t in data["saved"] if t.get("name") != name]
-    if name not in data["removed"]:
-        data["removed"].append(name)
+    data["saved"] = [t for t in data["saved"] if _tname(t["name"]) != key]
+    if key not in data["removed"]:
+        data["removed"].append(key)
     _write_templates(data)
 
 

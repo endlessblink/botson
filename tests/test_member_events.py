@@ -342,3 +342,53 @@ def test_saving_over_a_shipped_template_does_not_duplicate_and_delete_removes_it
     assert len(same) == 1 and same[0]["description"] == "חדש"
     shared_events.delete_template(name)
     assert all(t["name"] != name for t in shared_events.load_templates())
+
+
+def test_template_edge_cases(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "bot.db"))
+    names = lambda: [t["name"] for t in shared_events.load_templates()]
+    shipped = names()
+    # nothing to save without a title
+    assert shared_events.save_template(title="") is False and shared_events.save_template(title="   ") is False
+    assert names() == shipped
+    # spaces and letter case do not make a second copy
+    shared_events.save_template(title="Poker  Night")
+    shared_events.save_template(title="  poker night ")
+    assert sum(1 for n in names() if n.casefold().replace("  ", " ").strip() == "poker night") == 1
+    # deleting by a differently spelled name removes it; deleting nothing or something unknown is harmless
+    shared_events.delete_template("POKER NIGHT")
+    shared_events.delete_template("")
+    shared_events.delete_template("never existed")
+    assert not any("poker" in n.lower() for n in names())
+    # saving again after deleting brings it back
+    shared_events.save_template(title="Poker Night")
+    assert "Poker Night" in names()
+    # a shipped template can be deleted and re-saved
+    s0 = shipped[0]
+    shared_events.delete_template(s0)
+    assert s0 not in names()
+    shared_events.save_template(title=s0, description="x")
+    assert names().count(s0) == 1
+    # renaming the template the form started from replaces it, even a shipped one
+    shared_events.save_template(title="שם חדש", replaces=s0)
+    assert "שם חדש" in names() and s0 not in names()
+    # replacing a name that does not exist just saves the new one
+    shared_events.save_template(title="עוד אחד", replaces="לא קיים")
+    assert "עוד אחד" in names()
+    # oversized or odd input is trimmed, bad time dropped, markup stays plain text
+    shared_events.save_template(title="<b>" + "א" * 500, description="ב" * 5000, location="ג" * 500,
+                                time="25:99", link="https://x/" + "ד" * 900)
+    big = [t for t in shared_events.load_templates() if t["name"].startswith("<b>")][0]
+    cfg = shared_events.member_cfg()
+    assert len(big["name"]) <= cfg["max_title_chars"] and len(big["description"]) <= cfg["max_description_chars"]
+    assert len(big["location"]) <= 120 and len(big["link"]) <= 300 and big["time"] == ""
+    # a damaged file never breaks the form
+    shared_events._templates_file().write_text("{not json", encoding="utf-8")
+    assert isinstance(shared_events.load_templates(), list)
+    shared_events._templates_file().write_text('"just a string"', encoding="utf-8")
+    assert isinstance(shared_events.load_templates(), list)
+    # the list is capped, oldest dropped
+    for i in range(45):
+        shared_events.save_template(title=f"t{i}")
+    assert sum(1 for n in names() if n.startswith("t") and n[1:].isdigit()) == cfg.get("max_saved_templates", 30)
+    assert "t44" in names() and "t0" not in names()

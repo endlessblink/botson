@@ -99,6 +99,7 @@ member_events:
   max_description_chars: 400
   # Ready-made starting points shown as buttons on the form. Add one by copying a block;
   # any field may be left out. The creator can still change everything after tapping.
+  max_saved_templates: 30    # saved templates kept (the oldest drop off)
   templates:
     - name: "ערב ג'קבוקס"
       title: "ערב ג'קבוקס"
