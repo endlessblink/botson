@@ -82,14 +82,27 @@ def member_cfg() -> dict:
     return (get_settings() or {}).get("member_events") or {}
 
 
+def _has_word(low: str, words) -> bool:
+    import re
+
+    for w in words or []:
+        w = str(w).lower()
+        if w.isascii():
+            if re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", low):
+                return True
+        elif w in low:
+            return True
+    return False
+
+
 def asks_for_event(text: str | None) -> bool:
     """True when the message asks to create an event (the caller checks the bot was tagged)."""
     cfg = member_cfg()
     low = str(text or "").lower()
     return bool(
         cfg.get("enabled")
-        and any(str(w).lower() in low for w in cfg.get("event_words") or [])
-        and any(str(w).lower() in low for w in cfg.get("create_words") or [])
+        and _has_word(low, cfg.get("event_words"))
+        and _has_word(low, cfg.get("create_words"))
     )
 
 

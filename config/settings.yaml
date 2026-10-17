@@ -86,8 +86,8 @@ member_events:
   default_mode: test
   trusted_max_per_day: 5   # events one trusted co-admin can publish a day without approval
   # A request = the bot is tagged AND one word of each list appears.
-  create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "להרים", "להקים", "תיצור", "תפתח", "תקבע", "תארגן", "תרים", "תקים", "חדש", "חדשה", "create", "new"]
-  event_words: ["אירוע", "איוונט", "אוונט", "איבנט", "מפגש", "מיטאפ", "event", "meetup"]
+  create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "להרים", "להקים", "לתכנן", "לעשות", "תיצור", "תפתח", "תקבע", "תארגן", "תרים", "תקים", "תתכנן", "תעשה", "חדש", "חדשה", "create", "new", "make", "organize", "organise", "plan", "schedule", "host", "set up"]
+  event_words: ["אירוע", "אירועים", "איוונט", "אוונט", "איבנט", "מפגש", "מפגשים", "מיטאפ", "מסיבה", "מפגש חברים", "event", "events", "meetup", "meet-up", "meet up", "party", "gathering", "hangout", "get-together"]
   max_title_chars: 80
   max_description_chars: 400
 
