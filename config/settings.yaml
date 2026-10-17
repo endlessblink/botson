@@ -73,8 +73,8 @@ member_events:
   enabled: true
   link_minutes: 60
   max_links_per_day: 3
-  telegram_target: main        # main | test
-  whatsapp_target: whatsapp    # whatsapp | whatsapp_test | "" for Telegram only
+  telegram_target: test        # main | test
+  whatsapp_target: whatsapp_test # whatsapp | whatsapp_test | "" for Telegram only
   # A request = the bot is tagged AND one word of each list appears.
   create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "תיצור", "תפתח", "תקבע", "תארגן", "חדש", "חדשה", "create", "new"]
   event_words: ["אירוע", "מפגש", "מיטאפ", "event", "meetup"]
