@@ -195,21 +195,26 @@
 </div>
 {% endif %}
 
-{% if trusted_creators %}
 <!-- Members whose events publish without approval -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
     <div class="px-5 py-4 border-b border-[#1f1f1f]">
         <h2 class="text-sm font-medium text-[#fafafa]">מורשים לפתוח אירועים בלי אישור</h2>
         <p class="text-xs text-[#a1a1aa] mt-1">האירועים שלהם מתפרסמים ישר ({{ 'בקבוצות הבדיקה' if settings.member_events.default_mode != 'real' else 'בקבוצות האמיתיות' }}) ואתה מקבל הודעה.</p>
     </div>
-    {% for t in trusted_creators %}
+    <div class="px-5 py-3 border-b border-[#1f1f1f] flex flex-wrap gap-2 items-center">
+        <input id="trust-name" placeholder="שם" class="bg-[#0a0a0a] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] w-40">
+        <input id="trust-phone" dir="ltr" placeholder="מספר וואטסאפ (054…)" class="bg-[#0a0a0a] border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] w-52">
+        <button onclick="addTrusted()" class="bg-emerald-600 hover:bg-emerald-500 text-white h-9 px-4 rounded-md text-sm font-medium">להוסיף</button>
+    </div>
+    {% set seen = namespace(names=[]) %}
+    {% for t in trusted_creators %}{% if not t.name or t.name not in seen.names %}{% if t.name %}{% set seen.names = seen.names + [t.name] %}{% endif %}
     <div class="px-5 py-3 border-b border-[#1f1f1f] last:border-0 flex items-center justify-between text-sm">
         <span class="text-[#fafafa]">{{ t.name or t.user_id }} <span class="text-xs text-[#a1a1aa]">· {{ 'טלגרם' if t.platform == 'telegram' else 'וואטסאפ' }}</span></span>
         <button onclick="removeTrusted('{{ t.platform }}', '{{ t.user_id }}')" class="text-xs text-red-400 hover:text-red-300">להסיר</button>
     </div>
-    {% endfor %}
+    {% endif %}{% endfor %}
 </div>
-{% endif %}
+
 
 <!-- Events Table Card -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
@@ -774,6 +779,19 @@ async function decideRequest(requestId, decision) {
         else if (r && r.status === 'partial') showToast('פורסם בטלגרם, לא בוואטסאפ: ' + (r.whatsapp_error || ''), 'error');
         else showToast(decision === 'approve' ? 'פורסם' : 'נדחה');
         setTimeout(function() { location.reload(); }, 1000);
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+async function addTrusted() {
+    var name = document.getElementById('trust-name').value.trim();
+    var phone = document.getElementById('trust-phone').value.trim();
+    if (!phone) return;
+    try {
+        await apiCall('/api/events/trusted/add', {name: name, phone: phone});
+        showToast('נוסף');
+        setTimeout(function() { location.reload(); }, 800);
     } catch (e) {
         showToast('שגיאה: ' + e.message, 'error');
     }

@@ -159,7 +159,7 @@ def test_trusted_member_events_publish_without_waiting_for_approval(tmp_path):
         await submit(db, first)
         rid = (await db.get_event_request(token=first))["id"]
         await shared_events.trust_requester(db, rid)
-        assert await db.is_trusted_creator("whatsapp", "5@lid")
+        assert await shared_events.is_trusted(db, "whatsapp", "5@lid")
         await db.update_event_request(rid, status="approved")
         second = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
         tg = AsyncMock(return_value=SimpleNamespace(message_id=9))
@@ -170,8 +170,26 @@ def test_trusted_member_events_publish_without_waiting_for_approval(tmp_path):
         assert r == {"status": "ok"} and tg.await_count == 1
         assert (await db.get_event_request(token=second))["status"] == "approved"
         assert admin.send_message.await_args.kwargs["reply_markup"] is None
-        await db.remove_trusted_creator("whatsapp", "5@lid")
-        assert not await db.is_trusted_creator("whatsapp", "5@lid")
+        await db.remove_trusted_creator("whatsapp", "5")
+        assert not await shared_events.is_trusted(db, "whatsapp", "5@lid")
+    run(tmp_path, body)
+
+
+def test_co_admin_added_by_number_can_open_the_form_in_a_private_chat_but_strangers_cannot(tmp_path):
+    async def body(db):
+        with patch.object(whatsapp_sender, "lid_for_phone", new=AsyncMock(return_value="145543674253364@lid")):
+            added = await shared_events.add_trusted_by_phone(db, "+972 54-564-7477", "עמרי")
+        assert added["ids"] == ["972545647477", "145543674253364"]
+        for spelling in ("972545647477@c.us", "145543674253364@lid"):
+            r = await dash.agent_event_request(req({"chat_id": spelling, "requester": spelling, "name": "עמרי"}, agent=True), db)
+            assert r["status"] == "ok"
+        with pytest.raises(HTTPException) as e:
+            await dash.agent_event_request(req({"chat_id": "972500000000@c.us", "requester": "972500000000@c.us"}, agent=True), db)
+        assert e.value.status_code == 403
+        with patch.object(shared_events, "member_cfg", return_value={"trusted_max_per_day": 0}):
+            assert not await shared_events.is_trusted(db, "whatsapp", "972545647477@c.us")  # daily cap reached
+        await db.remove_trusted_creator("whatsapp", "972545647477")
+        assert await db.list_trusted_creators() == []  # both spellings leave together
     run(tmp_path, body)
 
 

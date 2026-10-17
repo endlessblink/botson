@@ -88,6 +88,14 @@ async def session_qr() -> bytes | None:
     return resp.content if resp.status_code == 200 and resp.content[:4] == b"\x89PNG" else None
 
 
+async def lid_for_phone(phone: str) -> str | None:
+    """The hidden WhatsApp id (…@lid) that goes with a phone number, if WhatsApp knows it."""
+    base, key, session = _config()
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/{session}/lids/pn/{phone}", headers={"X-Api-Key": key})
+    return resp.json().get("lid") if resp.status_code == 200 else None
+
+
 async def restart_session() -> None:
     base, key, session = _config()
     async with httpx.AsyncClient(timeout=60) as client:

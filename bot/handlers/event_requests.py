@@ -17,7 +17,7 @@ from ..database.db import Database
 from ..utils.config import ADMIN_IDS, GROUP_ID, TEST_GROUP_ID
 from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
-from ..utils.shared_events import approve_request, asks_for_event, create_request_link, reject_request, trust_requester
+from ..utils.shared_events import approve_request, asks_for_event, create_request_link, is_trusted, reject_request, trust_requester
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 from .community_replies import _is_addressed_to_bot
 
@@ -26,13 +26,18 @@ logger = logging.getLogger(__name__)
 
 async def handle_event_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, user, chat = update.effective_message, update.effective_user, update.effective_chat
-    if not message or not user or not chat or chat.id not in (GROUP_ID, TEST_GROUP_ID) or user.is_bot:
+    if not message or not user or not chat or user.is_bot:
         return
-    if not _is_addressed_to_bot(message, int(context.bot.id), getattr(context.bot, "username", None)):
+    db: Database = context.bot_data["db"]
+    if chat.type == "private":
+        # A private message works for the operator and for trusted co-admins only.
+        if user.id not in ADMIN_IDS and not await is_trusted(db, "telegram", str(user.id)):
+            return
+    elif chat.id not in (GROUP_ID, TEST_GROUP_ID) or not _is_addressed_to_bot(
+            message, int(context.bot.id), getattr(context.bot, "username", None)):
         return
     if not asks_for_event(message.text):
         return
-    db: Database = context.bot_data["db"]
     try:
         link = await create_request_link(db, platform="telegram", requester_id=str(user.id),
                                          requester_name=get_display_name(user))

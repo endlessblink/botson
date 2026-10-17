@@ -3439,11 +3439,17 @@ async def agent_event_request(request: Request, db: Database = Depends(get_db)):
             allowed.add(resolve_chat_id(target))
         except WhatsAppNotConfigured:
             pass
-    if str(data.get("chat_id") or "") not in allowed:
-        raise HTTPException(status_code=403, detail="not a Botson WhatsApp group")
+    chat_id = str(data.get("chat_id") or "")
     requester = str(data.get("requester") or "").strip()
     if not requester:
         raise HTTPException(status_code=400, detail="requester is required")
+    if chat_id not in allowed:
+        # A private message to Botty counts only from a trusted co-admin.
+        from bot.utils.shared_events import is_trusted
+
+        private = chat_id.endswith(("@c.us", "@lid")) and chat_id == requester
+        if not (private and await is_trusted(db, "whatsapp", requester)):
+            raise HTTPException(status_code=403, detail="not a Botson WhatsApp group")
     return await create_request_link(db, platform="whatsapp", requester_id=requester,
                                      requester_name=str(data.get("name") or "").strip())
 
@@ -3573,7 +3579,8 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     from bot.utils.shared_events import approve_request
     bot = Bot(os.getenv("BOT_TOKEN", ""))
     # A trusted member's event goes straight out to the operator's default groups.
-    trusted = await db.is_trusted_creator(req["platform"], req["requester_id"])
+    from bot.utils.shared_events import is_trusted
+    trusted = await is_trusted(db, req["platform"], req["requester_id"])
     auto = False
     if trusted:
         try:
@@ -3606,6 +3613,33 @@ async def decide_member_event(request_id: int, decision: str, request: Request, 
     if decision == "reject":
         return {"status": "ok" if await reject_request(db, request_id) else "already_decided"}
     raise HTTPException(status_code=404)
+
+
+@app.post("/api/agent/event-trusted")
+async def agent_add_trusted(request: Request, db: Database = Depends(get_db)):
+    """Trust a WhatsApp member by phone number (agent token). Body: {phone, name}."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    from bot.utils.shared_events import add_trusted_by_phone
+
+    data = await request.json()
+    try:
+        return await add_trusted_by_phone(db, str(data.get("phone") or ""), str(data.get("name") or "").strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/events/trusted/add")
+async def add_trusted_creator(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils.shared_events import add_trusted_by_phone
+
+    data = await request.json()
+    try:
+        return await add_trusted_by_phone(db, str(data.get("phone") or ""), str(data.get("name") or "").strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/events/trusted/remove")

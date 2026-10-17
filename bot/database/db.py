@@ -984,8 +984,11 @@ class Database:
         await self._db.commit()
 
     async def remove_trusted_creator(self, platform: str, user_id: str) -> None:
-        await self._db.execute("DELETE FROM event_trusted_creators WHERE platform = ? AND user_id = ?",
-                               (platform, str(user_id)))
+        """Remove a person: every id stored under the same name goes with it."""
+        await self._db.execute(
+            """DELETE FROM event_trusted_creators WHERE platform = ? AND (user_id = ? OR (name != '' AND name IN
+               (SELECT name FROM event_trusted_creators WHERE platform = ? AND user_id = ?)))""",
+            (platform, str(user_id), platform, str(user_id)))
         await self._db.commit()
 
     async def list_trusted_creators(self) -> list[dict]:

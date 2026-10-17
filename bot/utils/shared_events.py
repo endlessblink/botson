@@ -124,6 +124,47 @@ def format_card(*, title: str, description: str | None, event_date: str, event_t
     return "\n".join(lines)
 
 
+def norm_id(raw) -> str:
+    """One spelling per person: '972501234567@c.us', '+972 50-123-4567' and a bare
+    Telegram user id all reduce to digits (or the lower-cased id when it isn't a number)."""
+    head = str(raw or "").split("@")[0].strip().lower()
+    digits = "".join(ch for ch in head if ch.isdigit())
+    return digits if digits and len(digits) >= len([c for c in head if c.isalnum()]) else head
+
+
+async def is_trusted(db, platform: str, requester_id: str) -> bool:
+    """Trusted members publish without approval, up to a daily cap; past it they go
+    through the normal one-tap approval."""
+    if not await db.is_trusted_creator(platform, norm_id(requester_id)):
+        return False
+    since = _israel_now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    mine = await db.list_event_requests(platform=platform, requester_id=str(requester_id), since=since)
+    published = [r for r in mine if r["status"] in ("approved", "publishing")]
+    return len(published) < int(member_cfg().get("trusted_max_per_day", 5))
+
+
+async def add_trusted_by_phone(db, phone: str, name: str) -> dict:
+    """Trust a WhatsApp member by phone number. Botty may see the same person as
+    a number or as a hidden WhatsApp id, so both spellings are stored."""
+    from .whatsapp_sender import lid_for_phone
+
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    if digits.startswith("0"):
+        digits = "972" + digits[1:]
+    if len(digits) < 10:
+        raise ValueError("phone number looks too short")
+    ids = [digits]
+    try:
+        lid = await lid_for_phone(digits)
+        if lid:
+            ids.append(norm_id(lid))
+    except Exception:
+        logger.warning("member_events: could not look up the WhatsApp id for %s", digits, exc_info=True)
+    for i in ids:
+        await db.add_trusted_creator("whatsapp", i, name, _israel_now().isoformat())
+    return {"phone": digits, "ids": ids}
+
+
 async def create_request_link(db, *, platform: str, requester_id: str, requester_name: str) -> dict:
     """A personal, expiring form link for a member, or a 'limit' answer."""
     import secrets
@@ -280,5 +321,5 @@ async def trust_requester(db, request_id: int) -> None:
     """Remember the person behind a request so their next events skip approval."""
     req = await db.get_event_request(request_id=request_id)
     if req:
-        await db.add_trusted_creator(req["platform"], req["requester_id"], req.get("requester_name") or "",
+        await db.add_trusted_creator(req["platform"], norm_id(req["requester_id"]), req.get("requester_name") or "",
                                      _israel_now().isoformat())
