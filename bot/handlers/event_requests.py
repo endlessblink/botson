@@ -36,7 +36,7 @@ async def handle_event_request(update: Update, context: ContextTypes.DEFAULT_TYP
     elif chat.id not in (GROUP_ID, TEST_GROUP_ID) or not _is_addressed_to_bot(
             message, int(context.bot.id), getattr(context.bot, "username", None)):
         return
-    if not asks_for_event(message.text):
+    if not asks_for_event(message.text, private=chat.type == "private"):
         return
     try:
         link = await create_request_link(db, platform="telegram", requester_id=str(user.id),

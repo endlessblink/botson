@@ -95,14 +95,14 @@ def _has_word(low: str, words) -> bool:
     return False
 
 
-def asks_for_event(text: str | None) -> bool:
+def asks_for_event(text: str | None, *, private: bool = False) -> bool:
     """True when the message asks to create an event (the caller checks the bot was tagged)."""
     cfg = member_cfg()
     low = str(text or "").lower()
     return bool(
         cfg.get("enabled")
         and _has_word(low, cfg.get("event_words"))
-        and _has_word(low, cfg.get("create_words"))
+        and (private or _has_word(low, cfg.get("create_words")))
     )
 
 

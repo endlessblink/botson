@@ -77,6 +77,7 @@ def test_asking_for_an_event_needs_both_an_event_word_and_a_create_word():
     assert shared_events.asks_for_event("היי אני רוצה להרים איוונט")
     assert shared_events.asks_for_event("@bot can we organize a meetup?")
     assert not shared_events.asks_for_event("how to prevent the news")
+    assert shared_events.asks_for_event("איוונט", private=True) and not shared_events.asks_for_event("איוונט")
 
 
 def test_whatsapp_member_gets_a_personal_link_reused_until_it_expires_and_a_daily_cap(tmp_path):
