@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set active_page = "health" %}
+
+{% block title %}Botson — {{ c.title }}{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto text-center">
+    <h1 class="text-lg font-semibold text-[#fafafa] tracking-tight">{{ c.title }}</h1>
+    <p id="wa-status" class="text-sm text-[#a1a1aa] mt-2">…</p>
+    <div id="wa-qr-box" class="hidden mt-5">
+        <img id="wa-qr" alt="QR" class="mx-auto bg-white p-3 rounded-lg" style="width:300px;height:300px;image-rendering:pixelated">
+        <p class="text-sm text-[#d4d4d8] mt-3">{{ c.howto }}</p>
+    </div>
+    <p id="wa-noqr" class="hidden text-sm text-[#a1a1aa] mt-5">{{ c.no_qr }}</p>
+    <button onclick="restartWa()" class="mt-6 bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm">{{ c.restart_button }}</button>
+</div>
+<script>
+var WA = {working: {{ c.status_working|tojson }}, scan: {{ c.status_scan|tojson }}, other: {{ c.status_other|tojson }}};
+async function refreshWa() {
+    var st = 'UNREACHABLE';
+    try { st = (await (await fetch('/api/whatsapp/status')).json()).status; } catch (e) {}
+    document.getElementById('wa-status').textContent = st === 'WORKING' ? WA.working : (st === 'SCAN_QR_CODE' ? WA.scan : WA.other);
+    var scanning = st === 'SCAN_QR_CODE';
+    document.getElementById('wa-qr-box').classList.toggle('hidden', !scanning);
+    document.getElementById('wa-noqr').classList.toggle('hidden', scanning || st === 'WORKING');
+    if (scanning) document.getElementById('wa-qr').src = '/api/whatsapp/qr?' + Date.now();
+}
+async function restartWa() {
+    try { await apiCall('/api/whatsapp/restart'); showToast('ok'); } catch (e) { showToast('שגיאה: ' + e.message, 'error'); }
+    setTimeout(refreshWa, 4000);
+}
+refreshWa();
+setInterval(refreshWa, 4000);
+</script>
+{% endblock %}

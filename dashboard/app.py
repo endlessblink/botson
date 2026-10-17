@@ -28,7 +28,7 @@ if not logger.handlers:
 
 import yaml
 from fastapi import FastAPI, Request, Depends, HTTPException, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -677,7 +677,7 @@ async def login(request: Request, password: str = Form(...)):
         raise HTTPException(status_code=503, detail="Dashboard login is not configured")
     if secrets.compare_digest(password, DASHBOARD_PASSWORD):
         request.session["authenticated"] = True
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url=request.session.pop("after_login", "/"), status_code=303)
     return templates.TemplateResponse(request, name="login.html", context={"error": "סיסמה שגויה"})
 
 
@@ -3452,6 +3452,52 @@ def _member_form_copy() -> dict:
     from bot.utils.copy import load_copy_block
 
     return load_copy_block("member_events", default={}) or {}
+
+
+@app.get("/whatsapp", response_class=HTMLResponse)
+async def whatsapp_connect_page(request: Request):
+    """Botty's WhatsApp login: status, a live QR code to re-link it, and a restart button."""
+    if not request.session.get("authenticated"):
+        request.session["after_login"] = "/whatsapp"
+        return RedirectResponse(url="/login", status_code=303)
+    from bot.utils.copy import load_copy_block
+
+    return templates.TemplateResponse(request, name="whatsapp_connect.html",
+                                      context={"c": load_copy_block("whatsapp_connect", default={}) or {}})
+
+
+@app.get("/api/whatsapp/status")
+async def whatsapp_status(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils.whatsapp_sender import session_info
+
+    try:
+        return {"status": str((await session_info()).get("status") or "UNKNOWN")}
+    except Exception:
+        return {"status": "UNREACHABLE"}
+
+
+@app.get("/api/whatsapp/qr")
+async def whatsapp_qr(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils.whatsapp_sender import session_qr
+
+    png = await session_qr()
+    if not png:
+        raise HTTPException(status_code=404)
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/whatsapp/restart")
+async def whatsapp_restart(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils.whatsapp_sender import restart_session
+
+    await restart_session()
+    return {"status": "ok"}
 
 
 @app.get("/e/{token}", response_class=HTMLResponse)

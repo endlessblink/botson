@@ -70,6 +70,31 @@ async def _post(path: str, payload: dict) -> str | None:
     return str(msg_id) if msg_id else None
 
 
+async def session_info() -> dict:
+    """Botty's WhatsApp login state: {"status": "WORKING" | "SCAN_QR_CODE" | "FAILED" | ...}."""
+    base, key, session = _config()
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/sessions/{session}", headers={"X-Api-Key": key})
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def session_qr() -> bytes | None:
+    """The current link QR (PNG) while the session waits for a scan, else None."""
+    base, key, session = _config()
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(f"{base}/api/{session}/auth/qr", params={"format": "image"},
+                                headers={"X-Api-Key": key, "Accept": "image/png"})
+    return resp.content if resp.status_code == 200 and resp.content[:4] == b"\x89PNG" else None
+
+
+async def restart_session() -> None:
+    base, key, session = _config()
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(f"{base}/api/sessions/{session}/restart", json={}, headers={"X-Api-Key": key})
+    resp.raise_for_status()
+
+
 async def delivery_ack(chat_id: str, msg_id: str) -> int | None:
     """WhatsApp ack for a sent message: -1 error, 0 pending, 1 server, 2 device, 3 read."""
     base, key, session = _config()

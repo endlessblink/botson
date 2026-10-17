@@ -69,6 +69,13 @@ community_replies:
 # Telegram group or in WhatsApp (Botty) and asks to create an event; the bot
 # answers with a personal form link. Every submission waits for the operator's
 # one-tap approval, then goes out to both groups.
+# Botty's WhatsApp login watchdog: DM the admins when it drops or comes back.
+whatsapp_watch:
+  enabled: true
+  interval_s: 120      # how often the session is checked
+  bad_checks: 2        # consecutive bad checks before anything happens
+  repeat_hours: 3      # reminder interval while it stays down
+
 member_events:
   enabled: true
   link_minutes: 60
@@ -89,6 +96,18 @@ member_events:
 # This namespace is seeded by Phase F; Phase A.2 populates it as handlers
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
+  whatsapp_watch:
+    down: "⚠️ בוטי התנתק מוואטסאפ (מצב: {status}). עד שיחזור, הודעות ואירועים לא יגיעו לקבוצות הוואטסאפ.\nניסיתי להחיות אותו לבד ולא הצלחתי. הנה מסך החיבור:\n{url}"
+    down_scan: "⚠️ בוטי התנתק מוואטסאפ וממתין לסריקה.\nפתח/י את המסך הזה, ובטלפון של בוטי: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרוק/י את הקוד:\n{url}"
+    recovered: "✅ בוטי חזר לוואטסאפ אחרי כ-{minutes} דקות."
+  whatsapp_connect:
+    title: "חיבור בוטי לוואטסאפ"
+    status_working: "מחובר ועובד ✅"
+    status_scan: "ממתין לסריקה 📱"
+    status_other: "מנותק ⚠️"
+    howto: "בטלפון של בוטי: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרוק/י את הקוד. הקוד מתחדש לבד."
+    restart_button: "להחיות את החיבור"
+    no_qr: "אין קוד כרגע. לחץ/י על ״להחיות את החיבור״ ותחכה/י כחצי דקה."
   member_events:
     # Bot reply to "create an event"; {minutes} = link lifetime.
     link_reply: "📝 הנה טופס קצר לאירוע חדש. אחרי אישור קצר הוא יתפרסם גם בטלגרם וגם בוואטסאפ.\nהקישור תקף ל-{minutes} דקות:"

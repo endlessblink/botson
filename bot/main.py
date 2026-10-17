@@ -245,6 +245,11 @@ def _setup_reload_watcher(app):
     # Anti-clutter: remove public game sign-up prompts after their short window.
     app.job_queue.run_repeating(cleanup_public_warmup_announcements, interval=60, first=90, name="warmup_cleanup_checker")
 
+    # Botty's WhatsApp login: DM the admins when it drops, once when it is back.
+    from .scheduler.whatsapp_watch import check_whatsapp_session, watch_cfg
+    app.job_queue.run_repeating(check_whatsapp_session, interval=int(watch_cfg().get("interval_s", 120)),
+                                first=45, name="whatsapp_watch")
+
     # MTProto reconciliation catches topic changes that happened while the bot
     # was offline. Missing Telegram API credentials are logged by the job setup.
     from .scheduler.topic_sync import register_topic_sync_job
@@ -270,7 +275,7 @@ async def _reload_config(app):
         return
 
     # Save old jobs (excluding system jobs) so we can restore on failure
-    system_jobs = {"reload_watcher", "calendar_checker", "game_reminder_checker", "warmup_cleanup_checker"}
+    system_jobs = {"reload_watcher", "calendar_checker", "game_reminder_checker", "warmup_cleanup_checker", "whatsapp_watch"}
     old_jobs = [j for j in jq.jobs() if j.name not in system_jobs]
 
     # Remove only schedule jobs (not the reload_watcher)
