@@ -255,3 +255,31 @@ def test_expired_link_shows_the_expired_page(tmp_path):
         r, _ = await submit(db, "old")
         assert r.status_code == 410
     run(tmp_path, body)
+
+
+def test_form_checkbox_sets_live_or_test_for_trusted_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "bot.db"))
+
+    async def body(db):
+        stranger = (await whatsapp_link(db, requester="9@lid"))["url"].rsplit("/", 1)[1]
+        page = await dash.member_event_form(stranger, req({}), db)
+        assert b'id="live"' not in page.body                      # strangers never see the switch
+        await submit(db, stranger, {**FORM, "live": True})
+        assert shared_events.default_mode() == "test"              # and cannot flip it
+        first = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        await submit(db, first)
+        await shared_events.trust_requester(db, (await db.get_event_request(token=first))["id"])
+        await db.update_event_request((await db.get_event_request(token=first))["id"], status="approved")
+        second = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        page = await dash.member_event_form(second, req({}), db)
+        assert b'id="live"' in page.body and b'id="live" checked' not in page.body
+        tg = AsyncMock(return_value=SimpleNamespace(message_id=9))
+        with patch("bot.handlers.calendar.send_message_with_optional_cover", new=tg), \
+             patch.object(whatsapp_sender, "send_text", new=AsyncMock(return_value="x")), \
+             patch.object(whatsapp_sender, "send_poll", new=AsyncMock(return_value="true_222@g.us_P3_x")):
+            await submit(db, second, {**FORM, "live": True})
+        assert shared_events.default_mode() == "real"
+        third = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        page = await dash.member_event_form(third, req({}), db)
+        assert b'id="live" checked' in page.body                   # the form remembers the switch
+    run(tmp_path, body)

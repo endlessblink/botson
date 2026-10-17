@@ -31,6 +31,9 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; letter-spacing: -.01em;
 .by b { font-weight: 700; }
 .card { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 14px; }
 .field { margin-bottom: 16px; }
+.live { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.live input { width: 22px; height: 22px; margin-top: 2px; flex: none; }
+.live small { display: block; color: var(--muted, #888); margin-top: 2px; }
 .field:last-child { margin-bottom: 0; }
 label { display: flex; justify-content: space-between; align-items: baseline; font-weight: 500; font-size: 15px; margin-bottom: 6px; }
 label small { color: var(--muted); font-weight: 400; font-size: 13px; }
@@ -123,6 +126,13 @@ textarea { min-height: 96px; resize: vertical; }
     </div>
   </div>
 
+  {% if can_publish %}
+  <div class="card">
+    <label class="live"><input type="checkbox" id="live"{% if live %} checked{% endif %}>
+      <span><b>{{ c.form_live }}</b><small>{{ c.form_live_hint }}</small></span></label>
+  </div>
+  {% endif %}
+
   <div class="preview-title">👀 {{ c.form_preview }}</div>
   <div class="bubble"><img id="pv-img" alt=""><pre id="pv"></pre></div>
   <div class="toast" id="toast"></div>
@@ -213,6 +223,7 @@ $('send').addEventListener('click', async function () {
         title: $('title').value.trim(), event_date: $('event_date').value, event_time: $('event_time').value,
         location: $('location').value.trim(), description: $('description').value.trim(),
         link: $('link').value.trim(), image: imageData,
+        live: $('live') ? $('live').checked : null,
       }),
     });
     var data = await r.json().catch(function () { return {}; });

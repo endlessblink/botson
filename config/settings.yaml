@@ -164,6 +164,8 @@ copy:
     form_image_remove: "הסרה"
     form_optional: "לא חובה"
     form_preview: "ככה זה ייראה"
+    form_live: "לפרסם בקבוצות האמיתיות"
+    form_live_hint: "כבוי = רק קבוצות הבדיקה. הבחירה נשמרת גם לפעם הבאה, לכולם."
     form_submit: "שליחה לאישור"
     form_sending: "שולח…"
     form_done_title: "נשלח! 🎉"

@@ -3532,7 +3532,11 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
     req = await db.get_event_request(token=token)
     cfg = member_cfg()
     today = datetime.now(ZoneInfo("Asia/Jerusalem")).date().isoformat()
+    from bot.utils.shared_events import can_publish_directly, default_mode
+
+    can_publish = bool(req) and request_is_open(req) and await can_publish_directly(db, req)
     return templates.TemplateResponse(request, name="event_form.html", context={
+        "can_publish": can_publish, "live": default_mode() == "real",
         "c": _member_form_copy(), "open": request_is_open(req), "token": token,
         "by": (req or {}).get("requester_name") or "", "today": today,
         "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),
@@ -3599,9 +3603,13 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     bot = Bot(os.getenv("BOT_TOKEN", ""))
     # A trusted member's event goes straight out to the operator's default groups.
     from bot.utils.shared_events import is_trusted
-    trusted = await is_trusted(db, req["platform"], req["requester_id"])
+    from bot.utils.shared_events import can_publish_directly, set_default_mode
+    trusted = await can_publish_directly(db, req)
     auto = False
     if trusted:
+        # The form's checkbox is the shared live/test switch: it applies now and stays set.
+        if isinstance(data.get("live"), bool):
+            set_default_mode("real" if data["live"] else "test")
         try:
             auto = (await approve_request(bot, db, req["id"]))["status"] in ("ok", "partial")
         except Exception:

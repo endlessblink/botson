@@ -302,6 +302,15 @@ def set_default_mode(mode: str) -> None:
     path.write_text(mode, encoding="utf-8")
 
 
+async def can_publish_directly(db, req: dict) -> bool:
+    """True for trusted co-admins (and the operator): their form publishes without approval."""
+    from .config import ADMIN_IDS
+
+    if req["platform"] == "telegram" and str(req["requester_id"]).isdigit() and int(req["requester_id"]) in ADMIN_IDS:
+        return True
+    return await is_trusted(db, req["platform"], req["requester_id"])
+
+
 def apply_mode_command(text: str | None) -> str | None:
     """A private "go live" / "test mode" / "which mode" message from an allowed person.
     Returns the reply to send, or None when the text is not a mode command."""
