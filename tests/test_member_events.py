@@ -302,5 +302,22 @@ def test_saved_template_shows_up_on_the_next_form(tmp_path, monkeypatch):
             await submit(db, second, {**FORM, "title": "ערב פוקר", "save_template": True})
         third = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
         page = await dash.member_event_form(third, req({}), db)
-        assert "ערב פוקר".encode() in page.body and b'id="save-tpl"' in page.body
+        import json
+        assert json.dumps("ערב פוקר").encode() in page.body.replace(b"\\u", b"\\u") or "ערב פוקר".encode() in page.body
+        assert b'id="save-tpl"' in page.body
     run(tmp_path, body)
+
+
+def test_templates_can_be_updated_and_deleted(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "bot.db"))
+    shared_events.save_template(title="ערב פוקר", description="א")
+    shared_events.save_template(title="ערב פוקר", description="ב")
+    names = [t["name"] for t in shared_events.load_templates()]
+    assert names.count("ערב פוקר") == 1
+    shared_events.save_template(title="פוקר חדש", description="ג", replaces="ערב פוקר")
+    names = [t["name"] for t in shared_events.load_templates()]
+    assert "פוקר חדש" in names and "ערב פוקר" not in names
+    shipped = [t["name"] for t in shared_events.member_cfg().get("templates") or []]
+    for n in shipped + ["פוקר חדש"]:
+        shared_events.delete_template(n)
+    assert shared_events.load_templates() == []

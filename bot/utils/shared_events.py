@@ -290,31 +290,55 @@ def _templates_file():
     return Path(config.DB_PATH).parent / "member_events_templates.json"
 
 
-def load_templates() -> list[dict]:
-    """Templates from settings.yaml plus the ones people saved from the form
-    (kept in the data folder so a deploy never wipes them)."""
+def _read_templates() -> dict:
     import json
 
     try:
-        saved = json.loads(_templates_file().read_text(encoding="utf-8"))
+        data = json.loads(_templates_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        saved = []
-    return list(member_cfg().get("templates") or []) + [t for t in saved if isinstance(t, dict)]
+        data = {}
+    if isinstance(data, list):  # first version stored just the list
+        data = {"saved": data}
+    return {"saved": [t for t in data.get("saved", []) if isinstance(t, dict)],
+            "removed": [str(n) for n in data.get("removed", [])]}
 
 
-def save_template(*, title: str, description: str = "", location: str = "", time: str = "", link: str = "") -> None:
-    """Remember a form as a reusable template named after its title; same name replaces it."""
+def _write_templates(data: dict) -> None:
     import json
 
     path = _templates_file()
-    try:
-        saved = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        saved = []
-    entry = {"name": title, "title": title, "description": description, "location": location, "time": time, "link": link}
-    saved = [t for t in saved if t.get("name") != title] + [entry]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def load_templates() -> list[dict]:
+    """Templates from settings.yaml plus the ones people saved from the form, minus the
+    ones they deleted (kept in the data folder so a deploy never brings them back)."""
+    data = _read_templates()
+    every = list(member_cfg().get("templates") or []) + data["saved"]
+    return [t for t in every if t.get("name") not in data["removed"]]
+
+
+def save_template(*, title: str, description: str = "", location: str = "", time: str = "", link: str = "",
+                  replaces: str = "") -> None:
+    """Remember a form as a reusable template named after its title. Same name replaces it,
+    and `replaces` updates the template the form was started from even if it was renamed."""
+    data = _read_templates()
+    if replaces and replaces != title:
+        delete_template(replaces)
+        data = _read_templates()
+    entry = {"name": title, "title": title, "description": description, "location": location, "time": time, "link": link}
+    data["saved"] = [t for t in data["saved"] if t.get("name") != title] + [entry]
+    data["removed"] = [n for n in data["removed"] if n != title]
+    _write_templates(data)
+
+
+def delete_template(name: str) -> None:
+    data = _read_templates()
+    data["saved"] = [t for t in data["saved"] if t.get("name") != name]
+    if name not in data["removed"]:
+        data["removed"].append(name)
+    _write_templates(data)
 
 
 def _mode_file():

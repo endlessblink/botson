@@ -3543,6 +3543,19 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
     })
 
 
+@app.post("/e/{token}/template-delete")
+async def member_event_template_delete(token: str, request: Request, db: Database = Depends(get_db)):
+    """Remove a template from the form (only people who publish directly may)."""
+    from bot.utils.shared_events import can_publish_directly, delete_template, load_templates, request_is_open
+
+    req = await db.get_event_request(token=token)
+    if not request_is_open(req) or not await can_publish_directly(db, req):
+        raise HTTPException(status_code=403)
+    data = await request.json()
+    delete_template(str(data.get("name") or ""))
+    return {"templates": load_templates()}
+
+
 @app.post("/e/{token}")
 async def member_event_submit(token: str, request: Request, db: Database = Depends(get_db)):
     """Store a member's event and DM the admins for approval. The token is single-use."""
@@ -3610,7 +3623,8 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
         # The form's checkbox is the shared live/test switch: it applies now and stays set.
         if data.get("save_template") is True:
             from bot.utils.shared_events import save_template
-            save_template(title=title, description=description, location=location, time=event_time, link=link)
+            save_template(title=title, description=description, location=location, time=event_time, link=link,
+                          replaces=str(data.get("template_name") or ""))
         if isinstance(data.get("live"), bool):
             set_default_mode("real" if data["live"] else "test")
         try:

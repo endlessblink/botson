@@ -32,7 +32,9 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; letter-spacing: -.01em;
 .card { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 14px; }
 .tpls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .tpls span { color: var(--muted); font-size: 14px; }
-.chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 8px 14px; font: inherit; cursor: pointer; }
+.chip-wrap { display: inline-flex; align-items: center; margin: 0 0 0 8px; }
+.chip-x { border: 0; background: none; color: var(--muted); font-size: 18px; padding: 4px 6px; cursor: pointer; }
+.chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 14px; font: inherit; cursor: pointer; }
 .field { margin-bottom: 16px; }
 .live { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
 .live input { width: 22px; height: 22px; margin-top: 2px; flex: none; }
@@ -87,7 +89,7 @@ textarea { min-height: 96px; resize: vertical; }
 
   {% if templates %}
   <div class="tpls"><span>{{ c.form_templates }}</span>
-    {% for t in templates %}<button type="button" class="chip" data-i="{{ loop.index0 }}">{{ t.name }}</button>{% endfor %}
+    <span id="chips"></span>
   </div>
   {% endif %}
 
@@ -139,7 +141,9 @@ textarea { min-height: 96px; resize: vertical; }
   <div class="card">
     <label class="live"><input type="checkbox" id="live"{% if live %} checked{% endif %}>
       <span><b>{{ c.form_live }}</b><small>{{ c.form_live_hint }}</small></span></label>
-    <label class="live" style="margin-top:14px"><input type="checkbox" id="save-tpl">
+  </div>
+  <div class="card">
+    <label class="live"><input type="checkbox" id="save-tpl">
       <span><b>{{ c.form_save_template }}</b><small>{{ c.form_save_template_hint }}</small></span></label>
   </div>
   {% endif %}
@@ -155,6 +159,7 @@ textarea { min-height: 96px; resize: vertical; }
 var C = {{ c | tojson }};
 var BY = {{ by | tojson }};
 var imageData = '';
+var LOADED = '';
 var TPLS = {{ templates | tojson }};
 var $ = function (id) { return document.getElementById(id); };
 
@@ -182,15 +187,37 @@ function preview() {
   $(id).addEventListener('input', function () { $(id).closest('.field').classList.remove('bad'); preview(); });
 });
 
-document.querySelectorAll('.chip').forEach(function (b) {
-  b.addEventListener('click', function () {
-    var t = TPLS[+b.dataset.i] || {};
+var CAN_DELETE = {{ 'true' if can_publish else 'false' }};
+function drawChips() {
+  var box = $('chips'); if (!box) return;
+  box.innerHTML = '';
+  TPLS.forEach(function (t, i) {
+    var w = document.createElement('span'); w.className = 'chip-wrap';
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = t.name; b.dataset.i = i;
+    b.addEventListener('click', function () { applyTemplate(i); });
+    w.appendChild(b);
+    if (CAN_DELETE) {
+      var x = document.createElement('button'); x.type = 'button'; x.className = 'chip-x'; x.textContent = '✕'; x.title = C.form_delete_template;
+      x.addEventListener('click', async function () {
+        if (!confirm(C.form_delete_template + ': ' + t.name + '?')) return;
+        var r = await fetch(location.pathname + '/template-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: t.name }) });
+        if (r.ok) { TPLS = (await r.json()).templates; drawChips(); }
+      });
+      w.appendChild(x);
+    }
+    box.appendChild(w);
+  });
+}
+function applyTemplate(i) {
+  (function () {
+    var t = TPLS[i] || {}; LOADED = t.name || '';
     [['title', 'title'], ['description', 'description'], ['location', 'location'], ['event_time', 'time'], ['link', 'link']].forEach(function (p) {
       if (t[p[1]] != null) $(p[0]).value = t[p[1]];
     });
     preview();
-  });
-});
+  })();
+}
+drawChips();
 
 // Photos are resized on the phone (max 1600px JPEG) so uploads stay small and valid.
 $('file').addEventListener('change', function () {
@@ -246,7 +273,7 @@ $('send').addEventListener('click', async function () {
         location: $('location').value.trim(), description: $('description').value.trim(),
         link: $('link').value.trim(), image: imageData,
         live: $('live') ? $('live').checked : null,
-        save_template: $('save-tpl') ? $('save-tpl').checked : false,
+        save_template: $('save-tpl') ? $('save-tpl').checked : false, template_name: LOADED,
       }),
     });
     var data = await r.json().catch(function () { return {}; });
