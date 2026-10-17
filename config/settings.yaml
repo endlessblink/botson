@@ -97,6 +97,13 @@ member_events:
     status: ["איזה מצב", "באיזה מצב", "what mode", "current mode"]
   max_title_chars: 80
   max_description_chars: 400
+  # Ready-made starting points shown as buttons on the form. Add one by copying a block;
+  # any field may be left out. The creator can still change everything after tapping.
+  templates:
+    - name: "ערב ג'קבוקס"
+      title: "ערב ג'קבוקס"
+      description: "משחקי מסיבה שמשחקים מהטלפון. מצטרפים מהקישור, לא צריך להביא כלום."
+      time: "20:00"
 
 # Centralized user-facing copy. Every Hebrew template the bot or
 # dashboard surfaces should read from here via `bot/utils/copy.py:load_copy`.
@@ -125,7 +132,7 @@ copy:
     day_names: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
     card_when: "🕒 יום {day}, {date} · {time}"
     card_where: "📍 {location}"
-    card_link: "🔗 {link}"
+    card_link: "🔗 לינק להצטרפות:\n{link}"
     card_image: "🖼️ {url}"
     card_by: "✨ נפתח ע״י {name}"
     platform_telegram: "טלגרם"
@@ -148,6 +155,7 @@ copy:
     # The form page.
     form_title: "אירוע חדש"
     form_intro: "כמה פרטים קצרים, ואחרי אישור האירוע יתפרסם בטלגרם ובוואטסאפ."
+    form_templates: "להתחיל מתבנית"
     form_by: "נפתח ע״י"
     form_name: "שם האירוע"
     form_name_hint: "למשל: ערב משחקי קופסה"

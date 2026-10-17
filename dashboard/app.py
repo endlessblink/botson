@@ -3536,7 +3536,7 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
 
     can_publish = bool(req) and request_is_open(req) and await can_publish_directly(db, req)
     return templates.TemplateResponse(request, name="event_form.html", context={
-        "can_publish": can_publish, "live": default_mode() == "real",
+        "templates": list(cfg.get("templates") or []), "can_publish": can_publish, "live": default_mode() == "real",
         "c": _member_form_copy(), "open": request_is_open(req), "token": token,
         "by": (req or {}).get("requester_name") or "", "today": today,
         "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),

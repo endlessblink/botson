@@ -145,3 +145,22 @@ def test_mode_command_switches_and_reports(tmp_path, monkeypatch):
     assert se.apply_mode_command("מצב בדיקה") and se.default_mode() == "test"
     assert "בדיקה" in se.apply_mode_command("באיזה מצב אנחנו?")
     assert se.apply_mode_command("שלום מה קורה") is None
+
+
+def test_whatsapp_card_goes_out_as_a_picture_with_the_text_and_falls_back_to_text(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from bot.utils import shared_events as se
+
+    db = MagicMock(set_event_whatsapp_poll=AsyncMock())
+    monkeypatch.setattr(se.whatsapp_sender, "resolve_chat_id", lambda t: "1@g.us")
+    monkeypatch.setattr(se.whatsapp_sender, "send_poll", AsyncMock(return_value="true_1@g.us_P_x"))
+    img, txt = AsyncMock(return_value="m1"), AsyncMock(return_value="m2")
+    monkeypatch.setattr(se.whatsapp_sender, "send_image", img)
+    monkeypatch.setattr(se.whatsapp_sender, "send_text", txt)
+    asyncio.run(se.publish_to_whatsapp(db, 1, "whatsapp_test", "card", "https://x/y.jpg"))
+    img.assert_awaited_once_with("1@g.us", "https://x/y.jpg", "card")
+    txt.assert_not_awaited()
+    img.side_effect = RuntimeError("boom")
+    asyncio.run(se.publish_to_whatsapp(db, 1, "whatsapp_test", "card", "https://x/y.jpg"))
+    txt.assert_awaited_once()

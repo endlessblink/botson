@@ -30,6 +30,9 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; letter-spacing: -.01em;
       border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
 .by b { font-weight: 700; }
 .card { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 14px; }
+.tpls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.tpls span { color: var(--muted); font-size: 14px; }
+.chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 8px 14px; font: inherit; cursor: pointer; }
 .field { margin-bottom: 16px; }
 .live { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
 .live input { width: 22px; height: 22px; margin-top: 2px; flex: none; }
@@ -81,6 +84,12 @@ textarea { min-height: 96px; resize: vertical; }
     <p class="intro">{{ c.form_intro }}</p>
     {% if by %}<div class="by">👤 {{ c.form_by }} <b>{{ by }}</b></div>{% endif %}
   </header>
+
+  {% if templates %}
+  <div class="tpls"><span>{{ c.form_templates }}</span>
+    {% for t in templates %}<button type="button" class="chip" data-i="{{ loop.index0 }}">{{ t.name }}</button>{% endfor %}
+  </div>
+  {% endif %}
 
   <div class="card">
     <div class="field" data-f="title">
@@ -144,6 +153,7 @@ textarea { min-height: 96px; resize: vertical; }
 var C = {{ c | tojson }};
 var BY = {{ by | tojson }};
 var imageData = '';
+var TPLS = {{ templates | tojson }};
 var $ = function (id) { return document.getElementById(id); };
 
 function fill(t, vals) { return String(t || '').replace(/\{(\w+)\}/g, function (_, k) { return vals[k] != null ? vals[k] : ''; }); }
@@ -168,6 +178,16 @@ function preview() {
 
 ['title', 'event_date', 'event_time', 'location', 'description', 'link'].forEach(function (id) {
   $(id).addEventListener('input', function () { $(id).closest('.field').classList.remove('bad'); preview(); });
+});
+
+document.querySelectorAll('.chip').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var t = TPLS[+b.dataset.i] || {};
+    [['title', 'title'], ['description', 'description'], ['location', 'location'], ['event_time', 'time'], ['link', 'link']].forEach(function (p) {
+      if (t[p[1]] != null) $(p[0]).value = t[p[1]];
+    });
+    preview();
+  });
 });
 
 // Photos are resized on the phone (max 1600px JPEG) so uploads stay small and valid.

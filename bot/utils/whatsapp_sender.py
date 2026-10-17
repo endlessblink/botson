@@ -203,6 +203,14 @@ async def send_text(chat_id: str, text: str) -> str | None:
     return await _post("/api/sendText", {"chatId": chat_id, "text": rtl_text(text)})
 
 
+async def send_image(chat_id: str, image_url: str, caption: str) -> str | None:
+    """A picture with the text under it, sent from its public link."""
+    ext = image_url.rsplit(".", 1)[-1].lower()
+    mime = {"png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+    return await _post("/api/sendImage", {"chatId": chat_id, "caption": rtl_text(caption),
+                                          "file": {"mimetype": mime, "url": image_url}})
+
+
 async def send_poll(chat_id: str, question: str, options: list[str]) -> str | None:
     problem = poll_problem(question, options)
     if problem:

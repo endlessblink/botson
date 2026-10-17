@@ -40,10 +40,18 @@ def status_for_option(option: str | None) -> str | None:
     return None
 
 
-async def publish_to_whatsapp(db, event_id: int, target: str, card_text: str) -> str:
-    """Send the event card and its sign-up poll to WhatsApp. Returns the poll key."""
+async def publish_to_whatsapp(db, event_id: int, target: str, card_text: str, image_url: str | None = None) -> str:
+    """Send the event card (with its picture, when there is one) and its sign-up poll
+    to WhatsApp. Returns the poll key."""
     chat_id = whatsapp_sender.resolve_chat_id(target)
-    await whatsapp_sender.send_text(chat_id, card_text)
+    sent = None
+    if image_url:
+        try:
+            sent = await whatsapp_sender.send_image(chat_id, image_url, card_text)
+        except Exception:
+            logger.warning("member_events: WhatsApp image failed, sending the text only", exc_info=True)
+    if not sent:
+        await whatsapp_sender.send_text(chat_id, card_text)
     poll_id = await whatsapp_sender.send_poll(chat_id, load_copy("whatsapp", "event_poll_question"), poll_options())
     stanza = stanza_of(poll_id)
     if not stanza:
@@ -365,7 +373,7 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
     result = {"status": "ok", "event_id": event_id}
     if wa_target:
         try:
-            await publish_to_whatsapp(db, event_id, wa_target, request_card(req, image_url=_media_url(req.get("cover_path"))))
+            await publish_to_whatsapp(db, event_id, wa_target, request_card(req), _media_url(req.get("cover_path")))
         except Exception as exc:
             logger.exception("member_events: WhatsApp publish failed for event %s", event_id)
             result.update(status="partial", whatsapp_error=str(exc)[:200])
