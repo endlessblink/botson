@@ -946,6 +946,9 @@ class Database:
         return rid
 
     async def get_event_request(self, *, token: str | None = None, request_id: int | None = None) -> dict | None:
+        # WhatsApp can glue invisible direction marks onto a pasted link; only the
+        # url-safe characters are part of the token.
+        token = "".join(ch for ch in token if ch.isascii() and (ch.isalnum() or ch in "-_")) if token else token
         col, val = ("token", token) if token else ("id", request_id)
         async with self._db.execute(f"SELECT * FROM event_requests WHERE {col} = ?", (val,)) as cursor:
             row = await cursor.fetchone()

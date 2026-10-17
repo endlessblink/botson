@@ -98,6 +98,14 @@ def test_whatsapp_member_gets_a_personal_link_reused_until_it_expires_and_a_dail
     run(tmp_path, body)
 
 
+def test_a_link_with_invisible_marks_glued_on_by_whatsapp_still_opens(tmp_path):
+    async def body(db):
+        token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        found = await db.get_event_request(token=token + "\u200f")
+        assert found and found["token"] == token
+    run(tmp_path, body)
+
+
 def test_form_validates_then_is_single_use_and_dms_the_admin_with_buttons(tmp_path):
     async def body(db):
         token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
