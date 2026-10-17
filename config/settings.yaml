@@ -89,6 +89,12 @@ member_events:
   # A request = the bot is tagged AND one word of each list appears.
   create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "להרים", "להקים", "לתכנן", "לעשות", "תיצור", "תפתח", "תקבע", "תארגן", "תרים", "תקים", "תתכנן", "תעשה", "חדש", "חדשה", "create", "new", "make", "organize", "organise", "plan", "schedule", "host", "set up"]
   event_words: ["אירוע", "אירועים", "איוונט", "אוונט", "איבנט", "מפגש", "מפגשים", "מיטאפ", "מסיבה", "מפגש חברים", "event", "events", "meetup", "meet-up", "meet up", "party", "gathering", "hangout", "get-together"]
+  # A trusted co-admin (or the operator) switches where events go by writing
+  # one of these in a private message to the bot.
+  mode_words:
+    real: ["מצב חי", "פרסום חי", "לקבוצות האמיתיות", "live mode", "go live"]
+    test: ["מצב בדיקה", "מצב בדיקות", "לקבוצות הבדיקה", "test mode"]
+    status: ["איזה מצב", "באיזה מצב", "what mode", "current mode"]
   max_title_chars: 80
   max_description_chars: 400
 
@@ -127,6 +133,10 @@ copy:
     # Operator approval DM.
     admin_request: "🆕 בקשה לאירוע מ{name} ({platform})\n\n{card}"
     approve_button: "✅ לאשר ולפרסם בקבוצות האמיתיות"
+    mode_set_real: "🟢 עברנו למצב חי: אירועים של מהימנים יוצאים עכשיו לקבוצות האמיתיות, בטלגרם ובוואטסאפ."
+    mode_set_test: "🧪 עברנו למצב בדיקה: אירועים של מהימנים יוצאים רק לקבוצות הבדיקה."
+    mode_status_real: "המצב עכשיו: חי 🟢 (הקבוצות האמיתיות)."
+    mode_status_test: "המצב עכשיו: בדיקה 🧪 (קבוצות הבדיקה בלבד)."
     approve_test_button: "🧪 לפרסם רק בקבוצות הבדיקה"
     approve_trust_button: "✅ לאשר ולסמוך עליו להבא"
     auto_published_note: "✅ אירוע של {name} ({platform}) פורסם אוטומטית, כי הוא ברשימת המהימנים.\n\n{card}"

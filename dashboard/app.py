@@ -3455,6 +3455,24 @@ async def agent_event_request(request: Request, db: Database = Depends(get_db)):
                                      requester_name=str(data.get("name") or "").strip())
 
 
+@app.post("/api/agent/event-mode")
+async def agent_event_mode(request: Request, db: Database = Depends(get_db)):
+    """Botty forwards a trusted co-admin's private "live / test" message. Body: {chat_id, requester, text}."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    from bot.utils.shared_events import apply_mode_command, is_trusted
+
+    data = await request.json()
+    requester = str(data.get("requester") or "").strip()
+    private = str(data.get("chat_id") or "").endswith(("@c.us", "@lid")) and data.get("chat_id") == requester
+    if not (private and await is_trusted(db, "whatsapp", requester)):
+        raise HTTPException(status_code=403, detail="not a trusted co-admin")
+    reply = apply_mode_command(str(data.get("text") or ""))
+    if not reply:
+        raise HTTPException(status_code=404, detail="not a mode command")
+    return {"reply": reply}
+
+
 def _member_form_copy() -> dict:
     from bot.utils.copy import load_copy_block
 

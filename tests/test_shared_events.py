@@ -134,3 +134,14 @@ def test_card_blocks_are_replaced_not_stacked():
     twice = shared_events.card_with_rsvps(once, ["נועם", "דנה"], [], load_copy("whatsapp", "event_whatsapp_counts", yes=3, maybe=1))
     assert twice.count("📱") == 1 and twice.count("✅ מגיעים") == 1 and "(2): נועם, דנה" in twice
     assert shared_events.card_with_rsvps(twice, [], [], "") == "📅 ערב"
+
+
+def test_mode_command_switches_and_reports(tmp_path, monkeypatch):
+    from bot.utils import shared_events as se
+
+    monkeypatch.setattr(se, "_mode_file", lambda: tmp_path / "mode.txt")
+    assert se.apply_mode_command("תעבור למצב חי") and se.default_mode() == "real"
+    assert se.apply_mode_command("go live please") and se.default_mode() == "real"
+    assert se.apply_mode_command("מצב בדיקה") and se.default_mode() == "test"
+    assert "בדיקה" in se.apply_mode_command("באיזה מצב אנחנו?")
+    assert se.apply_mode_command("שלום מה קורה") is None

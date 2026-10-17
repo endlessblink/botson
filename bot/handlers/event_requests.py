@@ -17,7 +17,7 @@ from ..database.db import Database
 from ..utils.config import ADMIN_IDS, GROUP_ID, TEST_GROUP_ID
 from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
-from ..utils.shared_events import approve_request, asks_for_event, create_request_link, is_trusted, member_cfg, reject_request, trust_requester
+from ..utils.shared_events import apply_mode_command, approve_request, asks_for_event, create_request_link, is_trusted, member_cfg, reject_request, trust_requester
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 from .community_replies import _is_addressed_to_bot
 
@@ -32,6 +32,10 @@ async def handle_event_request(update: Update, context: ContextTypes.DEFAULT_TYP
     if chat.type == "private":
         # A private message works for the operator and for trusted co-admins only.
         if user.id not in ADMIN_IDS and not await is_trusted(db, "telegram", str(user.id)):
+            return
+        reply = apply_mode_command(message.text)
+        if reply:
+            await message.reply_text(reply)
             return
     elif chat.id not in (GROUP_ID, TEST_GROUP_ID) or not _is_addressed_to_bot(
             message, int(context.bot.id), getattr(context.bot, "username", None)):

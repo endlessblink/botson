@@ -302,6 +302,21 @@ def set_default_mode(mode: str) -> None:
     path.write_text(mode, encoding="utf-8")
 
 
+def apply_mode_command(text: str | None) -> str | None:
+    """A private "go live" / "test mode" / "which mode" message from an allowed person.
+    Returns the reply to send, or None when the text is not a mode command."""
+    words = member_cfg().get("mode_words") or {}
+    t = (text or "").lower()
+    has = lambda key: any(str(w).lower() in t for w in words.get(key) or [])
+    for mode in ("real", "test"):
+        if has(mode):
+            set_default_mode(mode)
+            return load_copy("member_events", f"mode_set_{mode}")
+    if has("status"):
+        return load_copy("member_events", f"mode_status_{default_mode()}")
+    return None
+
+
 def targets_for(mode: str | None) -> tuple[str, str]:
     """(telegram group, whatsapp group) for a destination mode: 'real' or 'test'.
     No mode means the operator's default from settings."""
