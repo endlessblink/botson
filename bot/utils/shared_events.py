@@ -182,23 +182,29 @@ def rsvp_markup(event_id: int):
 def decision_markup(request_id: int):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(load_copy("member_events", "approve_button"), callback_data=f"evreq_ok_{request_id}"),
-        InlineKeyboardButton(load_copy("member_events", "reject_button"), callback_data=f"evreq_no_{request_id}"),
-    ]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(load_copy("member_events", "approve_button"), callback_data=f"evreq_ok_{request_id}_real")],
+        [InlineKeyboardButton(load_copy("member_events", "approve_test_button"), callback_data=f"evreq_ok_{request_id}_test")],
+        [InlineKeyboardButton(load_copy("member_events", "approve_trust_button"), callback_data=f"evreq_ok_{request_id}_trust")],
+        [InlineKeyboardButton(load_copy("member_events", "reject_button"), callback_data=f"evreq_no_{request_id}")],
+    ])
 
 
-async def notify_admins_of_request(bot, req: dict) -> int:
-    """DM each admin the submitted event with approve / reject buttons."""
+async def notify_admins_of_request(bot, req: dict, *, auto_published: bool = False) -> int:
+    """DM each admin the submitted event with approve / reject buttons, or a
+    plain note when a trusted member's event already went out."""
     from .config import ADMIN_IDS
 
     platform = load_copy("member_events", f"platform_{req['platform']}")
     text = load_copy("member_events", "admin_request", name=req.get("requester_name") or "?",
                      platform=platform, card=request_card(req))
+    if auto_published:
+        text = load_copy("member_events", "auto_published_note", name=req.get("requester_name") or "?",
+                         platform=platform, card=request_card(req))
     delivered = 0
     for admin_id in ADMIN_IDS:
         try:
-            await bot.send_message(chat_id=admin_id, text=text, reply_markup=decision_markup(req["id"]),
+            await bot.send_message(chat_id=admin_id, text=text, reply_markup=None if auto_published else decision_markup(req["id"]),
                                    disable_web_page_preview=True)
             delivered += 1
         except Exception as exc:
@@ -206,7 +212,14 @@ async def notify_admins_of_request(bot, req: dict) -> int:
     return delivered
 
 
-async def approve_request(bot, db, request_id: int) -> dict:
+def targets_for(mode: str | None) -> tuple[str, str]:
+    """(telegram group, whatsapp group) for a destination mode: 'real' or 'test'.
+    No mode means the operator's default from settings."""
+    mode = mode or str(member_cfg().get("default_mode") or "test")
+    return ("test", "whatsapp_test") if mode == "test" else ("main", "whatsapp")
+
+
+async def approve_request(bot, db, request_id: int, mode: str | None = None) -> dict:
     """Publish an approved member event to Telegram (card + sign-up buttons) and
     WhatsApp (card + sign-up poll). Safe against double taps."""
     import os
@@ -217,15 +230,15 @@ async def approve_request(bot, db, request_id: int) -> dict:
     if not req or not await db.update_event_request(request_id, expect_status="submitted",
                                                     status="publishing", decided_at=_israel_now().isoformat()):
         return {"status": "already_decided"}
-    cfg = member_cfg()
+    tg_target, wa_target = targets_for(mode)
     event_id = await db.create_event(
         title=req["title"], description=req.get("description") or "", event_date=req["event_date"],
         event_time=req.get("event_time"), location=req.get("location"), created_by=0,
         cover_path=req.get("cover_path"),
     )
-    chat_id = int(os.getenv("TEST_GROUP_ID" if cfg.get("telegram_target") == "test" else "GROUP_ID", "0"))
+    chat_id = int(os.getenv("TEST_GROUP_ID" if tg_target == "test" else "GROUP_ID", "0"))
     topic_id = None
-    if cfg.get("telegram_target") != "test":
+    if tg_target != "test":
         routing = await db.get_handler_routing("events_publish")
         topic_id = routing["play_topic_id"] if routing else None
     card = request_card(req)
@@ -236,7 +249,6 @@ async def approve_request(bot, db, request_id: int) -> dict:
     await db.update_event_request(request_id, status="approved", event_id=event_id)
     await db.log_activity("event", f"member event {event_id} approved: {req['title'][:60]}", target_channel=str(topic_id or chat_id))
     result = {"status": "ok", "event_id": event_id}
-    wa_target = str(cfg.get("whatsapp_target") or "")
     if wa_target:
         try:
             await publish_to_whatsapp(db, event_id, wa_target, request_card(req, image_url=_media_url(req.get("cover_path"))))
@@ -262,3 +274,11 @@ def card_with_rsvps(base: str, yes_names: list[str], maybe_names: list[str], wa_
     if wa_line:
         text += f"\n\n{wa_line}"
     return text
+
+
+async def trust_requester(db, request_id: int) -> None:
+    """Remember the person behind a request so their next events skip approval."""
+    req = await db.get_event_request(request_id=request_id)
+    if req:
+        await db.add_trusted_creator(req["platform"], req["requester_id"], req.get("requester_name") or "",
+                                     _israel_now().isoformat())

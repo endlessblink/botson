@@ -73,8 +73,10 @@ member_events:
   enabled: true
   link_minutes: 60
   max_links_per_day: 3
-  telegram_target: test        # main | test
-  whatsapp_target: whatsapp_test # whatsapp | whatsapp_test | "" for Telegram only
+  # Where approved events go unless the operator picks otherwise at approval:
+  # real = the real Telegram + WhatsApp groups, test = the two test groups.
+  # Members the operator marked as trusted are published straight to this too.
+  default_mode: test
   # A request = the bot is tagged AND one word of each list appears.
   create_words: ["ליצור", "לפתוח", "לקבוע", "לארגן", "תיצור", "תפתח", "תקבע", "תארגן", "חדש", "חדשה", "create", "new"]
   event_words: ["אירוע", "מפגש", "מיטאפ", "event", "meetup"]
@@ -103,7 +105,10 @@ copy:
     platform_whatsapp: "וואטסאפ"
     # Operator approval DM.
     admin_request: "🆕 בקשה לאירוע מ{name} ({platform})\n\n{card}"
-    approve_button: "✅ לאשר ולפרסם"
+    approve_button: "✅ לאשר ולפרסם בקבוצות האמיתיות"
+    approve_test_button: "🧪 לפרסם רק בקבוצות הבדיקה"
+    approve_trust_button: "✅ לאשר ולסמוך עליו להבא"
+    auto_published_note: "✅ אירוע של {name} ({platform}) פורסם אוטומטית, כי הוא ברשימת המהימנים.\n\n{card}"
     reject_button: "✖️ לדחות"
     approved_note: "✅ פורסם."
     approved_partial_note: "⚠️ פורסם בטלגרם, אבל לא בוואטסאפ: {reason}"

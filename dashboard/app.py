@@ -3189,6 +3189,7 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
 
     return templates.TemplateResponse(request, name="events.html", context={
         "pending_requests": pending,
+        "trusted_creators": await db.list_trusted_creators(),
         "events": events,
         "settings": settings,
         "forum_topics": forum_topics,
@@ -3523,8 +3524,18 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     ):
         return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)
     req = await db.get_event_request(request_id=req["id"])
+    from bot.utils.shared_events import approve_request
+    bot = Bot(os.getenv("BOT_TOKEN", ""))
+    # A trusted member's event goes straight out to the operator's default groups.
+    trusted = await db.is_trusted_creator(req["platform"], req["requester_id"])
+    auto = False
+    if trusted:
+        try:
+            auto = (await approve_request(bot, db, req["id"]))["status"] in ("ok", "partial")
+        except Exception:
+            logger.exception("[member_events] auto-publish failed for request %s", req["id"])
     try:
-        await notify_admins_of_request(Bot(os.getenv("BOT_TOKEN", "")), req)
+        await notify_admins_of_request(bot, req, auto_published=auto)
     except Exception:
         logger.exception("[member_events] admin DM failed for request %s", req["id"])
     logger.info("[member_events] request %s submitted by %s (%s)", req["id"], req["requester_id"], req["platform"])
@@ -3537,13 +3548,27 @@ async def decide_member_event(request_id: int, decision: str, request: Request, 
     if not request.session.get("authenticated"):
         raise HTTPException(status_code=401)
     from telegram import Bot
-    from bot.utils.shared_events import approve_request, reject_request
+    from bot.utils.shared_events import approve_request, reject_request, trust_requester
 
     if decision == "approve":
-        return await approve_request(Bot(os.getenv("BOT_TOKEN", "")), db, request_id)
+        body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+        mode = "test" if body.get("mode") == "test" else "real"
+        result = await approve_request(Bot(os.getenv("BOT_TOKEN", "")), db, request_id, mode)
+        if body.get("trust") and result["status"] in ("ok", "partial"):
+            await trust_requester(db, request_id)
+        return result
     if decision == "reject":
         return {"status": "ok" if await reject_request(db, request_id) else "already_decided"}
     raise HTTPException(status_code=404)
+
+
+@app.post("/api/events/trusted/remove")
+async def remove_trusted_creator(request: Request, db: Database = Depends(get_db)):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    data = await request.json()
+    await db.remove_trusted_creator(str(data.get("platform") or ""), str(data.get("user_id") or ""))
+    return {"status": "ok"}
 
 
 @app.post("/api/events/{event_id}/delete")

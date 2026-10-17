@@ -176,10 +176,36 @@
     <div class="px-5 py-4 border-b border-[#1f1f1f] last:border-0 flex flex-col md:flex-row gap-3 md:items-start">
         {% if r.cover_path %}<img src="/media/{{ r.cover_path }}" alt="" class="w-24 h-24 object-cover rounded-md">{% endif %}
         <pre class="flex-1 whitespace-pre-wrap text-sm text-[#d4d4d8] font-sans">{{ r.card }}</pre>
+        <div class="flex flex-col gap-2">
+            <label class="flex items-center gap-2 text-xs text-[#d4d4d8]">
+                <input type="checkbox" id="req-test-{{ r.id }}" {% if settings.member_events.default_mode != 'real' %}checked{% endif %}>
+                🧪 רק בקבוצות הבדיקה (בלי לסמן: הקבוצות האמיתיות)
+            </label>
+            <label class="flex items-center gap-2 text-xs text-[#d4d4d8]">
+                <input type="checkbox" id="req-trust-{{ r.id }}">
+                ✅ לסמוך על {{ r.requester_name or 'המשתמש' }} להבא (בלי אישור)
+            </label>
         <div class="flex gap-2">
             <button onclick="decideRequest({{ r.id }}, 'approve')" class="bg-emerald-600 hover:bg-emerald-500 text-white h-9 px-4 rounded-md text-sm font-medium">✅ לאשר ולפרסם</button>
             <button onclick="decideRequest({{ r.id }}, 'reject')" class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-4 rounded-md text-sm">✖️ לדחות</button>
         </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if trusted_creators %}
+<!-- Members whose events publish without approval -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
+    <div class="px-5 py-4 border-b border-[#1f1f1f]">
+        <h2 class="text-sm font-medium text-[#fafafa]">מורשים לפתוח אירועים בלי אישור</h2>
+        <p class="text-xs text-[#a1a1aa] mt-1">האירועים שלהם מתפרסמים ישר ({{ 'בקבוצות הבדיקה' if settings.member_events.default_mode != 'real' else 'בקבוצות האמיתיות' }}) ואתה מקבל הודעה.</p>
+    </div>
+    {% for t in trusted_creators %}
+    <div class="px-5 py-3 border-b border-[#1f1f1f] last:border-0 flex items-center justify-between text-sm">
+        <span class="text-[#fafafa]">{{ t.name or t.user_id }} <span class="text-xs text-[#a1a1aa]">· {{ 'טלגרם' if t.platform == 'telegram' else 'וואטסאפ' }}</span></span>
+        <button onclick="removeTrusted('{{ t.platform }}', '{{ t.user_id }}')" class="text-xs text-red-400 hover:text-red-300">להסיר</button>
     </div>
     {% endfor %}
 </div>
@@ -736,11 +762,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function decideRequest(requestId, decision) {
     try {
-        var r = await apiCall('/api/events/requests/' + requestId + '/' + decision);
+        var body = null;
+        if (decision === 'approve') {
+            body = {
+                mode: document.getElementById('req-test-' + requestId).checked ? 'test' : 'real',
+                trust: document.getElementById('req-trust-' + requestId).checked
+            };
+        }
+        var r = await apiCall('/api/events/requests/' + requestId + '/' + decision, body);
         if (r && r.status === 'already_decided') showToast('הבקשה כבר טופלה', 'error');
         else if (r && r.status === 'partial') showToast('פורסם בטלגרם, לא בוואטסאפ: ' + (r.whatsapp_error || ''), 'error');
-        else showToast(decision === 'approve' ? 'פורסם בשתי הקבוצות' : 'נדחה');
+        else showToast(decision === 'approve' ? 'פורסם' : 'נדחה');
         setTimeout(function() { location.reload(); }, 1000);
+    } catch (e) {
+        showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+async function removeTrusted(platform, userId) {
+    try {
+        await apiCall('/api/events/trusted/remove', {platform: platform, user_id: userId});
+        showToast('הוסר מהרשימה');
+        setTimeout(function() { location.reload(); }, 800);
     } catch (e) {
         showToast('שגיאה: ' + e.message, 'error');
     }

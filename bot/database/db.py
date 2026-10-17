@@ -69,6 +69,8 @@ class Database:
             "created_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', "
             "title TEXT, description TEXT, event_date TEXT, event_time TEXT, location TEXT, link TEXT, "
             "cover_path TEXT, submitted_at TEXT, decided_at TEXT, event_id INTEGER)",
+            # Members the operator trusts: their events publish without waiting for approval.
+            "CREATE TABLE IF NOT EXISTS event_trusted_creators (platform TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, added_at TEXT NOT NULL, PRIMARY KEY (platform, user_id))",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
             "ALTER TABLE emoji_puzzle_rounds ADD COLUMN session_id INTEGER",
             "CREATE TABLE IF NOT EXISTS verified_forum_topics (topic_id INTEGER PRIMARY KEY, verified_name TEXT NOT NULL, category_key TEXT NOT NULL UNIQUE, verification_source TEXT NOT NULL, verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (topic_id) REFERENCES forum_topics(topic_id))",
@@ -974,6 +976,26 @@ class Database:
             changed = cursor.rowcount
         await self._db.commit()
         return changed > 0
+
+    async def add_trusted_creator(self, platform: str, user_id: str, name: str, added_at: str) -> None:
+        await self._db.execute(
+            "INSERT OR REPLACE INTO event_trusted_creators (platform, user_id, name, added_at) VALUES (?, ?, ?, ?)",
+            (platform, str(user_id), name, added_at))
+        await self._db.commit()
+
+    async def remove_trusted_creator(self, platform: str, user_id: str) -> None:
+        await self._db.execute("DELETE FROM event_trusted_creators WHERE platform = ? AND user_id = ?",
+                               (platform, str(user_id)))
+        await self._db.commit()
+
+    async def list_trusted_creators(self) -> list[dict]:
+        async with self._db.execute("SELECT * FROM event_trusted_creators ORDER BY added_at DESC") as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def is_trusted_creator(self, platform: str, user_id: str) -> bool:
+        async with self._db.execute("SELECT 1 FROM event_trusted_creators WHERE platform = ? AND user_id = ?",
+                                    (platform, str(user_id))) as cursor:
+            return await cursor.fetchone() is not None
 
     async def get_event_voters(self, event_id: int) -> dict:
         """Resolve RSVP user_ids for an event to display_name + username.

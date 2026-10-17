@@ -63,7 +63,7 @@ async def whatsapp_link(db, requester="5@lid", name="דנה"):
 
 
 async def submit(db, token, form=None):
-    admin_bot = MagicMock(send_message=AsyncMock())
+    admin_bot = MagicMock(send_message=AsyncMock(), edit_message_reply_markup=AsyncMock())
     with patch("telegram.Bot", return_value=admin_bot):
         r = await dash.member_event_submit(token, req(form or FORM), db)
     return r, admin_bot
@@ -124,8 +124,8 @@ def test_approval_publishes_to_both_groups_once(tmp_path):
         with patch("bot.handlers.calendar.send_message_with_optional_cover", new=tg), \
              patch.object(whatsapp_sender, "send_text", new=text), patch.object(whatsapp_sender, "send_poll", new=poll), \
              patch.object(db, "get_handler_routing", new=AsyncMock(return_value={"play_topic_id": 341})):
-            first = await shared_events.approve_request(bot, db, rid)
-            second = await shared_events.approve_request(bot, db, rid)
+            first = await shared_events.approve_request(bot, db, rid, "real")
+            second = await shared_events.approve_request(bot, db, rid, "real")
         assert first["status"] == "ok" and second["status"] == "already_decided"
         card = tg.await_args.kwargs["text"]
         assert tg.await_args.kwargs["chat_id"] == -100 and tg.await_args.kwargs["message_thread_id"] == 341
@@ -134,6 +134,44 @@ def test_approval_publishes_to_both_groups_once(tmp_path):
         event = await db.get_event(first["event_id"])
         assert event["wa_poll_stanza"] == "POLL1" and event["card_text"] == card
         assert (await db.get_event_request(request_id=rid))["status"] == "approved"
+    run(tmp_path, body)
+
+
+def test_test_mode_posts_only_to_the_two_test_groups(tmp_path):
+    async def body(db):
+        token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        await submit(db, token)
+        rid = (await db.get_event_request(token=token))["id"]
+        bot = MagicMock(edit_message_reply_markup=AsyncMock())
+        tg = AsyncMock(return_value=SimpleNamespace(message_id=7))
+        text, poll = AsyncMock(return_value="x"), AsyncMock(return_value="true_222@g.us_POLL2_x")
+        with patch("bot.handlers.calendar.send_message_with_optional_cover", new=tg), \
+             patch.object(whatsapp_sender, "send_text", new=text), patch.object(whatsapp_sender, "send_poll", new=poll):
+            assert (await shared_events.approve_request(bot, db, rid, "test"))["status"] == "ok"
+        assert tg.await_args.kwargs["chat_id"] == -200 and tg.await_args.kwargs["message_thread_id"] is None
+        assert text.await_args.args[0] == "222@g.us"
+    run(tmp_path, body)
+
+
+def test_trusted_member_events_publish_without_waiting_for_approval(tmp_path):
+    async def body(db):
+        first = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        await submit(db, first)
+        rid = (await db.get_event_request(token=first))["id"]
+        await shared_events.trust_requester(db, rid)
+        assert await db.is_trusted_creator("whatsapp", "5@lid")
+        await db.update_event_request(rid, status="approved")
+        second = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        tg = AsyncMock(return_value=SimpleNamespace(message_id=9))
+        with patch("bot.handlers.calendar.send_message_with_optional_cover", new=tg), \
+             patch.object(whatsapp_sender, "send_text", new=AsyncMock(return_value="x")), \
+             patch.object(whatsapp_sender, "send_poll", new=AsyncMock(return_value="true_222@g.us_P3_x")):
+            r, admin = await submit(db, second)
+        assert r == {"status": "ok"} and tg.await_count == 1
+        assert (await db.get_event_request(token=second))["status"] == "approved"
+        assert admin.send_message.await_args.kwargs["reply_markup"] is None
+        await db.remove_trusted_creator("whatsapp", "5@lid")
+        assert not await db.is_trusted_creator("whatsapp", "5@lid")
     run(tmp_path, body)
 
 

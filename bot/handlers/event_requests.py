@@ -17,7 +17,7 @@ from ..database.db import Database
 from ..utils.config import ADMIN_IDS, GROUP_ID, TEST_GROUP_ID
 from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
-from ..utils.shared_events import approve_request, asks_for_event, create_request_link, reject_request
+from ..utils.shared_events import approve_request, asks_for_event, create_request_link, reject_request, trust_requester
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
 from .community_replies import _is_addressed_to_bot
 
@@ -61,12 +61,16 @@ async def handle_decision(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer()
         return
     approve = query.data.startswith("evreq_ok_")
-    request_id = int(query.data.rsplit("_", 1)[1])
+    parts = query.data.split("_")
+    request_id = int(parts[2])
+    choice = parts[3] if len(parts) > 3 else None  # real | test | trust
     db: Database = context.bot_data["db"]
     await query.answer()
     if approve:
         try:
-            result = await approve_request(context.bot, db, request_id)
+            result = await approve_request(context.bot, db, request_id, "test" if choice == "test" else "real")
+            if choice == "trust" and result["status"] in ("ok", "partial"):
+                await trust_requester(db, request_id)
         except Exception as e:
             logger.exception("event_requests: approve failed for %s", request_id)
             result = {"status": "failed", "error": str(e)[:200]}
@@ -90,4 +94,4 @@ async def handle_decision(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 def register(app) -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_event_request), group=7)
-    app.add_handler(CallbackQueryHandler(handle_decision, pattern=r"^evreq_(ok|no)_\d+$"))
+    app.add_handler(CallbackQueryHandler(handle_decision, pattern=r"^evreq_(ok|no)_\d+(_(real|test|trust))?$"))
