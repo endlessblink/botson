@@ -195,12 +195,30 @@ async def send_weekly_state_review(context: ContextTypes.DEFAULT_TYPE, *, force=
         return None
 
 
+_REPLY_EDGE_CHARS = ' \t\n"\'\u05f4\u05f3\u201c\u201d.,!?;:\u200f\u200e'
+
+
+def _normalize_reply(text):
+    """Trim quotes/punctuation and collapse spaces so "הסר!" matches "הסר"."""
+    return ' '.join(str(text or '').strip(_REPLY_EDGE_CHARS).split())
+
+
+def _phrase_set(copy, command_key, aliases_key):
+    aliases = copy.get(aliases_key) or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    phrases = [copy.get(command_key), *aliases]
+    return {_normalize_reply(p) for p in phrases if _normalize_reply(p)}
+
+
 async def checkin_membership_reply(update, context):
     message, user, chat = update.message, update.effective_user, update.effective_chat
     config = _review_config()
     copy = load_copy_block('weekly_state_review', default={}) or {}
-    command = str(getattr(message, 'text', '') or '').strip()
-    if command not in {copy.get('opt_in_command'), copy.get('opt_out_command')}:
+    command = _normalize_reply(getattr(message, 'text', ''))
+    opt_in = _phrase_set(copy, 'opt_in_command', 'opt_in_aliases')
+    opt_out = _phrase_set(copy, 'opt_out_command', 'opt_out_aliases')
+    if not command or command not in opt_in | opt_out:
         return
     if (not message or not user or user.is_bot or not chat or chat.id != GROUP_ID or
             getattr(message, 'message_thread_id', None) != config.get('topic_id') or
@@ -210,7 +228,7 @@ async def checkin_membership_reply(update, context):
     reply_id = message.reply_to_message.message_id
     if not await db.is_weekly_checkin_post(GROUP_ID, config['topic_id'], reply_id):
         return
-    subscribe = command == copy.get('opt_in_command')
+    subscribe = command in opt_in
     if subscribe:
         live = await context.bot.get_chat_member(GROUP_ID, user.id)
         if not _active_member(live, user.id):

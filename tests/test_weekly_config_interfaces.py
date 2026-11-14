@@ -264,3 +264,16 @@ def test_new_member_can_opt_in_without_handle_and_is_id_bound(interfaces, monkey
             await db.close()
     assert '@all' not in asyncio.run(scenario())
     send.assert_awaited_once()
+
+
+def test_short_reply_forms_match_opt_in_and_out():
+    copy = weekly.load_copy_block('weekly_state_review', default={}) or {}
+    opt_in = weekly._phrase_set(copy, 'opt_in_command', 'opt_in_aliases')
+    opt_out = weekly._phrase_set(copy, 'opt_out_command', 'opt_out_aliases')
+    assert not opt_in & opt_out
+    for reply in ('הסר', ' הסר! ', '״הסר אותי מהתיוג״', 'הסר אותי'):
+        assert weekly._normalize_reply(reply) in opt_out
+    for reply in ('תייג', 'תייג אותי.', '"תייגו אותי"'):
+        assert weekly._normalize_reply(reply) in opt_in
+    for reply in ('הסרה של הפוסט', 'מה קורה', ''):
+        assert weekly._normalize_reply(reply) not in opt_in | opt_out
