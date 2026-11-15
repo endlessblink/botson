@@ -108,6 +108,14 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-10-13 — about 15 candidates for Wed–Sat were rejected by the quality gate or skipped by the operator; only concrete, playful formats survived._
 - אל תסתמכו על חדשות יבשות (הכרזות, תאריכי יציאה, מחקרים) כבסיס לשאלה בלי זווית אישית וחמה לחברי הקהילה; חדשות מחקר מוצלחות רק כשהן מלוות בתמונה ובשאלה שהכל יכולים לענות עליה בשורה אחת.
   _**Source:** chat via /teach-bot, 2026-10-13 — operator skipped three researched news-based posts in a row and chose group-life formats._
+- עוגן חדשותי חייב לגעת בחיים של הקבוצה עכשיו: מה שקרה השבוע בישראל, בקבוצה עצמה או בתחביב שחברי הקבוצה באמת עוסקים בו. חדשה מחו"ל שלא נוגעת להם, מנהג או חג שלא שייכים לקהל, סיפור יד שנייה מפורום זר, או חדשה ישנה שמוצגת כאילו היא חדשה — נפסלים. לפני שמשתמשים בחדשה, בדוק מתי היא קרתה.
+  _**Source:** chat via /teach-bot, 2026-11-15 — operator replaced a run of drafts hooked to foreign or old news (a holiday remake, a Hollywood sequel, a three-year-old airline trial, a Reddit thread) and kept the one tied to a film the group had watched the night before._
+- תבנית "הפריט האחד שאתם הכי אוהבים / לא מבינים / הייתם רוצים" (אלבום, שיר של תקופה, סרט מוערך יתר על המידה, המשך שמגיע לסרט, תרגיל שנוא) נחשבת גנרית ומוכרת גם כשהיא קלה למענה. העדף תרחיש שמכניס את הקורא לתפקיד, להמצאה או לגבול אישי, כך שהתשובה אומרת משהו עליו.
+  _**Source:** chat via /teach-bot, 2026-11-15 — operator said the replaced drafts were too generic and felt already done; the approved ones put the reader in a scenario (pet as coworker, inventing an app feature, a task they would never hand to AI)._
+- ברירת המחדל היא שאלה פתוחה. סקר עם אפשרויות מוכנות רק כשהאפשרויות עצמן הן העוגן או הבדיחה, ולא יותר מסקר אחד ביום בכל הקבוצה.
+  _**Source:** chat via /teach-bot, 2026-11-15 — operator replaced three multiple-choice polls in a row and named "too many polls" as a reason._
+- תוכן שכבר פורסם באחת הקבוצות (טלגרם או וואטסאפ) לא ממוחזר לקבוצה השנייה כאילו הוא חדש, וגם לא בניסוח מחודש.
+  _**Source:** chat via /teach-bot, 2026-11-15 — operator rejected two drafts that reused items WhatsApp had already received in October and named "already done before"._
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
