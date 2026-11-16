@@ -116,6 +116,14 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-11-15 — operator replaced three multiple-choice polls in a row and named "too many polls" as a reason._
 - תוכן שכבר פורסם באחת הקבוצות (טלגרם או וואטסאפ) לא ממוחזר לקבוצה השנייה כאילו הוא חדש, וגם לא בניסוח מחודש.
   _**Source:** chat via /teach-bot, 2026-11-15 — operator rejected two drafts that reused items WhatsApp had already received in October and named "already done before"._
+- עוגן של חג או עונה מתאים רק בימים הסמוכים לאירוע עצמו. שבועיים לפני החג זה מרגיש מאולץ — חכה לשבוע של החג.
+  _**Source:** chat via /teach-bot, 2026-11-16 — operator rejected holiday-hooked drafts posted about two weeks before the holiday and named "too early"._
+- עוגן טרי לא מצדיק שאלה שרק מיעוט יכול לענות עליה (מי שכבר שיחק במשחק שיצא עכשיו, מי שמכיר מקומות ספציפיים). אם רוב החברים לא יכולים לענות מהניסיון שלהם, נסח זווית שכולם יכולים להיכנס אליה או דלג.
+  _**Source:** chat via /teach-bot, 2026-11-16 — operator rejected drafts that needed niche first-hand experience and named "only fits a few people"._
+- זווית אל-הורית לא נבנית על התחמקות מילדים או לעג להורים — זו בדיחה שחוקה. תוכן אל-הורי עוסק בחיים, בבחירות ובחופש של החברים עצמם.
+  _**Source:** chat via /teach-bot, 2026-11-16 — operator rejected a draft about excuses to skip a kids' event and called the angle cheap._
+- נושא חדשותי חם מקבל פוסט אחד, לכל היותר שניים בהפרש של שבועות. לא חוזרים לאותו נושא בכל ערוץ או בכל יום שבו הוא בכותרות.
+  _**Source:** chat via /teach-bot, 2026-11-16 — operator rejected another post about the same big game launch after two earlier ones and named "again"._
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
