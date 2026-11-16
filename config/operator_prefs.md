@@ -124,6 +124,8 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-11-16 — operator rejected a draft about excuses to skip a kids' event and called the angle cheap._
 - נושא חדשותי חם מקבל פוסט אחד, לכל היותר שניים בהפרש של שבועות. לא חוזרים לאותו נושא בכל ערוץ או בכל יום שבו הוא בכותרות.
   _**Source:** chat via /teach-bot, 2026-11-16 — operator rejected another post about the same big game launch after two earlier ones and named "again"._
+- עוגן מהשיחה בקבוצה שווה פוסט רק אם הנושא עוד לא מוצה. אם החברים כבר דיברו עליו בהרחבה ואמרו את מה שהיה להם להגיד, אל תפתח אותו שוב — חפש נושא שעוד לא נטחן.
+  _**Source:** chat via /teach-bot, 2026-11-16 — operator approved using a fresh hook from the group chat, but only when the topic has not already been talked out._
 
 **Source:** Botson unification thread, 2026-05-15 — operator stated principles distilled from prior conversations about why discussion prompts were unsatisfactory.
 
