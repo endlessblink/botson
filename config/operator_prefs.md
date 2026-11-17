@@ -116,6 +116,8 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-11-16 — operator replaced five scenario drafts on everyday topics (commute, office return, album, game, AI replying for you) as too generic, and approved only the one tied to a situation specific to the channel's members._
 - רשימת אירועים או מודעה (הופעה, כרטיסים, השקה) אינה עוגן כשאף אחד בקבוצה לא מדבר עליה. עוגן אמיתי הוא שיחה שכבר מתנהלת בערוץ. ושאלה שבנויה על אמן או יוצר אחד מתאימה רק למעטים שמכירים אותו, ולכן לא מתאימה לפוסט כללי.
   _**Source:** chat via /teach-bot, 2026-11-17 — operator replaced a question tied to an Israeli singer's concert listing as fitting only a few and not a real hook, and approved the same day's question built on a disappointment members had raised in the channel the night before._
+- הקלישאה המוכרת ביותר של נישה (השאלה שכל טבעוני, רווק או עובד מהבית שמע אלף פעם) אינה עוגן, גם אם היא ייחודית לחברי הערוץ. היא מזמינה את אותן תשובות שחוקות. מצב ייחודי לערוץ עובד רק כשיש בו פרט שהקהל עוד לא טחן: מצב מעשי ופחות מדובר, עם תוצאה שאפשר להתווכח עליה.
+  _**Source:** chat via /teach-bot, 2026-11-17 — operator replaced the best-known stock question of a niche and a stock work-from-home mishap, and approved a concrete everyday-etiquette dilemma from the fitness channel._
 - ברירת המחדל היא שאלה פתוחה. סקר עם אפשרויות מוכנות רק כשהאפשרויות עצמן הן העוגן או הבדיחה, ולא יותר מסקר אחד ביום בכל הקבוצה.
   _**Source:** chat via /teach-bot, 2026-11-15 — operator replaced three multiple-choice polls in a row and named "too many polls" as a reason._
 - תוכן שכבר פורסם באחת הקבוצות (טלגרם או וואטסאפ) לא ממוחזר לקבוצה השנייה כאילו הוא חדש, וגם לא בניסוח מחודש.
