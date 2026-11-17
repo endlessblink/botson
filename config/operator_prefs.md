@@ -118,6 +118,8 @@ If a correction doesn't fit any of these, add a new context category.
   _**Source:** chat via /teach-bot, 2026-11-17 — operator replaced a question tied to an Israeli singer's concert listing as fitting only a few and not a real hook, and approved the same day's question built on a disappointment members had raised in the channel the night before._
 - הקלישאה המוכרת ביותר של נישה (השאלה שכל טבעוני, רווק או עובד מהבית שמע אלף פעם) אינה עוגן, גם אם היא ייחודית לחברי הערוץ. היא מזמינה את אותן תשובות שחוקות. מצב ייחודי לערוץ עובד רק כשיש בו פרט שהקהל עוד לא טחן: מצב מעשי ופחות מדובר, עם תוצאה שאפשר להתווכח עליה.
   _**Source:** chat via /teach-bot, 2026-11-17 — operator replaced the best-known stock question of a niche and a stock work-from-home mishap, and approved a concrete everyday-etiquette dilemma from the fitness channel._
+- דילמת "אומרים משהו או שותקים / מורידים רמה או נותנים להתמודד" היא תבנית, לא רעיון: אחרי פעם אחת היא נשמעת כמו נוסחה וגנרית לכל קבוצה. וגם שאלה שבנויה על עצבים, מבוכה או מצב לא נעים (מישהו מעצבן, טעות של מארח) יוצרת אווירה שלילית. חפש שאלות שהתשובה עליהן כיפית לשתף, לא תלונה.
+  _**Source:** chat via /teach-bot, 2026-11-17 — operator replaced a full week of "say something or tolerate it" dilemmas built on annoyances and awkward moments, naming the dilemma template, genericness and negative vibe._
 - ברירת המחדל היא שאלה פתוחה. סקר עם אפשרויות מוכנות רק כשהאפשרויות עצמן הן העוגן או הבדיחה, ולא יותר מסקר אחד ביום בכל הקבוצה.
   _**Source:** chat via /teach-bot, 2026-11-15 — operator replaced three multiple-choice polls in a row and named "too many polls" as a reason._
 - תוכן שכבר פורסם באחת הקבוצות (טלגרם או וואטסאפ) לא ממוחזר לקבוצה השנייה כאילו הוא חדש, וגם לא בניסוח מחודש.
