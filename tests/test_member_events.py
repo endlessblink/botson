@@ -402,3 +402,38 @@ def test_tagging_in_a_group_points_to_a_private_chat_instead_of_posting_the_link
         assert r["status"] == "private_only" and "url" not in r and "http" not in r["text"]
         assert await db.list_event_requests(platform="whatsapp", requester_id="5@lid", since="2000-01-01") == []
     run(tmp_path, body)
+
+
+def test_an_event_opened_for_someone_else_names_the_person_responsible(tmp_path):
+    async def body(db):
+        token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        r, _ = await submit(db, token, {**FORM, "organizer": "  יעל   כהן  "})
+        assert r == {"status": "ok"}
+        saved = await db.get_event_request(token=token)
+        assert saved["organizer"] == "יעל כהן"
+        card = shared_events.request_card(saved)
+        assert load_copy("member_events", "card_organizer", name="יעל כהן") in card
+        # The opener is not also named: one name on the post, the responsible one.
+        assert load_copy("member_events", "card_by", name="דנה") not in card
+    run(tmp_path, body)
+
+
+def test_without_a_responsible_name_the_post_still_names_the_opener(tmp_path):
+    async def body(db):
+        token = (await whatsapp_link(db))["url"].rsplit("/", 1)[1]
+        await submit(db, token, FORM)
+        saved = await db.get_event_request(token=token)
+        assert saved["organizer"] is None
+        card = shared_events.request_card(saved)
+        assert load_copy("member_events", "card_by", name="דנה") in card
+        assert load_copy("member_events", "card_organizer", name="דנה") not in card
+    run(tmp_path, body)
+
+
+def test_the_form_offers_the_responsible_field_and_its_wording_comes_from_config(tmp_path):
+    from pathlib import Path
+
+    html = Path("dashboard/templates/event_form.html").read_text(encoding="utf-8")
+    assert 'id="organizer"' in html and "c.form_organizer" in html and "organizer: $('organizer')" in html
+    for key in ("form_organizer", "form_organizer_hint", "card_organizer"):
+        assert load_copy("member_events", key, name="x").strip() and "[copy missing" not in load_copy("member_events", key, name="x")

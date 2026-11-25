@@ -69,6 +69,8 @@ class Database:
             "created_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', "
             "title TEXT, description TEXT, event_date TEXT, event_time TEXT, location TEXT, link TEXT, "
             "cover_path TEXT, submitted_at TEXT, decided_at TEXT, event_id INTEGER)",
+            # Who is responsible for the event, when it is not the person who opened the form.
+            "ALTER TABLE event_requests ADD COLUMN organizer TEXT",
             # Members the operator trusts: their events publish without waiting for approval.
             "CREATE TABLE IF NOT EXISTS event_trusted_creators (platform TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, added_at TEXT NOT NULL, PRIMARY KEY (platform, user_id))",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",

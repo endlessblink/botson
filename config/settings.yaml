@@ -141,6 +141,7 @@ copy:
     card_link: "🔗 לינק להצטרפות:\n{link}"
     card_image: "🖼️ {url}"
     card_by: "✨ נפתח ע״י {name}"
+    card_organizer: "✨ באחריות {name}"
     platform_telegram: "טלגרם"
     platform_whatsapp: "וואטסאפ"
     # Operator approval DM.
@@ -169,6 +170,8 @@ copy:
     form_time: "שעת התחלה"
     form_location: "איפה"
     form_location_hint: "כתובת, שם מקום או זום"
+    form_organizer: "מי אחראי על האירוע"
+    form_organizer_hint: "אם זה לא מי שפותח את הטופס, כתבו כאן את השם"
     form_description: "כמה מילים על האירוע"
     form_description_hint: "מה עושים, מה להביא, למי זה מתאים"
     form_link: "קישור"

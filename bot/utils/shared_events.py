@@ -122,7 +122,8 @@ def _israel_now():
 
 
 def format_card(*, title: str, description: str | None, event_date: str, event_time: str | None,
-                location: str | None, link: str | None, by: str | None, image_url: str | None = None) -> str:
+                location: str | None, link: str | None, by: str | None, image_url: str | None = None,
+                organizer: str | None = None) -> str:
     from datetime import date
 
     d = date.fromisoformat(event_date)
@@ -134,13 +135,17 @@ def format_card(*, title: str, description: str | None, event_date: str, event_t
         lines.append(load_copy("member_events", "card_where", location=location))
     if description:
         lines += ["", description]
-    if link or image_url or by:
+    organizer = str(organizer or "").strip()
+    if link or image_url or by or organizer:
         lines.append("")
     if link:
         lines.append(load_copy("member_events", "card_link", link=link))
     if image_url:
         lines.append(load_copy("member_events", "card_image", url=image_url))
-    if by:
+    # Opened for someone else: the post names the person responsible, not the opener.
+    if organizer:
+        lines.append(load_copy("member_events", "card_organizer", name=organizer))
+    elif by:
         lines.append(load_copy("member_events", "card_by", name=by))
     return "\n".join(lines)
 
@@ -241,7 +246,7 @@ def request_is_open(req: dict | None) -> bool:
 def request_card(req: dict, *, image_url: str | None = None) -> str:
     return format_card(title=req["title"], description=req.get("description"), event_date=req["event_date"],
                        event_time=req.get("event_time"), location=req.get("location"), link=req.get("link"),
-                       by=req.get("requester_name"), image_url=image_url)
+                       by=req.get("requester_name"), image_url=image_url, organizer=req.get("organizer"))
 
 
 def _media_url(cover_path: str | None) -> str | None:

@@ -115,6 +115,10 @@ textarea { min-height: 96px; resize: vertical; }
       <label for="location">{{ c.form_location }} <small>{{ c.form_optional }}</small></label>
       <input id="location" maxlength="120" placeholder="{{ c.form_location_hint }}">
     </div>
+    <div class="field" data-f="organizer">
+      <label for="organizer">{{ c.form_organizer }} <small>{{ c.form_optional }}</small></label>
+      <input id="organizer" maxlength="60" placeholder="{{ c.form_organizer_hint }}" autocomplete="off">
+    </div>
     <div class="field" data-f="description">
       <label for="description">{{ c.form_description }} <small>{{ c.form_optional }}</small></label>
       <textarea id="description" maxlength="{{ max_desc }}" placeholder="{{ c.form_description_hint }}"></textarea>
@@ -176,14 +180,15 @@ function preview() {
   if (when) lines.push(when);
   if (v('location')) lines.push(fill(C.card_where, { location: v('location') }));
   if (v('description')) lines.push('', v('description'));
-  if (v('link') || BY) lines.push('');
+  if (v('link') || BY || v('organizer')) lines.push('');
   if (v('link')) lines.push(fill(C.card_link, { link: v('link') }));
-  if (BY) lines.push(fill(C.card_by, { name: BY }));
+  if (v('organizer')) lines.push(fill(C.card_organizer, { name: v('organizer') }));
+  else if (BY) lines.push(fill(C.card_by, { name: BY }));
   $('pv').textContent = lines.join('\n');
   $('desc-count').textContent = $('description').value.length;
 }
 
-['title', 'event_date', 'event_time', 'location', 'description', 'link'].forEach(function (id) {
+['title', 'event_date', 'event_time', 'location', 'organizer', 'description', 'link'].forEach(function (id) {
   $(id).addEventListener('input', function () { $(id).closest('.field').classList.remove('bad'); preview(); });
 });
 
@@ -271,7 +276,7 @@ $('send').addEventListener('click', async function () {
       body: JSON.stringify({
         title: $('title').value.trim(), event_date: $('event_date').value, event_time: $('event_time').value,
         location: $('location').value.trim(), description: $('description').value.trim(),
-        link: $('link').value.trim(), image: imageData,
+        link: $('link').value.trim(), organizer: $('organizer').value.trim(), image: imageData,
         live: $('live') ? $('live').checked : null,
         save_template: $('save-tpl') ? $('save-tpl').checked : false, template_name: LOADED,
       }),

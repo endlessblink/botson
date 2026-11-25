@@ -3576,6 +3576,8 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     location = str(data.get("location") or "").strip()[:120]
     description = str(data.get("description") or "").strip()[: int(cfg.get("max_description_chars", 400))]
     link = str(data.get("link") or "").strip()[:300]
+    # Optional: who is responsible, when the form is opened for someone else. One line, a name only.
+    organizer = " ".join(str(data.get("organizer") or "").split())[:60]
     today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
     errors = {}
     if not title or len(title) > int(cfg.get("max_title_chars", 80)):
@@ -3609,7 +3611,8 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     if not await db.update_event_request(
         req["id"], expect_status="open", status="submitted", title=title, event_date=event_date,
         event_time=event_time, location=location or None, description=description or None,
-        link=link or None, cover_path=cover_path, submitted_at=datetime.now(ZoneInfo("Asia/Jerusalem")).isoformat(),
+        link=link or None, organizer=organizer or None, cover_path=cover_path,
+        submitted_at=datetime.now(ZoneInfo("Asia/Jerusalem")).isoformat(),
     ):
         return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)
     req = await db.get_event_request(request_id=req["id"])
