@@ -121,9 +121,10 @@ def _israel_now():
     return datetime.now(ZoneInfo("Asia/Jerusalem"))
 
 
-def format_card(*, title: str, description: str | None, event_date: str, event_time: str | None,
+def _card_lines(*, title: str, description: str | None, event_date: str, event_time: str | None,
                 location: str | None, link: str | None, by: str | None, image_url: str | None = None,
-                organizer: str | None = None) -> str:
+                organizer: str | None = None, link_line: str | None = None) -> tuple[list[str], int | None]:
+    """The card's lines, and which of them is the link line."""
     from datetime import date
 
     d = date.fromisoformat(event_date)
@@ -138,8 +139,10 @@ def format_card(*, title: str, description: str | None, event_date: str, event_t
     organizer = str(organizer or "").strip()
     if link or image_url or by or organizer:
         lines.append("")
+    link_at = None
     if link:
-        lines.append(load_copy("member_events", "card_link", link=link))
+        link_at = len(lines)
+        lines.append(link_line or load_copy("member_events", "card_link", link=link))
     if image_url:
         lines.append(load_copy("member_events", "card_image", url=image_url))
     # Opened for someone else: the post names the person responsible, not the opener.
@@ -147,7 +150,50 @@ def format_card(*, title: str, description: str | None, event_date: str, event_t
         lines.append(load_copy("member_events", "card_organizer", name=organizer))
     elif by:
         lines.append(load_copy("member_events", "card_by", name=by))
-    return "\n".join(lines)
+    return lines, link_at
+
+
+def format_card(**fields) -> str:
+    """The card with a visible link: WhatsApp and the approver."""
+    return "\n".join(_card_lines(**fields)[0])
+
+
+def _utf16(text: str) -> int:  # Telegram counts positions this way
+    return len(text.encode("utf-16-le")) // 2
+
+
+def telegram_card(**fields) -> tuple[str, list[dict]]:
+    """The card for Telegram, with the link behind words, as (text, link positions).
+
+    No parse mode: the text stays plain and only the marked words are a link, so nothing a
+    member wrote can become formatting or a hidden link, and nothing needs escaping."""
+    from urllib.parse import urlsplit
+
+    link = fields.get("link")
+    words = load_copy("member_events", "card_link_words")
+    # Telegram drops a link whose host it does not accept: then the address itself is shown.
+    if not link or not valid_link(link) or "." not in (urlsplit(link).hostname or ""):
+        return format_card(**fields), []
+    prefix, _, suffix = load_copy("member_events", "card_link_telegram", words="\0").partition("\0")
+    lines, at = _card_lines(**fields, link_line=prefix + words + suffix)
+    before = "\n".join(lines[:at]) + "\n" + prefix
+    return "\n".join(lines), [{"offset": _utf16(before), "length": _utf16(words), "url": link}]
+
+
+def card_entities(raw, text: str) -> list | None:
+    """Stored link positions as Telegram entities, for a text that starts with the card."""
+    import json
+
+    from telegram import MessageEntity
+
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        found = [MessageEntity(MessageEntity.TEXT_LINK, int(i["offset"]), int(i["length"]), url=str(i["url"])) for i in items]
+    except (ValueError, TypeError, KeyError):
+        return None
+    return [e for e in found if e.offset + e.length <= _utf16(text)] or None
+
+
 
 
 def norm_id(raw) -> str:
@@ -433,10 +479,14 @@ def request_is_open(req: dict | None) -> bool:
     return bool(req and req["status"] == "open" and req["expires_at"] > _israel_now().isoformat())
 
 
+def _request_fields(req: dict, image_url: str | None = None) -> dict:
+    return dict(title=req["title"], description=req.get("description"), event_date=req["event_date"],
+                event_time=req.get("event_time"), location=req.get("location"), link=req.get("link"),
+                by=req.get("requester_name"), image_url=image_url, organizer=req.get("organizer"))
+
+
 def request_card(req: dict, *, image_url: str | None = None) -> str:
-    return format_card(title=req["title"], description=req.get("description"), event_date=req["event_date"],
-                       event_time=req.get("event_time"), location=req.get("location"), link=req.get("link"),
-                       by=req.get("requester_name"), image_url=image_url, organizer=req.get("organizer"))
+    return format_card(**_request_fields(req, image_url))
 
 
 def _media_url(cover_path: str | None) -> str | None:
@@ -647,6 +697,7 @@ def targets_for(mode: str | None) -> tuple[str, str]:
 async def approve_request(bot, db, request_id: int, mode: str | None = None) -> dict:
     """Publish an approved member event to Telegram (card + sign-up buttons) and
     WhatsApp (card + sign-up poll). Safe against double taps."""
+    import json
     import os
 
     from ..handlers.calendar import send_message_with_optional_cover
@@ -668,11 +719,13 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
         topic_id = routing["play_topic_id"] if routing else None
     # Only the posts carry the cleaned address; the request keeps the original link.
     posted = {**req, "link": await post_link(db, req.get("link"))}
-    card = request_card(posted)
+    card, links = telegram_card(**_request_fields(posted))
     sent = await send_message_with_optional_cover(bot, db=db, chat_id=chat_id, text=card,
-                                                  message_thread_id=topic_id, cover_path=req.get("cover_path"))
+                                                  message_thread_id=topic_id, cover_path=req.get("cover_path"),
+                                                  entities=card_entities(links, card))
     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=sent.message_id, reply_markup=rsvp_markup(event_id))
-    await db.update_event(event_id, message_id=sent.message_id, tg_chat_id=chat_id, topic_id=topic_id, card_text=card)
+    await db.update_event(event_id, message_id=sent.message_id, tg_chat_id=chat_id, topic_id=topic_id, card_text=card,
+                          card_entities=json.dumps(links, ensure_ascii=False) if links else None)
     await db.update_event_request(request_id, status="approved", event_id=event_id)
     await db.log_activity("event", f"member event {event_id} approved: {req['title'][:60]}", target_channel=str(topic_id or chat_id))
     result = {"status": "ok", "event_id": event_id}

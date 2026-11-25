@@ -62,6 +62,8 @@ class Database:
             "ALTER TABLE events ADD COLUMN wa_poll_stanza TEXT",
             "ALTER TABLE events ADD COLUMN tg_chat_id INTEGER",
             "ALTER TABLE events ADD COLUMN card_text TEXT",
+            # Where the link sits in card_text (JSON), so every edit of the card keeps it.
+            "ALTER TABLE events ADD COLUMN card_entities TEXT",
             # Member-created events: a personal form link, then operator approval.
             "CREATE TABLE IF NOT EXISTS event_requests ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, "

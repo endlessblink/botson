@@ -333,6 +333,9 @@ copy:
     card_when: "🕒 יום {day}, {date} · {time}"
     card_where: "📍 {location}"
     card_link: "🔗 לינק להצטרפות:\n{link}"
+    # Telegram only: these words are the link, the address is not shown.
+    card_link_telegram: "🔗 {words}"
+    card_link_words: "לינק להצטרפות"
     card_image: "🖼️ {url}"
     card_by: "✨ נפתח ע״י {name}"
     card_organizer: "✨ באחריות {name}"
@@ -378,6 +381,7 @@ copy:
     form_image_hint: "אפשר גם להדביק תמונה או לגרור אותה לכאן"
     form_optional: "לא חובה"
     form_preview: "ככה זה ייראה"
+    form_preview_whatsapp: "בוואטסאפ תופיע הכתובת עצמה."
     form_live: "לפרסם בקבוצות האמיתיות"
     form_live_hint: "כבוי = רק קבוצות הבדיקה. הבחירה נשמרת גם לפעם הבאה, לכולם."
     form_delete_template: "למחוק תבנית"

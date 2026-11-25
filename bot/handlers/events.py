@@ -18,7 +18,7 @@ from ..utils.config import GROUP_ID, get_settings, is_feature_enabled
 from ..utils.helpers import is_admin, get_display_name
 from ..utils.levels import check_level_up
 from ..utils import whatsapp_sender
-from ..utils.shared_events import card_with_rsvps, whatsapp_line
+from ..utils.shared_events import card_entities, card_with_rsvps, whatsapp_line
 
 logger = logging.getLogger(__name__)
 
@@ -251,14 +251,19 @@ async def handle_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     maybe_names = [v["display_name"] for v in voters["maybe"]]
 
     original = query.message.caption or query.message.text or ""
+    # A card with a link behind words: the stored text is what the link's position belongs to.
+    if event.get("card_entities") and event.get("card_text"):
+        original = event["card_text"]
     # Shared events also carry a WhatsApp sign-up count (numbers only).
     new_text = card_with_rsvps(original, yes_names, maybe_names, await whatsapp_line(db, event))
 
+    links = card_entities(event.get("card_entities"), original)
     try:
         if query.message.caption is not None:
-            await query.edit_message_caption(caption=new_text, reply_markup=keyboard)
+            await query.edit_message_caption(caption=new_text, reply_markup=keyboard,
+                                             **({"caption_entities": links} if links else {}))
         elif query.message.text is not None:
-            await query.edit_message_text(text=new_text, reply_markup=keyboard)
+            await query.edit_message_text(text=new_text, reply_markup=keyboard, **({"entities": links} if links else {}))
         else:
             # Message has no editable text surface (shouldn't happen for event cards).
             await query.edit_message_reply_markup(reply_markup=keyboard)

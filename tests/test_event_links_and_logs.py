@@ -22,6 +22,7 @@ from tests.test_event_picture import MEMBER, page, req
 
 REPO = Path(__file__).resolve().parent.parent
 LONG = "https://tickets.example.com/shows/%D7%A9%D7%9D-%D7%90%D7%99%D7%A8%D7%95%D7%A2-%D7%9C%D7%93%D7%95%D7%92%D7%9E%D7%94/1234567890/?a=1&b=%2F#x"
+WORDS = load_copy("member_events", "card_link_words")
 FORM = {"title": "Vinyl night", "event_date": "2099-01-01", "event_time": "20:00", "link": LONG}
 
 
@@ -75,7 +76,23 @@ async def publish(db, request_id):
             patch.object(whatsapp_sender, "send_text", wa), patch.object(whatsapp_sender, "send_poll", AsyncMock(return_value="true_2@g.us_ABC_x")):
         r = await shared_events.approve_request(MagicMock(edit_message_reply_markup=AsyncMock()), db, request_id, "test")
     assert r["status"] == "ok"
+    SENT.clear()
+    SENT.update(tg.await_args.kwargs)
     return tg.await_args.kwargs["text"], wa.await_args.args[1]
+
+
+SENT: dict = {}
+
+
+def linked(text, entities):
+    """(words, address) of each link, read the way Telegram reads positions."""
+    raw = text.encode("utf-16-le")
+    return [(raw[e.offset * 2:(e.offset + e.length) * 2].decode("utf-16-le"), e.url) for e in entities or []]
+
+
+def tg_links(text):
+    assert "://" not in text.split("\n")[-2] and all(w == WORDS for w, _ in linked(text, SENT["entities"]))
+    return [url for _, url in linked(text, SENT["entities"])]
 
 
 def link_lines(text):
@@ -103,7 +120,7 @@ def test_the_code_in_the_preview_works_at_once_and_is_the_one_in_both_posts(tmp_
         _, row, admin = await submitted(db)
         assert LONG in admin.send_message.await_args.kwargs["text"]  # the approver sees where it really goes
         tg, wa = await publish(db, row["id"])
-        assert link_lines(tg) == link_lines(wa) == [shown] and LONG not in tg + wa
+        assert tg_links(tg) == link_lines(wa) == [shown] and LONG not in tg + wa
         assert shown in whatsapp_sender.rtl_text(wa).split("\n")  # no invisible mark on the link line
         assert (await db.get_event_request(request_id=row["id"]))["link"] == LONG
         assert await codes(db) == [{"code": shown[-8:], "url": LONG}]
@@ -132,7 +149,7 @@ def test_one_form_can_only_make_a_few_codes(tmp_path):
         assert "/l/" in await look(db, token, made)  # its own links still answer
         _, row, _ = await submitted(db, {**FORM, "link": refused}, previewed=False)
         tg, wa = await publish(db, row["id"])
-        assert link_lines(tg) == link_lines(wa) == [refused]  # the post agrees with what was shown
+        assert tg_links(tg) == link_lines(wa) == [refused]  # the post agrees with what was shown
     run(tmp_path, body)
 
 
@@ -294,7 +311,7 @@ def test_the_preview_and_both_posts_show_the_same_cleaned_link(tmp_path):
         assert seen == {"link": FB}
         _, row, _ = await submitted(db, {**FORM, "link": typed})
         tg, wa = await publish(db, row["id"])
-        assert link_lines(tg) == link_lines(wa) == [FB]
+        assert tg_links(tg) == link_lines(wa) == [FB]
         assert (await db.get_event_request(request_id=row["id"]))["link"] == typed and await codes(db) == []
         with pytest.raises(dash.HTTPException) as e:  # a used form answers nothing
             await dash.member_event_link_preview(token, req({"link": typed}), db)
@@ -339,3 +356,137 @@ def test_the_service_log_shows_which_cli_read_the_picture_and_nothing_private():
 def test_the_lines_are_not_printed_twice_where_logging_is_already_set_up():
     log = service_log(READ, prelude="logging.basicConfig(level=logging.WARNING)")
     assert log.count("codex read the picture") == 1 and log.count("[cli-timing] codex ok") == 1
+
+
+# ── The link behind words in Telegram ──
+
+NASTY = {"title": "🎉<b>Hi</b> & [x](http://evil.example) @name _a_ *b*", "location": "<a href='http://evil.example'>bar</a>",
+         "description": f"*bold* _it_ `c` ||s|| [t](tg://user?id=1) &amp;\n🔗 {WORDS}\n👨‍👩‍👧 end", "organizer": f"<i>Y</i> {WORDS}",
+         "event_date": "2099-01-01", "event_time": "20:00", "link": "https://example.com/tickets?a=1&b=<2>"}
+
+
+async def published(db, form, cover=None):
+    _, row, admin = await submitted(db, form)
+    if cover:
+        await db.update_event_request(row["id"], cover_path=cover)
+    tg, wa = await publish(db, row["id"])
+    row = await db.get_event_request(request_id=row["id"])
+    return tg, wa, await db.get_event(row["event_id"]), admin
+
+
+def test_only_the_link_line_is_a_link_and_all_other_text_stays_plain(tmp_path):
+    async def body(db):
+        tg, wa, event, admin = await published(db, NASTY)
+        assert linked(tg, SENT["entities"]) == [(WORDS, NASTY["link"])]
+        assert "parse_mode" not in SENT  # nothing is interpreted, so nothing needs escaping
+        for part in (NASTY["title"], NASTY["location"], NASTY["description"], NASTY["organizer"]):
+            assert part in tg
+        # the words also appear in the description: the link is the real link line, after it
+        assert SENT["entities"][0].offset > len(tg[: tg.index("end")].encode("utf-16-le")) // 2
+        assert NASTY["link"] not in tg and link_lines(wa)[-1] == NASTY["link"]
+        assert event["card_text"] == tg
+        # the approver still sees the address itself
+        assert NASTY["link"] in admin.send_message.await_args.kwargs["text"] and "entities" not in admin.send_message.await_args.kwargs
+    run(tmp_path, body)
+
+
+def test_the_card_really_goes_to_telegram_with_its_link_with_and_without_a_picture(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    (tmp_path / "c.png").write_bytes(b"x")
+    ents = shared_events.card_entities([{"offset": 0, "length": 2, "url": "https://a.b/c"}], "hi")
+
+    async def body(db):
+        for cover, method, key in ((None, "send_message", "entities"), ("c.png", "send_photo", "caption_entities"), ("gone.png", "send_message", "entities")):
+            bot = MagicMock(send_message=AsyncMock(), send_photo=AsyncMock())
+            for given in (ents, None):
+                await calendar_handler.send_message_with_optional_cover(bot, db=db, chat_id=-200, text="hi", cover_path=cover,
+                                                                        bypass_verification=True, entities=given)
+                kw = getattr(bot, method).await_args.kwargs
+                assert kw.get(key) == given and "parse_mode" not in kw
+    run(tmp_path, body)
+
+
+def test_a_card_without_a_usable_link_has_no_hyperlink():
+    base = {"title": "t", "description": None, "event_date": "2099-01-01", "event_time": "20:00", "location": None, "by": "x"}
+    text, links = shared_events.telegram_card(**base, link=None)
+    assert links == [] and WORDS not in text
+    for odd in ("https://localhost/x", "javascript:alert(1)"):  # Telegram would drop it: show the address instead
+        text, links = shared_events.telegram_card(**base, link=odd)
+        assert links == [] and odd in text
+
+
+def test_stored_positions_are_checked_before_use():
+    good = [{"offset": 0, "length": 3, "url": "https://a.b"}]
+    assert shared_events.card_entities(json.dumps(good), "abc") and shared_events.card_entities(json.dumps(good), "ab") is None
+    for bad in (None, "", "not json", "[1]", '[{"offset":1}]', "{}", "[]"):
+        assert shared_events.card_entities(bad, "abc") is None
+
+
+@pytest.mark.parametrize("cover", [None, "c.png"])
+def test_signing_up_in_telegram_keeps_the_link(tmp_path, cover):
+    from bot.handlers import events as events_handler
+
+    async def body(db):
+        tg, _, event, _ = await published(db, NASTY, cover)
+        for shown in (tg, tg + "\n\n✅ מגיעים (1): x"):
+            query = MagicMock(data=f"rsvp_yes_{event['id']}", answer=AsyncMock(), edit_message_text=AsyncMock(), edit_message_caption=AsyncMock())
+            query.message.caption, query.message.text = (shown, None) if cover else (None, shown)
+            update = MagicMock(callback_query=query)
+            update.effective_user.id, update.effective_user.username = 5, "dana"
+            update.effective_user.first_name, update.effective_user.last_name, update.effective_user.full_name = "<b>Dana</b>", None, "<b>Dana</b>"
+            await events_handler.handle_rsvp(update, MagicMock(bot_data={"db": db}, bot=MagicMock(send_message=AsyncMock())))
+            kw = (query.edit_message_caption if cover else query.edit_message_text).await_args.kwargs
+            text = kw["caption" if cover else "text"]
+            assert text.startswith(tg) and text != tg
+            assert linked(text, kw["caption_entities" if cover else "entities"]) == [(WORDS, NASTY["link"])]
+            assert "parse_mode" not in kw
+    run(tmp_path, body)
+
+
+def test_signing_up_on_an_older_card_is_unchanged(tmp_path):
+    from bot.handlers import events as events_handler
+
+    async def body(db):
+        eid = await db.create_event(title="t", description="", event_date="2099-01-01", event_time=None, location=None, created_by=0)
+        await db.update_event(eid, message_id=7, tg_chat_id=-200, card_text="stored")
+        query = MagicMock(data=f"rsvp_yes_{eid}", answer=AsyncMock(), edit_message_text=AsyncMock())
+        query.message.caption, query.message.text = None, "as posted\nhttps://a.b/c"
+        update = MagicMock(callback_query=query)
+        update.effective_user.id, update.effective_user.username = 5, "dana"
+        update.effective_user.first_name, update.effective_user.last_name, update.effective_user.full_name = "Dana", None, "Dana"
+        await events_handler.handle_rsvp(update, MagicMock(bot_data={"db": db}, bot=MagicMock(send_message=AsyncMock())))
+        kw = query.edit_message_text.await_args.kwargs
+        assert kw["text"].startswith("as posted\nhttps://a.b/c") and "entities" not in kw
+    run(tmp_path, body)
+
+
+@pytest.mark.parametrize("cover", [None, "c.png"])
+def test_a_whatsapp_vote_keeps_the_telegram_link(tmp_path, cover):
+    async def body(db):
+        tg, _, event, _ = await published(db, NASTY, cover)
+        bot = MagicMock(edit_message_text=AsyncMock(), edit_message_caption=AsyncMock())
+        with patch("telegram.Bot", return_value=bot):
+            await dash.whatsapp_event_vote(req({"poll_id": event["wa_poll_stanza"], "voter": "9@lid", "option": load_copy("whatsapp", "event_poll_yes")}), db)
+        kw = (bot.edit_message_caption if cover else bot.edit_message_text).await_args.kwargs
+        text = kw["caption" if cover else "text"]
+        assert text.startswith(tg) and text != tg
+        assert linked(text, kw["caption_entities" if cover else "entities"]) == [(WORDS, NASTY["link"])] and "parse_mode" not in kw
+    run(tmp_path, body)
+
+
+def test_the_reminder_stays_plain_text(tmp_path, monkeypatch):
+    from datetime import date
+    from bot.handlers import events as events_handler
+
+    async def body(db):
+        _, _, event, _ = await published(db, NASTY)
+        await db.update_event(event["id"], event_date=(date.today() + timedelta(days=1)).isoformat())
+        send, wa = AsyncMock(), AsyncMock()
+        monkeypatch.setattr(events_handler, "safe_send", send)
+        monkeypatch.setattr(events_handler, "is_feature_enabled", lambda *_: True)
+        with patch.object(db, "get_handler_routing", AsyncMock(return_value={"play_topic_id": 341})), patch.object(whatsapp_sender, "send_text", wa):
+            await events_handler.send_event_reminder(MagicMock(bot_data={"db": db}))
+        text = send.await_args.kwargs["text"]
+        assert NASTY["title"] in text and "offset" not in text and "parse_mode" not in send.await_args.kwargs
+        assert wa.await_args.args[1] == text
+    run(tmp_path, body)

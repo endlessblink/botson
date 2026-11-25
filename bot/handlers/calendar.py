@@ -401,7 +401,8 @@ def _media_dir() -> Path:
 async def send_message_with_optional_cover(bot, *, db: Database, chat_id: int, text: str,
                                             message_thread_id: int | None = None,
                                             cover_path: str | None = None,
-                                            bypass_verification: bool = False):
+                                            bypass_verification: bool = False,
+                                            entities: list | None = None):
     """Send a message, as a photo with caption if cover_path is set.
 
     cover_path is stored relative to MEDIA_DIR (e.g. "covers/foo.png").
@@ -421,6 +422,7 @@ async def send_message_with_optional_cover(bot, *, db: Database, chat_id: int, t
                     caption=text,
                     message_thread_id=message_thread_id,
                     bypass_verification=bypass_verification,
+                    **({"caption_entities": entities} if entities else {}),
                 )
         logger.warning("cover_path %s not found at %s — falling back to text", cover_path, full)
     return await safe_send(
@@ -431,6 +433,7 @@ async def send_message_with_optional_cover(bot, *, db: Database, chat_id: int, t
         text=text,
         message_thread_id=message_thread_id,
         bypass_verification=bypass_verification,
+        **({"entities": entities} if entities else {}),
     )
 
 

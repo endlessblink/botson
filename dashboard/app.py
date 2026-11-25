@@ -3430,7 +3430,7 @@ async def whatsapp_event_vote(request: Request, db: Database = Depends(get_db)):
     """
     if not _is_agent_api_request(request):
         raise HTTPException(status_code=401, detail="unauthorized")
-    from bot.utils.shared_events import card_with_rsvps, stanza_of, status_for_option, whatsapp_line
+    from bot.utils.shared_events import card_entities, card_with_rsvps, stanza_of, status_for_option, whatsapp_line
 
     data = await request.json()
     stanza = stanza_of(data.get("poll_id"))
@@ -3452,14 +3452,15 @@ async def whatsapp_event_vote(request: Request, db: Database = Depends(get_db)):
             event["title"], event.get("description"), event["event_date"], event.get("event_time"), event.get("location"))
         text = card_with_rsvps(base, [v["display_name"] for v in voters["yes"]],
                                [v["display_name"] for v in voters["maybe"]], await whatsapp_line(db, event))
+        links = card_entities(event.get("card_entities"), base)
         bot = Bot(os.getenv("BOT_TOKEN", ""))
         kwargs = {"chat_id": event["tg_chat_id"], "message_id": event["message_id"],
                   "reply_markup": _event_rsvp_markup(event["id"])}
         try:
             if event.get("cover_path"):
-                await bot.edit_message_caption(caption=text, **kwargs)
+                await bot.edit_message_caption(caption=text, **kwargs, **({"caption_entities": links} if links else {}))
             else:
-                await bot.edit_message_text(text=text, **kwargs)
+                await bot.edit_message_text(text=text, **kwargs, **({"entities": links} if links else {}))
         except Exception as e:
             if "not modified" not in str(e).lower():
                 logger.warning("[events] could not refresh Telegram card for event %d: %s", event["id"], e)

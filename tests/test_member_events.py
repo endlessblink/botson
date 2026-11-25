@@ -160,7 +160,9 @@ def test_approval_publishes_to_both_groups_once(tmp_path):
         assert first["status"] == "ok" and second["status"] == "already_decided"
         card = tg.await_args.kwargs["text"]
         assert tg.await_args.kwargs["chat_id"] == -100 and tg.await_args.kwargs["message_thread_id"] == 341
-        assert "דנה" in card and "https://example.com/x" in card and "תל אביב" in card
+        assert [e.url for e in tg.await_args.kwargs["entities"]] == ["https://example.com/x"]
+        assert "https://example.com/x" in text.await_args.args[1]  # WhatsApp shows the address
+        assert "דנה" in card and "://" not in card and "תל אביב" in card
         assert text.await_args.args[0] == "111@g.us" and poll.await_count == 1
         event = await db.get_event(first["event_id"])
         assert event["wa_poll_stanza"] == "POLL1" and event["card_text"] == card
