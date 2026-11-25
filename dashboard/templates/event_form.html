@@ -54,9 +54,12 @@ textarea { min-height: 96px; resize: vertical; }
 .err { color: var(--err); font-size: 13px; margin-top: 5px; display: none; }
 .field.bad input, .field.bad textarea { border-color: var(--err); }
 .field.bad .err { display: block; }
-.pick { display: flex; align-items: center; gap: 12px; }
+.pick { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.pick button[hidden] { display: none; }
 .pick button, .ghost { font: inherit; font-weight: 500; border: 1.5px dashed var(--line); background: var(--field); color: var(--ink);
                        border-radius: 12px; padding: 12px 16px; cursor: pointer; }
+.hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+body.dropping .pick button { border-color: var(--accent); }
 .thumb { display: none; position: relative; }
 .thumb img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 12px; display: block; }
 .thumb .ghost { position: absolute; top: 8px; left: 8px; border-style: solid; background: rgba(0,0,0,.55); color: #fff; border-color: transparent; padding: 6px 12px; font-size: 14px; }
@@ -132,12 +135,13 @@ textarea { min-height: 96px; resize: vertical; }
   <div class="card">
     <div class="field" data-f="link">
       <label for="link">{{ c.form_link }} <small>{{ c.form_optional }}</small></label>
-      <input id="link" type="url" dir="ltr" inputmode="url" maxlength="300" value="{{ prefill.link }}" placeholder="{{ c.form_link_hint }}">
+      <input id="link" type="url" dir="ltr" inputmode="url" maxlength="{{ max_link }}" value="{{ prefill.link }}" placeholder="{{ c.form_link_hint }}">
       <div class="err"></div>
     </div>
     <div class="field" data-f="image">
       <label>{{ c.form_image }} <small>{{ c.form_optional }}</small></label>
-      <div class="pick" id="pick"><button type="button" onclick="document.getElementById('file').click()">🖼️ {{ c.form_image_pick }}</button></div>
+      <div class="pick" id="pick"><button type="button" onclick="document.getElementById('file').click()">🖼️ {{ c.form_image_pick }}</button><button type="button" id="paste-btn" hidden>📋 {{ c.form_image_paste }}</button></div>
+      <div class="hint" id="image-hint">{{ c.form_image_hint }}</div>
       <div class="thumb" id="thumb"><img id="thumb-img" alt=""><button type="button" class="ghost" onclick="clearImage()">✕ {{ c.form_image_remove }}</button></div>
       <input id="file" type="file" accept="image/jpeg,image/png,image/webp" hidden>
       <div class="err"></div>
@@ -172,6 +176,10 @@ var $ = function (id) { return document.getElementById(id); };
 
 function fill(t, vals) { return String(t || '').replace(/\{(\w+)\}/g, function (_, k) { return vals[k] != null ? vals[k] : ''; }); }
 
+// The post carries a short address for a long link; its code is made when the event is published.
+var SHORT = {{ short | tojson }};
+function shownLink(l) { return SHORT.text && l.length > SHORT.min && SHORT.text.length < l.length ? SHORT.text : l; }
+
 function preview() {
   var v = function (id) { return $(id).value.trim(); };
   var lines = ['📅 ' + (v('title') || C.form_name_hint)];
@@ -184,7 +192,7 @@ function preview() {
   if (v('location')) lines.push(fill(C.card_where, { location: v('location') }));
   if (v('description')) lines.push('', v('description'));
   if (v('link') || BY || v('organizer')) lines.push('');
-  if (v('link')) lines.push(fill(C.card_link, { link: v('link') }));
+  if (v('link')) lines.push(fill(C.card_link, { link: shownLink(v('link')) }));
   if (v('organizer')) lines.push(fill(C.card_organizer, { name: v('organizer') }));
   else if (BY) lines.push(fill(C.card_by, { name: BY }));
   $('pv').textContent = lines.join('\n');
@@ -228,9 +236,10 @@ function applyTemplate(i) {
 drawChips();
 
 // Photos are resized on the phone (max 1600px JPEG) so uploads stay small and valid.
-$('file').addEventListener('change', function () {
-  var f = this.files && this.files[0];
+// Picking, pasting and dropping all end up here.
+function setImage(f) {
   if (!f) return;
+  if (['image/jpeg', 'image/png', 'image/webp'].indexOf(f.type) < 0) { showErr('image', C.form_error_image); return; }
   var img = new Image();
   img.onload = function () {
     var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
@@ -239,16 +248,55 @@ $('file').addEventListener('change', function () {
     cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
     imageData = cv.toDataURL('image/jpeg', 0.85);
     $('thumb-img').src = $('pv-img').src = imageData;
-    $('thumb').style.display = 'block'; $('pv-img').style.display = 'block'; $('pick').style.display = 'none';
+    $('thumb').style.display = 'block'; $('pv-img').style.display = 'block'; $('pick').style.display = $('image-hint').style.display = 'none';
+    document.querySelector('.field[data-f="image"]').classList.remove('bad');
     URL.revokeObjectURL(img.src);
   };
   img.onerror = function () { showErr('image', C.form_error_image); };
   img.src = URL.createObjectURL(f);
+}
+$('file').addEventListener('change', function () { setImage(this.files && this.files[0]); });
+
+function imageIn(dt) {
+  var files = Array.prototype.slice.call((dt && dt.files) || []);
+  return files.filter(function (f) { return f.type.indexOf('image/') === 0; })[0] || null;
+}
+document.addEventListener('paste', function (e) {
+  var f = imageIn(e.clipboardData);
+  if (!f) return;  // plain text: the browser pastes it as always
+  var t = e.target, inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+  // Copied from an office document: words plus a picture of them. In a field, the words win.
+  if (inField && e.clipboardData.getData('text/plain')) return;
+  e.preventDefault();
+  setImage(f);
 });
+function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
+document.addEventListener('dragover', function (e) { if (hasFiles(e)) { e.preventDefault(); document.body.classList.add('dropping'); } });
+document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
+document.addEventListener('drop', function (e) {
+  document.body.classList.remove('dropping');
+  if (!hasFiles(e)) return;
+  e.preventDefault();  // never let the browser leave the form to open the file
+  setImage(imageIn(e.dataTransfer) || e.dataTransfer.files[0]);
+});
+// Phones have no Ctrl+V and often no paste menu outside a text field.
+if (navigator.clipboard && navigator.clipboard.read) {
+  $('paste-btn').hidden = false;
+  $('paste-btn').addEventListener('click', async function () {
+    try {
+      var items = await navigator.clipboard.read();
+      for (var i = 0; i < items.length; i++) {
+        var type = items[i].types.filter(function (t) { return t.indexOf('image/') === 0; })[0];
+        if (type) { setImage(await items[i].getType(type)); return; }
+      }
+    } catch (e) { /* not allowed, or nothing to read */ }
+    showErr('image', C.form_image_paste_none);
+  });
+}
 
 function clearImage() {
   imageData = ''; $('file').value = '';
-  $('thumb').style.display = 'none'; $('pv-img').style.display = 'none'; $('pick').style.display = 'flex';
+  $('thumb').style.display = 'none'; $('pv-img').style.display = 'none'; $('pick').style.display = 'flex'; $('image-hint').style.display = '';
 }
 
 function showErr(f, msg) {

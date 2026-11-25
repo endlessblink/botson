@@ -381,7 +381,7 @@ def test_template_edge_cases(tmp_path, monkeypatch):
     big = [t for t in shared_events.load_templates() if t["name"].startswith("<b>")][0]
     cfg = shared_events.member_cfg()
     assert len(big["name"]) <= cfg["max_title_chars"] and len(big["description"]) <= cfg["max_description_chars"]
-    assert len(big["location"]) <= 120 and len(big["link"]) <= 300 and big["time"] == ""
+    assert len(big["location"]) <= 120 and len(big["link"]) <= 2000 and big["time"] == ""
     # a damaged file never breaks the form
     shared_events._templates_file().write_text("{not json", encoding="utf-8")
     assert isinstance(shared_events.load_templates(), list)

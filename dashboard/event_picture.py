@@ -206,6 +206,7 @@ async def read_event_picture(picture: bytes, ext: str, *, codex_bin: str) -> dic
     try:
         for name, read in (("codex", lambda: _read_with_codex(picture, ext, codex_bin)),
                            ("claude", lambda: _read_with_claude(picture, ext))):
+            started = time.monotonic()
             try:
                 fields = clean_reply(parse_reply(await read()))
             except PictureReadError as exc:
@@ -215,8 +216,10 @@ async def read_event_picture(picture: bytes, ext: str, *, codex_bin: str) -> dic
                 # Unknown errors may quote the answer: type only.
                 logger.warning("[event_picture] %s failed: %s", name, type(exc).__name__)
                 continue
-            logger.info("[event_picture] %s read %s", name, {k: len(v) for k, v in fields.items()})
+            logger.info("[event_picture] %s read the picture in %.1fs: %s", name, time.monotonic() - started,
+                        {k: len(v) for k, v in fields.items()})
             return fields
+        logger.warning("[event_picture] neither codex nor claude could read the picture")
         return {}
     finally:
         _running[loop_id] -= 1

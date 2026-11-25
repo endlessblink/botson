@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 
 import httpx
 
@@ -184,7 +185,14 @@ def rtl_text(text: str) -> str:
     beside the timestamp, so that line takes the flip instead of real content
     (verified visually in the Botty test group, 2026-10-09).
     """
-    lines = [f"{RLM}{line}{RLM}" if line.strip() else line for line in str(text or "").split("\n")]
+    def mark(line: str) -> str:
+        # WhatsApp takes a mark touching a link as part of the address, and the link
+        # then opens a dead page (event form links, 2026-11-24).
+        if not line.strip() or re.fullmatch(r"\s*https?://\S+\s*", line):
+            return line.strip()
+        return f"{RLM}{line}" if re.search(r"https?://\S+$", line) else f"{RLM}{line}{RLM}"
+
+    lines = [mark(line) for line in str(text or "").split("\n")]
     return "\n".join(lines) + f"\n{RLM}"
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import calendar
 import io
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from zoneinfo import ZoneInfo
 
 from .config import get_settings
 from .copy import load_copy
+
+logger = logging.getLogger(__name__)
 
 FONT_PATH = Path(__file__).resolve().parents[2] / "assets" / "fonts" / "heebo" / "Heebo-VariableFont_wght.ttf"
 
@@ -51,6 +54,7 @@ class CalEvent:
     location: str = ""
     organizer: str = ""
     past: bool = False
+    cover: str = ""  # path inside the media folder
 
     @property
     def sort_key(self):
@@ -74,6 +78,7 @@ class MonthModel:
     weeks: list[list[CalDay]]
     count: int
     next_event: CalEvent | None
+    upcoming: list[CalEvent] = field(default_factory=list)  # detail rows under the grid, next one first
 
 
 def _to_event(row: dict, now: datetime) -> CalEvent | None:
@@ -86,7 +91,7 @@ def _to_event(row: dict, now: datetime) -> CalEvent | None:
     # Without a time, an event counts as upcoming until its day is over.
     past = datetime.combine(day, start) < now if start else day < now.date()
     clean = lambda key: " ".join(str(row.get(key) or "").split())
-    return CalEvent(clean("title"), day, start, clean("location"), clean("organizer"), past)
+    return CalEvent(clean("title"), day, start, clean("location"), clean("organizer"), past, str(row.get("cover_path") or ""))
 
 
 def build_month(year: int, month: int, events: list[dict], now: datetime) -> MonthModel:
@@ -104,8 +109,8 @@ def build_month(year: int, month: int, events: list[dict], now: datetime) -> Mon
     # events, look ahead to the following ones.
     upcoming = [e for e in mine if not e.past]
     if not upcoming and mine and (year, month) == (now.year, now.month):
-        upcoming = [e for e in parsed if not e.past]
-    return MonthModel(year, month, weeks, len(mine), upcoming[0] if upcoming else None)
+        upcoming = [e for e in parsed if not e.past][:1]
+    return MonthModel(year, month, weeks, len(mine), upcoming[0] if upcoming else None, upcoming)
 
 
 # ── Renderer ─────────────────────────────────────────────────
@@ -120,6 +125,41 @@ class _Painter:
         self._fonts: dict = {}
         self._glyphs: dict = {}
         self.img = None
+        self.media_dir: Path | None = None
+        self._covers: dict = {}
+
+    def cover(self, path: str, w: int, h: int):
+        """The event's picture cropped to w×h, or None (no picture, missing, broken, outside the media folder)."""
+        from PIL import Image, ImageOps
+
+        if not path or self.media_dir is None:
+            return None
+        key = (path, w, h)
+        if key not in self._covers:
+            self._covers[key] = None
+            try:
+                root = self.media_dir.resolve()
+                file = (root / path).resolve()
+                if file.is_relative_to(root) and file.is_file():
+                    with Image.open(file) as im:
+                        if im.width * im.height <= int(self.cfg["max_cover_pixels"]):
+                            im.draft("RGB", (w * 2, h * 2))
+                            im = ImageOps.exif_transpose(im).convert("RGBA")
+                            flat = Image.new("RGBA", im.size, self.colors["card"])
+                            flat.alpha_composite(im)
+                            self._covers[key] = ImageOps.fit(flat.convert("RGB"), (w, h), Image.Resampling.LANCZOS)
+            except Exception:  # a bad picture never costs the whole calendar
+                logger.warning("events calendar: could not draw a cover", exc_info=True)
+        return self._covers[key]
+
+    def picture(self, x: float, y: float, im, radius: int, *, faded: bool = False) -> None:
+        from PIL import Image, ImageDraw
+
+        if faded:
+            im = Image.blend(im, Image.new("RGB", im.size, self.colors["past_chip"]), self.cfg["past_cover_fade"])
+        mask = Image.new("L", (im.width * 4, im.height * 4), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, im.width * 4 - 1, im.height * 4 - 1), radius * 4, fill=255)
+        self.img.paste(im, (round(x), round(y)), mask.resize(im.size, Image.Resampling.LANCZOS))
 
     def px(self, n: float) -> int:
         return round(n * self.scale)
@@ -240,11 +280,12 @@ def _hhmm(t: time | None) -> str:
     return t.strftime("%H:%M") if t else ""
 
 
-def render_png(model: MonthModel) -> bytes:
+def render_png(model: MonthModel, media_dir: Path | None = None) -> bytes:
     from PIL import Image
 
     cfg = calendar_cfg()
     p = _Painter(cfg)
+    p.media_dir = media_dir
     sp, colors = p.sp, p.colors
 
     width = int(cfg["width"])
@@ -260,6 +301,8 @@ def render_png(model: MonthModel) -> bytes:
     chip_room = min(col_w) - 2 * pad_x - 2 * chip_x
     today_label = p.clean(_copy("today"))
 
+    thumb_w, thumb_h = min(col_w) - 2 * pad_x, sp("chip_cover_h")
+
     def layout(day: CalDay):
         """What goes inside one day: chips as (event, title lines, height), the hidden count, total height."""
         shown = day.events[: int(cfg["max_chips_per_day"])]
@@ -272,6 +315,8 @@ def render_png(model: MonthModel) -> bytes:
             ch = chip_top + chip_bottom + len(lines) * p.line_h("title")
             if e.start:
                 ch += p.line_h("time") + chip_mid
+            if p.cover(e.cover, thumb_w, thumb_h):
+                ch += thumb_h
             chips.append((e, lines, ch))
             h += item_gap + ch
         hidden = len(day.events) - len(shown)
@@ -296,27 +341,35 @@ def render_png(model: MonthModel) -> bytes:
     # The card under the grid: next up, an empty-state line, or nothing.
     ev = model.next_event
     next_pad_x, next_pad_y = sp("next_pad_x"), sp("next_pad_y")
-    next_lines, meta, empty_lines, tag, tag_w = [], "", [], "", 0
-    next_h = 0
-    if ev:
-        tag = p.clean(_copy("next_up"))
-        tag_w = round(p.width(tag, "tag")) + 2 * sp("tag_pad_x")
-        room = card_w - 2 * next_pad_x - tag_w - sp("next_inner_gap")
-        when = {"day": _copy("day_names")[(ev.day.weekday() + 1) % 7], "date": f"{ev.day.day}.{ev.day.month}"}
-        line = (_copy("next_line", time=_hhmm(ev.start), title=ev.title, **when) if ev.start
-                else _copy("next_line_no_time", title=ev.title, **when))
-        next_lines = p.wrap(line, "next", room, int(cfg["next_max_lines"]))
-        meta = p.clean(ev.location)
-        if cfg.get("show_organizer") and p.clean(ev.organizer):
+    rows, empty_lines, next_h = [], [], 0
+    cover_w, cover_h, inner_gap = sp("next_cover_w"), sp("next_cover_h"), sp("next_inner_gap")
+    tag = p.clean(_copy("next_up"))
+    tag_w = round(p.width(tag, "tag")) + 2 * sp("tag_pad_x")
+    tag_h = p.line_h("tag") + 2 * sp("tag_pad_y")
+
+    def detail_row(e: CalEvent, first: bool):
+        """(event, title lines, place and organizer, picture, height) of one upcoming event."""
+        pic = p.cover(e.cover, cover_w, cover_h)
+        room = card_w - 2 * next_pad_x - (cover_w + inner_gap if pic else 0)
+        when = {"day": _copy("day_names")[(e.day.weekday() + 1) % 7], "date": f"{e.day.day}.{e.day.month}"}
+        line = (_copy("next_line", time=_hhmm(e.start), title=e.title, **when) if e.start
+                else _copy("next_line_no_time", title=e.title, **when))
+        lines = p.wrap(line, "next", room, int(cfg["next_max_lines"]))
+        meta = p.clean(e.location)
+        if cfg.get("show_organizer") and p.clean(e.organizer):
             sep = _copy("meta_separator")
-            full = (meta + sep if meta else "") + p.clean(_copy("organizer", name=ev.organizer))
+            full = (meta + sep if meta else "") + p.clean(_copy("organizer", name=e.organizer))
             if p.width(full, "meta") <= room:
                 meta = full
         meta = p.fit(meta, "meta", room)
-        next_h = 2 * next_pad_y + len(next_lines) * p.line_h("next")
-        if meta:
-            next_h += sp("meta_gap") + p.line_h("meta")
-        next_h = max(next_h, 2 * next_pad_y + p.line_h("tag") + 2 * sp("tag_pad_y"))
+        text_h = len(lines) * p.line_h("next") + (sp("meta_gap") + p.line_h("meta") if meta else 0)
+        if first:
+            text_h += tag_h + sp("tag_gap")
+        return e, lines, meta, pic, text_h, max(text_h, cover_h if pic else 0) + 2 * next_pad_y
+
+    if ev:
+        rows = [detail_row(e, i == 0) for i, e in enumerate(model.upcoming[: int(cfg["max_detail_rows"])])]
+        next_h = sum(r[-1] for r in rows) + sp("rule") * (len(rows) - 1)
     elif not model.count:
         empty_lines = p.wrap(_copy("empty"), "empty", card_w - 2 * next_pad_x, int(cfg["next_max_lines"]))
         next_h = 2 * next_pad_y + len(empty_lines) * p.line_h("empty")
@@ -371,6 +424,10 @@ def render_png(model: MonthModel) -> bytes:
                 cy += item_gap
                 p.box(x + pad_x, cy, w - 2 * pad_x, ch, sp("chip_radius"), "past_chip" if e.past else "accent_soft")
                 tx, ty = x + w - pad_x - chip_x, cy + chip_top
+                thumb = p.cover(e.cover, thumb_w, thumb_h)
+                if thumb:
+                    p.picture(x + w - pad_x - thumb_w, cy, thumb, sp("chip_radius"), faded=e.past)
+                    ty += thumb_h
                 if e.start:
                     p.text(tx, ty, _hhmm(e.start), "time", "past_ink" if e.past else "accent_ink")
                     ty += p.line_h("time") + chip_mid
@@ -386,19 +443,24 @@ def render_png(model: MonthModel) -> bytes:
     # Next up / empty state.
     if next_h:
         p.box(card_x, y_next, card_w, next_h, sp("card_radius"), "card", shadow=True)
-    if ev:
-        tag_h = p.line_h("tag") + 2 * sp("tag_pad_y")
-        tx = card_x + card_w - next_pad_x
-        ty = y_next + (next_h - tag_h) / 2
-        p.box(tx - tag_w, ty, tag_w, tag_h, sp("tag_radius"), "accent")
-        p.text(tx - tag_w / 2, ty + sp("tag_pad_y"), tag, "tag", "card", "m")
-        tx -= tag_w + sp("next_inner_gap")
-        ty = y_next + (next_h - len(next_lines) * p.line_h("next") - (sp("meta_gap") + p.line_h("meta") if meta else 0)) / 2
-        for line in next_lines:
+    ry = y_next
+    for n, (_, lines, meta, pic, text_h, row_height) in enumerate(rows):
+        if n:
+            p.box(card_x + next_pad_x, ry, card_w - 2 * next_pad_x, sp("rule"), 0, "line")
+            ry += sp("rule")
+        tx, ty = card_x + card_w - next_pad_x, ry + (row_height - text_h) / 2
+        if pic:
+            p.picture(card_x + next_pad_x, ry + (row_height - cover_h) / 2, pic, sp("cell_radius"))
+        if n == 0:
+            p.box(tx - tag_w, ty, tag_w, tag_h, sp("tag_radius"), "accent")
+            p.text(tx - tag_w / 2, ty + sp("tag_pad_y"), tag, "tag", "card", "m")
+            ty += tag_h + sp("tag_gap")
+        for line in lines:
             p.text(tx, ty, line, "next", "ink")
             ty += p.line_h("next")
         if meta:
             p.text(tx, ty + sp("meta_gap"), meta, "meta", "muted")
+        ry += row_height
     for n, line in enumerate(empty_lines):
         p.text(width / 2, y_next + next_pad_y + n * p.line_h("empty"), line, "empty", "muted", "m")
 
@@ -420,7 +482,7 @@ def render_png(model: MonthModel) -> bytes:
 
 # ── From the database to a picture ───────────────────────────
 
-async def month_png(db, month: str | None = None) -> bytes:
+async def month_png(db, month: str | None = None, media_dir: Path | None = None) -> bytes:
     """The calendar of the really published events. ValueError on a malformed month."""
     import asyncio
     import os
@@ -428,4 +490,4 @@ async def month_png(db, month: str | None = None) -> bytes:
     now = local_now()
     year, mon = parse_month(month, now)
     events = await db.get_published_events(int(os.getenv("GROUP_ID", "0") or 0))
-    return await asyncio.to_thread(render_png, build_month(year, mon, events, now))
+    return await asyncio.to_thread(render_png, build_month(year, mon, events, now), media_dir)

@@ -100,6 +100,12 @@ member_events:
     status: ["איזה מצב", "באיזה מצב", "what mode", "current mode"]
   max_title_chars: 80
   max_description_chars: 400
+  max_link_chars: 2000     # longer links are refused, never cut
+  # A long link in an event post becomes <dashboard address>/l/<code>, which redirects to it.
+  short_link:
+    enabled: true
+    min_chars: 60          # links up to this length stay as they are
+    code_chars: 8
   # Event from a picture: a group member sends Botty a screenshot in a private chat and
   # gets a form with the details already filled in. The operator has no daily limit.
   picture:
@@ -139,7 +145,10 @@ events_calendar:
   max_title_lines: 3             # an event title wraps to this many lines, then ends with "…"
   max_chips_per_day: 2           # events drawn inside one day; the rest become a "+N" marker
   min_cell_height: 150           # a week row is never shorter than this (px at 1080 wide)
-  next_max_lines: 2              # lines of text in the "next up" / empty-month card
+  next_max_lines: 2              # lines of text in an upcoming event's row / empty-month card
+  max_detail_rows: 6             # upcoming events listed under the grid with picture and details
+  max_cover_pixels: 40000000     # a larger event picture is left out
+  past_cover_fade: 0.55          # how much a past event's picture is faded (0 to 1)
   show_organizer: true           # name the person responsible in the "next up" card, when it fits
   colors:
     background: "#f4f1ec"
@@ -234,6 +243,10 @@ events_calendar:
     next_pad_x: 28
     next_pad_y: 22
     next_inner_gap: 26
+    next_cover_w: 220
+    next_cover_h: 148
+    chip_cover_h: 72
+    tag_gap: 12
     tag_pad_x: 16
     tag_pad_y: 8
     tag_radius: 10
@@ -344,6 +357,9 @@ copy:
     form_image: "תמונה"
     form_image_pick: "בחירת תמונה"
     form_image_remove: "הסרה"
+    form_image_paste: "הדבקת תמונה"
+    form_image_paste_none: "לא מצאתי תמונה להדבקה. העתיקו תמונה ונסו שוב."
+    form_image_hint: "אפשר גם להדביק תמונה או לגרור אותה לכאן"
     form_optional: "לא חובה"
     form_preview: "ככה זה ייראה"
     form_live: "לפרסם בקבוצות האמיתיות"

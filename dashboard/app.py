@@ -26,6 +26,26 @@ if not logger.handlers:
     logger.addHandler(_h)
     logger.propagate = False
 
+
+
+class _NoRootHandler(logging.StreamHandler):
+    """Prints only while nothing else does: uvicorn leaves the root logger without a handler."""
+
+    def emit(self, record):
+        if not logging.getLogger().handlers:
+            super().emit(record)
+
+
+# The picture reader and the CLI timings log at INFO from their own modules. Without this
+# the service log never showed which CLI read a picture. Only these two, by name.
+for _name in ("dashboard.event_picture", "bot.utils.cli_home"):
+    _l = logging.getLogger(_name)
+    _l.setLevel(logging.INFO)
+    if not any(isinstance(h, _NoRootHandler) for h in _l.handlers):
+        _nh = _NoRootHandler()
+        _nh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        _l.addHandler(_nh)
+
 import yaml
 from fastapi import FastAPI, Request, Depends, HTTPException, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
@@ -3205,7 +3225,7 @@ async def _events_calendar_response(db: Database, month: str | None) -> Response
     from bot.utils.events_calendar import month_png
 
     try:
-        png = await month_png(db, month)
+        png = await month_png(db, month, MEDIA_DIR)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
@@ -3609,6 +3629,16 @@ async def agent_event_mode(request: Request, db: Database = Depends(get_db)):
     return {"reply": reply}
 
 
+def _short_link_preview(cfg: dict) -> dict:
+    """What the form preview shows for a long link. The real code exists only after publishing."""
+    from bot.utils import config as bot_config
+
+    sl = cfg.get("short_link") or {}
+    base = bot_config.PUBLIC_DASHBOARD_URL
+    stand_in = f"{base}/l/{'x' * int(sl.get('code_chars', 8))}" if sl.get("enabled") and base else ""
+    return {"min": int(sl.get("min_chars", 60)), "text": stand_in}
+
+
 def _member_form_copy() -> dict:
     from bot.utils.copy import load_copy_block
 
@@ -3661,6 +3691,19 @@ async def whatsapp_restart(request: Request):
     return {"status": "ok"}
 
 
+@app.api_route("/l/{code}", methods=["GET", "HEAD"])
+async def event_short_link(code: str, db: Database = Depends(get_db)):
+    """Open the original of a long link from an event post. Public; codes are only made at publishing."""
+    from bot.utils.shared_events import valid_link
+
+    code = "".join(ch for ch in code if ch.isascii() and ch.isalnum())  # invisible marks glued on by WhatsApp
+    url = await db.short_link_url(code) if code else None
+    if not url or not valid_link(url):
+        raise HTTPException(status_code=404)
+    return RedirectResponse(url=url, status_code=302, headers={
+        "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"})
+
+
 @app.get("/e/{token}", response_class=HTMLResponse)
 async def member_event_form(token: str, request: Request, db: Database = Depends(get_db)):
     from bot.utils.shared_events import member_cfg, request_is_open
@@ -3677,7 +3720,7 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
         "templates": load_templates(), "can_publish": can_publish, "live": default_mode() == "real",
         "c": _member_form_copy(), "open": request_is_open(req), "token": token,
         "by": (req or {}).get("requester_name") or "", "today": today,
-        "prefill": load_prefill(req),
+        "prefill": load_prefill(req), "max_link": int(cfg.get("max_link_chars", 2000)), "short": _short_link_preview(cfg),
         "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),
     })
 

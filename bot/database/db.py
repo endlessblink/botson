@@ -73,6 +73,8 @@ class Database:
             "ALTER TABLE event_requests ADD COLUMN organizer TEXT",
             # Draft fields read from a picture (JSON): only fills the form, never published by itself.
             "ALTER TABLE event_requests ADD COLUMN prefill TEXT",
+            # Long links in published event posts: /l/<code> redirects to the original.
+            "CREATE TABLE IF NOT EXISTS event_short_links (code TEXT PRIMARY KEY, url TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)",
             # One row per picture a capped member had read, for the daily limit. No picture content.
             "CREATE TABLE IF NOT EXISTS event_picture_reads (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "platform TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL)",
@@ -882,7 +884,7 @@ class Database:
         cards (their date is when the post went out, not when the event is).
         """
         async with self._db.execute(
-            """SELECT e.id, e.title, e.event_date, e.event_time, e.location,
+            """SELECT e.id, e.title, e.event_date, e.event_time, e.location, e.cover_path,
                       (SELECT r.organizer FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS organizer
                FROM events e
                WHERE e.active = 1 AND e.message_id IS NOT NULL
@@ -978,6 +980,20 @@ class Database:
             rid = cursor.lastrowid
         await self._db.commit()
         return rid
+
+    async def short_link_code(self, url: str, code: str, created_at: str) -> str | None:
+        """The code of a link, storing it under `code` the first time. None if `code` is taken."""
+        await self._db.execute("INSERT OR IGNORE INTO event_short_links (code, url, created_at) VALUES (?, ?, ?)",
+                               (code, url, created_at))
+        await self._db.commit()
+        async with self._db.execute("SELECT code FROM event_short_links WHERE url = ?", (url,)) as cursor:
+            row = await cursor.fetchone()
+        return row["code"] if row else None
+
+    async def short_link_url(self, code: str) -> str | None:
+        async with self._db.execute("SELECT url FROM event_short_links WHERE code = ?", (code,)) as cursor:
+            row = await cursor.fetchone()
+        return row["url"] if row else None
 
     async def claim_event_picture(self, *, platform: str, user_ids: list[str], day: str, cap: int) -> bool:
         """Use up one of a person's picture reads for the day. One statement, so two

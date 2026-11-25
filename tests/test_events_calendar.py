@@ -207,3 +207,61 @@ def test_config_and_copy_are_complete():
     assert (len(copy["month_names"]), len(copy["day_letters"]), len(copy["day_names"])) == (12, 7, 7)
     cfg = ec.calendar_cfg()
     assert set(cfg["fonts"]) == set(cfg["line_heights"])
+
+
+# ── Event pictures ──
+
+def _cover(folder, name="covers/a.png", color=(0, 90, 200), mode="RGB"):
+    from PIL import Image
+
+    (folder / "covers").mkdir(parents=True, exist_ok=True)
+    Image.new(mode, (800, 600), color).save(folder / name)
+    return name
+
+
+def _pixels(png, color):
+    import io
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(png)).convert("RGB")
+    return sum(n for n, c in im.getcolors(im.width * im.height) if c == color)
+
+
+def test_a_cover_shows_in_its_day_and_next_to_the_details(tmp_path):
+    cover = _cover(tmp_path)
+    row = ev(9, "20:00", "Vinyl night", location="Bar", organizer="Yael")
+    plain = ec.render_png(ec.build_month(2026, 12, [row], NOW), tmp_path)
+    drawn = ec.render_png(ec.build_month(2026, 12, [{**row, "cover_path": cover}], NOW), tmp_path)
+    sp = ec.calendar_cfg()["spacing"]
+    assert _pixels(plain, (0, 90, 200)) == 0
+    assert _pixels(drawn, (0, 90, 200)) > sp["next_cover_w"] * sp["next_cover_h"] * 0.9 + 100 * sp["chip_cover_h"] * 0.9
+
+
+def test_a_missing_broken_or_outside_cover_is_left_out(tmp_path):
+    media = tmp_path / "media"
+    (media / "covers").mkdir(parents=True)
+    (media / "covers" / "bad.png").write_bytes(b"not a picture")
+    _cover(tmp_path, "covers/secret.png")
+    row = ev(9, "20:00", "x")
+    plain = ec.render_png(ec.build_month(2026, 12, [row], NOW), media)
+    for path in ("covers/none.png", "covers/bad.png", "../covers/secret.png", str(tmp_path / "covers/secret.png"), ".", "a\x00b"):
+        assert ec.render_png(ec.build_month(2026, 12, [{**row, "cover_path": path}], NOW), media) == plain
+    assert ec.render_png(ec.build_month(2026, 12, [{**row, "cover_path": "covers/secret.png"}], NOW)) == plain
+
+
+def test_upcoming_events_get_detail_rows_up_to_the_limit():
+    events = [ev(d, "20:00", f"e{d}") for d in range(5, 20)]
+    model = ec.build_month(2026, 12, events, NOW)
+    assert [e.title for e in model.upcoming][0] == model.next_event.title and len(model.upcoming) > 6
+    few = size(ec.render_png(ec.build_month(2026, 12, events[:1], NOW)))[1]
+    many = size(ec.render_png(model))[1]
+    assert few < many < 4000
+
+
+def test_the_published_events_carry_their_cover(tmp_path):
+    async def body(db):
+        eid = await db.create_event(title="x", description="", event_date="2026-12-09", event_time="20:00", location=None,
+                                    created_by=0, cover_path="covers/a.png")
+        await db.update_event(eid, message_id=1, tg_chat_id=MAIN)
+        assert (await db.get_published_events(MAIN))[0]["cover_path"] == "covers/a.png"
+    run(tmp_path, body)

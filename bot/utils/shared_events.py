@@ -240,20 +240,62 @@ async def is_known_member(db, ids: list[str]) -> bool:
     return False
 
 
+def valid_link(link: str) -> bool:
+    import re
+    from urllib.parse import urlsplit
+
+    if not re.fullmatch(r"https?://\S+", link):
+        return False
+    try:
+        return bool(urlsplit(link).hostname)
+    except ValueError:
+        return False
+
+
+async def post_link(db, link: str | None) -> str | None:
+    """The link as an event post shows it: a long one becomes /l/<code>.
+
+    Called only when an event is published, so a code exists only for a link that passed
+    the form and was approved (or came from someone trusted). Any trouble: the original."""
+    import secrets
+    import string
+
+    from .config import PUBLIC_DASHBOARD_URL
+
+    cfg = member_cfg().get("short_link") or {}
+    if (not link or not cfg.get("enabled") or not PUBLIC_DASHBOARD_URL or not valid_link(link)
+            or len(link) <= int(cfg.get("min_chars", 60))):
+        return link
+    try:
+        for _ in range(5):
+            # Letters and digits only: a code ending in "-" or "_" can fall off the address.
+            code = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(int(cfg.get("code_chars", 8))))
+            code = await db.short_link_code(link, code, _israel_now().isoformat())
+            if code:
+                short = f"{PUBLIC_DASHBOARD_URL}/l/{code}"
+                return short if len(short) < len(link) else link
+    except Exception:
+        logger.warning("member_events: could not shorten a link, posting it as it is", exc_info=True)
+    return link
+
+
 def clean_form_fields(data: dict) -> tuple[dict, dict]:
     """The event form's trimming and checks, shared by the form submit and the picture
     reader. Returns (fields, errors); an error value is the copy key to show."""
     import re
+    import unicodedata
     from datetime import date
 
     cfg = member_cfg()
+    # Invisible marks picked up while copying would break the address.
+    link = "".join(ch for ch in str(data.get("link") or "") if unicodedata.category(ch) != "Cf").strip()
     fields = {
         "title": str(data.get("title") or "").strip(),
         "event_date": str(data.get("event_date") or "").strip(),
         "event_time": str(data.get("event_time") or "").strip(),
         "location": str(data.get("location") or "").strip()[:120],
         "description": str(data.get("description") or "").strip()[: int(cfg.get("max_description_chars", 400))],
-        "link": str(data.get("link") or "").strip()[:300],
+        "link": link,
         # Optional: who is responsible, when the form is opened for someone else. One line, a name only.
         "organizer": " ".join(str(data.get("organizer") or "").split())[:60],
     }
@@ -267,7 +309,8 @@ def clean_form_fields(data: dict) -> tuple[dict, dict]:
         errors["event_date"] = "form_error_date"
     if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", fields["event_time"]):
         errors["event_time"] = "form_error_time"
-    if fields["link"] and not re.match(r"https?://[^\s]+$", fields["link"]):
+    # Too long is refused, never cut: half an address is a dead link.
+    if link and (len(link) > int(cfg.get("max_link_chars", 2000)) or not valid_link(link)):
         errors["link"] = "form_error_link"
     return fields, errors
 
@@ -443,6 +486,7 @@ def save_template(*, title: str, description: str = "", location: str = "", time
     name = " ".join(str(title or "").split())[: int(cfg.get("max_title_chars", 80))]
     if not name:
         return False
+    link = str(link or "").strip()
     data = _read_templates()
     if replaces and _tname(replaces) != _tname(name):
         data["saved"] = [t for t in data["saved"] if _tname(t["name"]) != _tname(replaces)]
@@ -452,7 +496,7 @@ def save_template(*, title: str, description: str = "", location: str = "", time
              "description": str(description or "").strip()[: int(cfg.get("max_description_chars", 400))],
              "location": str(location or "").strip()[:120],
              "time": time if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(time or "")) else "",
-             "link": str(link or "").strip()[:300]}
+             "link": link if len(link) <= int(cfg.get("max_link_chars", 2000)) else ""}
     data["saved"] = [t for t in data["saved"] if _tname(t["name"]) != _tname(name)] + [entry]
     data["saved"] = data["saved"][-int(cfg.get("max_saved_templates", 30)):]
     data["removed"] = [n for n in data["removed"] if n != _tname(name)]
@@ -552,7 +596,9 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
     if tg_target != "test":
         routing = await db.get_handler_routing("events_publish")
         topic_id = routing["play_topic_id"] if routing else None
-    card = request_card(req)
+    # Only the posts carry the short address; the request keeps the original link.
+    posted = {**req, "link": await post_link(db, req.get("link"))}
+    card = request_card(posted)
     sent = await send_message_with_optional_cover(bot, db=db, chat_id=chat_id, text=card,
                                                   message_thread_id=topic_id, cover_path=req.get("cover_path"))
     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=sent.message_id, reply_markup=rsvp_markup(event_id))
@@ -562,7 +608,7 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
     result = {"status": "ok", "event_id": event_id}
     if wa_target:
         try:
-            await publish_to_whatsapp(db, event_id, wa_target, request_card(req), _media_url(req.get("cover_path")))
+            await publish_to_whatsapp(db, event_id, wa_target, request_card(posted), _media_url(req.get("cover_path")))
         except Exception as exc:
             logger.exception("member_events: WhatsApp publish failed for event %s", event_id)
             result.update(status="partial", whatsapp_error=str(exc)[:200])
