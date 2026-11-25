@@ -96,6 +96,36 @@ async def lid_for_phone(phone: str) -> str | None:
     return resp.json().get("lid") if resp.status_code == 200 else None
 
 
+async def phone_for_lid(lid: str) -> str | None:
+    """The phone number behind a hidden WhatsApp id (digits of …@lid), if WhatsApp knows it."""
+    base, key, session = _config()
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/{session}/lids/{lid}", headers={"X-Api-Key": key})
+    return resp.json().get("pn") if resp.status_code == 200 else None
+
+
+async def group_member_ids(chat_id: str) -> list[str]:
+    """Every id WhatsApp lists for the members of a group (phone or hidden id, as it comes)."""
+    base, key, session = _config()
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(f"{base}/api/{session}/groups/{chat_id}/participants", headers={"X-Api-Key": key})
+    resp.raise_for_status()
+    data = resp.json()
+    rows = data.get("participants") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise RuntimeError("unexpected participants answer")
+    ids = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("role") == "left":
+            continue
+        for field in ("id", "lid", "pn", "jid", "phoneNumber"):
+            value = row.get(field)
+            value = value.get("_serialized") if isinstance(value, dict) else value
+            if isinstance(value, str) and value:
+                ids.append(value)
+    return ids
+
+
 async def restart_session() -> None:
     base, key, session = _config()
     async with httpx.AsyncClient(timeout=60) as client:

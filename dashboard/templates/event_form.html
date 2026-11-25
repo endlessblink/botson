@@ -30,6 +30,7 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; letter-spacing: -.01em;
       border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
 .by b { font-weight: 700; }
 .card { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 14px; }
+.from-pic { background: var(--bubble); border-radius: 14px; padding: 12px 16px; margin-bottom: 14px; }
 .tpls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .tpls span { color: var(--muted); font-size: 14px; }
 .chip-wrap { display: inline-flex; align-items: center; margin: 0 0 0 8px; }
@@ -87,6 +88,8 @@ textarea { min-height: 96px; resize: vertical; }
     {% if by %}<div class="by">👤 {{ c.form_by }} <b>{{ by }}</b></div>{% endif %}
   </header>
 
+  {% if prefill %}<div class="from-pic">🖼️ {{ c.form_from_picture }}</div>{% endif %}
+
   {% if templates %}
   <div class="tpls"><span>{{ c.form_templates }}</span>
     <span id="chips"></span>
@@ -96,32 +99,32 @@ textarea { min-height: 96px; resize: vertical; }
   <div class="card">
     <div class="field" data-f="title">
       <label for="title">{{ c.form_name }}</label>
-      <input id="title" maxlength="{{ max_title }}" placeholder="{{ c.form_name_hint }}" autocomplete="off" required>
+      <input id="title" maxlength="{{ max_title }}" value="{{ prefill.title }}" placeholder="{{ c.form_name_hint }}" autocomplete="off" required>
       <div class="err"></div>
     </div>
     <div class="row">
       <div class="field" data-f="event_date">
         <label for="event_date">{{ c.form_date }}</label>
-        <input id="event_date" type="date" min="{{ today }}" required>
+        <input id="event_date" type="date" min="{{ today }}" value="{{ prefill.event_date }}" required>
         <div class="err"></div>
       </div>
       <div class="field" data-f="event_time">
         <label for="event_time">{{ c.form_time }}</label>
-        <input id="event_time" type="time" step="300" required>
+        <input id="event_time" type="time" step="300" value="{{ prefill.event_time }}" required>
         <div class="err"></div>
       </div>
     </div>
     <div class="field" data-f="location">
       <label for="location">{{ c.form_location }} <small>{{ c.form_optional }}</small></label>
-      <input id="location" maxlength="120" placeholder="{{ c.form_location_hint }}">
+      <input id="location" maxlength="120" value="{{ prefill.location }}" placeholder="{{ c.form_location_hint }}">
     </div>
     <div class="field" data-f="organizer">
       <label for="organizer">{{ c.form_organizer }} <small>{{ c.form_optional }}</small></label>
-      <input id="organizer" maxlength="60" placeholder="{{ c.form_organizer_hint }}" autocomplete="off">
+      <input id="organizer" maxlength="60" value="{{ prefill.organizer }}" placeholder="{{ c.form_organizer_hint }}" autocomplete="off">
     </div>
     <div class="field" data-f="description">
       <label for="description">{{ c.form_description }} <small>{{ c.form_optional }}</small></label>
-      <textarea id="description" maxlength="{{ max_desc }}" placeholder="{{ c.form_description_hint }}"></textarea>
+      <textarea id="description" maxlength="{{ max_desc }}" placeholder="{{ c.form_description_hint }}">{{ prefill.description }}</textarea>
       <div class="count"><span id="desc-count">0</span>/{{ max_desc }}</div>
     </div>
   </div>
@@ -129,7 +132,7 @@ textarea { min-height: 96px; resize: vertical; }
   <div class="card">
     <div class="field" data-f="link">
       <label for="link">{{ c.form_link }} <small>{{ c.form_optional }}</small></label>
-      <input id="link" type="url" dir="ltr" inputmode="url" maxlength="300" placeholder="{{ c.form_link_hint }}">
+      <input id="link" type="url" dir="ltr" inputmode="url" maxlength="300" value="{{ prefill.link }}" placeholder="{{ c.form_link_hint }}">
       <div class="err"></div>
     </div>
     <div class="field" data-f="image">

@@ -71,6 +71,11 @@ class Database:
             "cover_path TEXT, submitted_at TEXT, decided_at TEXT, event_id INTEGER)",
             # Who is responsible for the event, when it is not the person who opened the form.
             "ALTER TABLE event_requests ADD COLUMN organizer TEXT",
+            # Draft fields read from a picture (JSON): only fills the form, never published by itself.
+            "ALTER TABLE event_requests ADD COLUMN prefill TEXT",
+            # One row per picture a capped member had read, for the daily limit. No picture content.
+            "CREATE TABLE IF NOT EXISTS event_picture_reads (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "platform TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL)",
             # Members the operator trusts: their events publish without waiting for approval.
             "CREATE TABLE IF NOT EXISTS event_trusted_creators (platform TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, added_at TEXT NOT NULL, PRIMARY KEY (platform, user_id))",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
@@ -973,6 +978,20 @@ class Database:
             rid = cursor.lastrowid
         await self._db.commit()
         return rid
+
+    async def claim_event_picture(self, *, platform: str, user_ids: list[str], day: str, cap: int) -> bool:
+        """Use up one of a person's picture reads for the day. One statement, so two
+        pictures sent together can't both slip under the cap."""
+        marks = ", ".join("?" for _ in user_ids)
+        async with self._db.execute(
+            f"""INSERT INTO event_picture_reads (platform, user_id, day)
+                SELECT ?, ?, ? WHERE (SELECT COUNT(*) FROM event_picture_reads
+                                      WHERE platform = ? AND day = ? AND user_id IN ({marks})) < ?""",
+            (platform, user_ids[0], day, platform, day, *user_ids, cap),
+        ) as cursor:
+            claimed = cursor.rowcount > 0
+        await self._db.commit()
+        return claimed
 
     async def get_event_request(self, *, token: str | None = None, request_id: int | None = None) -> dict | None:
         # WhatsApp can glue invisible direction marks onto a pasted link; only the

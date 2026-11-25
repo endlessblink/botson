@@ -200,8 +200,83 @@ async def _is_privileged(db, platform: str, requester_id: str) -> bool:
     return await db.is_trusted_creator(platform, norm_id(requester_id))
 
 
-async def create_request_link(db, *, platform: str, requester_id: str, requester_name: str) -> dict:
-    """A personal, expiring form link for a member, or a 'limit' answer."""
+async def person_ids(requester: str) -> list[str]:
+    """Every known spelling of a WhatsApp person (phone and hidden id), their own first."""
+    from . import whatsapp_sender
+
+    own = norm_id(requester)
+    ids = [own]
+    try:
+        other = await (whatsapp_sender.phone_for_lid(own) if str(requester).endswith("@lid")
+                       else whatsapp_sender.lid_for_phone(own))
+        if other and norm_id(other) not in ids:
+            ids.append(norm_id(other))
+    except Exception:
+        logger.warning("member_events: could not look up the other WhatsApp id", exc_info=True)
+    return ids
+
+
+async def is_known_member(db, ids: list[str]) -> bool:
+    """A trusted co-admin, or someone in one of Botson's WhatsApp groups. Raises when
+    no configured group could be read and the person was not found (never guess)."""
+    from . import whatsapp_sender
+
+    for i in ids:
+        if await db.is_trusted_creator("whatsapp", i):
+            return True
+    failure: Exception | None = None
+    for target in ("whatsapp", "whatsapp_test"):
+        try:
+            members = await whatsapp_sender.group_member_ids(whatsapp_sender.resolve_chat_id(target))
+        except whatsapp_sender.WhatsAppNotConfigured:
+            continue
+        except Exception as exc:
+            failure = exc
+            continue
+        if {norm_id(m) for m in members} & set(ids):
+            return True
+    if failure:
+        raise RuntimeError("could not read the WhatsApp group members") from failure
+    return False
+
+
+def clean_form_fields(data: dict) -> tuple[dict, dict]:
+    """The event form's trimming and checks, shared by the form submit and the picture
+    reader. Returns (fields, errors); an error value is the copy key to show."""
+    import re
+    from datetime import date
+
+    cfg = member_cfg()
+    fields = {
+        "title": str(data.get("title") or "").strip(),
+        "event_date": str(data.get("event_date") or "").strip(),
+        "event_time": str(data.get("event_time") or "").strip(),
+        "location": str(data.get("location") or "").strip()[:120],
+        "description": str(data.get("description") or "").strip()[: int(cfg.get("max_description_chars", 400))],
+        "link": str(data.get("link") or "").strip()[:300],
+        # Optional: who is responsible, when the form is opened for someone else. One line, a name only.
+        "organizer": " ".join(str(data.get("organizer") or "").split())[:60],
+    }
+    errors = {}
+    if not fields["title"] or len(fields["title"]) > int(cfg.get("max_title_chars", 80)):
+        errors["title"] = "form_error_title"
+    try:
+        if date.fromisoformat(fields["event_date"]) < _israel_now().date():
+            raise ValueError
+    except ValueError:
+        errors["event_date"] = "form_error_date"
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", fields["event_time"]):
+        errors["event_time"] = "form_error_time"
+    if fields["link"] and not re.match(r"https?://[^\s]+$", fields["link"]):
+        errors["link"] = "form_error_link"
+    return fields, errors
+
+
+async def create_request_link(db, *, platform: str, requester_id: str, requester_name: str,
+                              fresh: bool = False, unlimited: bool = False) -> dict:
+    """A personal, expiring form link for a member, or a 'limit' answer.
+
+    fresh: always a new form (each picture fills its own). unlimited: the operator."""
     import secrets
     from datetime import timedelta
 
@@ -219,13 +294,15 @@ async def create_request_link(db, *, platform: str, requester_id: str, requester
         raise RuntimeError("PUBLIC_DASHBOARD_URL is not set")
     mine = await db.list_event_requests(platform=platform, requester_id=str(requester_id),
                                         since=now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat())
-    live = [r for r in mine if r["status"] == "open" and r["expires_at"] > now.isoformat()]
+    live = [r for r in mine if r["status"] == "open" and r["expires_at"] > now.isoformat()
+            # a form filled from a picture belongs to that picture: a plain request gets an empty one
+            and not r.get("prefill") and not fresh]
     if live:
         token = live[0]["token"]
         name = str(requester_name or "").strip()[:60]
         if name and name != live[0].get("requester_name"):  # the card says who opened it: keep that current
             await db.update_event_request(live[0]["id"], requester_name=name)
-    elif len(mine) >= int(cfg.get("max_links_per_day", 3)) and not await _is_privileged(db, platform, requester_id):
+    elif len(mine) >= int(cfg.get("max_links_per_day", 3)) and not unlimited and not await _is_privileged(db, platform, requester_id):
         return {"status": "limit", "text": load_copy("member_events", "limit_reply")}
     else:
         token = secrets.token_urlsafe(16)

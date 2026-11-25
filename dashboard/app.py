@@ -3486,6 +3486,111 @@ async def agent_event_request(request: Request, db: Database = Depends(get_db)):
                                      requester_name=str(data.get("name") or "").strip())
 
 
+_EVENT_PICTURE_JOBS: dict[str, dict] = {}
+
+
+async def _run_event_picture_job(db: Database, job_id: str, *, link: dict, picture: bytes, ext: str) -> None:
+    """Read the picture and keep what was read on the person's own open form."""
+    from bot.utils.copy import load_copy
+    from dashboard import event_picture
+
+    job = _EVENT_PICTURE_JOBS[job_id]
+    try:
+        fields = await event_picture.read_event_picture(picture, ext, codex_bin=_codex_binary_path() or "codex")
+        if fields:
+            req = await db.get_event_request(token=link["url"].rsplit("/", 1)[1])
+            if not await db.update_event_request(req["id"], expect_status="open",
+                                                 prefill=json.dumps(fields, ensure_ascii=False)):
+                fields = {}
+        if not fields:
+            unreadable = load_copy("member_events", "picture_unreadable_reply")
+            link = {**link, "text": f"{unreadable}\n{link['text']}"}
+        job.update(status="done", result={**link, "read": bool(fields)})
+    except Exception as exc:
+        # The exception text may quote the picture: log its type only.
+        logger.error("[event_picture] job %s failed: %s", job_id, type(exc).__name__)
+        job.update(status="failed")
+
+
+@app.post("/api/agent/event-picture")
+async def agent_event_picture(request: Request, db: Database = Depends(get_db)):
+    """A picture sent to Botty in a private WhatsApp chat becomes a form link with the
+    fields filled in. Nothing is published: the person reviews and submits the form.
+
+    Body: {chat_id, requester, name, operator, image (base64), mime}. Botty says whether
+    the sender is the operator (its own operator ids). Every limit is checked before any
+    AI call. Reading outlasts the proxy limit, so this answers with a job id to poll.
+    Agent-token only.
+    """
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    import base64
+
+    from bot.utils.copy import load_copy
+    from bot.utils.shared_events import _israel_now, create_request_link, is_known_member, member_cfg, person_ids
+
+    cfg = member_cfg()
+    pic = cfg.get("picture") or {}
+    if not cfg.get("enabled") or not pic.get("enabled"):
+        raise HTTPException(status_code=409, detail="event from a picture is off")
+    data = await request.json()
+    chat_id = str(data.get("chat_id") or "")
+    requester = str(data.get("requester") or "").strip()
+    if not requester or not chat_id.endswith(("@c.us", "@lid")) or chat_id != requester:
+        raise HTTPException(status_code=403, detail="private WhatsApp chats only")
+    operator = data.get("operator") is True
+    ids = await person_ids(requester)
+    if not operator:
+        try:
+            known = await is_known_member(db, ids)
+        except RuntimeError:
+            logger.warning("[event_picture] member check failed", exc_info=True)
+            raise HTTPException(status_code=503, detail="could not check group membership")
+        if not known:
+            return {"status": "members_only", "text": load_copy("member_events", "picture_members_only_reply")}
+
+    max_mb = float(pic.get("max_mb", 5))
+    max_bytes = int(max_mb * 1024 * 1024)
+    b64 = data.get("image")
+    try:
+        if not isinstance(b64, str) or len(b64) > max_bytes * 4 // 3 + 4:
+            raise ValueError
+        picture = base64.b64decode(b64, validate=True)
+        if len(picture) > max_bytes:
+            raise ValueError
+        ext = _validated_cover_ext(picture, str(data.get("mime") or ""))
+        if ext not in ("jpg", "png", "webp"):
+            raise ValueError
+    except (ValueError, HTTPException):
+        return {"status": "bad_image", "text": load_copy("member_events", "picture_bad_file_reply", max_mb=f"{max_mb:g}")}
+
+    if not operator and not await db.claim_event_picture(
+        platform="whatsapp", user_ids=ids, day=_israel_now().date().isoformat(), cap=int(pic.get("max_per_day", 1)),
+    ):
+        return {"status": "limit", "text": load_copy("member_events", "picture_limit_reply")}
+    link = await create_request_link(db, platform="whatsapp", requester_id=requester,
+                                     requester_name=str(data.get("name") or "").strip(), fresh=True, unlimited=operator)
+    if link["status"] != "ok":
+        return link
+    now = time.time()
+    for old_id in [k for k, v in _EVENT_PICTURE_JOBS.items() if now - v["created"] > _WA_SUMMARY_JOB_TTL_S]:
+        _EVENT_PICTURE_JOBS.pop(old_id, None)
+    job_id = secrets.token_hex(8)
+    task = asyncio.create_task(_run_event_picture_job(db, job_id, link=link, picture=picture, ext=ext))
+    _EVENT_PICTURE_JOBS[job_id] = {"status": "pending", "created": now, "task": task}
+    return {"status": "pending", "job_id": job_id}
+
+
+@app.get("/api/agent/event-picture/{job_id}")
+async def agent_event_picture_result(job_id: str, request: Request):
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    job = _EVENT_PICTURE_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown job")
+    return {k: job[k] for k in ("status", "result") if k in job}
+
+
 @app.post("/api/agent/event-mode")
 async def agent_event_mode(request: Request, db: Database = Depends(get_db)):
     """Botty forwards a trusted co-admin's private "live / test" message. Body: {chat_id, requester, text}."""
@@ -3566,10 +3671,13 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
     from bot.utils.shared_events import can_publish_directly, default_mode, load_templates
 
     can_publish = bool(req) and request_is_open(req) and await can_publish_directly(db, req)
+    from dashboard.event_picture import load_prefill
+
     return templates.TemplateResponse(request, name="event_form.html", context={
         "templates": load_templates(), "can_publish": can_publish, "live": default_mode() == "real",
         "c": _member_form_copy(), "open": request_is_open(req), "token": token,
         "by": (req or {}).get("requester_name") or "", "today": today,
+        "prefill": load_prefill(req),
         "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),
     })
 
@@ -3592,35 +3700,19 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     """Store a member's event and DM the admins for approval. The token is single-use."""
     import base64
     from telegram import Bot
-    from bot.utils.shared_events import member_cfg, notify_admins_of_request, request_is_open
+    from bot.utils.shared_events import notify_admins_of_request, request_is_open
 
     c = _member_form_copy()
     req = await db.get_event_request(token=token)
     if not request_is_open(req):
         return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)
     data = await request.json()
-    cfg = member_cfg()
-    title = str(data.get("title") or "").strip()
-    event_date = str(data.get("event_date") or "").strip()
-    event_time = str(data.get("event_time") or "").strip()
-    location = str(data.get("location") or "").strip()[:120]
-    description = str(data.get("description") or "").strip()[: int(cfg.get("max_description_chars", 400))]
-    link = str(data.get("link") or "").strip()[:300]
-    # Optional: who is responsible, when the form is opened for someone else. One line, a name only.
-    organizer = " ".join(str(data.get("organizer") or "").split())[:60]
-    today = datetime.now(ZoneInfo("Asia/Jerusalem")).date()
-    errors = {}
-    if not title or len(title) > int(cfg.get("max_title_chars", 80)):
-        errors["title"] = c.get("form_error_title")
-    try:
-        if date.fromisoformat(event_date) < today:
-            raise ValueError
-    except ValueError:
-        errors["event_date"] = c.get("form_error_date")
-    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", event_time):
-        errors["event_time"] = c.get("form_error_time")
-    if link and not re.match(r"https?://[^\s]+$", link):
-        errors["link"] = c.get("form_error_link")
+    from bot.utils.shared_events import clean_form_fields
+
+    fields, error_keys = clean_form_fields(data)
+    title, event_date, event_time, location, description, link, organizer = (
+        fields[k] for k in ("title", "event_date", "event_time", "location", "description", "link", "organizer"))
+    errors = {field: c.get(key) for field, key in error_keys.items()}
     cover_path = None
     image = str(data.get("image") or "")
     if image:
@@ -3641,7 +3733,7 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
     if not await db.update_event_request(
         req["id"], expect_status="open", status="submitted", title=title, event_date=event_date,
         event_time=event_time, location=location or None, description=description or None,
-        link=link or None, organizer=organizer or None, cover_path=cover_path,
+        link=link or None, organizer=organizer or None, cover_path=cover_path, prefill=None,
         submitted_at=datetime.now(ZoneInfo("Asia/Jerusalem")).isoformat(),
     ):
         return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)
