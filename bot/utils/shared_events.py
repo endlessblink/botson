@@ -252,31 +252,101 @@ def valid_link(link: str) -> bool:
         return False
 
 
-async def post_link(db, link: str | None) -> str | None:
-    """The link as an event post shows it: a long one becomes /l/<code>.
+def clean_link(link: str) -> str:
+    """The same address without what makes it long: a site's own short form where
+    `member_events.link_cleaning` has a rule, and tracking parameters. Text only, nothing is
+    opened. Anything unclear, or a result that isn't a valid link: the link as given."""
+    import re
+    from fnmatch import fnmatchcase
+    from urllib.parse import unquote_plus, urlsplit
 
-    Called only when an event is published, so a code exists only for a link that passed
-    the form and was approved (or came from someone trusted). Any trouble: the original."""
+    cfg = member_cfg().get("link_cleaning") or {}
+    try:
+        if not valid_link(link):
+            return link
+        parts = urlsplit(link)
+        host = parts.netloc.lower()  # with a port or a user name no site rule applies
+        params = [x for x in parts.query.split("&") if x]
+        name = lambda x: unquote_plus(x.split("=", 1)[0]).lower()
+        for rule in cfg.get("site_rules") or []:
+            found = re.fullmatch(rule["path"], parts.path) if host in rule["hosts"] else None
+            if found:
+                kept = [x for x in params if name(x) in (rule.get("keep_params") or [])]
+                out = rule["to"].format(*found.groups()) + ("?" + "&".join(kept) if kept else "")
+                return out if valid_link(out) else link
+        drop = [str(x) for x in cfg.get("tracking_params") or []]
+        for entry in cfg.get("site_tracking_params") or []:
+            if host in entry["hosts"]:
+                drop += entry["params"]
+        kept = [x for x in params if not any(fnmatchcase(name(x), d) for d in drop)]
+        base, _, fragment = link.partition("#")
+        base, _, query = base.partition("?")
+        # Untouched parameters keep their exact spelling and order.
+        query = query if len(kept) == len(params) else "&".join(kept)
+        out = base + (f"?{query}" if query else "") + (f"#{fragment}" if fragment else "")
+        return out if valid_link(out) else link
+    except Exception:
+        logger.warning("member_events: could not clean a link, keeping it as it is", exc_info=True)
+        return link
+
+
+def needs_short_link(link: str) -> bool:
+    """Last resort: the cleaned link is still too long to sit in a post."""
+    from .config import PUBLIC_DASHBOARD_URL
+
+    cfg = member_cfg().get("short_link") or {}
+    short_len = len(f"{PUBLIC_DASHBOARD_URL}/l/") + int(cfg.get("code_chars", 8))
+    return bool(cfg.get("enabled") and PUBLIC_DASHBOARD_URL and valid_link(link)
+                and len(link) > max(int(cfg.get("min_chars", 120)), short_len))
+
+
+async def preview_link(db, req: dict, link: str) -> str:
+    """The link as the post will carry it, for an open form: cleaned, and when that is still too
+    long a real, working /l/<code>. Past the form's cap, or on any trouble: the cleaned link."""
     import secrets
     import string
 
     from .config import PUBLIC_DASHBOARD_URL
 
-    cfg = member_cfg().get("short_link") or {}
-    if (not link or not cfg.get("enabled") or not PUBLIC_DASHBOARD_URL or not valid_link(link)
-            or len(link) <= int(cfg.get("min_chars", 60))):
+    link = clean_link(link)
+    if not needs_short_link(link):
         return link
+    cfg = member_cfg().get("short_link") or {}
     try:
-        for _ in range(5):
+        for _ in range(3):
             # Letters and digits only: a code ending in "-" or "_" can fall off the address.
             code = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(int(cfg.get("code_chars", 8))))
-            code = await db.short_link_code(link, code, _israel_now().isoformat())
+            code = await db.draft_short_link(request_id=req["id"], url=link, code=code, now=_israel_now().isoformat(),
+                                             cap=int(cfg.get("max_per_form", 5)))
             if code:
-                short = f"{PUBLIC_DASHBOARD_URL}/l/{code}"
-                return short if len(short) < len(link) else link
+                return f"{PUBLIC_DASHBOARD_URL}/l/{code}"
     except Exception:
-        logger.warning("member_events: could not shorten a link, posting it as it is", exc_info=True)
+        logger.warning("member_events: could not shorten a link, showing it as it is", exc_info=True)
     return link
+
+
+async def post_link(db, link: str | None) -> str | None:
+    """The link for the published post: exactly what the form preview showed. Codes are never
+    made here, only looked up and kept for good."""
+    from .config import PUBLIC_DASHBOARD_URL
+
+    link = clean_link(link) if link else link
+    if not link or not needs_short_link(link):
+        return link
+    try:
+        code = await db.publish_short_link(link)
+        return f"{PUBLIC_DASHBOARD_URL}/l/{code}" if code else link
+    except Exception:
+        logger.warning("member_events: could not look up a short link, posting it as it is", exc_info=True)
+        return link
+
+
+async def short_link_target(db, code: str) -> str | None:
+    from datetime import timedelta
+
+    hours = float((member_cfg().get("short_link") or {}).get("draft_hours", 24))
+    url = await db.short_link_url(code, (_israel_now() - timedelta(hours=hours)).isoformat())
+    return url if url and valid_link(url) else None
 
 
 def clean_form_fields(data: dict) -> tuple[dict, dict]:
@@ -596,7 +666,7 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
     if tg_target != "test":
         routing = await db.get_handler_routing("events_publish")
         topic_id = routing["play_topic_id"] if routing else None
-    # Only the posts carry the short address; the request keeps the original link.
+    # Only the posts carry the cleaned address; the request keeps the original link.
     posted = {**req, "link": await post_link(db, req.get("link"))}
     card = request_card(posted)
     sent = await send_message_with_optional_cover(bot, db=db, chat_id=chat_id, text=card,

@@ -3629,16 +3629,6 @@ async def agent_event_mode(request: Request, db: Database = Depends(get_db)):
     return {"reply": reply}
 
 
-def _short_link_preview(cfg: dict) -> dict:
-    """What the form preview shows for a long link. The real code exists only after publishing."""
-    from bot.utils import config as bot_config
-
-    sl = cfg.get("short_link") or {}
-    base = bot_config.PUBLIC_DASHBOARD_URL
-    stand_in = f"{base}/l/{'x' * int(sl.get('code_chars', 8))}" if sl.get("enabled") and base else ""
-    return {"min": int(sl.get("min_chars", 60)), "text": stand_in}
-
-
 def _member_form_copy() -> dict:
     from bot.utils.copy import load_copy_block
 
@@ -3693,12 +3683,12 @@ async def whatsapp_restart(request: Request):
 
 @app.api_route("/l/{code}", methods=["GET", "HEAD"])
 async def event_short_link(code: str, db: Database = Depends(get_db)):
-    """Open the original of a long link from an event post. Public; codes are only made at publishing."""
-    from bot.utils.shared_events import valid_link
+    """Open the original of a long link from an event post. Public; codes come only from an open event form."""
+    from bot.utils.shared_events import short_link_target
 
     code = "".join(ch for ch in code if ch.isascii() and ch.isalnum())  # invisible marks glued on by WhatsApp
-    url = await db.short_link_url(code) if code else None
-    if not url or not valid_link(url):
+    url = await short_link_target(db, code) if code else None
+    if not url:
         raise HTTPException(status_code=404)
     return RedirectResponse(url=url, status_code=302, headers={
         "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"})
@@ -3720,9 +3710,23 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
         "templates": load_templates(), "can_publish": can_publish, "live": default_mode() == "real",
         "c": _member_form_copy(), "open": request_is_open(req), "token": token,
         "by": (req or {}).get("requester_name") or "", "today": today,
-        "prefill": load_prefill(req), "max_link": int(cfg.get("max_link_chars", 2000)), "short": _short_link_preview(cfg),
+        "prefill": load_prefill(req), "max_link": int(cfg.get("max_link_chars", 2000)),
         "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),
     })
+
+
+@app.post("/e/{token}/link-preview")
+async def member_event_link_preview(token: str, request: Request, db: Database = Depends(get_db)):
+    """The link exactly as the post will carry it, from the same code that builds the post."""
+    from bot.utils.shared_events import clean_form_fields, preview_link, request_is_open
+
+    req = await db.get_event_request(token=token)
+    if not request_is_open(req):
+        raise HTTPException(status_code=403)
+    data = await request.json()
+    fields, errors = clean_form_fields({"link": data.get("link")})
+    link = fields["link"]
+    return {"link": await preview_link(db, req, link) if link and "link" not in errors else ""}
 
 
 @app.post("/e/{token}/template-delete")

@@ -66,6 +66,7 @@ body.dropping .pick button { border-color: var(--accent); }
 .preview-title { font-size: 13px; color: var(--muted); font-weight: 500; margin: 22px 4px 8px; }
 .bubble { background: var(--bubble); border-radius: 14px 14px 4px 14px; padding: 4px; box-shadow: var(--shadow); }
 .bubble img { width: 100%; max-height: 200px; object-fit: cover; border-radius: 11px; display: none; }
+.bubble pre a { color: inherit; font-size: 14px; text-decoration: underline; }
 .bubble pre { margin: 0; padding: 8px 10px 10px; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 15px; }
 .bar { position: fixed; inset: auto 0 0 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
        background: linear-gradient(to top, var(--bg) 70%, transparent); }
@@ -176,9 +177,32 @@ var $ = function (id) { return document.getElementById(id); };
 
 function fill(t, vals) { return String(t || '').replace(/\{(\w+)\}/g, function (_, k) { return vals[k] != null ? vals[k] : ''; }); }
 
-// The post carries a short address for a long link; its code is made when the event is published.
-var SHORT = {{ short | tojson }};
-function shownLink(l) { return SHORT.text && l.length > SHORT.min && SHORT.text.length < l.length ? SHORT.text : l; }
+// The server says how the post will carry the link (a long one gets its real short address
+// here), so the preview and the post always agree. Asked once typing stops, never per key.
+var LINKS = {}, linkTimer = null, linkAsked = {};
+function askLink(l) {
+  clearTimeout(linkTimer);
+  if (!l || LINKS[l]) return Promise.resolve();
+  if (!linkAsked[l]) {
+    linkAsked[l] = fetch(location.pathname + '/link-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: l }) })
+      .then(function (r) { if (!r.ok) throw r; return r.json(); })
+      .then(function (d) { LINKS[l] = d; })
+      .catch(function () { LINKS[l] = { link: l }; setTimeout(function () { delete LINKS[l]; }, 5000); })  // unreachable: the link as typed
+      .then(function () { delete linkAsked[l]; if ($('link').value.trim() === l) preview(); });
+  }
+  return linkAsked[l];
+}
+// Built as an element with plain text, never as HTML.
+function linkNode(l) {
+  var p = LINKS[l], href = p && p.link;
+  if (!p) { clearTimeout(linkTimer); linkTimer = setTimeout(function () { askLink(l); }, 800); }
+  if (!href || !/^https?:\/\/\S+$/.test(href)) return document.createTextNode(l);
+  var a = document.createElement('a');
+  a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.dir = 'ltr';
+  a.textContent = href;
+  return a;
+}
+$('link').addEventListener('change', function () { askLink(this.value.trim()); });
 
 function preview() {
   var v = function (id) { return $(id).value.trim(); };
@@ -192,10 +216,19 @@ function preview() {
   if (v('location')) lines.push(fill(C.card_where, { location: v('location') }));
   if (v('description')) lines.push('', v('description'));
   if (v('link') || BY || v('organizer')) lines.push('');
-  if (v('link')) lines.push(fill(C.card_link, { link: shownLink(v('link')) }));
+  var linkAt = -1;
+  if (v('link')) { linkAt = lines.length; lines.push(''); }
   if (v('organizer')) lines.push(fill(C.card_organizer, { name: v('organizer') }));
   else if (BY) lines.push(fill(C.card_by, { name: BY }));
-  $('pv').textContent = lines.join('\n');
+  var pv = $('pv'); pv.textContent = '';
+  lines.forEach(function (line, i) {
+    if (i) pv.appendChild(document.createTextNode('\n'));
+    if (i !== linkAt) { pv.appendChild(document.createTextNode(line)); return; }
+    var around = String(C.card_link || '{link}').split('{link}');
+    pv.appendChild(document.createTextNode(around[0]));
+    pv.appendChild(linkNode(v('link')));
+    pv.appendChild(document.createTextNode(around[1] || ''));
+  });
   $('desc-count').textContent = $('description').value.length;
 }
 
@@ -322,6 +355,7 @@ $('send').addEventListener('click', async function () {
   if (!check()) return;
   var btn = this; btn.disabled = true; btn.textContent = C.form_sending;
   try {
+    await askLink($('link').value.trim());  // the post carries what the preview shows
     var r = await fetch(location.pathname, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

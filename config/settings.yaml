@@ -101,11 +101,27 @@ member_events:
   max_title_chars: 80
   max_description_chars: 400
   max_link_chars: 2000     # longer links are refused, never cut
-  # A long link in an event post becomes <dashboard address>/l/<code>, which redirects to it.
+  # Links in event posts are shortened by cleaning the real address (the form keeps what was typed).
+  link_cleaning:
+    # A site's own short form. `path` must match the whole path; {0} is what its brackets caught.
+    site_rules:
+      - hosts: ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "mbasic.facebook.com"]
+        path: '/events/(?![0-9]+/.)(?:[^/]+/){0,2}([0-9]{6,})/?'
+        to: "https://www.facebook.com/events/{0}/"
+        keep_params: ["event_time_id"]     # which date of a repeating event
+    # Parameters that only track people, on any site (* = anything).
+    tracking_params: ["fbclid", "gclid", "gbraid", "wbraid", "dclid", "msclkid", "ttclid", "twclid", "yclid", "utm_*", "igshid", "igsh", "mibextid", "mc_cid", "mc_eid", "_hsenc", "_hsmi"]
+    # Short names that mean something on other sites: only dropped here.
+    site_tracking_params:
+      - hosts: ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "open.spotify.com"]
+        params: ["si"]
+  # Last resort: a link still too long after cleaning becomes <dashboard address>/l/<code>, which redirects to it.
   short_link:
     enabled: true
-    min_chars: 60          # links up to this length stay as they are
+    min_chars: 120         # cleaned links up to this length are posted as they are
     code_chars: 8
+    max_per_form: 5        # different long links one form may shorten
+    draft_hours: 24        # a short link whose event was not published stops working after this
   # Event from a picture: a group member sends Botty a screenshot in a private chat and
   # gets a form with the details already filled in. The operator has no daily limit.
   picture:

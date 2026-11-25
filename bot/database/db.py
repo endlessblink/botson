@@ -75,6 +75,9 @@ class Database:
             "ALTER TABLE event_requests ADD COLUMN prefill TEXT",
             # Long links in published event posts: /l/<code> redirects to the original.
             "CREATE TABLE IF NOT EXISTS event_short_links (code TEXT PRIMARY KEY, url TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)",
+            # 0 = made while a form is being filled: works for a while, for good once published.
+            "ALTER TABLE event_short_links ADD COLUMN published INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE event_requests ADD COLUMN short_links INTEGER NOT NULL DEFAULT 0",
             # One row per picture a capped member had read, for the daily limit. No picture content.
             "CREATE TABLE IF NOT EXISTS event_picture_reads (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "platform TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL)",
@@ -981,17 +984,41 @@ class Database:
         await self._db.commit()
         return rid
 
-    async def short_link_code(self, url: str, code: str, created_at: str) -> str | None:
-        """The code of a link, storing it under `code` the first time. None if `code` is taken."""
-        await self._db.execute("INSERT OR IGNORE INTO event_short_links (code, url, created_at) VALUES (?, ?, ?)",
-                               (code, url, created_at))
+    async def draft_short_link(self, *, request_id: int, url: str, code: str, now: str, cap: int) -> str | None:
+        """The code of a link, made now if it is new. A new one counts against the form's cap.
+        None when the cap is reached or `code` is taken."""
+        async def existing():
+            async with self._db.execute("SELECT code FROM event_short_links WHERE url = ?", (url,)) as cursor:
+                row = await cursor.fetchone()
+            return row["code"] if row else None
+
+        if not await existing():
+            async with self._db.execute(
+                "UPDATE event_requests SET short_links = short_links + 1 WHERE id = ? AND status = 'open' AND short_links < ?",
+                (request_id, cap),
+            ) as cursor:
+                allowed = cursor.rowcount > 0
+            if allowed:
+                await self._db.execute(
+                    "INSERT OR IGNORE INTO event_short_links (code, url, created_at, published) VALUES (?, ?, ?, 0)", (code, url, now))
+            await self._db.commit()
+        else:  # still being used in a form: keep an unpublished one alive
+            await self._db.execute("UPDATE event_short_links SET created_at = ? WHERE url = ? AND published = 0", (now, url))
+            await self._db.commit()
+        return await existing()
+
+    async def publish_short_link(self, url: str) -> str | None:
+        """The code the form preview showed for this link, kept for good; None if there is none."""
+        await self._db.execute("UPDATE event_short_links SET published = 1 WHERE url = ?", (url,))
         await self._db.commit()
         async with self._db.execute("SELECT code FROM event_short_links WHERE url = ?", (url,)) as cursor:
             row = await cursor.fetchone()
         return row["code"] if row else None
 
-    async def short_link_url(self, code: str) -> str | None:
-        async with self._db.execute("SELECT url FROM event_short_links WHERE code = ?", (code,)) as cursor:
+    async def short_link_url(self, code: str, drafts_since: str) -> str | None:
+        async with self._db.execute(
+            "SELECT url FROM event_short_links WHERE code = ? AND (published = 1 OR created_at >= ?)", (code, drafts_since),
+        ) as cursor:
             row = await cursor.fetchone()
         return row["url"] if row else None
 
