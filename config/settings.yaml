@@ -109,12 +109,149 @@ member_events:
       description: "משחקי מסיבה שמשחקים מהטלפון. מצטרפים מהקישור, לא צריך להביא כלום."
       time: "20:00"
 
+# Month calendar picture of community events (bot/utils/events_calendar.py).
+# Drawn with Pillow from the published events; served to Botty and shown on the Events page.
+events_calendar:
+  timezone: "Asia/Jerusalem"     # decides "today", past vs upcoming, and the default month
+  width: 1080                    # picture width in px (the layout scales with it)
+  max_title_lines: 3             # an event title wraps to this many lines, then ends with "…"
+  max_chips_per_day: 2           # events drawn inside one day; the rest become a "+N" marker
+  min_cell_height: 150           # a week row is never shorter than this (px at 1080 wide)
+  next_max_lines: 2              # lines of text in the "next up" / empty-month card
+  show_organizer: true           # name the person responsible in the "next up" card, when it fits
+  colors:
+    background: "#f4f1ec"
+    card: "#ffffff"
+    ink: "#1d1b19"
+    muted: "#77716a"
+    line: "#e6e0d8"
+    accent: "#e8572a"
+    accent_ink: "#b8401b"
+    accent_soft: "#fde9e0"
+    cta_soft: "#e7f7dc"
+    past_chip: "#eeeae4"
+    past_ink: "#8f887f"
+    cell: "#faf8f5"
+    cell_weekend: "#f5f2ed"
+    out_of_month: "#d3ccc3"
+    shadow: "#3c2814"
+  shadow: {offset: 8, blur: 28, opacity: 0.08}
+  # Text styles as [size px at 1080 wide, weight], and how tall one line of each is (times the size).
+  fonts:
+    month: [88, 800]
+    subtitle: [30, 500]
+    count: [40, 800]
+    count_label: [28, 700]
+    dow: [30, 700]
+    dow_weekend: [30, 500]
+    number: [32, 700]
+    number_quiet: [32, 500]
+    number_today: [32, 800]
+    today: [24, 800]
+    time: [22, 800]
+    title: [23, 700]
+    title_past: [23, 500]
+    more: [22, 800]
+    tag: [24, 800]
+    next: [32, 800]
+    meta: [26, 500]
+    empty: [28, 500]
+    footer: [28, 500]
+    footer_cta: [28, 800]
+  line_heights:
+    month: 1.0
+    subtitle: 1.47
+    count: 1.1
+    count_label: 1.571           # 28 × 1.571 = 40 × 1.1, so the number and its label share a line
+    dow: 1.47
+    dow_weekend: 1.47
+    number: 1.0
+    number_quiet: 1.0
+    number_today: 1.0
+    today: 1.3
+    time: 1.1
+    title: 1.15
+    title_past: 1.15
+    more: 1.2
+    tag: 1.47
+    next: 1.2
+    meta: 1.47
+    empty: 1.47
+    footer: 1.47
+    footer_cta: 1.47
+  # Distances in px at 1080 wide.
+  spacing:
+    page_x: 48
+    page_top: 56
+    page_bottom: 44
+    header_x: 6
+    subtitle_gap: 12
+    header_gap: 28
+    count_gap: 6
+    count_shift: 14
+    card_pad: 14
+    card_top: 16
+    card_radius: 18
+    dow_top: 6
+    dow_bottom: 14
+    rule: 2
+    gap: 8
+    cell_radius: 12
+    cell_pad_x: 7
+    cell_pad_y: 8
+    cell_gap: 6
+    number_box: 50
+    today_outline: 3
+    today_pad: 4
+    chip_radius: 10
+    chip_pad_x: 8
+    chip_top: 6
+    chip_bottom: 8
+    chip_mid: 3
+    next_gap: 22
+    next_pad_x: 28
+    next_pad_y: 22
+    next_inner_gap: 26
+    tag_pad_x: 16
+    tag_pad_y: 8
+    tag_radius: 10
+    meta_gap: 4
+    footer_gap: 24
+    cta_gap: 8
+    cta_pad_x: 12
+    cta_radius: 8
+
 # Centralized user-facing copy. Every Hebrew template the bot or
 # dashboard surfaces should read from here via `bot/utils/copy.py:load_copy`.
 # See CLAUDE.md → "No Hardcoded User-Facing Content" for the rule.
 # This namespace is seeded by Phase F; Phase A.2 populates it as handlers
 # migrate. Missing keys log a warning and render `[copy missing: ns.key]`.
 copy:
+  events_calendar:
+    # Month calendar picture. Lists run January..December and Sunday..Saturday.
+    month_names: ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"]
+    day_letters: ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"]
+    day_names: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
+    subtitle: "מה קורה החודש בקהילה"
+    count_one: "אירוע"
+    count_many: "אירועים"
+    today: "היום"
+    more: "+{n}"
+    next_up: "הבא בתור"
+    # {day} = day name, {date} = d.m, {time} = HH:MM (left out when the event has no time).
+    next_line: "{day} {date} · {time} · {title}"
+    next_line_no_time: "{day} {date} · {title}"
+    organizer: "באחריות {name}"
+    meta_separator: " · "
+    empty: "עוד אין אירועים החודש. אולי האירוע הראשון יהיה שלכם?"
+    footer: "רוצים להוסיף אירוע? כתבו לבוטי:"
+    footer_cta: "אירוע חדש"
+    # Events page (dashboard) section.
+    dashboard_title: "לוח החודש (תמונה)"
+    dashboard_hint: "התמונה שבוטי יכול למשוך. רק אירועים שפורסמו בקבוצה האמיתית, בלי בדיקות."
+    dashboard_prev: "→ החודש הקודם"
+    dashboard_next: "החודש הבא ←"
+    dashboard_current: "החודש"
   whatsapp_watch:
     down: "⚠️ בוטי התנתק מוואטסאפ (מצב: {status}). עד שיחזור, הודעות ואירועים לא יגיעו לקבוצות הוואטסאפ.\nניסיתי להחיות אותו לבד ולא הצלחתי. הנה מסך החיבור:\n{url}"
     down_scan: "⚠️ בוטי התנתק מוואטסאפ וממתין לסריקה.\nפתח/י את המסך הזה, ובטלפון של בוטי: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרוק/י את הקוד:\n{url}"

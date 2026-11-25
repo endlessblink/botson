@@ -867,6 +867,33 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+    async def get_published_events(self, main_chat_id: int) -> list[dict]:
+        """Events that really went out to the community (for the month calendar).
+
+        Included: active rows with a posted message that went to the main Telegram
+        group or the main WhatsApp group, plus /event posts, which record no
+        destination but always go to the main group. Left out: deleted, unpublished
+        and test-group rows, rows whose member request is not approved, and planner
+        cards (their date is when the post went out, not when the event is).
+        """
+        async with self._db.execute(
+            """SELECT e.id, e.title, e.event_date, e.event_time, e.location,
+                      (SELECT r.organizer FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS organizer
+               FROM events e
+               WHERE e.active = 1 AND e.message_id IS NOT NULL
+                 AND ((? != 0 AND e.tg_chat_id = ?)
+                      OR e.wa_target = 'whatsapp'
+                      OR (e.tg_chat_id IS NULL AND e.created_by != 0))
+                 AND NOT EXISTS (SELECT 1 FROM event_requests r
+                                 WHERE r.event_id = e.id AND r.status != 'approved')
+                 AND NOT (e.tg_chat_id IS NULL AND EXISTS (
+                          SELECT 1 FROM scheduled_messages s
+                          WHERE s.message_type = 'event' AND s.sent_message_id = e.message_id))
+               ORDER BY e.event_date, e.event_time""",
+            (main_chat_id, main_chat_id),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
     async def update_event_rsvp(self, event_id: int, user_id: int, status: str):
         """Update RSVP for an event. Status: 'yes' or 'maybe'."""
         import json

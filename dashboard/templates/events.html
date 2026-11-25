@@ -220,6 +220,34 @@
 </div>
 
 
+<!-- Month calendar picture -->
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
+    <div class="px-5 py-4 border-b border-[#1f1f1f] flex flex-wrap items-center justify-between gap-2">
+        <div>
+            <h2 class="text-sm font-medium text-[#fafafa]">{{ calendar_copy.dashboard_title }}</h2>
+            <p class="text-xs text-[#a1a1aa] mt-1">{{ calendar_copy.dashboard_hint }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="moveCalendar(-1)" class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-3 rounded-md text-xs">{{ calendar_copy.dashboard_prev }}</button>
+            <button onclick="moveCalendar(0)" class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-3 rounded-md text-xs">{{ calendar_copy.dashboard_current }}</button>
+            <button onclick="moveCalendar(1)" class="bg-transparent border border-[#272727] hover:border-[#3f3f3f] text-[#fafafa] h-9 px-3 rounded-md text-xs">{{ calendar_copy.dashboard_next }}</button>
+        </div>
+    </div>
+    <div class="p-5">
+        <img id="events-calendar" src="/api/events/calendar.png?month={{ calendar_month }}" alt="{{ calendar_copy.dashboard_title }}" loading="lazy" class="w-full max-w-md mx-auto rounded-md">
+    </div>
+</div>
+<script>
+    const CALENDAR_NOW = '{{ calendar_month }}';
+    let calendarMonth = CALENDAR_NOW;
+    function moveCalendar(step) {
+        const [y, m] = calendarMonth.split('-').map(Number);
+        const d = new Date(Date.UTC(y, m - 1 + step, 1));
+        calendarMonth = step ? d.toISOString().slice(0, 7) : CALENDAR_NOW;
+        document.getElementById('events-calendar').src = '/api/events/calendar.png?month=' + calendarMonth;
+    }
+</script>
+
 <!-- Events Table Card -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mt-4">
     <div class="px-5 py-4 border-b border-[#1f1f1f] flex items-center">

@@ -3181,6 +3181,8 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         e["wa_counts"] = await db.get_event_whatsapp_counts(e["id"]) if e.get("wa_target") else None
     settings = get_settings()
     forum_topics = await db.get_forum_topics()
+    from bot.utils.copy import load_copy_block
+    from bot.utils.events_calendar import local_now
     from bot.utils.shared_events import request_card
 
     pending = await db.list_event_requests(status="submitted")
@@ -3194,7 +3196,35 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         "events": events,
         "settings": settings,
         "forum_topics": forum_topics,
+        "calendar_month": local_now().strftime("%Y-%m"),
+        "calendar_copy": load_copy_block("events_calendar", default={}),
     })
+
+
+async def _events_calendar_response(db: Database, month: str | None) -> Response:
+    from bot.utils.events_calendar import month_png
+
+    try:
+        png = await month_png(db, month)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/events/calendar.png")
+async def events_calendar_png(request: Request, month: str | None = None, db: Database = Depends(get_db)):
+    """Month calendar picture for the Events page."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    return await _events_calendar_response(db, month)
+
+
+@app.get("/api/agent/events-calendar")
+async def agent_events_calendar(request: Request, month: str | None = None, db: Database = Depends(get_db)):
+    """Month calendar picture for Botty (agent token). Optional month=YYYY-MM, default: this month in Israel."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return await _events_calendar_response(db, month)
 
 
 def _format_event_message(title: str, description: str | None,
