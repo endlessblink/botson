@@ -3218,7 +3218,18 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         "forum_topics": forum_topics,
         "calendar_month": local_now().strftime("%Y-%m"),
         "calendar_copy": load_copy_block("events_calendar", default={}),
+        "calendar_topic": await _events_topic_label(db, forum_topics),
     })
+
+
+async def _events_topic_label(db: Database, forum_topics: list[dict]) -> str:
+    """Name of the Telegram topic events go to (routing table), for "where will this post"."""
+    routing = await db.get_handler_routing("events_publish")
+    topic_id = routing["play_topic_id"] if routing else None
+    if topic_id is None:
+        return "?"
+    names = {t.get("topic_id"): t.get("verified_name") or t.get("name") for t in forum_topics}
+    return str(names.get(topic_id) or topic_id)
 
 
 async def _events_calendar_response(db: Database, month: str | None) -> Response:
@@ -3245,6 +3256,143 @@ async def agent_events_calendar(request: Request, month: str | None = None, db: 
     if not _is_agent_api_request(request):
         raise HTTPException(status_code=401, detail="unauthorized")
     return await _events_calendar_response(db, month)
+
+
+def _whatsapp_calendar_chat(data: dict) -> tuple[str, str, bool]:
+    """(chat id, requester, private) from Botty's body; 400 on anything else."""
+    chat_id = str(data.get("chat_id") or "").strip()
+    requester = str(data.get("requester") or "").strip()
+    private = chat_id.endswith(("@c.us", "@lid"))
+    if not requester or not (private or chat_id.endswith("@g.us")) or (private and chat_id != requester):
+        raise HTTPException(status_code=400, detail="chat_id must be a WhatsApp group or the requester's private chat")
+    return chat_id, requester, private
+
+
+@app.post("/api/agent/events-calendar/share")
+async def agent_events_calendar_share(request: Request, db: Database = Depends(get_db)):
+    """A WhatsApp member asked Botty for the schedule. Botson applies the shared rules
+    (bot/utils/calendar_share.py) and answers with what Botty should do:
+
+    {"status": "post", image (base64 PNG), mime, caption, month, version} — send it, then
+        call /api/agent/events-calendar/posted with the sent message id;
+    {"status": "already", message_id, text} — reply with text, quoting message_id;
+    {"status": "limit" | "members_only", text} — reply with text.
+    Body: {chat_id, requester, operator, next}. Agent-token only.
+    """
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    import base64
+
+    from bot.utils.calendar_share import caption, decide, month_for, share_cfg
+    from bot.utils.copy import load_copy
+    from bot.utils.events_calendar import month_png
+    from bot.utils.shared_events import is_known_member, person_ids
+
+    if not share_cfg().get("enabled"):
+        raise HTTPException(status_code=409, detail="calendar sharing is off")
+    data = await request.json()
+    chat_id, requester, private = _whatsapp_calendar_chat(data)
+    operator = data.get("operator") is True
+    ids = await person_ids(requester) if private else [requester]
+    if private and not operator:
+        try:
+            known = await is_known_member(db, ids)
+        except RuntimeError:
+            logger.warning("[calendar_share] member check failed", exc_info=True)
+            raise HTTPException(status_code=503, detail="could not check group membership")
+        if not known:
+            return {"status": "members_only", "text": load_copy("calendar_share", "members_only")}
+    month = month_for(data.get("next") is True)
+    d = await decide(db, platform="whatsapp", chat_id=chat_id, private=private, operator=operator,
+                     user_ids=ids, month=month)
+    if d["action"] == "limit":
+        return {"status": "limit", "text": d["text"]}
+    if d["action"] == "already":
+        return {"status": "already", "text": d["text"], "message_id": d["message_id"]}
+    png = await month_png(db, month, MEDIA_DIR)
+    logger.info("[calendar_share] WhatsApp %s calendar for %s (%s)", month, "private" if private else chat_id,
+                "operator" if operator else "member")
+    return {"status": "post", "image": base64.b64encode(png).decode("ascii"), "mime": "image/png",
+            "caption": caption(month), "month": month, "version": d["version"]}
+
+
+@app.post("/api/agent/events-calendar/posted")
+async def agent_events_calendar_posted(request: Request, db: Database = Depends(get_db)):
+    """Botty sent the calendar: remember it (the group's latest post, or one private copy).
+    Body: {chat_id, requester, operator, message_id, month, version}. Agent-token only."""
+    if not _is_agent_api_request(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    from bot.utils.calendar_share import record
+    from bot.utils.shared_events import norm_id
+
+    data = await request.json()
+    chat_id, requester, private = _whatsapp_calendar_chat(data)
+    month, version = str(data.get("month") or ""), str(data.get("version") or "")
+    if not re.fullmatch(r"20[0-9]{2}-(0[1-9]|1[0-2])", month) or not re.fullmatch(r"[0-9a-f]{16}", version):
+        raise HTTPException(status_code=400, detail="month / version missing")
+    # Stored the way the cap counts it (the same spelling person_ids() starts with).
+    await record(db, platform="whatsapp", chat_id=chat_id, private=private, user_id=norm_id(requester),
+                 operator=data.get("operator") is True, message_id=str(data.get("message_id") or ""),
+                 thread_id=None, month=month, version=version)
+    return {"ok": True}
+
+
+@app.post("/api/events/calendar/send")
+async def events_calendar_send(request: Request, db: Database = Depends(get_db)):
+    """Operator: send the shown month's calendar now, to the test groups or the real
+    groups according to the live / test switch on this page. Body: {month, mode} —
+    `mode` is the mode the page showed; if the switch changed meanwhile, nothing is sent."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from telegram import Bot
+
+    from bot.utils import whatsapp_sender
+    from bot.utils.calendar_share import caption, month_version, record, send_telegram_picture, telegram_events_topic
+    from bot.utils.events_calendar import local_now, month_png, parse_month
+    from bot.utils.shared_events import default_mode, targets_for
+
+    data = await request.json()
+    month = str(data.get("month") or "")
+    try:
+        parse_month(month, local_now())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    mode = default_mode()
+    if data.get("mode") != mode:
+        raise HTTPException(status_code=409, detail="the live / test switch changed; reload the page")
+    tg_target, wa_target = targets_for(mode)
+    png = await month_png(db, month, MEDIA_DIR)
+    text, version = caption(month), await month_version(db, month)
+    results: dict = {}
+
+    try:
+        chat_id = int(os.getenv("TEST_GROUP_ID" if tg_target == "test" else "GROUP_ID", "0") or 0)
+        thread = None if tg_target == "test" else await telegram_events_topic(db)
+        if not chat_id:
+            raise RuntimeError("no Telegram group id")
+        if tg_target != "test" and thread is None:
+            raise RuntimeError("no events topic in the routing table")
+        sent = await send_telegram_picture(Bot(os.getenv("BOT_TOKEN", "")), db, chat_id=chat_id, thread_id=thread,
+                                           png=png, text=text)
+        await record(db, platform="telegram", chat_id=str(chat_id), private=False, user_id="", operator=True,
+                     message_id=sent.message_id, thread_id=thread, month=month, version=version)
+        results["telegram"] = {"ok": True}
+    except Exception as e:
+        logger.warning("[calendar_share] dashboard Telegram send failed: %s", e)
+        results["telegram"] = {"ok": False, "error": str(e)[:200]}
+
+    try:
+        wa_chat = whatsapp_sender.resolve_chat_id(wa_target)
+        msg_id = await whatsapp_sender.send_image_data(wa_chat, png, "image/png", "calendar.png", text)
+        await record(db, platform="whatsapp", chat_id=wa_chat, private=False, user_id="", operator=True,
+                     message_id=msg_id or "", thread_id=None, month=month, version=version)
+        results["whatsapp"] = {"ok": True}
+    except Exception as e:
+        logger.warning("[calendar_share] dashboard WhatsApp send failed: %s", e)
+        results["whatsapp"] = {"ok": False, "error": str(e)[:200]}
+
+    await db.log_activity("event", f"calendar {month} sent from the dashboard ({mode})", target_channel=mode)
+    return {"mode": mode, "month": month, "results": results}
 
 
 def _format_event_message(title: str, description: str | None,

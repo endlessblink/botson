@@ -249,6 +249,15 @@ async def send_image(chat_id: str, image_url: str, caption: str) -> str | None:
                                           "file": {"mimetype": mime, "url": image_url}})
 
 
+async def send_image_data(chat_id: str, data: bytes, mime: str, filename: str, caption: str) -> str | None:
+    """A picture made here (not on a public link), with the text under it."""
+    import base64
+
+    return await _post("/api/sendImage", {"chatId": chat_id, "caption": rtl_text(caption),
+                                          "file": {"mimetype": mime, "filename": filename,
+                                                   "data": base64.b64encode(data).decode("ascii")}})
+
+
 async def send_poll(chat_id: str, question: str, options: list[str]) -> str | None:
     problem = poll_problem(question, options)
     if problem:

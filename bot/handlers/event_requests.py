@@ -19,6 +19,7 @@ from ..utils.copy import load_copy
 from ..utils.helpers import get_display_name
 from ..utils.shared_events import apply_mode_command, approve_request, asks_for_event, create_request_link, is_trusted, member_cfg, reject_request, trust_requester
 from ..utils.topic_guard import UnverifiedTopicError, safe_send
+from ..utils.calendar_share import asks_for_calendar
 from .community_replies import _is_addressed_to_bot
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ async def handle_event_request(update: Update, context: ContextTypes.DEFAULT_TYP
             message, int(context.bot.id), getattr(context.bot, "username", None)):
         return
     if not asks_for_event(message.text, private=chat.type == "private"):
+        return
+    if asks_for_calendar(message.text):  # "אירועים קרובים" asks to see the schedule, not to make one
         return
     if chat.type != "private" and not member_cfg().get("link_in_group", True):
         # The link is personal, so it is never posted where everyone can open it.

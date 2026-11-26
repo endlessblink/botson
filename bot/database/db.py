@@ -83,6 +83,13 @@ class Database:
             # One row per picture a capped member had read, for the daily limit. No picture content.
             "CREATE TABLE IF NOT EXISTS event_picture_reads (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "platform TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL)",
+            # Month calendar shared in a chat: the last post per group (for "it is right there"),
+            # and one row per private copy a capped member got (for the daily limit).
+            "CREATE TABLE IF NOT EXISTS calendar_posts (platform TEXT NOT NULL, chat_id TEXT NOT NULL, "
+            "message_id TEXT NOT NULL, thread_id INTEGER, month TEXT NOT NULL, version TEXT NOT NULL, "
+            "posted_at TEXT NOT NULL, PRIMARY KEY (platform, chat_id))",
+            "CREATE TABLE IF NOT EXISTS calendar_private_sends (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "platform TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL)",
             # Members the operator trusts: their events publish without waiting for approval.
             "CREATE TABLE IF NOT EXISTS event_trusted_creators (platform TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, added_at TEXT NOT NULL, PRIMARY KEY (platform, user_id))",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
@@ -1037,6 +1044,38 @@ class Database:
             claimed = cursor.rowcount > 0
         await self._db.commit()
         return claimed
+
+    async def get_calendar_post(self, platform: str, chat_id: str) -> dict | None:
+        async with self._db.execute(
+            "SELECT * FROM calendar_posts WHERE platform = ? AND chat_id = ?", (platform, str(chat_id)),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def set_calendar_post(self, *, platform: str, chat_id: str, message_id: str, thread_id: int | None,
+                                month: str, version: str, posted_at: str) -> None:
+        await self._db.execute(
+            """INSERT INTO calendar_posts (platform, chat_id, message_id, thread_id, month, version, posted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(platform, chat_id) DO UPDATE SET message_id = excluded.message_id,
+                   thread_id = excluded.thread_id, month = excluded.month, version = excluded.version,
+                   posted_at = excluded.posted_at""",
+            (platform, str(chat_id), str(message_id), thread_id, month, version, posted_at),
+        )
+        await self._db.commit()
+
+    async def calendar_private_count(self, *, platform: str, user_ids: list[str], day: str) -> int:
+        marks = ", ".join("?" for _ in user_ids)
+        async with self._db.execute(
+            f"SELECT COUNT(*) FROM calendar_private_sends WHERE platform = ? AND day = ? AND user_id IN ({marks})",
+            (platform, day, *user_ids),
+        ) as cursor:
+            return int((await cursor.fetchone())[0])
+
+    async def add_calendar_private_send(self, *, platform: str, user_id: str, day: str) -> None:
+        await self._db.execute("INSERT INTO calendar_private_sends (platform, user_id, day) VALUES (?, ?, ?)",
+                               (platform, str(user_id), day))
+        await self._db.commit()
 
     async def get_event_request(self, *, token: str | None = None, request_id: int | None = None) -> dict | None:
         # WhatsApp can glue invisible direction marks onto a pasted link; only the

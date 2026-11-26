@@ -166,6 +166,19 @@ events_calendar:
   max_cover_pixels: 40000000     # a larger event picture is left out
   past_cover_fade: 0.55          # how much a past event's picture is faded (0 to 1)
   show_organizer: true           # name the person responsible in the "next up" card, when it fits
+  # Members ask to see the picture (Telegram: tag the bot / private chat / /calendar;
+  # WhatsApp: through Botty, whose word list is in its own config). Rules: bot/utils/calendar_share.py
+  share:
+    enabled: true
+    group_every_days: 3          # a group gets the picture at most once in this many days (operator: any time)
+    private_per_day: 3           # private copies per member per Israel day (operator: no cap)
+    ack_reaction: "👀"           # put on the asker's message the moment the bot gets it
+    # Telegram schedule words (whole words; a Hebrew word may carry a prefix such as ב/ה/ל).
+    # "Create an event" requests (event word + create word) still go to the event form.
+    words: ['לו"ז', "לוז", "לוח אירועים", "לוח האירועים", "לוח שנה", "מה קורה החודש", "אירועים קרובים", "אירועים הקרובים", "calendar"]
+    next_month_words: ["חודש הבא", "next month"]
+    word_prefixes: "ובהלמשכ"       # letters a Hebrew word may start with ("בלו״ז", "האירועים")
+    quote_marks: ["״", "”", "“", "''"]  # typed in place of " in לו"ז
   colors:
     background: "#f4f1ec"
     card: "#ffffff"
@@ -303,6 +316,25 @@ copy:
     dashboard_prev: "→ החודש הקודם"
     dashboard_next: "החודש הבא ←"
     dashboard_current: "החודש"
+    # "Send the calendar now" on the Events page. {month} = month name + year.
+    send_title: "לשלוח את הלוח לקבוצות"
+    send_where_test: "מצב בדיקה: יישלח לקבוצת הבדיקה בטלגרם ולקבוצת הבדיקה בוואטסאפ."
+    send_where_real: "מצב אמיתי: יישלח לקבוצה האמיתית בטלגרם (ערוץ {topic}) ולקבוצה האמיתית בוואטסאפ."
+    send_button: "לשלוח את החודש המוצג"
+    send_confirm: "לשלוח את הלוח של {month}?\n{where}"
+    send_ok: "נשלח ✓"
+    send_failed: "לא נשלח: {reason}"
+    send_telegram: "טלגרם"
+    send_whatsapp: "וואטסאפ"
+  calendar_share:
+    # Members asking to see the month calendar (Telegram and WhatsApp). {month} = month name.
+    caption: "📅 לוח האירועים של {month} {year}"
+    already_posted: "לוח האירועים כבר פורסם כאן לאחרונה 👆\nרוצים עותק משלכם? כתבו לי בפרטי."
+    posted_elsewhere: "שמתי את לוח האירועים בערוץ האירועים."
+    link_words: "לפתוח את הלוח"
+    private_limit: "לוח האירועים כבר נשלח אליך היום. אפשר לבקש שוב מחר 🙂"
+    members_only: "את לוח האירועים אני שולח רק לחברי הקבוצה 🙂"
+    failed: "לא הצלחתי להביא את לוח האירועים כרגע. נסו שוב עוד קצת."
   whatsapp_watch:
     down: "⚠️ בוטי התנתק מוואטסאפ (מצב: {status}). עד שיחזור, הודעות ואירועים לא יגיעו לקבוצות הוואטסאפ.\nניסיתי להחיות אותו לבד ולא הצלחתי. הנה מסך החיבור:\n{url}"
     down_scan: "⚠️ בוטי התנתק מוואטסאפ וממתין לסריקה.\nפתח/י את המסך הזה, ובטלפון של בוטי: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרוק/י את הקוד:\n{url}"

@@ -168,6 +168,10 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     )
     if not addressed_by:
         return
+    from ..utils.calendar_share import asks_for_calendar
+
+    if asks_for_calendar(message.text):  # the calendar handler answers these
+        return
 
     db: Database = context.bot_data["db"]
     try:

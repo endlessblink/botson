@@ -236,6 +236,16 @@
     <div class="p-5">
         <img id="events-calendar" src="/api/events/calendar.png?month={{ calendar_month }}" alt="{{ calendar_copy.dashboard_title }}" loading="lazy" class="w-full max-w-md mx-auto rounded-md">
     </div>
+    <div class="px-5 py-3 border-t border-[#1f1f1f] flex flex-wrap items-center justify-between gap-2">
+        <div>
+            <p class="text-xs font-medium text-[#fafafa]">{{ calendar_copy.send_title }}</p>
+            <p id="calendar-send-where" class="text-xs mt-1 {{ 'text-emerald-400' if member_default_mode == 'real' else 'text-amber-300' }}">{{ calendar_copy.send_where_real | replace('{topic}', calendar_topic) if member_default_mode == 'real' else calendar_copy.send_where_test }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <span id="calendar-send-result" class="text-xs text-[#a1a1aa]"></span>
+            <button id="calendar-send-btn" onclick="sendCalendar()" class="bg-[#fafafa] hover:bg-[#e4e4e7] text-[#0a0a0a] h-9 px-3 rounded-md text-xs font-medium">{{ calendar_copy.send_button }}</button>
+        </div>
+    </div>
 </div>
 <script>
     const CALENDAR_NOW = '{{ calendar_month }}';
@@ -245,6 +255,26 @@
         const d = new Date(Date.UTC(y, m - 1 + step, 1));
         calendarMonth = step ? d.toISOString().slice(0, 7) : CALENDAR_NOW;
         document.getElementById('events-calendar').src = '/api/events/calendar.png?month=' + calendarMonth;
+    }
+    const CALENDAR_SEND = {{ {"mode": member_default_mode, "months": calendar_copy.month_names, "confirm": calendar_copy.send_confirm, "ok": calendar_copy.send_ok, "failed": calendar_copy.send_failed, "tg": calendar_copy.send_telegram, "wa": calendar_copy.send_whatsapp} | tojson }};
+    async function sendCalendar() {
+        const [y, m] = calendarMonth.split('-').map(Number);
+        const where = document.getElementById('calendar-send-where').textContent.trim();
+        const label = (CALENDAR_SEND.months || [])[m - 1] + ' ' + y;
+        if (!confirm(CALENDAR_SEND.confirm.replace('{month}', label).replace('{where}', where))) return;
+        const btn = document.getElementById('calendar-send-btn');
+        const out = document.getElementById('calendar-send-result');
+        btn.disabled = true;
+        out.textContent = '…';
+        try {
+            const r = await apiCall('/api/events/calendar/send', {month: calendarMonth, mode: CALENDAR_SEND.mode});
+            const part = (name, res) => name + ': ' + (res && res.ok ? CALENDAR_SEND.ok : CALENDAR_SEND.failed.replace('{reason}', (res && res.error) || '?'));
+            out.textContent = part(CALENDAR_SEND.tg, r.results.telegram) + ' · ' + part(CALENDAR_SEND.wa, r.results.whatsapp);
+        } catch (e) {
+            out.textContent = CALENDAR_SEND.failed.replace('{reason}', e.message);
+        } finally {
+            btn.disabled = false;
+        }
     }
 </script>
 
