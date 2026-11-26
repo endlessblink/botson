@@ -167,8 +167,7 @@ member_events:
 # Wording lives in copy.community_page. Join links and the search-engine switch are set from the
 # dashboard Settings page and kept in data/community_page.json (survives deploys); these are the defaults.
 community_page:
-  max_events: 8               # upcoming events listed, soonest first
-  lookahead_days: 90          # events further away than this are not listed yet
+  upcoming_count: 4           # "next up" events shown when nothing in the shown month is still ahead
   show_pictures: true         # event pictures (covers); a picture shows whatever its creator put in it
   indexable: false            # search engines: false = hidden like /cal (noindex header + meta)
   join:
@@ -269,11 +268,9 @@ events_calendar:
     next_month_words: ["חודש הבא", "next month"]
     word_prefixes: "ובהלמשכ"       # letters a Hebrew word may start with ("בלו״ז", "האירועים")
     quote_marks: ["״", "”", "“", "''"]  # typed in place of " in לו"ז
-  # The public read-only calendar page (/cal on the dashboard's public address).
-  # Same events as the picture: only what was already published (bot/utils/calendar_page.py).
+  # Calendar entries offered on the public page (/welcome; /cal redirects there), bot/utils/calendar_page.py.
   page:
     event_length_minutes: 120    # events have a start time only; calendar entries assume this length
-    upcoming_count: 4            # "next up" events listed under the month
   colors:
     background: "#f4f1ec"
     card: "#ffffff"
@@ -443,40 +440,8 @@ copy:
     done_unpin: "הנעיצה בוטלה"
     failed: "הנעיצה לא הצליחה. ייתכן שלבוט אין הרשאה לנעוץ הודעות בקבוצה."
     auto_off: "(נעיצה אוטומטית כבויה)"
-  calendar_page:
-    # The public calendar page. {month} = month name, {n} = a number.
-    page_title: "לוח האירועים"
-    brand: "לוח האירועים של הקהילה"
-    count_none: "אין אירועים"
-    count_one: "אירוע אחד"
-    count_many: "{n} אירועים"
-    prev_month: "החודש הקודם"
-    next_month: "החודש הבא"
-    today: "היום"
-    legend_event: "יש אירוע · לחצו על היום"
-    legend_past: "כבר היה"
-    day_heading: "{day} ב{month}"
-    upcoming: "הבאים בתור"
-    upcoming_day: "יום {day}"
-    no_time: "כל היום"
-    empty_title: "עוד אין אירועים ב{month}"
-    empty_text: "אולי האירוע הראשון יהיה שלכם?"
-    all_past: "כל האירועים של {month} כבר היו."
-    when: "יום {day}, {date} ב{month} · {time}"
-    when_no_time: "יום {day}, {date} ב{month}"
-    responsible: "באחריות {name}"
-    join: "לינק להצטרפות"
-    google: "להוסיף ליומן גוגל"
-    other_calendar: "יומן אחר? קובץ לאפל או אאוטלוק"
-    join_in_calendar: "להצטרפות: {link}"
-    close: "סגירה"
-    add_title: "רוצים להוסיף אירוע?"
-    add_whatsapp: "בוואטסאפ: כתבו לבוטי בפרטי {word} או שלחו לו צילום מסך של האירוע."
-    add_word_whatsapp: "איוונט"
-    add_telegram: "בטלגרם: תייגו את בוטסון וכתבו {word}"
-    add_word_telegram: "אירוע חדש"
   community_page:
-    # The public front-door page ("the bulletin"). {month} = month name, {year} = year,
+    # The public page /welcome (front door and events calendar in one). {month} = month name, {year} = year,
     # {day} = day name, {time} = HH:MM. DRAFT wording: every line here still needs Noam's own words.
     page_title: "העלון של אלהוריים וזה"
     meta_description: "קהילה של אנשים שבחרו לחיות בלי ילדים. מקום לשיח פתוח, לתמיכה ולהנאה, בלי שיפוטיות."
@@ -486,7 +451,6 @@ copy:
     name_second: "וזה"
     platforms: "טלגרם · וואטסאפ"
     lead: "קהילה של אנשים שבחרו לחיות בלי ילדים."
-    events_kicker: "בעלון הזה"
     events_title: "מה בלוח"
     when: "{day} · {time}"
     when_no_time: "{day}"
@@ -494,9 +458,17 @@ copy:
     online: "אונליין"
     members_label: "לחברים בלבד"
     members_note: "מה, מתי ובאיזו עיר כתוב כאן. הכתובת, הקישור ומי שמארגן מחכים בקבוצה."
-    empty_title: "החודש עוד בלי מפגש"
+    empty_title: "עוד אין אירועים ב{month}"
+    all_past: "כל האירועים של {month} כבר היו."
+    past: "כבר היה"
+    upcoming: "הבאים בתור"
+    month_label: "{month} {year}"
+    prev_month: "החודש הקודם"
+    next_month: "החודש הבא"
+    today: "החודש"
+    google: "להוסיף ליומן גוגל"
+    other_calendar: "יומן אחר? קובץ לאפל או אאוטלוק"
     empty_text: "מפגשים נקבעים בתוך הקבוצה. כשייקבע אחד, הוא יודפס כאן."
-    channels_label: "הערוצים:"   # the names come from the verified forum topics, never typed here
     back: "חזרה ללוח"
     join_title: "רוצים להצטרף?"
     join_text: "הקישור מכניס ישר לקבוצה. נכנסים, מציצים בשקט, ומדברים כשבא לך."

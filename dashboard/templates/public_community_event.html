@@ -11,17 +11,22 @@
     <p class="sub" style="padding-top:8px">{{ c.name_first }} {{ c.name_second }}</p>
     <div class="stripe"></div><div class="stripe"></div>
   </header>
-  <a class="back" href="/welcome#events">{{ c.back }}</a>
+  <a class="back" href="/welcome/{{ month_key }}#events">{{ c.back }}</a>
 
-  <article class="ev one">
+  <article class="ev one{{ ' past' if ev.past }}">
     {% if ev.cover_url %}<div class="pic"><img src="{{ ev.cover_url }}" alt="" decoding="async"><span class="day" aria-hidden="true">{{ ev.date.day }}</span></div>
     {% else %}<div class="plate"><span class="day" aria-hidden="true">{{ ev.date.day }}</span><span class="date">{{ ev.date_text }} · {{ ev.when }}</span></div>{% endif %}
     <div class="txt">
+      {% if ev.past %}<span class="was">{{ c.past }}</span>{% endif %}
       {% if ev.cover_url %}<div class="when">{{ ev.date_text }} · {{ ev.when }}</div>{% endif %}
       <h1>{{ ev.title }}</h1>
       {% if ev.place %}<span class="city">{{ ev.place }}</span>{% endif %}
       {% if ev.description %}<p class="desc">{{ ev.description }}</p>{% endif %}
       <p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>
+      {% if not ev.past %}<div class="cal">
+        <a class="gbtn" href="{{ google_url }}" target="_blank" rel="noopener noreferrer"><span class="dd" aria-hidden="true">{{ ev.date.day }}</span>{{ c.google }}</a>
+        <a class="ics" href="{{ ics_url }}" download>{{ c.other_calendar }}</a>
+      </div>{% endif %}
     </div>
   </article>
 

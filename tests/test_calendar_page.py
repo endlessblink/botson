@@ -1,5 +1,6 @@
-"""The public calendar page (/cal): which events show, escaping, Google and calendar-file links,
-deep links, no-index headers, empty states, and the caption line leading to it. Nothing real is sent."""
+"""The events calendar, now part of the public page /welcome: months, past and empty months, the Google
+Calendar link and calendar file (reduced like the page: city only, cleaned text, no join link), the old
+/cal addresses redirecting, and the caption line leading to it. Nothing real is sent."""
 
 import asyncio
 import html
@@ -63,184 +64,214 @@ async def event(db, title, day, time="20:00", *, place=None, desc="", cover=None
     return eid
 
 
-def http_request(path="/cal", query=""):
-    return Request({"type": "http", "method": "GET", "path": path, "query_string": query.encode(), "headers": [],
+def http_request(path="/welcome"):
+    return Request({"type": "http", "method": "GET", "path": path, "query_string": b"", "headers": [],
                     "app": dash.app})
 
 
-async def page(db, month=None, e=None, d=None):
-    q = "&".join(f"{k}={v}" for k, v in (("e", e), ("d", d)) if v)
-    r = await dash.public_calendar(http_request(query=q), month, e, d, db)
+async def page(db, month=None):
+    r = await dash.community_page(http_request(), month, db)
     return r, r.body.decode()
 
 
-# ── What shows ──
+async def opened(db, eid):
+    r = await dash.community_event_page(http_request(f"/welcome/e/{eid}"), eid, db)
+    return r, r.body.decode()
 
-def test_only_published_events_show_and_only_card_fields(tmp_path):
+
+def q(url):
+    return {k: v[0] for k, v in parse_qs(urlsplit(html.unescape(url)).query).items()}
+
+
+# ── Months ──
+
+def test_this_month_by_default_and_other_months_by_address(tmp_path):
     async def body(db):
-        await event(db, "ערב שפורסם", "2026-11-28", request="approved", link="https://example.com/join?utm_source=x",
-                    organizer="מאיה")
-        await event(db, "רק בקבוצת הבדיקה", "2026-11-28", chat=TEST)
-        await event(db, "ממתין לאישור", "2026-11-28", request="submitted")
-        await event(db, "נמחק", "2026-11-28", active=False)
+        await event(db, "פיקניק", "2026-11-28")
+        await event(db, "יוגה", "2026-12-10")
         _, text = await page(db)
-        assert "ערב שפורסם" in text
-        for hidden in ("רק בקבוצת הבדיקה", "ממתין לאישור", "נמחק", "972500000001", "utm_source"):
-            assert hidden not in text, hidden
-        assert "באחריות מאיה" in text
+        assert "פיקניק" in text and "יוגה" not in text
+        assert "נובמבר 2026" in text and 'href="/welcome/2026-10#events"' in text and 'href="/welcome/2026-12#events"' in text
+        assert 'href="/welcome#events"' not in text  # already this month
+        _, text = await page(db, "2026-12")
+        assert "יוגה" in text and "פיקניק" not in text and "דצמבר 2026" in text
+        assert 'href="/welcome#events"' in text  # back to this month
+        _, text = await page(db, "2026-01")
+        assert 'href="/welcome/2025-12#events"' in text
+        for bad in ("2026-13", "november", "0001-01"):
+            with pytest.raises(HTTPException) as e:
+                await page(db, bad)
+            assert e.value.status_code == 404
     run(tmp_path, body)
 
 
-def test_everything_typed_is_escaped_and_bad_links_are_dropped(tmp_path):
+def test_the_month_grid_shows_events_inside_their_days(tmp_path, monkeypatch):
     async def body(db):
-        await event(db, '<script>alert(1)</script> "ערב"', "2026-11-28", place="<b>בר</b>",
-                    desc="<img src=x onerror=alert(1)>", request="approved", link="javascript:alert(1)")
-        _, text = await page(db, e=1)
-        assert "<script>alert(1)" not in text and "&lt;script&gt;alert(1)&lt;/script&gt;" in text
-        assert "<img src=x" not in text and "<b>בר</b>" not in text
-        assert "javascript:" not in text
-        assert load_copy("calendar_page", "join") not in text  # no usable link, no join button
+        a = await event(db, "פיקניק", "2026-11-28", "12:00", cover="covers/a.png")
+        b = await event(db, "יוגה", "2026-11-28", "21:00")
+        c = await event(db, "ערב שלישי", "2026-11-28", "22:00")
+        _, text = await page(db)
+        grid = text[text.index('<div class="grid"'):text.index('<ol class="line">')]
+        cells = re.findall(r'<div class="cell[^"]*"', grid)
+        assert len(cells) == 35  # November 2026 starts on a Sunday: 30 days + 5 blank cells
+        assert grid.index('class="cell out"') > grid.index('<span class="n">1<')  # day 1 is the first cell
+        day = re.search(r'<div class="cell[^"]*has[^"]*"><span class="n">28</span>.*?</div>', grid, re.S).group(0)
+        chips = re.findall(r'<a class="chip" href="/welcome/e/(\d+)">(.*?)</a>', day, re.S)
+        assert [int(x[0]) for x in chips] == [a, b]  # the picture's limit: two per day, then "+N"
+        assert 'src="/media/covers/a.png"' in chips[0][1] and "פיקניק" in chips[0][1] and "12:00" in chips[0][1]
+        assert "<img" not in chips[1][1] and "יוגה" in chips[1][1] and "21:00" in chips[1][1]
+        more = load_copy("events_calendar", "more", n=1)
+        assert f'<a class="more" href="#ev-{c}">{html.escape(more)}</a>' in day
+        assert re.search(r'class="cell[^"]* today[^"]*"><span class="n">26<', grid)
+        assert f'id="ev-{c}"' in text  # the card "+1" leads to
+        _, empty = await page(db, "2027-01")
+        assert 'class="grid"' in empty and html.escape(load_copy("community_page", "empty_title", month="ינואר")) in empty
     run(tmp_path, body)
 
 
-def test_the_join_link_opens_safely_in_a_new_tab(tmp_path):
+def test_past_events_of_the_month_stay_and_are_marked(tmp_path):
     async def body(db):
-        await event(db, "פיקניק", "2026-11-28", request="approved", link="https://example.com/join")
-        _, text = await page(db, e=1)
-        assert re.search(r'<a class="btn primary" href="https://example.com/join" target="_blank" rel="noopener noreferrer">', text)
+        await event(db, "היה מזמן", "2026-11-05")
+        _, text = await page(db)
+        card = re.search(r'<li class="ev past"[^>]*>.*?</li>', text, re.S).group(0)
+        assert "היה מזמן" in card and html.escape(load_copy("community_page", "past")) in card
+        assert html.escape(load_copy("community_page", "all_past", month="נובמבר")) in text
     run(tmp_path, body)
 
 
-# ── Google Calendar and the calendar file ──
+def test_an_empty_month_says_so_and_points_to_what_is_next(tmp_path):
+    async def body(db):
+        _, text = await page(db, "2027-01")
+        assert html.escape(load_copy("community_page", "empty_title", month="ינואר")) in text
+        assert html.escape(load_copy("community_page", "upcoming")) not in text
+        await event(db, "ערב בפברואר", "2027-02-10")
+        _, text = await page(db, "2027-01")
+        assert html.escape(load_copy("community_page", "upcoming")) in text and "ערב בפברואר" in text
+    run(tmp_path, body)
 
-EV = {"id": 7, "title": "סדנה, קרמיקה; ערב", "date": date(2026, 11, 28), "time": "17:00", "place": "יפו, סטודיו",
-      "description": "שורה ראשונה\nשורה שנייה", "cover_url": None, "link": "https://example.com/j", "who": "תמר"}
+
+def test_month_pages_are_kept_out_of_search_engines(tmp_path):
+    async def body(db):
+        r, text = await page(db, "2026-12")
+        assert "noindex" in r.headers["x-robots-tag"] and '<meta name="robots" content="noindex' in text
+        assert "<script src=" not in text and "googleapis" not in text
+    run(tmp_path, body)
+
+
+# ── Google Calendar and the calendar file: what they carry ──
+
+EV = {"id": 7, "title": "סדנה, קרמיקה; ערב", "date": date(2026, 11, 28), "time": "17:00", "place": "יפו",
+      "description": "שורה ראשונה\nשורה שנייה"}
 
 
 def test_google_link_is_googles_own_prefilled_screen():
     u = urlsplit(cp.google_url(EV))
     assert (u.scheme, u.netloc, u.path) == ("https", "calendar.google.com", "/calendar/render")
-    q = {k: v[0] for k, v in parse_qs(u.query).items()}
-    assert q["action"] == "TEMPLATE" and q["text"] == EV["title"] and q["ctz"] == "Asia/Jerusalem"
-    assert q["dates"] == "20261128T170000/20261128T190000"  # 2 hours from config
-    assert q["location"] == EV["place"]
-    assert q["details"].startswith("שורה ראשונה") and "https://example.com/j" in q["details"]
-    allday = {k: v[0] for k, v in parse_qs(urlsplit(cp.google_url({**EV, "time": None})).query).items()}
-    assert allday["dates"] == "20261128/20261129"
-    assert "location" not in parse_qs(urlsplit(cp.google_url({**EV, "place": None})).query)
+    g = q(cp.google_url(EV))
+    assert g["action"] == "TEMPLATE" and g["text"] == EV["title"] and g["ctz"] == "Asia/Jerusalem"
+    assert g["dates"] == "20261128T170000/20261128T190000"  # 2 hours from config
+    assert g["location"] == "יפו" and g["details"] == "שורה ראשונה\nשורה שנייה"
+    assert q(cp.google_url({**EV, "time": None}))["dates"] == "20261128/20261129"
+    assert "location" not in q(cp.google_url({**EV, "place": None}))
+    assert "details" not in q(cp.google_url({**EV, "description": None}))
 
 
 def test_the_length_comes_from_config(monkeypatch):
     monkeypatch.setattr(cp, "page_cfg", lambda: {"event_length_minutes": 90})
-    assert parse_qs(urlsplit(cp.google_url(EV)).query)["dates"] == ["20261128T170000/20261128T183000"]
+    assert q(cp.google_url(EV))["dates"] == "20261128T170000/20261128T183000"
 
 
 def test_calendar_file_is_a_correct_standard_file():
     text = cp.ics_text(EV, host="botson.example", now=datetime(2026, 11, 26, 10, 0, tzinfo=timezone.utc))
     assert text.endswith("\r\n") and "\n" not in text.replace("\r\n", "")
-    lines = text.split("\r\n")
-    assert all(len(line.encode()) <= 75 for line in lines)
+    assert all(len(line.encode()) <= 75 for line in text.split("\r\n"))
     unfolded = text.replace("\r\n ", "")
-    assert "BEGIN:VCALENDAR" in unfolded and "VERSION:2.0" in unfolded and "BEGIN:VTIMEZONE" in unfolded
-    assert "TZID:Asia/Jerusalem" in unfolded
+    assert "BEGIN:VCALENDAR" in unfolded and "VERSION:2.0" in unfolded and "TZID:Asia/Jerusalem" in unfolded
     assert "UID:event-7@botson.example" in unfolded and "DTSTAMP:20261126T100000Z" in unfolded
     assert "DTSTART;TZID=Asia/Jerusalem:20261128T170000" in unfolded
     assert "DTEND;TZID=Asia/Jerusalem:20261128T190000" in unfolded
-    assert "SUMMARY:סדנה\\, קרמיקה\\; ערב" in unfolded
-    assert "LOCATION:יפו\\, סטודיו" in unfolded
-    assert "DESCRIPTION:שורה ראשונה\\nשורה שנייה\\n\\n" in unfolded
-    assert "URL:https://example.com/j" in unfolded
-    allday = cp.ics_text({**EV, "time": None, "place": None, "link": None, "description": None})
-    assert "DTSTART;VALUE=DATE:20261128" in allday and "DTEND;VALUE=DATE:20261129" in allday
-    assert "LOCATION" not in allday and "URL:" not in allday
+    assert "SUMMARY:סדנה\\, קרמיקה\\; ערב" in unfolded and "LOCATION:יפו" in unfolded
+    assert "DESCRIPTION:שורה ראשונה\\nשורה שנייה" in unfolded and "URL:" not in unfolded
+    allday = cp.ics_text({**EV, "time": None, "place": None, "description": None})
+    assert "DTSTART;VALUE=DATE:20261128" in allday and "LOCATION" not in allday and "DESCRIPTION" not in allday
 
 
-def test_calendar_file_route_only_for_published_events(tmp_path):
+PRIVATE = ("הרצל 12", "רחוב הרצל", "פארק הירקון", "054-1234567", "maya@example.com", "@maya", "EVENTLINK999",
+           "chat.whatsapp.com", "REQLINK", "מאיה לוי", "יוסי ישראלי", "972500000001")
+
+
+def test_the_calendar_entries_carry_only_the_public_reduction(tmp_path):
+    async def body(db):
+        eid = await event(db, "פיקניק @maya 054-1234567", "2026-12-12", "17:00",
+                          place="פארק הירקון, רחוב הרצל 12, תל אביב",
+                          desc="פיקניק אחרי הצהריים.\nנפגשים ברחוב הרצל 12\nפרטים: 054-1234567 maya@example.com\n"
+                               "https://chat.whatsapp.com/EVENTLINK999",
+                          request="approved", link="https://chat.whatsapp.com/REQLINK", organizer="מאיה לוי",
+                          requester_name="יוסי ישראלי")
+        _, one = await opened(db, eid)
+        gurl = html.unescape(re.search(r'class="gbtn" href="([^"]+)"', one).group(1))
+        g = q(gurl)
+        assert g["text"] == "פיקניק" and g["location"] == "תל אביב" and g["details"].startswith("פיקניק אחרי הצהריים.")
+        ics = (await dash.community_event_ics(eid, db)).body.decode().replace("\r\n ", "")
+        assert "SUMMARY:פיקניק" in ics and "LOCATION:תל אביב" in ics and "URL:" not in ics
+        plain_url = urlsplit(gurl).query and parse_qs(urlsplit(gurl).query)
+        decoded = " ".join(v[0] for v in plain_url.values())
+        for hidden in PRIVATE:
+            assert hidden not in decoded and hidden not in ics and hidden not in one, hidden
+        assert f'href="/welcome/e/{eid}.ics"' in one
+    run(tmp_path, body)
+
+
+def test_calendar_file_only_for_published_events(tmp_path):
     async def body(db):
         ok = await event(db, "פיקניק", "2026-11-28")
         hidden = await event(db, "בדיקה", "2026-11-28", chat=TEST)
-        r = await dash.public_calendar_ics(ok, db)
+        r = await dash.community_event_ics(ok, db)
         assert r.media_type.startswith("text/calendar") and f"event-{ok}.ics" in r.headers["content-disposition"]
         assert "noindex" in r.headers["x-robots-tag"]
-        assert "UID:event-1@botson.example" in r.body.decode()
         with pytest.raises(HTTPException) as e:
-            await dash.public_calendar_ics(hidden, db)
+            await dash.community_event_ics(hidden, db)
         assert e.value.status_code == 404
     run(tmp_path, body)
 
 
-# ── Deep links, headers, states ──
-
-def test_deep_links_open_a_month_a_day_and_an_event(tmp_path):
+def test_a_past_event_opens_without_calendar_buttons(tmp_path):
     async def body(db):
-        nov = await event(db, "פיקניק", "2026-11-28")
-        dec = await event(db, "יוגה", "2026-12-10")
-        _, text = await page(db)
-        assert "<h1>נובמבר" in text and 'class="sheet' in text and ' open"' not in text
-        _, text = await page(db, "2026-12")
-        assert "<h1>דצמבר" in text
-        _, text = await page(db, e=dec)  # no month given: the event's own month
-        assert "<h1>דצמבר" in text and f'id="ev-{dec}"' in text
-        assert re.search(rf'class="sheet[^"]* open" id="ev-{dec}"', text)
-        _, text = await page(db, "2026-11", d="2026-11-28")
-        assert re.search(r'data-daylist="2026-11-28"\s*>', text)  # not hidden
-        assert re.search(r'class="day[^"]* has[^"]* sel" href="/cal/2026-11\?d=2026-11-28"', text)
-        assert re.search(r'data-upcoming-day="2026-11-28" hidden>', text)  # not listed twice
-        for bad in ("2026-13", "november", "0001-01"):
-            with pytest.raises(HTTPException) as e:
-                await page(db, bad)
-            assert e.value.status_code == 404
-        assert nov
+        eid = await event(db, "היה מזמן", "2026-11-05")
+        _, one = await opened(db, eid)
+        assert "היה מזמן" in one and '<a class="gbtn"' not in one and '.ics"' not in one
+        assert 'href="/welcome/2026-11#events"' in one
     run(tmp_path, body)
 
 
-def test_kept_out_of_search_engines(tmp_path):
-    async def body(db):
-        r, text = await page(db)
-        assert "noindex" in r.headers["x-robots-tag"]
-        assert '<meta name="robots" content="noindex' in text
-        font = await dash.public_calendar_font()
-        assert "noindex" in font.headers["x-robots-tag"]
-        assert "<script src=" not in text and "googleapis" not in text  # no third-party script or font
-    run(tmp_path, body)
+# ── The old calendar addresses ──
+
+@pytest.mark.parametrize("args,target", [
+    ((None, None), "/welcome"),
+    (("2026-12", None), "/welcome/2026-12"),
+    (("2026-12", 5), "/welcome/e/5"),
+    ((None, 5), "/welcome/e/5"),
+    (("nonsense", None), "/welcome"),
+])
+def test_old_cal_addresses_redirect_to_the_one_page(args, target):
+    r = asyncio.run(dash.public_calendar(*args))
+    assert r.status_code == 302 and r.headers["location"] == target
 
 
-def test_empty_month_all_past_month_and_crowded_day(tmp_path):
-    async def body(db):
-        _, text = await page(db, "2027-01")
-        assert html.escape(load_copy("calendar_page", "empty_title", month="ינואר")) in text
-        await event(db, "היה מזמן", "2026-11-05")
-        _, text = await page(db)
-        assert load_copy("calendar_page", "all_past", month="נובמבר") in text
-        for i, t in enumerate(("09:00", "12:00", "17:00", "21:00")):
-            await event(db, f"אירוע {i}", "2026-12-12", t)
-        _, text = await page(db, "2026-12")
-        cell = re.search(r'<a class="day[^"]* has[^"]*" href="/cal/2026-12\?d=2026-12-12".*?</a>', text, re.S).group(0)
-        assert cell.count('class="mark"') == 3 and "+1" in cell
-    run(tmp_path, body)
+def test_old_calendar_file_address_redirects():
+    r = asyncio.run(dash.public_calendar_ics(5))
+    assert r.status_code == 302 and r.headers["location"] == "/welcome/e/5.ics"
 
 
-def test_long_title_no_picture_no_place_no_link(tmp_path):
-    async def body(db):
-        long_title = "ערב " * 60
-        eid = await event(db, long_title, "2026-11-28", place=None)
-        _, text = await page(db, e=eid)
-        assert long_title.strip() in text
-        sheet = re.search(rf'<div class="sheet[^"]*" id="ev-{eid}".*?</div>\s*</div>', text, re.S).group(0)
-        assert "has-cover" not in sheet and "📍" not in sheet and load_copy("calendar_page", "join") not in sheet
-        assert load_copy("calendar_page", "google") in sheet and f"/cal/event/{eid}.ics" in sheet
-        assert '<span class="tile">' in text
-        pic = await event(db, "עם תמונה", "2026-11-29", cover="covers/a.png")
-        _, text = await page(db, e=pic)
-        assert 'src="/media/covers/a.png"' in text
-    run(tmp_path, body)
-
-
-def test_no_hardcoded_hebrew_in_the_page_template():
+def test_the_old_calendar_template_and_copy_are_gone():
     from pathlib import Path
 
-    src = (Path(dash.__file__).parent / "templates" / "public_calendar.html").read_text(encoding="utf-8")
-    assert not re.search(r"[֐-׿]", src)
+    from bot.utils.copy import load_copy_block
+
+    assert not (Path(dash.__file__).parent / "templates" / "public_calendar.html").exists()
+    assert not load_copy_block("calendar_page", default={})
+    for gone in ("page_events", "build_page", "when_text", "day_name"):
+        assert not hasattr(cp, gone), gone
 
 
 # ── Captions under the calendar picture ──

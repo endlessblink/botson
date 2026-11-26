@@ -3847,75 +3847,12 @@ async def whatsapp_restart(request: Request):
     return {"status": "ok"}
 
 
-# ── Public events calendar page (read-only, no login, kept out of search engines) ──
+# ── Public community page: front door and events calendar in one (no login, kept out of search engines) ──
+# Shows far less than the published event cards: no addresses, links, names or phone numbers
+# (bot/utils/community_page.py). The old calendar addresses (/cal...) redirect here.
 
 _NOINDEX = {"X-Robots-Tag": "noindex, nofollow, noarchive"}
 _HEEBO = BASE_DIR.parent / "assets" / "fonts" / "heebo" / "Heebo-VariableFont_wght.ttf"
-
-
-@app.get("/cal/heebo.ttf")
-async def public_calendar_font():
-    from fastapi.responses import FileResponse
-
-    return FileResponse(_HEEBO, media_type="font/ttf",
-                        headers={**_NOINDEX, "Cache-Control": "public, max-age=604800"})
-
-
-@app.get("/cal/event/{event_id}.ics")
-async def public_calendar_ics(event_id: int, db: Database = Depends(get_db)):
-    """One published event as a standard calendar file (Apple, Outlook and others)."""
-    from urllib.parse import urlsplit
-
-    from bot.utils import config as bot_config
-    from bot.utils.calendar_page import ics_text, page_events
-
-    ev = next((e for e in await page_events(db) if e["id"] == event_id), None)
-    if not ev:
-        raise HTTPException(status_code=404)
-    host = urlsplit(bot_config.PUBLIC_DASHBOARD_URL or "").hostname or "botson"
-    return Response(content=ics_text(ev, host=host), media_type="text/calendar; charset=utf-8", headers={
-        **_NOINDEX, "Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="event-{event_id}.ics"'})
-
-
-@app.get("/cal", response_class=HTMLResponse)
-@app.get("/cal/{month}", response_class=HTMLResponse)
-async def public_calendar(request: Request, month: str | None = None, e: int | None = None, d: str | None = None,
-                          db: Database = Depends(get_db)):
-    """The community's events calendar. /cal = this month, /cal/2026-12 = that month,
-    ?e=<id> opens one event's details, ?d=2026-12-03 lists one day's events."""
-    from datetime import date as _date
-
-    from bot.utils.calendar_page import build_page, day_name, google_url, page_events, when_text
-    from bot.utils.copy import load_copy_block
-    from bot.utils.events_calendar import local_now, parse_month
-
-    events = await page_events(db)
-    now = local_now()
-    opened = next((x for x in events if x["id"] == e), None) if e else None
-    if month is None and opened:
-        month = f"{opened['date']:%Y-%m}"
-    try:
-        year, mon = parse_month(month, now)
-    except ValueError:
-        raise HTTPException(status_code=404)
-    try:
-        day = _date.fromisoformat(d) if d else None
-    except ValueError:
-        day = None
-    if day and (day.year, day.month) != (year, mon):
-        day = None
-    page = build_page(events, year=year, month=mon, today=now.date(), open_event=opened["id"] if opened else None,
-                      selected_day=day)
-    return templates.TemplateResponse(request, name="public_calendar.html", headers=_NOINDEX, context={
-        "p": page, "c": load_copy_block("calendar_page", default={}),
-        "day_letters": load_copy_block("events_calendar", default={}).get("day_letters", []),
-        "month_names": load_copy_block("events_calendar", default={}).get("month_names", []),
-        "google_url": google_url, "when_text": when_text, "day_name": day_name,
-    })
-
-
-# ── Public community front door ("the bulletin", open to anyone) ──
-# Shows far less than /cal: no addresses, links, names or phone numbers (bot/utils/community_page.py).
 
 _COMMUNITY_FONTS = {
     "heebo.ttf": _HEEBO,
@@ -3951,36 +3888,95 @@ def _community_context(now) -> dict:
 
 
 @app.get("/welcome", response_class=HTMLResponse)
-async def community_page(request: Request, db: Database = Depends(get_db)):
-    """The community's public front door: who we are, upcoming events (city only), how to join."""
+@app.get("/welcome/{month}", response_class=HTMLResponse)
+async def community_page(request: Request, month: str | None = None, db: Database = Depends(get_db)):
+    """The community's public page: who we are, one month of events (city only), how to join.
+    /welcome = this month, /welcome/2026-12 = that month."""
     from bot.utils import community_page as cpage
-    from bot.utils.events_calendar import local_now
+    from bot.utils.copy import load_copy_block
+    from bot.utils.events_calendar import local_now, parse_month
 
     now = local_now()
-    indexable = cpage.is_indexable()
+    try:
+        year, mon = parse_month(month, now)
+    except ValueError:
+        raise HTTPException(status_code=404)
+    indexable = cpage.is_indexable() and month is None
     headers = {} if indexable else dict(_NOINDEX)
+    events = await cpage.public_events(db, now.date())
+    ctx = _community_context(now)
+    if month and ctx["page_url"]:
+        ctx["page_url"] = f"{ctx['page_url']}/{year:04d}-{mon:02d}"
     return templates.TemplateResponse(request, name="public_community.html", headers=headers, context={
-        **_community_context(now),
-        "events": await cpage.public_events(db, now.date()),
-        "channels": await cpage.channels(db),
-        "indexable": indexable,
+        **ctx, "m": cpage.month_view(events, year=year, month=mon, today=now.date()), "indexable": indexable,
+        "day_letters": load_copy_block("events_calendar", default={}).get("day_letters") or [],
+        "more_label": load_copy_block("events_calendar", default={}).get("more") or "",
     })
+
+
+def _community_event_entry(ev: dict | None) -> dict:
+    from bot.utils import community_page as cpage
+
+    if not ev:
+        raise HTTPException(status_code=404)
+    return cpage.calendar_entry(ev)
+
+
+@app.get("/welcome/e/{event_id}.ics")
+async def community_event_ics(event_id: int, db: Database = Depends(get_db)):
+    """One published event as a standard calendar file, reduced like the page (city only, cleaned text)."""
+    from urllib.parse import urlsplit
+
+    from bot.utils import community_page as cpage
+    from bot.utils import config as bot_config
+    from bot.utils.calendar_page import ics_text
+    from bot.utils.events_calendar import local_now
+
+    entry = _community_event_entry(await cpage.public_event(db, local_now().date(), event_id))
+    host = urlsplit(bot_config.PUBLIC_DASHBOARD_URL or "").hostname or "botson"
+    return Response(content=ics_text(entry, host=host), media_type="text/calendar; charset=utf-8", headers={
+        **_NOINDEX, "Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="event-{event_id}.ics"'})
 
 
 @app.get("/welcome/e/{event_id}", response_class=HTMLResponse)
 async def community_event_page(request: Request, event_id: int, db: Database = Depends(get_db)):
-    """One listed event opened: the same public reduction plus its cleaned description. Never indexed."""
+    """One published event opened: the public reduction plus its cleaned description and calendar buttons."""
     from bot.utils import community_page as cpage
+    from bot.utils.calendar_page import google_url
     from bot.utils.events_calendar import local_now
 
     now = local_now()
     ev = await cpage.public_event(db, now.date(), event_id)
-    if not ev:
-        raise HTTPException(status_code=404)
+    entry = _community_event_entry(ev)
     ctx = _community_context(now)
     ctx["page_url"] = f"{ctx['page_url']}/e/{event_id}" if ctx["page_url"] else None
-    return templates.TemplateResponse(request, name="public_community_event.html", headers=dict(_NOINDEX),
-                                      context={**ctx, "ev": ev, "indexable": False})
+    return templates.TemplateResponse(request, name="public_community_event.html", headers=dict(_NOINDEX), context={
+        **ctx, "ev": ev, "indexable": False, "month_key": f"{ev['date']:%Y-%m}",
+        "google_url": google_url(entry), "ics_url": f"/welcome/e/{event_id}.ics",
+    })
+
+
+# The old calendar addresses (the calendar picture's caption links to /cal/<month>): redirect to the same month
+# or event on /welcome. A redirect, not a copy, so there is one page.
+@app.get("/cal/event/{event_id}.ics")
+async def public_calendar_ics(event_id: int):
+    return RedirectResponse(f"/welcome/e/{int(event_id)}.ics", status_code=302)
+
+
+@app.get("/cal")
+@app.get("/cal/{month}")
+async def public_calendar(month: str | None = None, e: int | None = None):
+    from bot.utils.events_calendar import local_now, parse_month
+
+    if e:
+        return RedirectResponse(f"/welcome/e/{int(e)}", status_code=302)
+    if month is None:
+        return RedirectResponse("/welcome", status_code=302)
+    try:
+        year, mon = parse_month(month, local_now())
+    except ValueError:
+        return RedirectResponse("/welcome", status_code=302)
+    return RedirectResponse(f"/welcome/{year:04d}-{mon:02d}", status_code=302)
 
 
 @app.post("/api/settings/community-page")

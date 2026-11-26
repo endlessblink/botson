@@ -44,7 +44,7 @@ def run(tmp_path, body):
 
 
 def _req():
-    return Request({"type": "http", "method": "GET", "path": "/cal", "query_string": b"", "headers": [], "app": dash.app})
+    return Request({"type": "http", "method": "GET", "path": "/welcome", "query_string": b"", "headers": [], "app": dash.app})
 
 
 def test_the_calendar_page_and_picture_parse_settings_at_most_once(tmp_path, parses, monkeypatch):
@@ -54,11 +54,12 @@ def test_the_calendar_page_and_picture_parse_settings_at_most_once(tmp_path, par
         eid = await db.create_event(title="ערב", description="", event_date="2026-11-28", event_time="20:00",
                                     location="יפו", created_by=0)
         await db.update_event(eid, message_id=5, tg_chat_id=-1001)
-        await dash.public_calendar(_req(), None, None, None, db)
+        await dash.community_page(_req(), None, db)
         assert parses["n"] <= 1, f"the page parsed settings.yaml {parses['n']} times"
         parses["n"] = 0
-        await dash.public_calendar(_req(), "2026-11", eid, None, db)
-        await dash.public_calendar_ics(eid, db)
+        await dash.community_page(_req(), "2026-11", db)
+        await dash.community_event_page(_req(), eid, db)
+        await dash.community_event_ics(eid, db)
         assert parses["n"] == 0, "an unchanged file is never parsed again"
         await events_calendar.month_png(db, "2027-01", tmp_path)
         assert parses["n"] == 0, "the picture reuses the parsed settings too"

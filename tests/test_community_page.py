@@ -67,8 +67,8 @@ def http_request(path="/welcome", session=None):
     return Request(scope)
 
 
-async def page(db):
-    r = await dash.community_page(http_request(), db)
+async def page(db, month=None):
+    r = await dash.community_page(http_request(), month, db)
     return r, r.body.decode()
 
 
@@ -85,12 +85,11 @@ def test_shows_upcoming_published_events_only(tmp_path):
         await event(db, "רק בקבוצת הבדיקה", "2026-12-03", chat=TEST)
         await event(db, "ממתין לאישור", "2026-12-03", request="submitted")
         await event(db, "נמחק", "2026-12-03", active=False)
-        await event(db, "כבר היה", "2026-11-20")
         await event(db, "רחוק מדי", "2027-06-01")
-        _, text = await page(db)
+        _, text = await page(db)  # nothing left this month: the next events are shown
         assert "ערב משחקי לוח" in text and "תל אביב" in text
         assert "20:00" in text and load_copy("community_page", "date", d=3, m=12) in text
-        for hidden in ("רק בקבוצת הבדיקה", "ממתין לאישור", "נמחק", "כבר היה", "רחוק מדי"):
+        for hidden in ("רק בקבוצת הבדיקה", "ממתין לאישור", "נמחק"):
             assert hidden not in text, hidden
     run(tmp_path, body)
 
@@ -104,7 +103,7 @@ def test_never_shows_addresses_links_names_phones_or_descriptions(tmp_path):
         for hidden in ("שדרות רוקח", "רוקח 2", "פארק הירקון", "EVENTLINK999", "מאיה לוי", "יוסי ישראלי",
                        "054-1234567", "972541234567", "maya@example.com", "מתקשרים"):
             assert hidden not in text, hidden
-        assert "/cal" not in text  # the public page never leads to the members' calendar
+        assert 'href="/cal' not in text  # the public page never leads to the old calendar address
         assert "<script" not in text and "googleapis" not in text
         assert not re.search(r'(?:src|href|url)\(?=?"?https?://(?!botson\.example)', text)  # nothing loads from elsewhere
     run(tmp_path, body)
@@ -155,7 +154,7 @@ def test_everything_typed_is_escaped(tmp_path):
 def test_no_upcoming_events_shows_the_empty_state(tmp_path):
     async def body(db):
         _, text = await page(db)
-        assert html.escape(load_copy("community_page", "empty_title")) in text
+        assert html.escape(load_copy("community_page", "empty_title", month="נובמבר")) in text
         assert html.escape(load_copy("community_page", "members_note")) not in text
     run(tmp_path, body)
 
@@ -201,14 +200,12 @@ def test_the_page_uses_one_font_and_no_print_art():
     assert "/static/community/" not in src and "mask" not in src and "rubik" not in src.lower()
 
 
-def test_list_is_capped_and_sorted(tmp_path, monkeypatch):
+def test_the_month_is_sorted(tmp_path):
     async def body(db):
         for d in ("2026-12-20", "2026-12-01", "2026-12-10"):
             await event(db, f"אירוע {d}", d)
-        monkeypatch.setitem(cpage.base_cfg(), "max_events", 2)
-        _, text = await page(db)
-        assert "אירוע 2026-12-01" in text and "אירוע 2026-12-10" in text and "אירוע 2026-12-20" not in text
-        assert text.index("אירוע 2026-12-01") < text.index("אירוע 2026-12-10")
+        _, text = await page(db, "2026-12")
+        assert text.index("אירוע 2026-12-01") < text.index("אירוע 2026-12-10") < text.index("אירוע 2026-12-20")
     run(tmp_path, body)
 
 
@@ -329,26 +326,24 @@ def test_fonts_are_served_from_the_page_and_nothing_else():
 def test_events_come_right_after_the_title_and_the_old_blocks_are_gone(tmp_path):
     async def body(db):
         await event(db, "ערב משחקים", "2026-12-03")
-        await db.upsert_verified_forum_topic(54, "סרטים סדרות וכו", "movies", "dot")
         _, text = await page(db)
-        assert text.index("</h1>") < text.index('id="events"') < text.index('class="chips"') < text.index('id="join"')
+        assert text.index("</h1>") < text.index('id="events"') < text.index('id="join"')
         assert html.escape(load_copy("community_page", "lead")) in text
         assert 'class="route"' not in text and 'class="cols"' not in text
         assert not hasattr(cpage, "columns")
-        for key in ("columns_title", "columns_kicker", "col_trivia_title", "col_emoji_title", "channels", "body"):
+        for key in ("columns_title", "columns_kicker", "col_trivia_title", "col_emoji_title", "channels", "channels_label", "body"):
             assert key not in (cpage.base_cfg() or {}) and key not in load_copy_block("community_page", default={})
     run(tmp_path, body)
 
 
-def test_channels_come_only_from_the_verified_topics(tmp_path):
+def test_no_channel_row_even_with_verified_topics(tmp_path):
+    """Channels exist only in Telegram, so the page (read by WhatsApp members too) lists none."""
     async def body(db):
-        _, text = await page(db)
-        assert 'class="chips"' not in text  # nothing verified, nothing typed: no channel row
+        eid = await event(db, "ערב משחקים", "2026-12-03")
         await db.upsert_verified_forum_topic(54, "סרטים סדרות וכו", "movies", "dot")
-        await db.upsert_verified_forum_topic(1517, "גיימינג + משחקי לוח", "gaming", "dot")
-        _, text = await page(db)
-        chips = re.search(r'<ul class="chips".*?</ul>', text, re.S).group(0)
-        assert re.findall(r"<li>(.*?)</li>", chips) == [html.escape("גיימינג + משחקי לוח"), "סרטים סדרות וכו"]
+        for _, text in (await page(db), await opened(db, eid)):
+            assert 'class="chips"' not in text and 'class="chan"' not in text and "סרטים סדרות וכו" not in text
+        assert not hasattr(cpage, "channels")
     run(tmp_path, body)
 
 
@@ -371,7 +366,7 @@ def test_cards_open_their_event_and_the_details_show_the_published_description(t
         assert "מביאים משחק אחד." in one and "יש גם פיצה טבעונית." in one
         assert 'src="/media/covers/a.png"' in one
         assert html.escape(load_copy("community_page", "members_note")) in one
-        assert "/cal" not in one and "<script" not in one
+        assert 'href="/cal' not in one and "<script" not in one
     run(tmp_path, body)
 
 
@@ -399,15 +394,13 @@ def test_an_empty_description_shows_no_description_block(tmp_path):
     run(tmp_path, body)
 
 
-@pytest.mark.parametrize("kind", ["test_group", "pending", "deleted", "past", "far", "missing"])
-def test_only_listed_events_open(tmp_path, kind):
+@pytest.mark.parametrize("kind", ["test_group", "pending", "deleted", "missing"])
+def test_only_published_events_open(tmp_path, kind):
     async def body(db):
         eid = {
             "test_group": lambda: event(db, "x", "2026-12-03", chat=TEST),
             "pending": lambda: event(db, "x", "2026-12-03", request="submitted"),
             "deleted": lambda: event(db, "x", "2026-12-03", active=False),
-            "past": lambda: event(db, "x", "2026-11-20"),
-            "far": lambda: event(db, "x", "2027-06-01"),
         }.get(kind)
         eid = await eid() if eid else 999
         with pytest.raises(HTTPException) as err:

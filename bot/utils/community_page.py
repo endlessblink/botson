@@ -1,10 +1,12 @@
-"""The community's public front-door page ("the bulletin", `/welcome`).
+"""The community's public page (`/welcome`): front door and events calendar in one.
 
-Open to anyone, so it shows far less than the members' calendar (`/cal`):
+Open to anyone, so it shows far less than the published event cards:
 
-- Events: the same published events as the calendar (Database.get_published_events), upcoming only,
-  reduced to title, day, time, picture and a city/area. Never the stored location text, the
-  description, join links, organizer or requester names, phone numbers or member ids.
+- Events: the published events (Database.get_published_events), one month at a time (/welcome =
+  this month, /welcome/2026-12 = that month; the old /cal addresses redirect here), reduced to title,
+  day, time, picture, a city/area and the cleaned description. Never the stored location text, join
+  links, organizer or requester names, phone numbers or member ids. The Google Calendar link and the
+  calendar file carry the same reduction (calendar_entry).
 - Place: never echoed. The stored location is matched against the config list of known cities and
   areas; only the canonical name from that list is shown, otherwise nothing at all.
 - Title: links, e-mail addresses, @handles and phone-like numbers are removed before showing.
@@ -22,7 +24,7 @@ import logging
 import os
 import re
 import tempfile
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -203,20 +205,16 @@ def _cover_url(path: str | None) -> str | None:
 
 
 async def public_events(db, today: date) -> list[dict]:
-    """Upcoming published events, reduced to what a stranger may see, soonest first."""
+    """Every published event, reduced to what a stranger may see, in date order."""
     from .copy import load_copy
 
-    cfg = base_cfg()
-    horizon = today + timedelta(days=int(cfg.get("lookahead_days", 90)))
-    show_pictures = bool(cfg.get("show_pictures", True))
+    show_pictures = bool(base_cfg().get("show_pictures", True))
     days = load_copy("events_calendar", "day_names")
     out = []
     for e in await db.get_published_events(int(os.getenv("GROUP_ID", "0") or 0)):
         try:
             day = date.fromisoformat(str(e.get("event_date")))
         except (TypeError, ValueError):
-            continue
-        if not (today <= day <= horizon):
             continue
         title = public_title(e.get("title"))
         if not title:
@@ -230,6 +228,7 @@ async def public_events(db, today: date) -> list[dict]:
             "description": public_description(e.get("description"), e.get("location")),
             "title": title,
             "date": day,
+            "past": day < today,
             "date_text": load_copy("community_page", "date", d=day.day, m=day.month),
             "when": (load_copy("community_page", "when", day=day_name, time=hhmm) if hhmm
                      else load_copy("community_page", "when_no_time", day=day_name)),
@@ -238,25 +237,70 @@ async def public_events(db, today: date) -> list[dict]:
             "cover_url": _cover_url(e.get("cover_path")) if show_pictures else None,
         })
     out.sort(key=lambda x: (x["date"], x["time"]))
-    return out[: int(cfg.get("max_events", 8))]
+    return out
+
+
+def month_view(events: list[dict], *, year: int, month: int, today: date) -> dict:
+    """One month of the page: its events (past ones kept and marked, as the old calendar did),
+    the months before and after, and, when nothing in the month is still ahead, the next events."""
+    from .copy import load_copy
+
+    months = load_copy("events_calendar", "month_names")
+    in_month = [e for e in events if (e["date"].year, e["date"].month) == (year, month)]
+    prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_m = (year + 1, 1) if month == 12 else (year, month + 1)
+    upcoming = []
+    if not any(not e["past"] for e in in_month):
+        limit = int(base_cfg().get("upcoming_count", 4))
+        upcoming = [e for e in events if not e["past"] and (e["date"].year, e["date"].month) > (year, month)][:limit]
+    return {
+        "cells": _cells(in_month, year=year, month=month, today=today),
+        "year": year, "month": month, "key": f"{year:04d}-{month:02d}",
+        "name": months[month - 1] if isinstance(months, list) and len(months) == 12 else f"{month}",
+        "prev_key": f"{prev_m[0]:04d}-{prev_m[1]:02d}", "next_key": f"{next_m[0]:04d}-{next_m[1]:02d}",
+        "is_current": (year, month) == (today.year, today.month),
+        "events": in_month, "all_past": bool(in_month) and all(e["past"] for e in in_month),
+        "upcoming": upcoming,
+    }
+
+
+def _cells(in_month: list[dict], *, year: int, month: int, today: date) -> list[dict]:
+    """The square month grid, Sunday first: one cell per day (blank cells before day 1 and after the
+    last day). Like the calendar picture, a day shows its events inside the cell (picture, name, time),
+    up to events_calendar.max_chips_per_day; the rest become a "+N" link to the day's next card."""
+    import calendar as _calendar
+
+    by_day: dict[date, list[dict]] = {}
+    for e in in_month:
+        by_day.setdefault(e["date"], []).append(e)
+    first_dow = (date(year, month, 1).weekday() + 1) % 7  # Sunday = 0
+    from .events_calendar import calendar_cfg
+
+    per_day = max(1, int(calendar_cfg().get("max_chips_per_day", 2)))  # same as the calendar picture
+    cells: list[dict] = [{"out": True} for _ in range(first_dow)]
+    for n in range(1, _calendar.monthrange(year, month)[1] + 1):
+        d = date(year, month, n)
+        evs = by_day.get(d, [])
+        cells.append({"out": False, "day": n, "events": evs, "shown": evs[:per_day], "more": max(0, len(evs) - per_day),
+                      "today": d == today, "past": d < today, "sat": d.weekday() == 5})
+    while len(cells) % 7:
+        cells.append({"out": True})
+    return cells
 
 
 async def public_event(db, today: date, event_id: int) -> dict | None:
-    """One event as the page lists it (same filter and reduction), or None."""
+    """One published event, reduced like the page shows it, or None."""
     for ev in await public_events(db, today):
         if ev["id"] == event_id:
             return ev
     return None
 
 
-async def channels(db) -> list[str]:
-    """The community's channel names, read from the verified forum topics (never a typed list)."""
-    names = []
-    for t in await db.get_verified_forum_topics():
-        name = " ".join(str(t.get("verified_name") or "").split())
-        if name and name not in names:
-            names.append(name)
-    return names
+def calendar_entry(ev: dict) -> dict:
+    """What the Google Calendar link and the calendar file carry: the public title, the city or area
+    only, and the cleaned description. No address, join link, organizer or contact."""
+    return {"id": ev["id"], "title": ev["title"], "date": ev["date"], "time": ev["time"] or None,
+            "place": ev.get("place"), "description": ev.get("description") or None}
 
 
 def page_url() -> str | None:

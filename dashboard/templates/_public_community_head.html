@@ -85,12 +85,41 @@
   .one .city::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--red)}
   .one .desc{font-size:18px;line-height:1.7;margin-top:16px;white-space:pre-line;overflow-wrap:anywhere;max-width:60ch}
   .one .note{margin-top:16px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px dashed var(--line);font-size:16px}
-  .chan{padding-top:36px}
-  .chan .kick{font-size:14px;font-weight:700;color:var(--soft);padding-inline-start:4px}
-  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-  .chips li{display:inline-flex;align-items:center;gap:7px;font-size:14.5px;font-weight:600;padding:6px 12px;border-radius:99px;background:var(--card);border:1px solid var(--line)}
-  .chips li::before{content:"";width:9px;height:9px;border-radius:50%;border:2.5px solid var(--teal)}
 
+  .months{display:grid;grid-template-columns:48px 1fr 48px;align-items:center;gap:8px;margin:0 0 16px;padding:6px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+  .mo{display:grid;place-items:center;width:48px;height:48px;border-radius:10px;background:var(--sign);color:var(--on-sign)}
+  .mo .arr{width:11px;height:11px;border-top:3px solid currentColor;border-inline-start:3px solid currentColor;transform:rotate(45deg)}
+  .mo.next .arr{border-inline-start:0;border-inline-end:3px solid currentColor;transform:rotate(-45deg)}
+  .mo-now{text-align:center;line-height:1.2}
+  .mo-now b{display:block;font-size:22px;font-weight:800}
+  .mo-now a{font-size:14px;font-weight:700;color:var(--teal)}
+  .grid{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 4px 6px;margin:0 -10px 20px}
+  .dow,.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+  .dow span{text-align:center;font-size:13px;font-weight:800;color:var(--soft);padding:0 0 6px}
+  .cell{min-height:46px;border-radius:9px;padding:4px 3px 5px;background:var(--bg);display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0}
+  .cell.out{background:transparent}
+  .cell .n{align-self:center;font-size:14px;font-weight:700;line-height:1;display:grid;place-items:center;min-width:22px;height:22px;border-radius:99px}
+  .cell.past .n{font-weight:500;color:var(--soft)}
+  .cell.today .n{background:var(--red);color:#fff}
+  .cell.has{background:color-mix(in srgb,var(--teal) 14%,var(--card))}
+  .chip{display:flex;flex-direction:column;gap:2px;text-decoration:none;color:var(--ink);background:var(--card);border-radius:7px;padding:3px 3px 4px;border-inline-start:3px solid var(--teal);min-width:0}
+  .chip img{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px}
+  .chip .t{font-size:11px;font-weight:700;line-height:1.25;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .chip .tm{font-size:10.5px;font-weight:800;color:var(--teal)}
+  .cell.past .chip{opacity:.6}
+  .more{align-self:center;font-size:12px;font-weight:800;color:var(--teal);text-decoration:none;padding:0 4px}
+  .chip:focus-visible,.more:focus-visible{outline:3px solid var(--teal);outline-offset:1px}
+  @media (min-width:760px){.grid{margin:0 0 24px;padding:14px 12px 10px}.dow,.days{gap:6px}.cell{min-height:92px;padding:6px}.chip .t{font-size:13px}.chip .tm{font-size:12px}}
+  .ev[id]{scroll-margin-top:16px}
+  .ev:target{box-shadow:0 0 0 3px var(--teal)}
+  .head.up{margin-top:30px}
+  .ev.past .pic img,.ev.past .plate{filter:grayscale(1);opacity:.7}
+  .ev.past::before{border-color:var(--line)}
+  .was{display:inline-block;font-size:13px;font-weight:800;color:var(--soft);border:1px solid var(--line);border-radius:99px;padding:1px 10px;margin-bottom:6px}
+  .cal{display:grid;gap:10px;margin-top:18px}
+  .cal .gbtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:52px;border-radius:12px;background:var(--sign);color:var(--on-sign);font-weight:800;font-size:17px;text-decoration:none}
+  .cal .gbtn .dd{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--on-sign);color:var(--sign);font-size:13px;font-weight:900;box-shadow:inset 0 -5px 0 var(--teal)}
+  .cal .ics{text-align:center;font-size:15px;font-weight:600;color:var(--soft);text-decoration:underline;text-underline-offset:3px;padding:6px 0}
   .join{margin-top:28px;padding-top:0;background:var(--sign);color:var(--on-sign);border-radius:16px;overflow:hidden}
   .join .in{padding:30px 20px 26px}
   .join h2{font-weight:800;font-size:clamp(32px,9vw,52px);line-height:1}

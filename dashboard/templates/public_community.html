@@ -13,28 +13,54 @@
     <div class="stripe"></div><div class="stripe"></div>
   </header>
 
-  <section id="events">
-    <div class="head"><h2>{{ c.events_title }}</h2><span class="kick">{{ c.events_kicker }}</span></div>
-    {% if events %}
-    <ol class="line">
-      {% for ev in events %}
-      <li class="ev"><a class="go" href="/welcome/e/{{ ev.id }}">
-        {% if ev.cover_url %}<div class="pic"><img src="{{ ev.cover_url }}" alt=""{% if not loop.first %} loading="lazy"{% endif %} decoding="async"><span class="day" aria-hidden="true">{{ ev.date.day }}</span></div>
+  {%- macro card(ev, first, anchor=False) -%}
+      <li class="ev{{ ' past' if ev.past }}"{% if anchor %} id="ev-{{ ev.id }}"{% endif %}><a class="go" href="/welcome/e/{{ ev.id }}">
+        {% if ev.cover_url %}<div class="pic"><img src="{{ ev.cover_url }}" alt=""{% if not first %} loading="lazy"{% endif %} decoding="async"><span class="day" aria-hidden="true">{{ ev.date.day }}</span></div>
         {% else %}<div class="plate"><span class="day" aria-hidden="true">{{ ev.date.day }}</span><span class="date">{{ ev.date_text }} · {{ ev.when }}</span></div>{% endif %}
-        <div class="txt">{% if ev.cover_url %}<div class="when">{{ ev.date_text }} · {{ ev.when }}</div>{% endif %}<h3>{{ ev.title }}</h3>{% if ev.place %}<span class="city">{{ ev.place }}</span>{% endif %}</div>
+        <div class="txt">{% if ev.past %}<span class="was">{{ c.past }}</span>{% endif %}{% if ev.cover_url %}<div class="when">{{ ev.date_text }} · {{ ev.when }}</div>{% endif %}<h3>{{ ev.title }}</h3>{% if ev.place %}<span class="city">{{ ev.place }}</span>{% endif %}</div>
       </a></li>
-      {% endfor %}
+  {%- endmacro %}
+  <section id="events">
+    <div class="head"><h2>{{ c.events_title }}</h2></div>
+    <nav class="months" aria-label="{{ c.events_title }}">
+      <a class="mo prev" href="/welcome/{{ m.prev_key }}#events" aria-label="{{ c.prev_month }}"><span class="arr" aria-hidden="true"></span></a>
+      <div class="mo-now"><b>{{ c.month_label | replace('{month}', m.name) | replace('{year}', m.year) }}</b>{% if not m.is_current %}<a href="/welcome#events">{{ c.today }}</a>{% endif %}</div>
+      <a class="mo next" href="/welcome/{{ m.next_key }}#events" aria-label="{{ c.next_month }}"><span class="arr" aria-hidden="true"></span></a>
+    </nav>
+    <div class="grid" role="group" aria-label="{{ c.month_label | replace('{month}', m.name) | replace('{year}', m.year) }}">
+      <div class="dow" aria-hidden="true">{% for d in day_letters %}<span>{{ d }}</span>{% endfor %}</div>
+      <div class="days">
+        {%- for cell in m.cells %}
+          {%- if cell.out %}<div class="cell out"></div>
+          {%- else %}
+          <div class="cell{{ ' sat' if cell.sat }}{{ ' past' if cell.past }}{{ ' today' if cell.today }}{{ ' has' if cell.events }}"><span class="n">{{ cell.day }}</span>
+            {%- for ev in cell.shown %}<a class="chip" href="/welcome/e/{{ ev.id }}">{% if ev.cover_url %}<img src="{{ ev.cover_url }}" alt="" loading="lazy" decoding="async">{% endif %}<span class="t">{{ ev.title }}</span>{% if ev.time %}<span class="tm">{{ ev.time }}</span>{% endif %}</a>{% endfor %}
+            {%- if cell.more %}<a class="more" href="#ev-{{ cell.events[cell.shown|length].id }}">{{ more_label | replace('{n}', cell.more) }}</a>{% endif %}
+          </div>
+          {%- endif %}
+        {%- endfor %}
+      </div>
+    </div>
+    {% if m.events %}
+    <ol class="line">
+      {% for ev in m.events %}{{ card(ev, loop.first, True) }}{% endfor %}
     </ol>
-    <p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>
+    {% if m.all_past %}<p class="note">{{ c.all_past | replace('{month}', m.name) }}</p>{% endif %}
     {% else %}
     <div class="line"><div class="ev empty">
       <div class="plate" aria-hidden="true"><span class="day"></span></div>
-      <div class="txt"><h3>{{ c.empty_title }}</h3><p>{{ c.empty_text }}</p></div>
+      <div class="txt"><h3>{{ c.empty_title | replace('{month}', m.name) }}</h3><p>{{ c.empty_text }}</p></div>
     </div></div>
     {% endif %}
+    {% if m.upcoming %}
+    <div class="head up"><h2>{{ c.upcoming }}</h2></div>
+    <ol class="line">
+      {% for ev in m.upcoming %}{{ card(ev, not m.events and loop.first) }}{% endfor %}
+    </ol>
+    {% endif %}
+    {% if m.events or m.upcoming %}<p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>{% endif %}
   </section>
 
-  {% if channels %}<div class="chan"><span class="kick">{{ c.channels_label }}</span><ul class="chips" aria-label="{{ c.channels_label }}">{% for ch in channels %}<li>{{ ch }}</li>{% endfor %}</ul></div>{% endif %}
 
 {% include "_public_community_join.html" %}
 </div>
