@@ -225,10 +225,10 @@ def columns() -> list[dict]:
 
     out = []
     for c in base_cfg().get("columns") or []:
-        art, key = str((c or {}).get("art") or ""), str((c or {}).get("key") or "")
-        if not re.fullmatch(r"[a-z]+", art) or not re.fullmatch(r"[a-z_]+", key):
+        key = str((c or {}).get("key") or "")
+        if not re.fullmatch(r"[a-z_]+", key):
             continue
-        out.append({"art": art, "title": load_copy("community_page", f"col_{key}_title"),
+        out.append({"key": key, "title": load_copy("community_page", f"col_{key}_title"),
                     "text": load_copy("community_page", f"col_{key}_text")})
     return out
 

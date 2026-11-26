@@ -165,9 +165,40 @@ def test_events_with_and_without_pictures(tmp_path):
         await event(db, "בלי תמונה", "2026-12-03")
         await event(db, "עם תמונה", "2026-12-04", cover="covers/a.png")
         _, text = await page(db)
-        assert 'src="/media/covers/a.png"' in text
-        assert text.count('class="nopic"') == 1
+        stops = re.findall(r'<li class="ev">.*?</li>', text, re.S)
+        assert len(stops) == 2
+        without, with_pic = stops
+        assert "<img" not in without and '<span class="day" aria-hidden="true">3</span>' in without  # date block
+        assert 'src="/media/covers/a.png"' in with_pic and "filter" not in with_pic  # natural colour
     run(tmp_path, body)
+
+
+def test_a_long_title_stays_whole_and_an_unknown_place_shows_no_city(tmp_path):
+    async def body(db):
+        long_title = "ערב " * 40
+        await event(db, long_title, "2026-12-03", place="הבית של מישהי, קומה 3")
+        _, text = await page(db)
+        stop = re.search(r'<li class="ev">.*?</li>', text, re.S).group(0)
+        assert long_title.strip() in stop and 'class="city"' not in stop and "קומה" not in text
+    run(tmp_path, body)
+
+
+def test_one_join_link_shows_one_button(tmp_path):
+    async def body(db):
+        save(whatsapp_url=WA)
+        _, text = await page(db)
+        assert text.count('class="btn"') == 1 and f'href="{WA}"' in text
+        assert html.escape(load_copy("community_page", "join_soon")) not in text
+    run(tmp_path, body)
+
+
+def test_the_page_uses_one_font_and_no_print_art():
+    from pathlib import Path
+
+    folder = Path(dash.__file__).parent / "static" / "community"
+    assert sorted(p.name for p in folder.iterdir()) == ["share.jpg"]
+    src = (Path(dash.__file__).parent / "templates" / "public_community.html").read_text(encoding="utf-8")
+    assert "/static/community/" not in src and "mask" not in src and "rubik" not in src.lower()
 
 
 def test_list_is_capped_and_sorted(tmp_path, monkeypatch):
@@ -286,8 +317,10 @@ def test_no_hardcoded_hebrew_and_no_link_to_cal_in_the_template():
 
 def test_fonts_are_served_from_the_page_and_nothing_else():
     async def go():
-        r = await dash.community_page_font("rubik-black.ttf")
+        r = await dash.community_page_font("heebo.ttf")
         assert r.media_type == "font/ttf"
+        with pytest.raises(HTTPException):
+            await dash.community_page_font("rubik-black.ttf")
         with pytest.raises(HTTPException):
             await dash.community_page_font("../../.env")
     asyncio.run(go())
@@ -295,5 +328,5 @@ def test_fonts_are_served_from_the_page_and_nothing_else():
 
 def test_columns_come_from_config():
     cols = cpage.columns()
-    assert [c["art"] for c in cols] == ["question", "dice", "cup", "hills"]
+    assert [c["key"] for c in cols] == ["trivia", "emoji", "riddles", "meetups"]
     assert all(c["title"] and "[" not in c["title"] for c in cols)

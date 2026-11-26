@@ -3919,7 +3919,6 @@ async def public_calendar(request: Request, month: str | None = None, e: int | N
 
 _COMMUNITY_FONTS = {
     "heebo.ttf": _HEEBO,
-    "rubik-black.ttf": BASE_DIR.parent / "assets" / "fonts" / "rubik" / "Rubik-Black.ttf",
 }
 
 

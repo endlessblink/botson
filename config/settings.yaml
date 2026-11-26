@@ -242,13 +242,13 @@ community_page:
     - {name: "הכרמל", aliases: ["הכרמל"]}
     - {name: "ים המלח", aliases: ["ים המלח"]}
     - {name: "הכנרת", aliases: ["הכנרת"]}
-  # The regular columns ("what we do"): art = picture name under dashboard/static/community/,
-  # key = the copy.community_page entries col_<key>_title / col_<key>_text.
+  # The regular columns ("what we do"), in order: key = the copy.community_page entries
+  # col_<key>_title / col_<key>_text.
   columns:
-    - {art: "question", key: "trivia"}
-    - {art: "dice", key: "emoji"}
-    - {art: "cup", key: "riddles"}
-    - {art: "hills", key: "meetups"}
+    - {key: "trivia"}
+    - {key: "emoji"}
+    - {key: "riddles"}
+    - {key: "meetups"}
 
 # Month calendar picture of community events (bot/utils/events_calendar.py).
 # Drawn with Pillow from the published events; served to Botty and shown on the Events page.
