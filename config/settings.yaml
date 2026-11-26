@@ -179,6 +179,11 @@ events_calendar:
     next_month_words: ["חודש הבא", "next month"]
     word_prefixes: "ובהלמשכ"       # letters a Hebrew word may start with ("בלו״ז", "האירועים")
     quote_marks: ["״", "”", "“", "''"]  # typed in place of " in לו"ז
+  # The public read-only calendar page (/cal on the dashboard's public address).
+  # Same events as the picture: only what was already published (bot/utils/calendar_page.py).
+  page:
+    event_length_minutes: 120    # events have a start time only; calendar entries assume this length
+    upcoming_count: 4            # "next up" events listed under the month
   colors:
     background: "#f4f1ec"
     card: "#ffffff"
@@ -335,6 +340,41 @@ copy:
     private_limit: "לוח האירועים כבר נשלח אליך היום. אפשר לבקש שוב מחר 🙂"
     members_only: "את לוח האירועים אני שולח רק לחברי הקבוצה 🙂"
     failed: "לא הצלחתי להביא את לוח האירועים כרגע. נסו שוב עוד קצת."
+    # Second line under the calendar picture, leading to the full page. Telegram: these words
+    # are the link. WhatsApp: these words, then the address on its own line.
+    caption_more: "📲 הלוח המלא, עם כל הפרטים"
+  calendar_page:
+    # The public calendar page. {month} = month name, {n} = a number.
+    page_title: "לוח האירועים"
+    brand: "לוח האירועים של הקהילה"
+    count_none: "אין אירועים"
+    count_one: "אירוע אחד"
+    count_many: "{n} אירועים"
+    prev_month: "החודש הקודם"
+    next_month: "החודש הבא"
+    today: "היום"
+    legend_event: "יש אירוע · לחצו על היום"
+    legend_past: "כבר היה"
+    day_heading: "{day} ב{month}"
+    upcoming: "הבאים בתור"
+    upcoming_day: "יום {day}"
+    no_time: "כל היום"
+    empty_title: "עוד אין אירועים ב{month}"
+    empty_text: "אולי האירוע הראשון יהיה שלכם?"
+    all_past: "כל האירועים של {month} כבר היו."
+    when: "יום {day}, {date} ב{month} · {time}"
+    when_no_time: "יום {day}, {date} ב{month}"
+    responsible: "באחריות {name}"
+    join: "לינק להצטרפות"
+    google: "להוסיף ליומן גוגל"
+    other_calendar: "יומן אחר? קובץ לאפל או אאוטלוק"
+    join_in_calendar: "להצטרפות: {link}"
+    close: "סגירה"
+    add_title: "רוצים להוסיף אירוע?"
+    add_whatsapp: "בוואטסאפ: כתבו לבוטי בפרטי {word} או שלחו לו צילום מסך של האירוע."
+    add_word_whatsapp: "איוונט"
+    add_telegram: "בטלגרם: תייגו את בוטסון וכתבו {word}"
+    add_word_telegram: "אירוע חדש"
   whatsapp_watch:
     down: "⚠️ בוטי התנתק מוואטסאפ (מצב: {status}). עד שיחזור, הודעות ואירועים לא יגיעו לקבוצות הוואטסאפ.\nניסיתי להחיות אותו לבד ולא הצלחתי. הנה מסך החיבור:\n{url}"
     down_scan: "⚠️ בוטי התנתק מוואטסאפ וממתין לסריקה.\nפתח/י את המסך הזה, ובטלפון של בוטי: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרוק/י את הקוד:\n{url}"

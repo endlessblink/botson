@@ -20,8 +20,8 @@ from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 
 from ..database.db import Database
 from ..utils.calendar_share import (
-    asks_for_calendar, caption, decide, month_for, picture, record, send_telegram_picture, share_cfg,
-    telegram_events_topic, telegram_message_link, text_with_link, wants_next_month,
+    asks_for_calendar, decide, month_for, picture, record, send_telegram_picture, share_cfg,
+    telegram_caption, telegram_events_topic, telegram_message_link, text_with_link, wants_next_month,
 )
 from ..utils.config import ADMIN_IDS, GROUP_ID, TEST_GROUP_ID
 from ..utils.copy import load_copy
@@ -117,8 +117,9 @@ async def serve(update: Update, context: ContextTypes.DEFAULT_TYPE, *, next_mont
             return
         png = await picture(db, month)
         same_place = private or thread == message.message_thread_id
-        sent = await send_telegram_picture(context.bot, db, chat_id=chat.id, thread_id=thread, png=png,
-                                           text=caption(month), reply_to=message.message_id if same_place else None)
+        text, entities = telegram_caption(month)
+        sent = await send_telegram_picture(context.bot, db, chat_id=chat.id, thread_id=thread, png=png, text=text,
+                                           entities=entities, reply_to=message.message_id if same_place else None)
         await record(db, platform="telegram", chat_id=str(chat.id), private=private, user_id=str(user.id),
                      operator=operator, message_id=sent.message_id, thread_id=thread, month=month, version=d["version"])
         logger.info("calendar_request: %s calendar sent to %s (thread %s) for user %s",

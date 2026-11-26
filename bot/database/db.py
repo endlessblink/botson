@@ -896,8 +896,10 @@ class Database:
         cards (their date is when the post went out, not when the event is).
         """
         async with self._db.execute(
-            """SELECT e.id, e.title, e.event_date, e.event_time, e.location, e.cover_path,
-                      (SELECT r.organizer FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS organizer
+            """SELECT e.id, e.title, e.event_date, e.event_time, e.location, e.cover_path, e.description,
+                      (SELECT r.organizer FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS organizer,
+                      (SELECT r.requester_name FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS requester_name,
+                      (SELECT r.link FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS link
                FROM events e
                WHERE e.active = 1 AND e.message_id IS NOT NULL
                  AND ((? != 0 AND e.tg_chat_id = ?)

@@ -3283,7 +3283,7 @@ async def agent_events_calendar_share(request: Request, db: Database = Depends(g
         raise HTTPException(status_code=401, detail="unauthorized")
     import base64
 
-    from bot.utils.calendar_share import caption, decide, month_for, share_cfg
+    from bot.utils.calendar_share import decide, month_for, share_cfg, whatsapp_caption
     from bot.utils.copy import load_copy
     from bot.utils.events_calendar import month_png
     from bot.utils.shared_events import is_known_member, person_ids
@@ -3313,7 +3313,7 @@ async def agent_events_calendar_share(request: Request, db: Database = Depends(g
     logger.info("[calendar_share] WhatsApp %s calendar for %s (%s)", month, "private" if private else chat_id,
                 "operator" if operator else "member")
     return {"status": "post", "image": base64.b64encode(png).decode("ascii"), "mime": "image/png",
-            "caption": caption(month), "month": month, "version": d["version"]}
+            "caption": whatsapp_caption(month), "month": month, "version": d["version"]}
 
 
 @app.post("/api/agent/events-calendar/posted")
@@ -3347,7 +3347,8 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
     from telegram import Bot
 
     from bot.utils import whatsapp_sender
-    from bot.utils.calendar_share import caption, month_version, record, send_telegram_picture, telegram_events_topic
+    from bot.utils.calendar_share import (month_version, record, send_telegram_picture, telegram_caption,
+                                          telegram_events_topic, whatsapp_caption)
     from bot.utils.events_calendar import local_now, month_png, parse_month
     from bot.utils.shared_events import default_mode, targets_for
 
@@ -3362,7 +3363,8 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
         raise HTTPException(status_code=409, detail="the live / test switch changed; reload the page")
     tg_target, wa_target = targets_for(mode)
     png = await month_png(db, month, MEDIA_DIR)
-    text, version = caption(month), await month_version(db, month)
+    version = await month_version(db, month)
+    tg_text, tg_entities = telegram_caption(month)
     results: dict = {}
 
     try:
@@ -3373,7 +3375,7 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
         if tg_target != "test" and thread is None:
             raise RuntimeError("no events topic in the routing table")
         sent = await send_telegram_picture(Bot(os.getenv("BOT_TOKEN", "")), db, chat_id=chat_id, thread_id=thread,
-                                           png=png, text=text)
+                                           png=png, text=tg_text, entities=tg_entities)
         await record(db, platform="telegram", chat_id=str(chat_id), private=False, user_id="", operator=True,
                      message_id=sent.message_id, thread_id=thread, month=month, version=version)
         results["telegram"] = {"ok": True}
@@ -3383,7 +3385,8 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
 
     try:
         wa_chat = whatsapp_sender.resolve_chat_id(wa_target)
-        msg_id = await whatsapp_sender.send_image_data(wa_chat, png, "image/png", "calendar.png", text)
+        msg_id = await whatsapp_sender.send_image_data(wa_chat, png, "image/png", "calendar.png",
+                                                       whatsapp_caption(month))
         await record(db, platform="whatsapp", chat_id=wa_chat, private=False, user_id="", operator=True,
                      message_id=msg_id or "", thread_id=None, month=month, version=version)
         results["whatsapp"] = {"ok": True}
@@ -3828,6 +3831,73 @@ async def whatsapp_restart(request: Request):
 
     await restart_session()
     return {"status": "ok"}
+
+
+# ── Public events calendar page (read-only, no login, kept out of search engines) ──
+
+_NOINDEX = {"X-Robots-Tag": "noindex, nofollow, noarchive"}
+_HEEBO = BASE_DIR.parent / "assets" / "fonts" / "heebo" / "Heebo-VariableFont_wght.ttf"
+
+
+@app.get("/cal/heebo.ttf")
+async def public_calendar_font():
+    from fastapi.responses import FileResponse
+
+    return FileResponse(_HEEBO, media_type="font/ttf",
+                        headers={**_NOINDEX, "Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/cal/event/{event_id}.ics")
+async def public_calendar_ics(event_id: int, db: Database = Depends(get_db)):
+    """One published event as a standard calendar file (Apple, Outlook and others)."""
+    from urllib.parse import urlsplit
+
+    from bot.utils import config as bot_config
+    from bot.utils.calendar_page import ics_text, page_events
+
+    ev = next((e for e in await page_events(db) if e["id"] == event_id), None)
+    if not ev:
+        raise HTTPException(status_code=404)
+    host = urlsplit(bot_config.PUBLIC_DASHBOARD_URL or "").hostname or "botson"
+    return Response(content=ics_text(ev, host=host), media_type="text/calendar; charset=utf-8", headers={
+        **_NOINDEX, "Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="event-{event_id}.ics"'})
+
+
+@app.get("/cal", response_class=HTMLResponse)
+@app.get("/cal/{month}", response_class=HTMLResponse)
+async def public_calendar(request: Request, month: str | None = None, e: int | None = None, d: str | None = None,
+                          db: Database = Depends(get_db)):
+    """The community's events calendar. /cal = this month, /cal/2026-12 = that month,
+    ?e=<id> opens one event's details, ?d=2026-12-03 lists one day's events."""
+    from datetime import date as _date
+
+    from bot.utils.calendar_page import build_page, day_name, google_url, page_events, when_text
+    from bot.utils.copy import load_copy_block
+    from bot.utils.events_calendar import local_now, parse_month
+
+    events = await page_events(db)
+    now = local_now()
+    opened = next((x for x in events if x["id"] == e), None) if e else None
+    if month is None and opened:
+        month = f"{opened['date']:%Y-%m}"
+    try:
+        year, mon = parse_month(month, now)
+    except ValueError:
+        raise HTTPException(status_code=404)
+    try:
+        day = _date.fromisoformat(d) if d else None
+    except ValueError:
+        day = None
+    if day and (day.year, day.month) != (year, mon):
+        day = None
+    page = build_page(events, year=year, month=mon, today=now.date(), open_event=opened["id"] if opened else None,
+                      selected_day=day)
+    return templates.TemplateResponse(request, name="public_calendar.html", headers=_NOINDEX, context={
+        "p": page, "c": load_copy_block("calendar_page", default={}),
+        "day_letters": load_copy_block("events_calendar", default={}).get("day_letters", []),
+        "month_names": load_copy_block("events_calendar", default={}).get("month_names", []),
+        "google_url": google_url, "when_text": when_text, "day_name": day_name,
+    })
 
 
 @app.api_route("/l/{code}", methods=["GET", "HEAD"])

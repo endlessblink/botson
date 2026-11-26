@@ -95,6 +95,26 @@ def caption(month: str) -> str:
     return load_copy("calendar_share", "caption", month=name, year=year)
 
 
+def _more_line(month: str) -> tuple[str, str] | None:
+    """(words, address) of the caption's second line, leading to the full calendar page."""
+    from .calendar_page import page_url
+
+    url = page_url(month)
+    return (load_copy("calendar_share", "caption_more"), url) if url else None
+
+
+def telegram_caption(month: str) -> tuple[str, list]:
+    """Caption + the clickable words leading to the page (no parse mode)."""
+    more = _more_line(month)
+    return text_with_link(caption(month), *more) if more else (caption(month), [])
+
+
+def whatsapp_caption(month: str) -> str:
+    """Caption + the words, then the bare address on its own line (WhatsApp links only addresses)."""
+    more = _more_line(month)
+    return f"{caption(month)}\n{more[0]}\n{more[1]}" if more else caption(month)
+
+
 async def month_version(db, month: str) -> str:
     """Changes whenever what the month's picture shows about events changes."""
     events = await db.get_published_events(int(os.getenv("GROUP_ID", "0") or 0))
@@ -168,11 +188,13 @@ async def telegram_events_topic(db) -> int | None:
 
 
 async def send_telegram_picture(bot, db, *, chat_id: int, thread_id: int | None, png: bytes, text: str,
-                                reply_to: int | None = None):
+                                reply_to: int | None = None, entities: list | None = None):
     """Through the topic guard, like every Telegram send."""
     from .topic_guard import safe_send
 
     extra = {"reply_to_message_id": reply_to} if reply_to else {}
+    if entities:
+        extra["caption_entities"] = entities
     return await safe_send(bot, db, "send_photo", chat_id=chat_id, message_thread_id=thread_id,
                            photo=png, caption=text, **extra)
 
