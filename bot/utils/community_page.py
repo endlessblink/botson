@@ -172,6 +172,26 @@ def public_title(title: str | None) -> str:
     return text
 
 
+def public_description(text: str | None, location: str | None = None) -> str:
+    """The published description for strangers: the title rules line by line (no links, e-mails,
+    @handles or phone numbers), and any line that looks like an address is left out whole: a line
+    that repeats the stored location, or has a street word (config place_street_words) with a number."""
+    streets = [str(w) for w in base_cfg().get("place_street_words") or []]
+    loc = " ".join(str(location or "").split())
+    out: list[str] = []
+    for raw in str(text or "").splitlines():
+        line = " ".join(raw.split())
+        if loc and len(loc) >= 4 and loc in line:
+            continue
+        if re.search(r"\d", line) and any(
+                re.search(rf"(?<![{_LETTER}]){_prefix()}{re.escape(w)}(?![{_LETTER}])", line) for w in streets):
+            continue
+        line = public_title(line) if line else ""
+        if line or (out and out[-1]):
+            out.append(line)
+    return "\n".join(out).strip()
+
+
 _COVER = re.compile(r"^[A-Za-z0-9_./-]+\.(?:png|jpe?g|webp|gif)$", re.IGNORECASE)
 
 
@@ -206,6 +226,8 @@ async def public_events(db, today: date) -> list[dict]:
             hhmm = ""
         day_name = days[(day.weekday() + 1) % 7] if isinstance(days, list) and len(days) == 7 else ""
         out.append({
+            "id": int(e.get("id") or 0),
+            "description": public_description(e.get("description"), e.get("location")),
             "title": title,
             "date": day,
             "date_text": load_copy("community_page", "date", d=day.day, m=day.month),
@@ -219,18 +241,22 @@ async def public_events(db, today: date) -> list[dict]:
     return out[: int(cfg.get("max_events", 8))]
 
 
-def columns() -> list[dict]:
-    """The regular columns ("what we do"), wording from copy."""
-    from .copy import load_copy
+async def public_event(db, today: date, event_id: int) -> dict | None:
+    """One event as the page lists it (same filter and reduction), or None."""
+    for ev in await public_events(db, today):
+        if ev["id"] == event_id:
+            return ev
+    return None
 
-    out = []
-    for c in base_cfg().get("columns") or []:
-        key = str((c or {}).get("key") or "")
-        if not re.fullmatch(r"[a-z_]+", key):
-            continue
-        out.append({"key": key, "title": load_copy("community_page", f"col_{key}_title"),
-                    "text": load_copy("community_page", f"col_{key}_text")})
-    return out
+
+async def channels(db) -> list[str]:
+    """The community's channel names, read from the verified forum topics (never a typed list)."""
+    names = []
+    for t in await db.get_verified_forum_topics():
+        name = " ".join(str(t.get("verified_name") or "").split())
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def page_url() -> str | None:

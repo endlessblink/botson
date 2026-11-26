@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+{% include "_public_community_head.html" %}
+</head>
+<body>
+<div class="w">
+  <div class="bar"><span>{{ issue }}</span><span>{{ c.platforms }}</span></div>
+  <header class="sign">
+    <div class="badges" aria-hidden="true"><span class="badge r">1</span><span class="badge t">2</span></div>
+    <p class="sub" style="padding-top:8px">{{ c.name_first }} {{ c.name_second }}</p>
+    <div class="stripe"></div><div class="stripe"></div>
+  </header>
+  <a class="back" href="/welcome#events">{{ c.back }}</a>
+
+  <article class="ev one">
+    {% if ev.cover_url %}<div class="pic"><img src="{{ ev.cover_url }}" alt="" decoding="async"><span class="day" aria-hidden="true">{{ ev.date.day }}</span></div>
+    {% else %}<div class="plate"><span class="day" aria-hidden="true">{{ ev.date.day }}</span><span class="date">{{ ev.date_text }} · {{ ev.when }}</span></div>{% endif %}
+    <div class="txt">
+      {% if ev.cover_url %}<div class="when">{{ ev.date_text }} · {{ ev.when }}</div>{% endif %}
+      <h1>{{ ev.title }}</h1>
+      {% if ev.place %}<span class="city">{{ ev.place }}</span>{% endif %}
+      {% if ev.description %}<p class="desc">{{ ev.description }}</p>{% endif %}
+      <p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>
+    </div>
+  </article>
+
+{% include "_public_community_join.html" %}
+</div>
+</body>
+</html>

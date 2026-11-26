@@ -3932,31 +3932,55 @@ async def community_page_font(name: str):
     return FileResponse(path, media_type="font/ttf", headers={"Cache-Control": "public, max-age=604800"})
 
 
-@app.get("/welcome", response_class=HTMLResponse)
-async def community_page(request: Request, db: Database = Depends(get_db)):
-    """The community's public front door: who we are, upcoming events (city only), what we do, how to join."""
+def _community_context(now) -> dict:
     from bot.utils import community_page as cpage
     from bot.utils.copy import load_copy_block
-    from bot.utils.events_calendar import local_now
 
-    now = local_now()
     copy = load_copy_block("community_page", default={}) or {}
     months = load_copy_block("events_calendar", default={}).get("month_names") or []
     month = months[now.month - 1] if len(months) == 12 else ""
-    indexable = cpage.is_indexable()
     url = cpage.page_url()
     base = url[: -len(cpage.PATH)] if url else ""
-    headers = {} if indexable else dict(_NOINDEX)
-    return templates.TemplateResponse(request, name="public_community.html", headers=headers, context={
+    return {
         "c": copy,
         "issue": str(copy.get("issue") or "").format(month=month, year=now.year),
-        "events": await cpage.public_events(db, now.date()),
-        "columns": cpage.columns(),
         "join": cpage.join_links(),
-        "indexable": indexable,
         "page_url": url,
         "share_url": f"{base}/static/community/share.jpg" if base else "/static/community/share.jpg",
+    }
+
+
+@app.get("/welcome", response_class=HTMLResponse)
+async def community_page(request: Request, db: Database = Depends(get_db)):
+    """The community's public front door: who we are, upcoming events (city only), how to join."""
+    from bot.utils import community_page as cpage
+    from bot.utils.events_calendar import local_now
+
+    now = local_now()
+    indexable = cpage.is_indexable()
+    headers = {} if indexable else dict(_NOINDEX)
+    return templates.TemplateResponse(request, name="public_community.html", headers=headers, context={
+        **_community_context(now),
+        "events": await cpage.public_events(db, now.date()),
+        "channels": await cpage.channels(db),
+        "indexable": indexable,
     })
+
+
+@app.get("/welcome/e/{event_id}", response_class=HTMLResponse)
+async def community_event_page(request: Request, event_id: int, db: Database = Depends(get_db)):
+    """One listed event opened: the same public reduction plus its cleaned description. Never indexed."""
+    from bot.utils import community_page as cpage
+    from bot.utils.events_calendar import local_now
+
+    now = local_now()
+    ev = await cpage.public_event(db, now.date(), event_id)
+    if not ev:
+        raise HTTPException(status_code=404)
+    ctx = _community_context(now)
+    ctx["page_url"] = f"{ctx['page_url']}/e/{event_id}" if ctx["page_url"] else None
+    return templates.TemplateResponse(request, name="public_community_event.html", headers=dict(_NOINDEX),
+                                      context={**ctx, "ev": ev, "indexable": False})
 
 
 @app.post("/api/settings/community-page")

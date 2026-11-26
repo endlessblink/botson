@@ -242,13 +242,6 @@ community_page:
     - {name: "הכרמל", aliases: ["הכרמל"]}
     - {name: "ים המלח", aliases: ["ים המלח"]}
     - {name: "הכנרת", aliases: ["הכנרת"]}
-  # The regular columns ("what we do"), in order: key = the copy.community_page entries
-  # col_<key>_title / col_<key>_text.
-  columns:
-    - {key: "trivia"}
-    - {key: "emoji"}
-    - {key: "riddles"}
-    - {key: "meetups"}
 
 # Month calendar picture of community events (bot/utils/events_calendar.py).
 # Drawn with Pillow from the published events; served to Botty and shown on the Events page.
@@ -491,12 +484,8 @@ copy:
     issue: "העלון · {month} {year}"
     name_first: "אלהוריים"
     name_second: "וזה"
-    sub: "עלון של קהילה בלי ילדים"
     platforms: "טלגרם · וואטסאפ"
-    lead: "קהילה של אנשים שבחרו לחיות בלי ילדים. מקום לשיח פתוח, לתמיכה ולהנאה, בלי שיפוטיות."
-    body: "מדברים על הכול, כל נושא בערוץ משלו. ואין לחץ: לא צריך להציג את עצמך ביום הראשון, אפשר להכיר קודם בשקט."
-    cover_label: "המקום שלך"
-    cover_alt: "הדפס: שולחן עגול, כיסא אחד פנוי"
+    lead: "קהילה של אנשים שבחרו לחיות בלי ילדים."
     events_kicker: "בעלון הזה"
     events_title: "מה בלוח"
     when: "{day} · {time}"
@@ -507,18 +496,8 @@ copy:
     members_note: "מה, מתי ובאיזו עיר כתוב כאן. הכתובת, הקישור ומי שמארגן מחכים בקבוצה."
     empty_title: "החודש עוד בלי מפגש"
     empty_text: "מפגשים נקבעים בתוך הקבוצה. כשייקבע אחד, הוא יודפס כאן."
-    columns_kicker: "המדורים הקבועים"
-    columns_title: "בין מפגש למפגש"
-    col_trivia_title: "טריוויה"
-    col_trivia_text: "כמה שאלות על נושא אחד, ומי שבא משחק."
-    col_emoji_title: "ערב אימוג'י"
-    col_emoji_text: "מנחשים סרט או שיר משורת אימוג'ים."
-    col_riddles_title: "חידות וסקרים"
-    col_riddles_text: "שאלה קצרה, תשובה במילה אחת."
-    col_meetups_title: "מפגשים"
-    col_meetups_text: "בבית קפה, בפארק, סביב שולחן משחקים."
-    channels_label: "הערוצים:"
-    channels: ["גיימינג ומשחקי לוח", "סרטים, סדרות וכו'", "אומנות ויצירה", "כל מה שחמוד", "מצחיק ומגניב", "פנויים ופנויות", "טבעונים וצמחונים", "פוליטיקה", "AI וטכנולוגיה", "יום יום"]
+    channels_label: "הערוצים:"   # the names come from the verified forum topics, never typed here
+    back: "חזרה ללוח"
     join_title: "רוצים להצטרף?"
     join_text: "הקישור מכניס ישר לקבוצה. נכנסים, מציצים בשקט, ומדברים כשבא לך."
     join_telegram: "להצטרף בטלגרם"

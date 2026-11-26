@@ -1,0 +1,11 @@
+  <section class="join" id="join">
+    <div class="in">
+      <div><h2>{{ c.join_title }}</h2><p>{{ c.join_text }}</p></div>
+      <div>
+        {% if join %}<div class="btns">{% for j in join %}<a class="btn" href="{{ j.url }}" rel="noopener noreferrer"><span class="badge {{ 'r' if loop.first else 't' }}" aria-hidden="true">{{ loop.index }}</span>{{ c['join_' ~ j.platform] }}</a>{% endfor %}</div>
+        {% else %}<p class="soon">{{ c.join_soon }}</p>{% endif %}
+      </div>
+    </div>
+    <div class="stripe"></div>
+  </section>
+  <div class="colo"><b>{{ c.name_first }} {{ c.name_second }}</b><strong>{{ c.rules_label }}</strong> {{ c.rules }}</div>

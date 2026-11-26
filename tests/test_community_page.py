@@ -14,7 +14,7 @@ from starlette.requests import Request
 from bot.database.db import Database
 from bot.utils import community_page as cpage
 from bot.utils import config, events_calendar
-from bot.utils.copy import load_copy
+from bot.utils.copy import load_copy, load_copy_block
 from dashboard import app as dash
 
 MAIN, TEST = -1001, -1002
@@ -168,7 +168,7 @@ def test_events_with_and_without_pictures(tmp_path):
         stops = re.findall(r'<li class="ev">.*?</li>', text, re.S)
         assert len(stops) == 2
         without, with_pic = stops
-        assert "<img" not in without and '<span class="day" aria-hidden="true">3</span>' in without  # date block
+        assert "<img" not in without and '<span class="day" aria-hidden="true">3</span>' in without  # date plate
         assert 'src="/media/covers/a.png"' in with_pic and "filter" not in with_pic  # natural colour
     run(tmp_path, body)
 
@@ -326,7 +326,91 @@ def test_fonts_are_served_from_the_page_and_nothing_else():
     asyncio.run(go())
 
 
-def test_columns_come_from_config():
-    cols = cpage.columns()
-    assert [c["key"] for c in cols] == ["trivia", "emoji", "riddles", "meetups"]
-    assert all(c["title"] and "[" not in c["title"] for c in cols)
+def test_events_come_right_after_the_title_and_the_old_blocks_are_gone(tmp_path):
+    async def body(db):
+        await event(db, "ערב משחקים", "2026-12-03")
+        await db.upsert_verified_forum_topic(54, "סרטים סדרות וכו", "movies", "dot")
+        _, text = await page(db)
+        assert text.index("</h1>") < text.index('id="events"') < text.index('class="chips"') < text.index('id="join"')
+        assert html.escape(load_copy("community_page", "lead")) in text
+        assert 'class="route"' not in text and 'class="cols"' not in text
+        assert not hasattr(cpage, "columns")
+        for key in ("columns_title", "columns_kicker", "col_trivia_title", "col_emoji_title", "channels", "body"):
+            assert key not in (cpage.base_cfg() or {}) and key not in load_copy_block("community_page", default={})
+    run(tmp_path, body)
+
+
+def test_channels_come_only_from_the_verified_topics(tmp_path):
+    async def body(db):
+        _, text = await page(db)
+        assert 'class="chips"' not in text  # nothing verified, nothing typed: no channel row
+        await db.upsert_verified_forum_topic(54, "סרטים סדרות וכו", "movies", "dot")
+        await db.upsert_verified_forum_topic(1517, "גיימינג + משחקי לוח", "gaming", "dot")
+        _, text = await page(db)
+        chips = re.search(r'<ul class="chips".*?</ul>', text, re.S).group(0)
+        assert re.findall(r"<li>(.*?)</li>", chips) == [html.escape("גיימינג + משחקי לוח"), "סרטים סדרות וכו"]
+    run(tmp_path, body)
+
+
+# ── An opened event (/welcome/e/<id>) ──
+
+async def opened(db, eid):
+    r = await dash.community_event_page(http_request(f"/welcome/e/{eid}"), eid, db)
+    return r, r.body.decode()
+
+
+def test_cards_open_their_event_and_the_details_show_the_published_description(tmp_path):
+    async def body(db):
+        eid = await event(db, "ערב משחקי לוח", "2026-12-03", place="בית קפה נחת, רחוב הרצל 12, תל אביב",
+                          desc="מביאים משחק אחד.\nיש גם פיצה טבעונית.", cover="covers/a.png")
+        _, text = await page(db)
+        assert f'href="/welcome/e/{eid}"' in text
+        r, one = await opened(db, eid)
+        assert r.headers["x-robots-tag"].startswith("noindex") and 'content="noindex' in one
+        assert "ערב משחקי לוח" in one and "תל אביב" in one and "20:00" in one
+        assert "מביאים משחק אחד." in one and "יש גם פיצה טבעונית." in one
+        assert 'src="/media/covers/a.png"' in one
+        assert html.escape(load_copy("community_page", "members_note")) in one
+        assert "/cal" not in one and "<script" not in one
+    run(tmp_path, body)
+
+
+def test_the_details_never_show_address_contacts_names_or_event_links(tmp_path):
+    async def body(db):
+        eid = await event(db, "פיקניק", "2026-12-12", place="פארק הירקון, שדרות רוקח 2, תל אביב",
+                          desc="פיקניק אחרי הצהריים.\nנפגשים ברחוב הרצל 12 ליד הכניסה\n"
+                               "פארק הירקון, שדרות רוקח 2, תל אביב\nפרטים: 054-1234567, maya@example.com, @maya\n"
+                               "קבוצה: https://chat.whatsapp.com/EVENTLINK999",
+                          request="approved", link="https://chat.whatsapp.com/REQLINK", organizer="מאיה לוי",
+                          requester_name="יוסי ישראלי")
+        _, one = await opened(db, eid)
+        assert "פיקניק אחרי הצהריים." in one
+        for hidden in ("הרצל 12", "רוקח", "פארק הירקון", "054-1234567", "maya@example.com", "@maya", "EVENTLINK999",
+                       "chat.whatsapp.com", "REQLINK", "מאיה לוי", "יוסי ישראלי", "972541234567"):
+            assert hidden not in one, hidden
+    run(tmp_path, body)
+
+
+def test_an_empty_description_shows_no_description_block(tmp_path):
+    async def body(db):
+        eid = await event(db, "ערב בלי תיאור", "2026-12-03")
+        _, one = await opened(db, eid)
+        assert 'class="desc"' not in one and "ערב בלי תיאור" in one
+    run(tmp_path, body)
+
+
+@pytest.mark.parametrize("kind", ["test_group", "pending", "deleted", "past", "far", "missing"])
+def test_only_listed_events_open(tmp_path, kind):
+    async def body(db):
+        eid = {
+            "test_group": lambda: event(db, "x", "2026-12-03", chat=TEST),
+            "pending": lambda: event(db, "x", "2026-12-03", request="submitted"),
+            "deleted": lambda: event(db, "x", "2026-12-03", active=False),
+            "past": lambda: event(db, "x", "2026-11-20"),
+            "far": lambda: event(db, "x", "2027-06-01"),
+        }.get(kind)
+        eid = await eid() if eid else 999
+        with pytest.raises(HTTPException) as err:
+            await opened(db, eid)
+        assert err.value.status_code == 404
+    run(tmp_path, body)

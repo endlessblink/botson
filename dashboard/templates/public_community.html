@@ -1,168 +1,42 @@
 <!doctype html>
 <html lang="he" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-{% if indexable %}<meta name="robots" content="index, follow">{% else %}<meta name="robots" content="noindex, nofollow, noarchive">{% endif %}
-<meta name="referrer" content="no-referrer">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#15181b" media="(prefers-color-scheme: dark)">
-<title>{{ c.page_title }}</title>
-<meta name="description" content="{{ c.meta_description }}">
-{% if page_url %}<link rel="canonical" href="{{ page_url }}">
-<meta property="og:url" content="{{ page_url }}">{% endif %}
-<meta property="og:type" content="website">
-<meta property="og:locale" content="he_IL">
-<meta property="og:title" content="{{ c.page_title }}">
-<meta property="og:description" content="{{ c.meta_description }}">
-<meta property="og:image" content="{{ share_url }}">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="{{ c.share_alt }}">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="preload" href="/welcome/font/heebo.ttf" as="font" type="font/ttf" crossorigin>
-<style>
-  /* "The line": transit wayfinding. A dark station-name sign is the masthead, the month is a line with
-     stops (each event is a stop), the regular columns are line badges. Charcoal, soft white, one muted
-     red line and one muted teal line; reading text always on a plain solid field. */
-  @font-face{font-family:Heebo;src:url(/welcome/font/heebo.ttf) format("truetype");font-weight:100 900;font-display:swap}
-  :root{--bg:#f6f6f3;--ink:#1e2226;--soft:#50565c;--sign:#1e2226;--on-sign:#f6f6f3;--on-sign-soft:#b9bec3;--red:#b8473c;--teal:#2f6f6c;--line:#dcddd8;--card:#ffffff}
-  @media (prefers-color-scheme:dark){:root{--bg:#15181b;--ink:#e8e8e3;--soft:#a9aeb3;--sign:#23282d;--on-sign:#ecece7;--on-sign-soft:#a9aeb3;--red:#d4695d;--teal:#5aa09d;--line:#2c3237;--card:#1c2024}}
-  *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:var(--bg);color:var(--ink);font-family:Heebo,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  a{color:inherit}
-  a:focus-visible{outline:3px solid var(--teal);outline-offset:3px;border-radius:10px}
-  .w{max-width:1100px;margin:0 auto;padding:0 20px}
-
-  .bar{display:flex;justify-content:space-between;gap:12px;padding:16px 0 12px;font-size:14px;font-weight:600;color:var(--soft)}
-  .sign{background:var(--sign);color:var(--on-sign);border-radius:16px;padding:20px 20px 0;overflow:hidden}
-  .sign .badges{display:flex;gap:8px}
-  .badge{width:34px;height:34px;border-radius:50%;display:inline-grid;place-items:center;font-weight:900;font-size:15px;color:#fff;flex:none}
-  .badge.r{background:var(--red)}.badge.t{background:var(--teal)}
-  .sign h1{font-weight:800;font-size:clamp(46px,14vw,112px);line-height:1;letter-spacing:-.02em;margin-top:18px;overflow-wrap:anywhere}
-  .sign .sub{font-size:16px;color:var(--on-sign-soft);margin-top:8px;padding-bottom:18px}
-  .sign .stripe{height:14px;background:var(--red);margin:0 -20px}
-  .sign .stripe + .stripe{background:var(--teal);height:8px}
-
-  .route{margin:26px 0 0;position:relative;padding-inline-start:44px}
-  .route::before{content:"";position:absolute;inset-inline-start:15px;top:12px;bottom:12px;width:6px;border-radius:3px;background:var(--red)}
-  .stop{position:relative;padding:6px 0 18px}
-  .stop::before{content:"";position:absolute;inset-inline-start:-37px;top:8px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:5px solid var(--red)}
-  .stop.end::before{border-style:dashed}
-  .stop b{display:block;font-size:20px;font-weight:800;line-height:1.45}
-  .stop span{font-size:17px;color:var(--soft);line-height:1.6;display:block}
-
-  section{padding-top:56px}
-  .head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin-bottom:16px}
-  .head h2{font-weight:800;font-size:clamp(30px,8vw,48px);line-height:1}
-  .head .kick{font-size:14px;font-weight:700;color:var(--soft)}
-
-  .line{list-style:none;position:relative;padding-inline-start:44px}
-  .line::before{content:"";position:absolute;inset-inline-start:15px;top:20px;bottom:20px;width:6px;border-radius:3px;background:var(--teal)}
-  .ev{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;display:grid;grid-template-columns:1fr 64px;gap:12px;align-items:center}
-  .ev::before{content:"";position:absolute;inset-inline-start:-37px;top:calc(50% - 10px);width:12px;height:12px;border-radius:50%;background:var(--bg);border:4px solid var(--teal)}
-  .ev .when{font-size:14px;font-weight:700;color:var(--teal)}
-  .ev h3{font-size:19px;font-weight:800;line-height:1.25;margin-top:2px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-  .ev .city{display:inline-flex;align-items:center;gap:6px;font-size:14.5px;font-weight:600;color:var(--soft);margin-top:4px}
-  .ev .city::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--red)}
-  .ev img,.ev .day{width:64px;height:64px;border-radius:10px;object-fit:cover;display:block}
-  .ev .day{display:grid;place-items:center;background:var(--sign);color:var(--on-sign);font-weight:900;font-size:26px}
-  .note{margin-top:14px;font-size:16px;line-height:1.6;max-width:46ch}
-  .note b{font-weight:800}
-  .empty{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;position:relative}
-  .empty h3{font-size:21px;font-weight:800}
-  .empty p{font-size:16px;line-height:1.55;color:var(--soft);margin-top:4px}
-
-  .cols{list-style:none;display:grid;gap:10px}
-  .col{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid var(--line)}
-  .col .badge{width:40px;height:40px;font-size:17px}
-  .col:nth-child(odd) .badge{background:var(--red)}.col:nth-child(even) .badge{background:var(--teal)}
-  .col h3{font-size:19px;font-weight:800}
-  .col p{font-size:16px;line-height:1.5;color:var(--soft);margin-top:2px}
-  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
-  .chips li{display:inline-flex;align-items:center;gap:7px;font-size:14.5px;font-weight:600;padding:6px 12px;border-radius:99px;background:var(--card);border:1px solid var(--line)}
-  .chips li::before{content:"";width:9px;height:9px;border-radius:50%;border:2.5px solid var(--teal)}
-
-  .join{margin-top:60px;background:var(--sign);color:var(--on-sign);border-radius:16px;overflow:hidden}
-  .join .in{padding:30px 20px 26px}
-  .join h2{font-weight:800;font-size:clamp(32px,9vw,52px);line-height:1}
-  .join p{font-size:17px;line-height:1.6;max-width:34ch;margin-top:10px}
-  .btns{display:grid;gap:10px;margin-top:20px}
-  .btn{display:flex;align-items:center;gap:12px;min-height:56px;padding:0 16px;border-radius:12px;font-weight:800;font-size:17px;text-decoration:none;background:var(--on-sign);color:var(--sign)}
-  .btn .badge{width:28px;height:28px;font-size:13px}
-  .soon{margin-top:18px;font-size:17px;font-weight:700;padding:14px 16px;border-radius:12px;border:2px dashed var(--on-sign-soft)}
-  .join .stripe{height:12px;background:var(--red)}
-  .colo{padding:28px 0 46px;font-size:15px;line-height:1.7;color:var(--soft)}
-  .colo b{display:block;color:var(--ink);font-weight:800;font-size:18px}
-  .colo strong{color:var(--ink);font-weight:800}
-
-  @media (min-width:900px){
-    .w{padding:0 48px}
-    .top{display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:start}
-    .sign{padding:32px 32px 0}
-    .sign .stripe{margin:0 -32px}
-    section{padding-top:96px}
-    .two{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:start}
-    .join .in{display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:48px}
-  }
-</style>
+{% include "_public_community_head.html" %}
 </head>
 <body>
 <div class="w">
   <div class="bar"><span>{{ issue }}</span><span>{{ c.platforms }}</span></div>
-  <div class="top">
-    <div class="sign">
-      <div class="badges" aria-hidden="true"><span class="badge r">1</span><span class="badge t">2</span></div>
-      <h1>{{ c.name_first }} {{ c.name_second }}</h1>
-      <p class="sub">{{ c.sub }}</p>
-      <div class="stripe"></div><div class="stripe"></div>
-    </div>
-    <div class="route" role="img" aria-label="{{ c.cover_alt }}">
-      <div class="stop"><b>{{ c.lead }}</b></div>
-      <div class="stop"><span>{{ c.body }}</span></div>
-      <div class="stop end"><b>{{ c.cover_label }}</b></div>
-    </div>
-  </div>
+  <header class="sign">
+    <div class="badges" aria-hidden="true"><span class="badge r">1</span><span class="badge t">2</span></div>
+    <h1>{{ c.name_first }} {{ c.name_second }}</h1>
+    <p class="sub">{{ c.lead }}</p>
+    <div class="stripe"></div><div class="stripe"></div>
+  </header>
 
-  <div class="two">
   <section id="events">
     <div class="head"><h2>{{ c.events_title }}</h2><span class="kick">{{ c.events_kicker }}</span></div>
     {% if events %}
     <ol class="line">
       {% for ev in events %}
-      <li class="ev">
-        <div><div class="when">{{ ev.date_text }} · {{ ev.when }}</div><h3>{{ ev.title }}</h3>{% if ev.place %}<span class="city">{{ ev.place }}</span>{% endif %}</div>
-        {% if ev.cover_url %}<img src="{{ ev.cover_url }}" alt="" loading="lazy" decoding="async">{% else %}<span class="day" aria-hidden="true">{{ ev.date.day }}</span>{% endif %}
-      </li>
+      <li class="ev"><a class="go" href="/welcome/e/{{ ev.id }}">
+        {% if ev.cover_url %}<div class="pic"><img src="{{ ev.cover_url }}" alt=""{% if not loop.first %} loading="lazy"{% endif %} decoding="async"><span class="day" aria-hidden="true">{{ ev.date.day }}</span></div>
+        {% else %}<div class="plate"><span class="day" aria-hidden="true">{{ ev.date.day }}</span><span class="date">{{ ev.date_text }} · {{ ev.when }}</span></div>{% endif %}
+        <div class="txt">{% if ev.cover_url %}<div class="when">{{ ev.date_text }} · {{ ev.when }}</div>{% endif %}<h3>{{ ev.title }}</h3>{% if ev.place %}<span class="city">{{ ev.place }}</span>{% endif %}</div>
+      </a></li>
       {% endfor %}
     </ol>
     <p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>
     {% else %}
-    <div class="empty"><h3>{{ c.empty_title }}</h3><p>{{ c.empty_text }}</p></div>
+    <div class="line"><div class="ev empty">
+      <div class="plate" aria-hidden="true"><span class="day"></span></div>
+      <div class="txt"><h3>{{ c.empty_title }}</h3><p>{{ c.empty_text }}</p></div>
+    </div></div>
     {% endif %}
   </section>
 
-  <section>
-    <div class="head"><h2>{{ c.columns_title }}</h2><span class="kick">{{ c.columns_kicker }}</span></div>
-    <ul class="cols">
-      {% for col in columns %}<li class="col"><span class="badge" aria-hidden="true">{{ loop.index }}</span><div><h3>{{ col.title }}</h3><p>{{ col.text }}</p></div></li>{% endfor %}
-    </ul>
-    {% if c.channels %}<ul class="chips" aria-label="{{ c.channels_label }}">{% for ch in c.channels %}<li>{{ ch }}</li>{% endfor %}</ul>{% endif %}
-  </section>
-  </div>
+  {% if channels %}<div class="chan"><span class="kick">{{ c.channels_label }}</span><ul class="chips" aria-label="{{ c.channels_label }}">{% for ch in channels %}<li>{{ ch }}</li>{% endfor %}</ul></div>{% endif %}
 
-  <section class="join" id="join">
-    <div class="in">
-      <div><h2>{{ c.join_title }}</h2><p>{{ c.join_text }}</p></div>
-      <div>
-        {% if join %}<div class="btns">{% for j in join %}<a class="btn" href="{{ j.url }}" rel="noopener noreferrer"><span class="badge {{ 'r' if loop.first else 't' }}" aria-hidden="true">{{ loop.index }}</span>{{ c['join_' ~ j.platform] }}</a>{% endfor %}</div>
-        {% else %}<p class="soon">{{ c.join_soon }}</p>{% endif %}
-      </div>
-    </div>
-    <div class="stripe"></div>
-  </section>
-  <div class="colo"><b>{{ c.name_first }} {{ c.name_second }}</b><strong>{{ c.rules_label }}</strong> {{ c.rules }}</div>
+{% include "_public_community_join.html" %}
 </div>
 </body>
 </html>
