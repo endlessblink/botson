@@ -161,6 +161,95 @@ member_events:
       description: "משחקי מסיבה שמשחקים מהטלפון. מצטרפים מהקישור, לא צריך להביא כלום."
       time: "20:00"
 
+# The public front-door page of the community ("the bulletin", /welcome; bot/utils/community_page.py).
+# Open to anyone. It shows upcoming published events reduced for strangers: title, day, time, picture,
+# and only a city/area recognised from the list below (never the stored address, links or names).
+# Wording lives in copy.community_page. Join links and the search-engine switch are set from the
+# dashboard Settings page and kept in data/community_page.json (survives deploys); these are the defaults.
+community_page:
+  max_events: 8               # upcoming events listed, soonest first
+  lookahead_days: 90          # events further away than this are not listed yet
+  show_pictures: true         # event pictures (covers); a picture shows whatever its creator put in it
+  indexable: false            # search engines: false = hidden like /cal (noindex header + meta)
+  join:
+    telegram_url: ""          # empty = no Telegram button (set it from the dashboard)
+    whatsapp_url: ""          # empty = no WhatsApp button
+  # A join link is shown only when it is https:// and its host is one of these.
+  join_hosts:
+    telegram: ["t.me", "telegram.me"]
+    whatsapp: ["chat.whatsapp.com"]
+  # Place of an event: only these names are ever shown. The stored location is searched for them
+  # (any alias, as a whole word, a one-letter prefix like ב/ל/מ/ה/ו allowed) and the LAST match
+  # wins, since an address usually ends with the city. A name right after a street word
+  # (a street called after a city) is ignored. No match = no place shown at all.
+  # Aliases that are also first names or common words (שרון, כנרת, כרמל, ים) are left out on purpose.
+  place_prefix_letters: "בכלמהוש"   # one-letter prefixes allowed before a place name (ב, כ, ל, מ, ה, ו, ש)
+  place_online_words: ["אונליין", "און ליין", "זום", "zoom", "online", "google meet", "דיסקורד", "discord"]
+  place_street_words: ["רחוב", "רח'", "רח׳", "רח", "שדרות", "שד'", "שד׳", "דרך", "כיכר", "סמטת", "שביל"]
+  places:
+    - {name: "תל אביב", aliases: ["תל אביב", "תל-אביב", "ת\"א", "ת״א"]}
+    - {name: "יפו", aliases: ["יפו"]}
+    - {name: "ירושלים", aliases: ["ירושלים", "י-ם"]}
+    - {name: "חיפה", aliases: ["חיפה"]}
+    - {name: "באר שבע", aliases: ["באר שבע", "ב\"ש", "ב״ש"]}
+    - {name: "רמת גן", aliases: ["רמת גן", "ר\"ג", "ר״ג"]}
+    - {name: "גבעתיים", aliases: ["גבעתיים"]}
+    - {name: "בני ברק", aliases: ["בני ברק"]}
+    - {name: "חולון", aliases: ["חולון"]}
+    - {name: "בת ים", aliases: ["בת ים"]}
+    - {name: "ראשון לציון", aliases: ["ראשון לציון", "ראשל\"צ", "ראשל״צ"]}
+    - {name: "רחובות", aliases: ["רחובות"]}
+    - {name: "נס ציונה", aliases: ["נס ציונה"]}
+    - {name: "פתח תקווה", aliases: ["פתח תקווה", "פתח תקוה", "פ\"ת", "פ״ת"]}
+    - {name: "הרצליה", aliases: ["הרצליה"]}
+    - {name: "רעננה", aliases: ["רעננה"]}
+    - {name: "כפר סבא", aliases: ["כפר סבא"]}
+    - {name: "הוד השרון", aliases: ["הוד השרון"]}
+    - {name: "נתניה", aliases: ["נתניה"]}
+    - {name: "רמת השרון", aliases: ["רמת השרון"]}
+    - {name: "ראש העין", aliases: ["ראש העין"]}
+    - {name: "מודיעין", aliases: ["מודיעין"]}
+    - {name: "אשדוד", aliases: ["אשדוד"]}
+    - {name: "אשקלון", aliases: ["אשקלון"]}
+    - {name: "לוד", aliases: ["לוד"]}
+    - {name: "רמלה", aliases: ["רמלה"]}
+    - {name: "חדרה", aliases: ["חדרה"]}
+    - {name: "זכרון יעקב", aliases: ["זכרון יעקב", "זיכרון יעקב"]}
+    - {name: "קיסריה", aliases: ["קיסריה"]}
+    - {name: "עכו", aliases: ["עכו"]}
+    - {name: "נהריה", aliases: ["נהריה"]}
+    - {name: "כרמיאל", aliases: ["כרמיאל"]}
+    - {name: "טבריה", aliases: ["טבריה"]}
+    - {name: "צפת", aliases: ["צפת"]}
+    - {name: "נצרת", aliases: ["נצרת"]}
+    - {name: "עפולה", aliases: ["עפולה"]}
+    - {name: "יוקנעם", aliases: ["יוקנעם", "יקנעם"]}
+    - {name: "קריית שמונה", aliases: ["קריית שמונה", "קרית שמונה"]}
+    - {name: "הקריות", aliases: ["הקריות", "קריית ביאליק", "קרית ביאליק", "קריית מוצקין", "קרית מוצקין", "קריית ים", "קרית ים", "קריית אתא", "קרית אתא"]}
+    - {name: "אילת", aliases: ["אילת"]}
+    - {name: "מצפה רמון", aliases: ["מצפה רמון"]}
+    - {name: "בית שמש", aliases: ["בית שמש"]}
+    - {name: "מעלה אדומים", aliases: ["מעלה אדומים"]}
+    - {name: "השרון", aliases: ["השרון", "אזור השרון"]}
+    - {name: "השפלה", aliases: ["השפלה"]}
+    - {name: "גוש דן", aliases: ["גוש דן"]}
+    - {name: "הגליל", aliases: ["הגליל", "הגליל העליון", "הגליל המערבי", "הגליל התחתון"]}
+    - {name: "הגולן", aliases: ["הגולן", "רמת הגולן"]}
+    - {name: "הנגב", aliases: ["הנגב"]}
+    - {name: "הערבה", aliases: ["הערבה"]}
+    - {name: "הרי ירושלים", aliases: ["הרי ירושלים"]}
+    - {name: "עמק יזרעאל", aliases: ["עמק יזרעאל"]}
+    - {name: "הכרמל", aliases: ["הכרמל"]}
+    - {name: "ים המלח", aliases: ["ים המלח"]}
+    - {name: "הכנרת", aliases: ["הכנרת"]}
+  # The regular columns ("what we do"): art = picture name under dashboard/static/community/,
+  # key = the copy.community_page entries col_<key>_title / col_<key>_text.
+  columns:
+    - {art: "question", key: "trivia"}
+    - {art: "dice", key: "emoji"}
+    - {art: "cup", key: "riddles"}
+    - {art: "hills", key: "meetups"}
+
 # Month calendar picture of community events (bot/utils/events_calendar.py).
 # Drawn with Pillow from the published events; served to Botty and shown on the Events page.
 events_calendar:
@@ -393,6 +482,65 @@ copy:
     add_word_whatsapp: "איוונט"
     add_telegram: "בטלגרם: תייגו את בוטסון וכתבו {word}"
     add_word_telegram: "אירוע חדש"
+  community_page:
+    # The public front-door page ("the bulletin"). {month} = month name, {year} = year,
+    # {day} = day name, {time} = HH:MM. DRAFT wording: every line here still needs Noam's own words.
+    page_title: "העלון של אלהוריים וזה"
+    meta_description: "קהילה של אנשים שבחרו לחיות בלי ילדים. מקום לשיח פתוח, לתמיכה ולהנאה, בלי שיפוטיות."
+    share_alt: "העלון של אלהוריים וזה"
+    issue: "העלון · {month} {year}"
+    name_first: "אלהוריים"
+    name_second: "וזה"
+    sub: "עלון של קהילה בלי ילדים"
+    platforms: "טלגרם · וואטסאפ"
+    lead: "קהילה של אנשים שבחרו לחיות בלי ילדים. מקום לשיח פתוח, לתמיכה ולהנאה, בלי שיפוטיות."
+    body: "מדברים על הכול, כל נושא בערוץ משלו. ואין לחץ: לא צריך להציג את עצמך ביום הראשון, אפשר להכיר קודם בשקט."
+    cover_label: "המקום שלך"
+    cover_alt: "הדפס: שולחן עגול, כיסא אחד פנוי"
+    events_kicker: "בעלון הזה"
+    events_title: "מה בלוח"
+    when: "{day} · {time}"
+    when_no_time: "{day}"
+    date: "{d}.{m}"
+    online: "אונליין"
+    members_label: "לחברים בלבד"
+    members_note: "מה, מתי ובאיזו עיר כתוב כאן. הכתובת, הקישור ומי שמארגן מחכים בקבוצה."
+    empty_title: "החודש עוד בלי מפגש"
+    empty_text: "מפגשים נקבעים בתוך הקבוצה. כשייקבע אחד, הוא יודפס כאן."
+    columns_kicker: "המדורים הקבועים"
+    columns_title: "בין מפגש למפגש"
+    col_trivia_title: "טריוויה"
+    col_trivia_text: "כמה שאלות על נושא אחד, ומי שבא משחק."
+    col_emoji_title: "ערב אימוג'י"
+    col_emoji_text: "מנחשים סרט או שיר משורת אימוג'ים."
+    col_riddles_title: "חידות וסקרים"
+    col_riddles_text: "שאלה קצרה, תשובה במילה אחת."
+    col_meetups_title: "מפגשים"
+    col_meetups_text: "בבית קפה, בפארק, סביב שולחן משחקים."
+    channels_label: "הערוצים:"
+    channels: ["גיימינג ומשחקי לוח", "סרטים וסדרות", "אומנות ויצירה", "כל מה שחמוד", "מצחיק ומגניב", "פנויים ופנויות", "טבעונים וצמחונים", "פוליטיקה", "AI וטכנולוגיה", "יום יום"]
+    join_title: "רוצים להצטרף?"
+    join_text: "הקישור מכניס ישר לקבוצה. נכנסים, מציצים בשקט, ומדברים כשבא לך."
+    join_telegram: "להצטרף בטלגרם"
+    join_whatsapp: "להצטרף בוואטסאפ"
+    join_soon: "ההצטרפות תיפתח כאן בקרוב."
+    rules_label: "הכללים בקצרה:"
+    rules: "כבוד הדדי · בלי ספאם ופרסום עצמי · כל נושא בערוץ שלו · בלי הטרדות בפרטי."
+  community_page_admin:
+    # Dashboard Settings card for the public page. {path} = the page's address.
+    title: "עמוד הכניסה הציבורי (העלון)"
+    help: "העמוד הפתוח לכל אחד בכתובת {path}. קישורי ההצטרפות מוצגים רק כשהם מולאו. בלי קישור, הכפתור לא מופיע."
+    open_page: "לפתוח את העמוד"
+    telegram_label: "קישור הצטרפות לקבוצת הטלגרם"
+    whatsapp_label: "קישור הצטרפות לקבוצת הוואטסאפ"
+    link_hint: "רק קישור הזמנה רשמי: t.me/… לטלגרם, chat.whatsapp.com/… לוואטסאפ. ריק = בלי כפתור."
+    index_label: "לאפשר למנועי חיפוש למצוא את העמוד"
+    index_help: "כבוי = העמוד מוסתר ממנועי חיפוש, כמו לוח האירועים."
+    save: "שמירה"
+    saved: "נשמר"
+    bad_link: "הקישור לא תקין. צריך להתחיל ב-https:// ולהיות קישור הזמנה של {platform}."
+    platform_telegram: "טלגרם"
+    platform_whatsapp: "וואטסאפ"
   whatsapp_watch:
     down: "⚠️ בוטי התנתק מוואטסאפ (מצב: {status}). עד שיחזור, הודעות ואירועים לא יגיעו לקבוצות הוואטסאפ.\nניסיתי להחיות אותו לבד ולא הצלחתי. הנה מסך החיבור:\n{url}"
     down_scan: "⚠️ בוטי התנתק מוואטסאפ וממתין לסריקה.\nפתח/י את המסך הזה, ובטלפון של בוטי: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרוק/י את הקוד:\n{url}"

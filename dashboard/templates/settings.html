@@ -10,6 +10,49 @@
     <p class="text-sm text-[#a1a1aa] mt-1">הגדרות תשתית הבוט</p>
 </div>
 
+<!-- Public community page (/welcome): join links + search-engine switch -->
+{% set ca = community_admin %}{% set cs = community_settings %}
+<div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6" id="community-page-card">
+    <div class="px-6 py-4 border-b border-[#1f1f1f] flex items-start justify-between gap-3">
+        <div>
+            <h2 class="text-sm font-medium text-[#fafafa]">{{ ca.title or '[copy missing]' }}</h2>
+            <p class="text-xs text-[#71717a] mt-1">{{ (ca.help or '[copy missing]') | replace('{path}', cs.path) }}</p>
+        </div>
+        <a href="{{ cs.path }}" target="_blank" rel="noopener" class="text-xs text-[#a1a1aa] underline whitespace-nowrap">{{ ca.open_page or '[copy missing]' }}</a>
+    </div>
+    <div class="px-6 py-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label class="text-xs text-[#a1a1aa]">{{ ca.telegram_label or '[copy missing]' }}
+            <input id="cp-telegram" type="url" dir="ltr" value="{{ cs.telegram_url }}" placeholder="https://t.me/+…" class="mt-1 bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+        </label>
+        <label class="text-xs text-[#a1a1aa]">{{ ca.whatsapp_label or '[copy missing]' }}
+            <input id="cp-whatsapp" type="url" dir="ltr" value="{{ cs.whatsapp_url }}" placeholder="https://chat.whatsapp.com/…" class="mt-1 bg-transparent border border-[#272727] rounded-md h-9 px-3 text-sm text-[#fafafa] focus:outline-none focus:ring-1 focus:ring-[#d4d4d8] w-full">
+        </label>
+        <p class="text-xs text-[#71717a] md:col-span-2">{{ ca.link_hint or '[copy missing]' }}</p>
+        <label class="flex items-center gap-2 text-sm text-[#fafafa] md:col-span-2">
+            <input id="cp-index" type="checkbox" {% if cs.indexable %}checked{% endif %}>
+            <span>{{ ca.index_label or '[copy missing]' }}</span>
+            <span class="text-xs text-[#71717a]">{{ ca.index_help or '' }}</span>
+        </label>
+    </div>
+    <div class="px-6 py-4 border-t border-[#1f1f1f] flex items-center gap-3">
+        <button onclick="saveCommunityPage()" class="bg-[#fafafa] text-[#0a0a0a] hover:bg-[#e4e4e7] h-9 px-4 rounded-md text-sm font-medium cursor-pointer transition-colors">{{ ca.save or '[copy missing]' }}</button>
+        <span id="cp-status" class="text-xs text-[#a1a1aa]" data-saved="{{ ca.saved or '' }}"></span>
+    </div>
+</div>
+<script>
+async function saveCommunityPage() {
+    const status = document.getElementById('cp-status');
+    status.textContent = '';
+    const res = await fetch('/api/settings/community-page', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({telegram_url: document.getElementById('cp-telegram').value.trim(),
+                              whatsapp_url: document.getElementById('cp-whatsapp').value.trim(),
+                              indexable: document.getElementById('cp-index').checked})});
+    const data = await res.json().catch(() => ({}));
+    status.style.color = res.ok ? '#86efac' : '#fda4af';
+    status.textContent = res.ok ? status.dataset.saved : (data.errors || []).join(' ');
+}
+</script>
+
 <!-- Holiday Blackouts -->
 <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg mb-6">
     <div class="px-6 py-4 border-b border-[#1f1f1f]">

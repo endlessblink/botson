@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+{% if indexable %}<meta name="robots" content="index, follow">{% else %}<meta name="robots" content="noindex, nofollow, noarchive">{% endif %}
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151613" media="(prefers-color-scheme: dark)">
+<title>{{ c.page_title }}</title>
+<meta name="description" content="{{ c.meta_description }}">
+{% if page_url %}<link rel="canonical" href="{{ page_url }}">
+<meta property="og:url" content="{{ page_url }}">{% endif %}
+<meta property="og:type" content="website">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="{{ c.page_title }}">
+<meta property="og:description" content="{{ c.meta_description }}">
+<meta property="og:image" content="{{ share_url }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{ c.share_alt }}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="/welcome/font/rubik-black.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preload" href="/welcome/font/heebo.ttf" as="font" type="font/ttf" crossorigin>
+<style>
+  @font-face{font-family:Heebo;src:url(/welcome/font/heebo.ttf) format("truetype");font-weight:100 900;font-display:swap}
+  @font-face{font-family:Rubik;src:url(/welcome/font/rubik-black.ttf) format("truetype");font-weight:900;font-display:swap}
+  :root{
+    --paper:#f3efe6; --text:#1f2a1f; --o:#f26a3c; --g:#2f8f4e; --g-text:#24713c; --o-text:#b8401b;
+    --blend:multiply; --duo:lighten; --grain:.45;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --paper:#151613; --text:#e9eee4; --o:#ff7a45; --g:#5fc27e; --g-text:#7fd39a; --o-text:#ff9a6e;
+    --blend:screen; --duo:darken; --grain:.22;
+  }}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{background:var(--paper)}
+  body{background:var(--paper);color:var(--text);font-family:Heebo,system-ui,sans-serif;font-weight:500;-webkit-font-smoothing:antialiased}
+  .page{overflow-x:clip;position:relative;isolation:isolate}
+  .page::after{content:"";position:absolute;inset:0;z-index:5;pointer-events:none;opacity:var(--grain);mix-blend-mode:var(--blend);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .45 0 0 0 0 .4 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E")}
+  a{color:inherit}
+  a:focus-visible{outline:3px solid var(--g);outline-offset:3px}
+  .w{max-width:1180px;margin:0 auto;padding:0 20px}
+
+  /* two inks: the green print, the orange print over it slightly off register */
+  .ink2{position:relative;display:block;color:var(--g)}
+  .ink2::after{content:attr(data-t);position:absolute;inset:0;color:var(--o);mix-blend-mode:var(--blend);transform:translate(-3px,2px)}
+
+  .issue{padding:16px 0 10px;font-size:13px;font-weight:700;border-bottom:3px dotted var(--g)}
+  .mast{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:clamp(66px,19vw,170px);line-height:.92;letter-spacing:-.02em;margin-top:18px}
+  .sub{display:flex;justify-content:space-between;gap:12px;margin-top:12px;font-size:14px;font-weight:700}
+  .sub span:last-child{color:var(--o-text)}
+  .lead{font-size:20px;line-height:1.55;font-weight:700;max-width:30ch;margin-top:18px}
+  .body{font-size:16.5px;line-height:1.65;margin-top:12px;max-width:40ch}
+
+  /* a print: two alpha-only dot pictures coloured by CSS, overprinted */
+  .print{position:relative;aspect-ratio:1}
+  .print i{position:absolute;inset:0;background:var(--g);mix-blend-mode:var(--blend);
+    -webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
+  .print i.b{background:var(--o);transform:translate(3%,-2%) scale(1.04)}
+  .print.swap i{background:var(--o)}
+  .print.swap i.b{background:var(--g)}
+  .cover{margin:16px -20px 0;position:relative}
+  .cover .print{width:112%;margin-inline-start:-6%;transform:rotate(130deg)}
+  .cover .label{position:absolute;top:2%;left:46%;font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:16px;color:var(--o-text);background:var(--paper);padding:2px 8px;transform:rotate(-6deg)}
+
+  section{padding-top:52px}
+  .kick{font-size:13px;font-weight:900;color:var(--o-text);margin-bottom:6px}
+  h2{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:clamp(40px,11vw,76px);line-height:.95;letter-spacing:-.01em;margin-bottom:14px}
+
+  .items{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:22px 14px}
+  /* an event picture printed as a duotone: its darks in green ink, its lights left as paper */
+  .item .pic{position:relative;aspect-ratio:1;margin-bottom:10px;overflow:hidden;background:var(--paper);isolation:isolate}
+  .item .pic img{display:block;width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.25)}
+  .item .pic::after{content:"";position:absolute;inset:0;background:var(--g);mix-blend-mode:var(--duo)}
+  .item .pic::before{content:"";position:absolute;inset:0;z-index:1;background:var(--o);mix-blend-mode:var(--blend);opacity:.22;transform:translate(6px,-4px)}
+  .item .nopic{aspect-ratio:1;margin-bottom:10px;display:grid;place-items:center;border:3px dotted var(--g)}
+  .item .nopic span{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:clamp(48px,15vw,84px);color:var(--o);mix-blend-mode:var(--blend)}
+  .item .day{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:30px;line-height:1;color:var(--o-text);font-variant-numeric:tabular-nums}
+  .item .when{display:block;font-family:Heebo,sans-serif;font-size:13px;font-weight:700;color:var(--text);margin-top:6px}
+  .item h3{font-weight:900;font-size:18px;line-height:1.25;margin-top:6px;overflow-wrap:anywhere}
+  .item p{font-size:14.5px;margin-top:3px;font-weight:900;color:var(--g-text)}
+  .fine{margin-top:22px;padding-top:12px;border-top:3px dotted var(--g);font-size:15.5px;line-height:1.55;font-weight:700}
+  .fine b{color:var(--o-text);font-weight:900}
+
+  .empty{text-align:center;padding:4px 0}
+  .empty .print{width:70%;margin:0 auto}
+  .empty h3{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:30px;margin-top:4px}
+  .empty p{font-size:16px;line-height:1.55;margin:6px auto 0;max-width:30ch}
+
+  .cols{display:grid}
+  .col{display:grid;grid-template-columns:84px 1fr;gap:14px;align-items:center;padding:14px 0;border-bottom:3px dotted var(--g)}
+  .col:first-child{border-top:3px dotted var(--g)}
+  .col h3{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:22px;line-height:1.1}
+  .col p{font-size:15px;line-height:1.45;margin-top:3px}
+  .channels{margin-top:18px;font-size:16px;line-height:1.7}
+  .channels b{font-weight:900;color:var(--g-text)}
+
+  .join{margin-top:60px;margin-bottom:24px;position:relative;padding:40px 20px 36px;color:#f3efe6;z-index:0}
+  .join::before{content:"";position:absolute;inset:0;background:#2f8f4e;z-index:-1}
+  .join::after{content:"";position:absolute;inset:14px -12px -10px 18px;background:#f26a3c;mix-blend-mode:multiply;z-index:-1;opacity:.9;clip-path:polygon(0 8%,100% 0,100% 100%,0 92%)}
+  .join h2{color:#f3efe6}
+  .join .text{font-size:17px;line-height:1.55;font-weight:700;max-width:34ch}
+  .btns{display:grid;gap:12px;margin-top:22px}
+  .btn{display:flex;align-items:center;justify-content:space-between;min-height:60px;padding:0 20px;background:#f3efe6;color:#1f2a1f;font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:20px;text-decoration:none;border-radius:4px}
+  .btn span{color:#b8401b}
+  .soon{margin-top:18px;font-size:17px;font-weight:900;padding:14px 16px;border:2px dashed rgba(243,239,230,.8)}
+
+  .colophon{padding:44px 0 40px;font-size:13.5px;line-height:1.7}
+  .colophon b{font-family:Rubik,Heebo,sans-serif;font-weight:900;font-size:20px;display:block}
+  .colophon strong{font-weight:900}
+
+  @media (min-width:900px){
+    .w{padding:0 48px}
+    .top{display:grid;grid-template-columns:1.1fr 1fr;gap:40px;align-items:end}
+    .cover{margin:0}
+    .cover .print{width:100%;margin:0}
+    .lead{font-size:26px;margin-top:20px}
+    section{padding-top:96px}
+    .twocol{display:grid;grid-template-columns:300px 1fr;gap:56px;align-items:start}
+    .items{grid-template-columns:repeat(4,1fr);gap:24px}
+    .item h3{font-size:20px}
+    .cols{grid-template-columns:repeat(4,1fr);gap:24px}
+    .col{grid-template-columns:1fr;border:0!important;padding:0}
+    .join{margin:110px auto 0;max-width:1080px;padding:64px 72px;display:grid;grid-template-columns:1fr 1.2fr;gap:56px;align-items:start}
+    .join h2{font-size:84px}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="w">
+  <div class="issue">{{ issue }}</div>
+
+  <div class="top">
+    <div>
+      <h1 class="mast"><span class="ink2" data-t="{{ c.name_first }}">{{ c.name_first }}</span><span class="ink2" data-t="{{ c.name_second }}">{{ c.name_second }}</span></h1>
+      <div class="sub"><span>{{ c.sub }}</span><span>{{ c.platforms }}</span></div>
+      <p class="lead">{{ c.lead }}</p>
+      <p class="body">{{ c.body }}</p>
+    </div>
+    <div class="cover" role="img" aria-label="{{ c.cover_alt }}">
+      <div class="print"><i class="b" style="--m:url(/static/community/table-b.png)"></i><i style="--m:url(/static/community/table-a.png)"></i></div>
+      <span class="label" aria-hidden="true">{{ c.cover_label }}</span>
+    </div>
+  </div>
+
+  <section id="events" class="twocol">
+    <div><div class="kick">{{ c.events_kicker }}</div><h2>{{ c.events_title }}</h2></div>
+    <div>
+      {% if events %}
+      <ul class="items">
+        {% for ev in events %}
+        <li class="item">
+          {% if ev.cover_url %}<div class="pic"><img src="{{ ev.cover_url }}" alt="" loading="lazy" decoding="async"></div>
+          {% else %}<div class="nopic" aria-hidden="true"><span>{{ ev.date.day }}</span></div>{% endif %}
+          <div class="day">{{ ev.date_text }}<span class="when">{{ ev.when }}</span></div>
+          <h3>{{ ev.title }}</h3>
+          {% if ev.place %}<p>{{ ev.place }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="fine"><b>{{ c.members_label }} · </b>{{ c.members_note }}</p>
+      {% else %}
+      <div class="empty">
+        <div class="print" aria-hidden="true"><i class="b" style="--m:url(/static/community/table-b.png)"></i><i style="--m:url(/static/community/table-a.png)"></i></div>
+        <h3>{{ c.empty_title }}</h3>
+        <p>{{ c.empty_text }}</p>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="twocol">
+    <div><div class="kick">{{ c.columns_kicker }}</div><h2>{{ c.columns_title }}</h2></div>
+    <div>
+      <div class="cols">
+        {% for col in columns %}
+        <div class="col">
+          <div class="print swap" aria-hidden="true"><i class="b" style="--m:url(/static/community/{{ col.art }}-b.png)"></i><i style="--m:url(/static/community/{{ col.art }}-a.png)"></i></div>
+          <div><h3>{{ col.title }}</h3><p>{{ col.text }}</p></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if c.channels %}<p class="channels"><b>{{ c.channels_label }}</b> {{ c.channels | join(' · ') }}</p>{% endif %}
+    </div>
+  </section>
+</div>
+
+<section class="join" id="join">
+  <div><h2>{{ c.join_title }}</h2></div>
+  <div>
+    <p class="text">{{ c.join_text }}</p>
+    {% if join %}
+    <div class="btns">
+      {% for j in join %}<a class="btn" href="{{ j.url }}" rel="noopener noreferrer">{{ c['join_' ~ j.platform] }} <span aria-hidden="true">←</span></a>{% endfor %}
+    </div>
+    {% else %}
+    <p class="soon">{{ c.join_soon }}</p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="w colophon">
+  <b>{{ c.name_first }} {{ c.name_second }}</b>
+  <strong>{{ c.rules_label }}</strong> {{ c.rules }}
+</div>
+</div>
+</body>
+</html>

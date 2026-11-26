@@ -752,7 +752,17 @@ async def settings_page(request: Request, db: Database = Depends(get_db)):
         "merged_topics": merged_topics,
         "handler_routings": handler_routings,
         "participation_link_copy": (load_copy_block('participation', default={}) or {}).get('title'),
+        "community_admin": load_copy_block('community_page_admin', default={}) or {},
+        "community_settings": _community_page_settings(),
     })
+
+
+def _community_page_settings() -> dict:
+    from bot.utils import community_page as cpage
+
+    s = cpage.settings()
+    return {"path": cpage.PATH, "telegram_url": s["join"].get("telegram_url") or "",
+            "whatsapp_url": s["join"].get("whatsapp_url") or "", "indexable": s["indexable"]}
 
 
 @app.get("/updates", response_class=HTMLResponse)
@@ -3902,6 +3912,71 @@ async def public_calendar(request: Request, month: str | None = None, e: int | N
         "month_names": load_copy_block("events_calendar", default={}).get("month_names", []),
         "google_url": google_url, "when_text": when_text, "day_name": day_name,
     })
+
+
+# ── Public community front door ("the bulletin", open to anyone) ──
+# Shows far less than /cal: no addresses, links, names or phone numbers (bot/utils/community_page.py).
+
+_COMMUNITY_FONTS = {
+    "heebo.ttf": _HEEBO,
+    "rubik-black.ttf": BASE_DIR.parent / "assets" / "fonts" / "rubik" / "Rubik-Black.ttf",
+}
+
+
+@app.get("/welcome/font/{name}")
+async def community_page_font(name: str):
+    from fastapi.responses import FileResponse
+
+    path = _COMMUNITY_FONTS.get(name)
+    if not path:
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="font/ttf", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/welcome", response_class=HTMLResponse)
+async def community_page(request: Request, db: Database = Depends(get_db)):
+    """The community's public front door: who we are, upcoming events (city only), what we do, how to join."""
+    from bot.utils import community_page as cpage
+    from bot.utils.copy import load_copy_block
+    from bot.utils.events_calendar import local_now
+
+    now = local_now()
+    copy = load_copy_block("community_page", default={}) or {}
+    months = load_copy_block("events_calendar", default={}).get("month_names") or []
+    month = months[now.month - 1] if len(months) == 12 else ""
+    indexable = cpage.is_indexable()
+    url = cpage.page_url()
+    base = url[: -len(cpage.PATH)] if url else ""
+    headers = {} if indexable else dict(_NOINDEX)
+    return templates.TemplateResponse(request, name="public_community.html", headers=headers, context={
+        "c": copy,
+        "issue": str(copy.get("issue") or "").format(month=month, year=now.year),
+        "events": await cpage.public_events(db, now.date()),
+        "columns": cpage.columns(),
+        "join": cpage.join_links(),
+        "indexable": indexable,
+        "page_url": url,
+        "share_url": f"{base}/static/community/share.jpg" if base else "/static/community/share.jpg",
+    })
+
+
+@app.post("/api/settings/community-page")
+async def update_community_page(request: Request):
+    """Save the public page's join links and search-engine switch (kept in data/, survives deploys)."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from bot.utils import community_page as cpage
+    from bot.utils.copy import load_copy
+
+    data = await request.json()
+    bad = cpage.save_settings(telegram_url=str(data.get("telegram_url") or ""),
+                              whatsapp_url=str(data.get("whatsapp_url") or ""),
+                              indexable=bool(data.get("indexable")))
+    if bad:
+        return JSONResponse(status_code=400, content={"status": "error", "errors": [
+            load_copy("community_page_admin", "bad_link", platform=load_copy("community_page_admin", f"platform_{p}"))
+            for p in bad]})
+    return {"status": "ok"}
 
 
 @app.api_route("/l/{code}", methods=["GET", "HEAD"])
