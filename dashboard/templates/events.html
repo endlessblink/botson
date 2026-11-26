@@ -333,6 +333,14 @@
                         {% else %}
                         <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2 py-0.5 rounded-md">לא פעיל</span>
                         {% endif %}
+                        {% if e.active and e.message_id and e.event_date >= today_iso %}
+                        {% set pinned = event_pins.get(e.id) and event_pins[e.id].pinned %}
+                        <div class="mt-1.5 flex items-center gap-2 whitespace-nowrap">
+                            <span class="text-xs {{ 'text-amber-300' if pinned else 'text-[#71717a]' }}">{{ pins_copy.pinned if pinned else pins_copy.not_pinned }}</span>
+                            <button onclick="setEventPin({{ e.id }}, {{ 'false' if pinned else 'true' }})" class="text-xs text-[#a1a1aa] hover:text-[#fafafa] underline underline-offset-2">{{ pins_copy.unpin if pinned else pins_copy.pin }}</button>
+                            {% if not pins_auto %}<span class="text-xs text-[#71717a]">{{ pins_copy.auto_off }}</span>{% endif %}
+                        </div>
+                        {% endif %}
                     </td>
                     <td class="px-5 py-3">
                         <button
@@ -876,6 +884,17 @@ async function removeTrusted(platform, userId) {
         setTimeout(function() { location.reload(); }, 800);
     } catch (e) {
         showToast('שגיאה: ' + e.message, 'error');
+    }
+}
+
+const PINS_COPY = {{ pins_copy | tojson }};
+async function setEventPin(eventId, pin) {
+    try {
+        const r = await apiCall('/api/events/' + eventId + '/pin', {pin: pin});
+        showToast(r.status === 'ok' ? (pin ? PINS_COPY.done_pin : PINS_COPY.done_unpin) : PINS_COPY.failed, r.status === 'ok' ? undefined : 'error');
+        setTimeout(function() { location.reload(); }, 800);
+    } catch (e) {
+        showToast(PINS_COPY.failed + ' ' + e.message, 'error');
     }
 }
 

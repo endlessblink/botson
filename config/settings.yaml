@@ -76,6 +76,14 @@ whatsapp_watch:
   bad_checks: 2        # consecutive bad checks before anything happens
   repeat_hours: 3      # reminder interval while it stays down
 
+# Event posts pinned silently in the Telegram group around their date (bot/utils/event_pins.py).
+# WhatsApp is not pinned: see the module notes and the report of 2026-11-26.
+event_pins:
+  enabled: true                  # automatic pinning; manual pin / unpin on the Events page works either way
+  days_before: 7                 # pinned from this many days before the event until the end of its day
+  check_minutes: 10              # how often the bot checks (also right after an event is approved)
+  test_group_in_test_mode: true  # while the live / test switch is on test, test-group posts are pinned too
+
 member_events:
   enabled: true
   link_minutes: 60
@@ -343,6 +351,16 @@ copy:
     # Second line under the calendar picture, leading to the full page. Telegram: these words
     # are the link. WhatsApp: these words, then the address on its own line.
     caption_more: "📲 הלוח המלא, עם כל הפרטים"
+  event_pins:
+    # Events page: pin state of each upcoming event's post in the Telegram group.
+    pinned: "📌 נעוץ בקבוצה"
+    not_pinned: "לא נעוץ"
+    pin: "לנעוץ"
+    unpin: "לבטל נעיצה"
+    done_pin: "האירוע ננעץ"
+    done_unpin: "הנעיצה בוטלה"
+    failed: "הנעיצה לא הצליחה. ייתכן שלבוט אין הרשאה לנעוץ הודעות בקבוצה."
+    auto_off: "(נעיצה אוטומטית כבויה)"
   calendar_page:
     # The public calendar page. {month} = month name, {n} = a number.
     page_title: "לוח האירועים"

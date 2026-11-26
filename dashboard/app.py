@@ -3219,6 +3219,10 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         "calendar_month": local_now().strftime("%Y-%m"),
         "calendar_copy": load_copy_block("events_calendar", default={}),
         "calendar_topic": await _events_topic_label(db, forum_topics),
+        "event_pins": await db.list_event_pins(),
+        "pins_copy": load_copy_block("event_pins", default={}),
+        "pins_auto": bool((settings.get("event_pins") or {}).get("enabled", True)),
+        "today_iso": local_now().date().isoformat(),
     })
 
 
@@ -4114,7 +4118,31 @@ async def delete_event(event_id: int, request: Request, db: Database = Depends(g
         raise HTTPException(status_code=401)
 
     await db.delete_event(event_id)
+    try:  # a deleted event's post is unpinned at once, not only at the next periodic check
+        from telegram import Bot
+
+        from bot.utils.event_pins import sync as sync_pins
+
+        await sync_pins(Bot(os.getenv("BOT_TOKEN", "")), db)
+    except Exception:
+        logger.warning("[events] pin check after deleting event %s failed", event_id, exc_info=True)
     return {"status": "ok"}
+
+
+@app.post("/api/events/{event_id}/pin")
+async def event_pin(event_id: int, request: Request, db: Database = Depends(get_db)):
+    """Operator: pin or unpin one event's post by hand ({"pin": true|false}); holds until the event is over."""
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401)
+    from telegram import Bot
+
+    from bot.utils.event_pins import set_manual
+
+    data = await request.json()
+    result = await set_manual(Bot(os.getenv("BOT_TOKEN", "")), db, event_id, data.get("pin") is True)
+    if result["status"] == "not_found":
+        raise HTTPException(status_code=404, detail="no published post for this event")
+    return result
 
 
 # ── Blocked Users ────────────────────────────────────────

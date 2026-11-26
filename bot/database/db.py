@@ -90,6 +90,11 @@ class Database:
             "posted_at TEXT NOT NULL, PRIMARY KEY (platform, chat_id))",
             "CREATE TABLE IF NOT EXISTS calendar_private_sends (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "platform TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL)",
+            # Event posts pinned in Telegram around their date (bot/utils/event_pins.py). Kept apart
+            # from bot_pins, so the "replace the previous pin" rule never touches them.
+            # manual: 'pin' / 'unpin' when the operator decided by hand, else NULL.
+            "CREATE TABLE IF NOT EXISTS event_pins (event_id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, "
+            "message_id INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, manual TEXT, updated_at TEXT)",
             # Members the operator trusts: their events publish without waiting for approval.
             "CREATE TABLE IF NOT EXISTS event_trusted_creators (platform TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, added_at TEXT NOT NULL, PRIMARY KEY (platform, user_id))",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
@@ -897,6 +902,7 @@ class Database:
         """
         async with self._db.execute(
             """SELECT e.id, e.title, e.event_date, e.event_time, e.location, e.cover_path, e.description,
+                      e.message_id, e.tg_chat_id, e.topic_id,
                       (SELECT r.organizer FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS organizer,
                       (SELECT r.requester_name FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS requester_name,
                       (SELECT r.link FROM event_requests r WHERE r.event_id = e.id LIMIT 1) AS link
@@ -1046,6 +1052,40 @@ class Database:
             claimed = cursor.rowcount > 0
         await self._db.commit()
         return claimed
+
+    async def list_event_pins(self) -> dict[int, dict]:
+        async with self._db.execute("SELECT * FROM event_pins") as cursor:
+            return {int(r["event_id"]): dict(r) for r in await cursor.fetchall()}
+
+    async def save_event_pin(self, event_id: int, *, chat_id: int, message_id: int, pinned: bool | None = None,
+                             manual: str | None = "keep") -> None:
+        """Record what is pinned. manual="keep" leaves the operator's choice as it is."""
+        now = datetime.now(timezone.utc).isoformat()
+        await self._db.execute(
+            "INSERT INTO event_pins (event_id, chat_id, message_id, pinned, manual, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(event_id) DO NOTHING",
+            (event_id, chat_id, message_id, 1 if pinned else 0, None if manual == "keep" else manual, now))
+        sets, args = ["chat_id = ?", "message_id = ?", "updated_at = ?"], [chat_id, message_id, now]
+        if pinned is not None:
+            sets.append("pinned = ?")
+            args.append(1 if pinned else 0)
+        if manual != "keep":
+            sets.append("manual = ?")
+            args.append(manual)
+        await self._db.execute(f"UPDATE event_pins SET {', '.join(sets)} WHERE event_id = ?", (*args, event_id))
+        await self._db.commit()
+
+    async def get_test_group_events(self, test_chat_id: int) -> list[dict]:
+        """Event posts in the test group, approved or posted directly (for pinning in test mode)."""
+        async with self._db.execute(
+            """SELECT e.id, e.title, e.event_date, e.event_time, e.message_id, e.tg_chat_id, e.topic_id
+               FROM events e
+               WHERE e.active = 1 AND e.message_id IS NOT NULL AND e.tg_chat_id = ?
+                 AND NOT EXISTS (SELECT 1 FROM event_requests r WHERE r.event_id = e.id AND r.status != 'approved')
+               ORDER BY e.event_date, e.event_time""",
+            (test_chat_id,),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
 
     async def get_calendar_post(self, platform: str, chat_id: str) -> dict | None:
         async with self._db.execute(

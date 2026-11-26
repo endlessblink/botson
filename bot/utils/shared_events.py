@@ -729,6 +729,12 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
     await db.update_event_request(request_id, status="approved", event_id=event_id)
     await db.log_activity("event", f"member event {event_id} approved: {req['title'][:60]}", target_channel=str(topic_id or chat_id))
     result = {"status": "ok", "event_id": event_id}
+    try:  # a near event is pinned at once; the periodic check covers everything else
+        from .event_pins import sync as sync_pins
+
+        await sync_pins(bot, db)
+    except Exception:
+        logger.warning("member_events: event pin check failed after publishing %s", event_id, exc_info=True)
     if wa_target:
         try:
             await publish_to_whatsapp(db, event_id, wa_target, request_card(posted), _media_url(req.get("cover_path")))
