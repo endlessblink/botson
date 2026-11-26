@@ -12,11 +12,15 @@ load_dotenv()
 CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
 
 
+# The same safe rules as yaml.safe_load, about ten times faster when libyaml is installed.
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
 def load_yaml(filename: str) -> dict:
     """Load a YAML config file."""
     path = CONFIG_DIR / filename
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml.load(f, Loader=_SAFE_LOADER)  # noqa: S506 (a safe loader)
 
 
 def get_prompts() -> dict[str, list[str]]:
@@ -24,9 +28,32 @@ def get_prompts() -> dict[str, list[str]]:
     return load_yaml("prompts.yaml")
 
 
+# settings.yaml is large and read many times per request (every copy line, every config
+# lookup). It is parsed once and reused until the file changes: any write (dashboard save,
+# deploy, hand edit) changes its modification time, size or identity, so an edit shows on
+# the very next read, without a restart.
+_SETTINGS_CACHE: dict[Path, tuple[tuple[int, int, int], object]] = {}
+
+
+def settings_shared():
+    """The parsed settings, shared: read only, never change the result.
+    get_settings() is the version that may be changed by the caller."""
+    path = CONFIG_DIR / "settings.yaml"
+    st = path.stat()
+    key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    hit = _SETTINGS_CACHE.get(path)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    data = load_yaml("settings.yaml")
+    _SETTINGS_CACHE[path] = (key, data)
+    return data
+
+
 def get_settings() -> dict:
-    """Load bot settings."""
-    return load_yaml("settings.yaml")
+    """Load bot settings (the caller's own copy: changing it never affects other readers)."""
+    import copy
+
+    return copy.deepcopy(settings_shared())
 
 
 def get_holiday_blackouts() -> list[dict]:

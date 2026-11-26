@@ -18,7 +18,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .config import CONFIG_DIR, get_settings, load_yaml
+from .config import CONFIG_DIR, load_yaml, settings_shared
+
+
+def get_settings():
+    """Copy lookups only read: the shared parsed settings, no copy (see config.settings_shared)."""
+    return settings_shared()
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +102,9 @@ def load_copy_block(namespace: str, *, default: Any = None) -> Any:
             logger.warning("copy: missing block %s — falling back to default", namespace)
             _warned_keys.add(namespace)
         return default
-    return node
+    import copy as _copy
+
+    return _copy.deepcopy(node)  # the caller's own: changing it never touches the shared settings
 
 
 def load_copy(namespace: str, key: str, *, default: str | None = None, **fmt: Any) -> str:
