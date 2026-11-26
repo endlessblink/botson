@@ -35,30 +35,30 @@
           {%- else %}
           <div class="cell{{ ' sat' if cell.sat }}{{ ' past' if cell.past }}{{ ' today' if cell.today }}{{ ' has' if cell.events }}"><span class="n">{{ cell.day }}</span>
             {%- for ev in cell.shown %}<a class="chip" href="/welcome/e/{{ ev.id }}">{% if ev.cover_url %}<img src="{{ ev.cover_url }}" alt="" loading="lazy" decoding="async">{% endif %}<span class="t">{{ ev.title }}</span>{% if ev.time %}<span class="tm">{{ ev.time }}</span>{% endif %}</a>{% endfor %}
-            {%- if cell.more %}<a class="more" href="#ev-{{ cell.events[cell.shown|length].id }}">{{ more_label | replace('{n}', cell.more) }}</a>{% endif %}
+            {%- if cell.more %}<a class="more" href="/welcome/e/{{ cell.events[cell.shown|length].id }}">{{ more_label | replace('{n}', cell.more) }}</a>{% endif %}
           </div>
           {%- endif %}
         {%- endfor %}
       </div>
     </div>
-    {% if m.events %}
-    <ol class="line">
-      {% for ev in m.events %}{{ card(ev, loop.first, True) }}{% endfor %}
-    </ol>
-    {% if m.all_past %}<p class="note">{{ c.all_past | replace('{month}', m.name) }}</p>{% endif %}
-    {% else %}
+    {% if not m.events %}
     <div class="line"><div class="ev empty">
       <div class="plate" aria-hidden="true"><span class="day"></span></div>
       <div class="txt"><h3>{{ c.empty_title | replace('{month}', m.name) }}</h3><p>{{ c.empty_text }}</p></div>
     </div></div>
+    {% elif m.all_past %}<p class="quiet">{{ c.all_past | replace('{month}', m.name) }}</p>{% endif %}
+    {% if m.past_list %}
+    <ul class="was-list">
+      {% for ev in m.past_list %}<li><a href="/welcome/e/{{ ev.id }}"><span class="d">{{ ev.date_text }}</span><span class="t">{{ ev.title }}</span>{% if ev.place %}<span class="p">{{ ev.place }}</span>{% endif %}</a></li>{% endfor %}
+    </ul>
     {% endif %}
-    {% if m.upcoming %}
-    <div class="head up"><h2>{{ c.upcoming }}</h2></div>
+    {% if m.cards %}
+    {% if m.cards_later %}<p class="kick-up">{{ c.upcoming }}</p>{% endif %}
     <ol class="line">
-      {% for ev in m.upcoming %}{{ card(ev, not m.events and loop.first) }}{% endfor %}
+      {% for ev in m.cards %}{{ card(ev, loop.first, True) }}{% endfor %}
     </ol>
+    <p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>
     {% endif %}
-    {% if m.events or m.upcoming %}<p class="note"><b>{{ c.members_label }}.</b> {{ c.members_note }}</p>{% endif %}
   </section>
 
 

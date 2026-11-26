@@ -241,33 +241,36 @@ async def public_events(db, today: date) -> list[dict]:
 
 
 def month_view(events: list[dict], *, year: int, month: int, today: date) -> dict:
-    """One month of the page: its events (past ones kept and marked, as the old calendar did),
-    the months before and after, and, when nothing in the month is still ahead, the next events."""
+    """One month of the page. The grid holds every event of the month (past ones dimmed). The big
+    cards are only for events still ahead: the month's own, or, when it has none left, the next ones
+    after it. A month that is already over gets a compact one-line list of what happened instead."""
     from .copy import load_copy
 
     months = load_copy("events_calendar", "month_names")
     in_month = [e for e in events if (e["date"].year, e["date"].month) == (year, month)]
     prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
     next_m = (year + 1, 1) if month == 12 else (year, month + 1)
-    upcoming = []
-    if not any(not e["past"] for e in in_month):
+    ahead = [e for e in in_month if not e["past"]]
+    later = []
+    if not ahead:
         limit = int(base_cfg().get("upcoming_count", 4))
-        upcoming = [e for e in events if not e["past"] and (e["date"].year, e["date"].month) > (year, month)][:limit]
+        later = [e for e in events if not e["past"] and (e["date"].year, e["date"].month) > (year, month)][:limit]
     return {
         "cells": _cells(in_month, year=year, month=month, today=today),
         "year": year, "month": month, "key": f"{year:04d}-{month:02d}",
         "name": months[month - 1] if isinstance(months, list) and len(months) == 12 else f"{month}",
         "prev_key": f"{prev_m[0]:04d}-{prev_m[1]:02d}", "next_key": f"{next_m[0]:04d}-{next_m[1]:02d}",
         "is_current": (year, month) == (today.year, today.month),
-        "events": in_month, "all_past": bool(in_month) and all(e["past"] for e in in_month),
-        "upcoming": upcoming,
+        "events": in_month, "all_past": bool(in_month) and not ahead,
+        "cards": ahead or later, "cards_later": not ahead and bool(later),
+        "past_list": [e for e in in_month if e["past"]] if (year, month) < (today.year, today.month) else [],
     }
 
 
 def _cells(in_month: list[dict], *, year: int, month: int, today: date) -> list[dict]:
     """The square month grid, Sunday first: one cell per day (blank cells before day 1 and after the
     last day). Like the calendar picture, a day shows its events inside the cell (picture, name, time),
-    up to events_calendar.max_chips_per_day; the rest become a "+N" link to the day's next card."""
+    up to events_calendar.max_chips_per_day; the rest become a "+N" link to the next hidden event's page."""
     import calendar as _calendar
 
     by_day: dict[date, list[dict]] = {}

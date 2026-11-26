@@ -164,7 +164,7 @@ def test_events_with_and_without_pictures(tmp_path):
         await event(db, "בלי תמונה", "2026-12-03")
         await event(db, "עם תמונה", "2026-12-04", cover="covers/a.png")
         _, text = await page(db)
-        stops = re.findall(r'<li class="ev">.*?</li>', text, re.S)
+        stops = re.findall(r'<li class="ev"[^>]*>.*?</li>', text, re.S)
         assert len(stops) == 2
         without, with_pic = stops
         assert "<img" not in without and '<span class="day" aria-hidden="true">3</span>' in without  # date plate
@@ -177,7 +177,7 @@ def test_a_long_title_stays_whole_and_an_unknown_place_shows_no_city(tmp_path):
         long_title = "ערב " * 40
         await event(db, long_title, "2026-12-03", place="הבית של מישהי, קומה 3")
         _, text = await page(db)
-        stop = re.search(r'<li class="ev">.*?</li>', text, re.S).group(0)
+        stop = re.search(r'<li class="ev"[^>]*>.*?</li>', text, re.S).group(0)
         assert long_title.strip() in stop and 'class="city"' not in stop and "קומה" not in text
     run(tmp_path, body)
 

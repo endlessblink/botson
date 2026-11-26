@@ -121,21 +121,46 @@ def test_the_month_grid_shows_events_inside_their_days(tmp_path, monkeypatch):
         assert 'src="/media/covers/a.png"' in chips[0][1] and "פיקניק" in chips[0][1] and "12:00" in chips[0][1]
         assert "<img" not in chips[1][1] and "יוגה" in chips[1][1] and "21:00" in chips[1][1]
         more = load_copy("events_calendar", "more", n=1)
-        assert f'<a class="more" href="#ev-{c}">{html.escape(more)}</a>' in day
+        assert f'<a class="more" href="/welcome/e/{c}">{html.escape(more)}</a>' in day
         assert re.search(r'class="cell[^"]* today[^"]*"><span class="n">26<', grid)
-        assert f'id="ev-{c}"' in text  # the card "+1" leads to
+        assert f'id="ev-{c}"' in text  # still ahead, so it also has a big card
         _, empty = await page(db, "2027-01")
         assert 'class="grid"' in empty and html.escape(load_copy("community_page", "empty_title", month="ינואר")) in empty
     run(tmp_path, body)
 
 
-def test_past_events_of_the_month_stay_and_are_marked(tmp_path):
+def cards(text):
+    return re.findall(r'<li class="ev[^"]*"[^>]*>.*?</li>', text, re.S)
+
+
+def test_a_past_event_never_gets_a_big_card(tmp_path):
     async def body(db):
-        await event(db, "היה מזמן", "2026-11-05")
-        _, text = await page(db)
-        card = re.search(r'<li class="ev past"[^>]*>.*?</li>', text, re.S).group(0)
-        assert "היה מזמן" in card and html.escape(load_copy("community_page", "past")) in card
+        old = await event(db, "היה מזמן", "2026-11-05")
+        soon = await event(db, "עוד מעט", "2026-11-28")
+        later = await event(db, "בדצמבר", "2026-12-03")
+        _, text = await page(db)  # this month: one past, one ahead
+        assert [c for c in cards(text) if "היה מזמן" in c] == []
+        assert len(cards(text)) == 1 and "עוד מעט" in cards(text)[0]
+        grid = text[text.index('<div class="grid"'):]
+        assert f'<a class="chip" href="/welcome/e/{old}">' in grid  # still in the grid, still opens
+        assert re.search(r'<div class="cell[^"]* past[^"]*"><span class="n">5</span>', grid)
+        assert 'class="was-list"' not in text and html.escape(load_copy("community_page", "past")) not in text
+        await db._db.execute("UPDATE events SET event_date = '2026-11-20' WHERE id = ?", (soon,))
+        await db._db.commit()
+        _, text = await page(db)  # nothing left this month: next month's events are the cards
+        assert len(cards(text)) == 1 and "בדצמבר" in cards(text)[0] and f'id="ev-{later}"' in text
         assert html.escape(load_copy("community_page", "all_past", month="נובמבר")) in text
+        assert f'<p class="quiet">' in text
+    run(tmp_path, body)
+
+
+def test_a_month_that_is_over_gets_a_compact_list_not_cards(tmp_path):
+    async def body(db):
+        old = await event(db, "ערב באוקטובר", "2026-10-15", place="חיפה")
+        _, text = await page(db, "2026-10")
+        assert not any("ערב באוקטובר" in c for c in cards(text))
+        listed = re.search(r'<ul class="was-list">.*?</ul>', text, re.S).group(0)
+        assert f'href="/welcome/e/{old}"' in listed and "ערב באוקטובר" in listed and "חיפה" in listed
     run(tmp_path, body)
 
 
