@@ -177,6 +177,19 @@ community_page:
   join_hosts:
     telegram: ["t.me", "telegram.me"]
     whatsapp: ["chat.whatsapp.com"]
+  # An event's own outside link (tickets, sign-up) is shown on its public page, unless its host is
+  # one of these (or a subdomain of one): invites into a chat or a private message stay in the group,
+  # and map / navigation links would give the exact address away. "*" stands for one part of a name
+  # (google.* = google.com, google.co.il needs google.*.* ...).
+  event_link_blocked_hosts: ["whatsapp.com", "whatsapp.net", "wa.me", "wa.link", "t.me", "telegram.me",
+                             "telegram.dog", "telegram.org", "signal.group", "signal.me", "discord.gg",
+                             "discord.com", "m.me", "messenger.com",
+                             "goo.gl", "maps.app.goo.gl", "g.co", "maps.google.*", "maps.google.*.*",
+                             "waze.com", "maps.apple.com", "maps.apple", "openstreetmap.org", "osm.org",
+                             "here.com", "moovitapp.com", "moovit.com", "govmap.gov.il"]
+  # Host + path prefixes refused the same way (the host may also be any subdomain, e.g. www.).
+  event_link_blocked_paths: ["google.*/maps", "google.*.*/maps", "bing.com/maps", "yandex.*/maps",
+                             "yandex.*/navi", "apple.com/maps"]
   # Place of an event: only these names are ever shown. The stored location is searched for them
   # (any alias, as a whole word, a one-letter prefix like ב/ל/מ/ה/ו allowed) and the LAST match
   # wins, since an address usually ends with the city. A name right after a street word
@@ -458,6 +471,8 @@ copy:
     online: "אונליין"
     members_label: "לחברים בלבד"
     members_note: "מה, מתי ובאיזו עיר כתוב כאן. הכתובת, הקישור ומי שמארגן מחכים בקבוצה."
+    members_note_with_link: "מה, מתי ובאיזו עיר כתוב כאן. הכתובת ומי שמארגן מחכים בקבוצה."
+    event_link: "לפרטים והרשמה"
     empty_title: "עוד אין אירועים ב{month}"
     all_past: "כל האירועים של {month} כבר היו."
     past: "כבר היה"

@@ -2,7 +2,7 @@
 
 The page hands one event at a time to Google Calendar (its own prefilled screen) or as a standard
 calendar file. Both carry only what the page shows: community_page.calendar_entry reduces the
-event first (public title, city or area only, cleaned description; no address, join link, organizer
+event first (public title, city or area only, cleaned description, the event's own safe outside link; no address, chat invite, organizer
 or contact). page_url() is the address the calendar picture's caption links to; the old /cal
 addresses there redirect to the matching month of /welcome.
 
@@ -50,7 +50,8 @@ def _start_end(ev: dict) -> tuple[datetime, datetime] | None:
 
 
 def _details(ev: dict) -> str:
-    return str(ev.get("description") or "")
+    """The cleaned description, then the event's own safe outside link (when it has one)."""
+    return "\n\n".join(p for p in (str(ev.get("description") or "").strip(), str(ev.get("link") or "")) if p)
 
 
 def google_url(ev: dict) -> str:
@@ -115,5 +116,7 @@ def ics_text(ev: dict, *, host: str = "botson", now: datetime | None = None) -> 
     details = _details(ev)
     if details:
         lines.append(f"DESCRIPTION:{_ics_escape(details)}")
+    if ev.get("link"):
+        lines.append(f"URL:{ev['link']}")
     lines += ["END:VEVENT", "END:VCALENDAR"]
     return "\r\n".join(_fold(line) for line in lines) + "\r\n"

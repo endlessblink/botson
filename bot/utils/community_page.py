@@ -4,8 +4,9 @@ Open to anyone, so it shows far less than the published event cards:
 
 - Events: the published events (Database.get_published_events), one month at a time (/welcome =
   this month, /welcome/2026-12 = that month; the old /cal addresses redirect here), reduced to title,
-  day, time, picture, a city/area and the cleaned description. Never the stored location text, join
-  links, organizer or requester names, phone numbers or member ids. The Google Calendar link and the
+  day, time, picture, a city/area, the cleaned description and the event's own outside link (tickets,
+  sign-up) when it is a safe https:// address and not a chat invite. Never the stored location text,
+  chat invite links, organizer or requester names, phone numbers or member ids. The Google Calendar link and the
   calendar file carry the same reduction (calendar_entry).
 - Place: never echoed. The stored location is matched against the config list of known cities and
   areas; only the canonical name from that list is shown, otherwise nothing at all.
@@ -194,6 +195,68 @@ def public_description(text: str | None, location: str | None = None) -> str:
     return "\n".join(out).strip()
 
 
+def _host_matches(host: str, pattern: str) -> bool:
+    """The host or one of its parent domains matches the pattern ("*" = any one label, e.g. a TLD)."""
+    from fnmatch import fnmatchcase
+
+    labels = host.split(".")
+    return any(fnmatchcase(".".join(labels[i:]), pattern) for i in range(len(labels) - 1))
+
+
+def _blocked_host(host: str, path: str = "") -> bool:
+    """A chat invite or a map/navigation link (config event_link_blocked_hosts, and
+    event_link_blocked_paths for host+path prefixes such as google.*/maps)."""
+    cfg = base_cfg()
+    hosts = [str(h).lower().strip(".") for h in cfg.get("event_link_blocked_hosts") or [] if str(h).strip(".")]
+    if any(_host_matches(host, h) for h in hosts):
+        return True
+    path = (path or "/").lower()
+    for rule in cfg.get("event_link_blocked_paths") or []:
+        h, _, prefix = str(rule).lower().partition("/")
+        prefix = "/" + prefix
+        if h and _host_matches(host, h) and path.startswith(prefix):  # /maps also catches /maps/place/...
+            return True
+    return False
+
+
+def public_link(url: str | None) -> str | None:
+    """The event's own outside link (tickets, sign-up), or None. Only a plain https:// address with a
+    real host, no user, password or port, never an invite into a chat and never a map or navigation
+    link, which would give the exact address away (config event_link_blocked_hosts, subdomains
+    included, and event_link_blocked_paths): those stay inside the group."""
+    url = str(url or "").strip()
+    if not url or len(url) > 500 or any(c.isspace() or ord(c) < 32 for c in url) or any(c in url for c in "\"'<>`"):
+        return None
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower().rstrip(".")
+    if (parts.scheme != "https" or parts.username or parts.password or port is not None
+            or "." not in host or _blocked_host(host, parts.path)):
+        return None
+    if re.fullmatch(r"[\d.]+", host) or host.startswith("[") or not re.fullmatch(r"[a-z0-9.-]+", host):
+        return None
+    return url
+
+
+_HTTPS = re.compile(r"https://[^\s<>\"']+", re.IGNORECASE)
+
+
+def event_link(link: str | None, description: str | None) -> str | None:
+    """The link the organizer gave (the approved request's link), else the first safe https:// link
+    written in the description. The description itself is still shown without links."""
+    found = public_link(link)
+    if found:
+        return found
+    for m in _HTTPS.finditer(str(description or "")):
+        found = public_link(m.group(0).rstrip(".,;:!?)]}"))
+        if found:
+            return found
+    return None
+
+
 _COVER = re.compile(r"^[A-Za-z0-9_./-]+\.(?:png|jpe?g|webp|gif)$", re.IGNORECASE)
 
 
@@ -235,6 +298,7 @@ async def public_events(db, today: date) -> list[dict]:
             "time": hhmm,
             "place": public_place(e.get("location")),
             "cover_url": _cover_url(e.get("cover_path")) if show_pictures else None,
+            "link": event_link(e.get("link"), e.get("description")),
         })
     out.sort(key=lambda x: (x["date"], x["time"]))
     return out
@@ -301,9 +365,10 @@ async def public_event(db, today: date, event_id: int) -> dict | None:
 
 def calendar_entry(ev: dict) -> dict:
     """What the Google Calendar link and the calendar file carry: the public title, the city or area
-    only, and the cleaned description. No address, join link, organizer or contact."""
+    only, the cleaned description and the event's own safe outside link (the same one the page shows).
+    No address, chat invite, organizer or contact."""
     return {"id": ev["id"], "title": ev["title"], "date": ev["date"], "time": ev["time"] or None,
-            "place": ev.get("place"), "description": ev.get("description") or None}
+            "place": ev.get("place"), "description": ev.get("description") or None, "link": ev.get("link")}
 
 
 def page_url() -> str | None:

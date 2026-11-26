@@ -17,6 +17,7 @@ from starlette.requests import Request
 import bot.handlers.calendar  # noqa: F401
 from bot.database.db import Database
 from bot.utils import calendar_page as cp
+from bot.utils import community_page as cp_page
 from bot.utils import calendar_share as cs
 from bot.utils import config, events_calendar
 from bot.utils.copy import load_copy
@@ -349,4 +350,130 @@ def test_bots_and_dashboard_send_the_caption_with_the_page_line(tmp_path, monkey
                                                             json=AsyncMock(return_value={"month": "2026-11", "mode": "test"})), db)
         assert tg.photos[0]["caption_entities"][0].url == "https://botson.example/cal/2026-11"
         assert wa.await_args.args[4].endswith("\nhttps://botson.example/cal/2026-11")
+    run(tmp_path, body)
+
+
+# ── The event's own outside link (tickets, sign-up) ──
+
+def test_an_outside_link_shows_as_a_button_and_in_the_calendar_entries(tmp_path):
+    async def body(db):
+        eid = await event(db, "סדנת קרמיקה", "2026-12-12", "17:00", request="approved",
+                          link="https://tickets.example.com/ev/42?ref=x")
+        _, one = await opened(db, eid)
+        btn = re.search(r'<a class="xlink"[^>]*>[^<]*</a>', one).group(0)
+        assert 'href="https://tickets.example.com/ev/42?ref=x"' in html.unescape(btn)
+        assert 'target="_blank"' in btn and 'rel="noopener noreferrer nofollow"' in btn
+        assert html.escape(load_copy("community_page", "event_link")) in btn
+        assert html.escape(load_copy("community_page", "members_note_with_link")) in one
+        assert html.escape(load_copy("community_page", "members_note")) not in one
+        g = q(html.unescape(re.search(r'class="gbtn" href="([^"]+)"', one).group(1)))
+        assert g["details"].endswith("https://tickets.example.com/ev/42?ref=x")
+        ics = (await dash.community_event_ics(eid, db)).body.decode().replace("\r\n ", "")
+        assert "URL:https://tickets.example.com/ev/42?ref=x" in ics
+        _, month = await page(db, "2026-12")
+        assert "tickets.example.com" not in month  # the grid and the big cards stay as they were
+    run(tmp_path, body)
+
+
+def test_a_safe_link_written_in_the_description_is_used_when_the_request_has_none(tmp_path):
+    async def body(db):
+        eid = await event(db, "הרצאה", "2026-12-14", desc="הרצאה פתוחה.\nהרשמה: https://forms.example.org/a1.")
+        _, one = await opened(db, eid)
+        assert 'class="xlink" href="https://forms.example.org/a1"' in one
+        assert "הרשמה" in one  # the description line stays, without the link
+        assert one.count("forms.example.org") == 2  # the button and the Google entry, nowhere else
+    run(tmp_path, body)
+
+
+INVITES = ("https://chat.whatsapp.com/INVITE111", "https://wa.me/972500000001", "https://api.whatsapp.com/send?phone=1",
+           "https://t.me/+INVITE222", "https://telegram.me/joinchat/INVITE333", "https://www.t.me/INVITE444",
+           "https://discord.gg/INVITE555")
+
+
+@pytest.mark.parametrize("invite", INVITES)
+def test_a_chat_invite_is_never_shown_anywhere(tmp_path, invite):
+    async def body(db):
+        eid = await event(db, "פיקניק", "2026-12-12", request="approved", link=invite, desc=f"בואו!\n{invite}")
+        _, one = await opened(db, eid)
+        _, month = await page(db, "2026-12")
+        ics = (await dash.community_event_ics(eid, db)).body.decode().replace("\r\n ", "")
+        host = urlsplit(invite).hostname
+        for text in (one, month, ics, html.unescape(one)):
+            assert invite not in text and host not in text and "INVITE" not in text
+        assert 'class="xlink"' not in one and "URL:" not in ics
+        assert html.escape(load_copy("community_page", "members_note")) in one
+    run(tmp_path, body)
+
+
+@pytest.mark.parametrize("url", [
+    "http://tickets.example.com/a", "https://user:pw@tickets.example.com/a", "https://tickets.example.com:8443/a",
+    "javascript:alert(1)", "https://127.0.0.1/a", "https://localhost/a", "ftp://tickets.example.com/a",
+    'https://tickets.example.com/a"onmouseover="x', "https://tickets.example.com/a b", "https:///nohost",
+    "//tickets.example.com/a", "https://sub.chat.whatsapp.com/x", "https://WA.ME/1", "", None,
+])
+def test_odd_or_unsafe_links_are_refused(url):
+    assert cp_page.public_link(url) is None
+
+
+def test_a_plain_https_link_is_kept():
+    assert cp_page.public_link("https://www.eventbrite.com/e/123") == "https://www.eventbrite.com/e/123"
+
+
+def test_no_link_keeps_the_old_note(tmp_path):
+    async def body(db):
+        eid = await event(db, "ערב משחקים", "2026-12-20")
+        _, one = await opened(db, eid)
+        assert 'class="xlink"' not in one
+        assert html.escape(load_copy("community_page", "members_note")) in one
+        assert html.escape(load_copy("community_page", "members_note_with_link")) not in one
+    run(tmp_path, body)
+
+
+def test_a_past_event_shows_no_link_button(tmp_path):
+    async def body(db):
+        eid = await event(db, "היה", "2026-11-05", request="approved", link="https://tickets.example.com/old")
+        _, one = await opened(db, eid)
+        assert 'class="xlink"' not in one and "tickets.example.com" not in one
+    run(tmp_path, body)
+
+
+# ── Map and navigation links give the exact address away: never the public link ──
+
+MAPS = ("https://maps.app.goo.gl/AbC123", "https://goo.gl/maps/xyz", "https://maps.google.com/?q=herzl+12",
+        "https://maps.google.co.il/maps?q=x", "https://www.google.com/maps/place/Herzl+12",
+        "https://google.co.il/maps/@32.1,34.8,15z", "https://www.google.de/maps?q=x", "https://waze.com/ul?ll=32,34",
+        "https://www.waze.com/live-map/directions?to=x", "https://maps.apple.com/?address=x",
+        "https://www.openstreetmap.org/#map=18/32/34", "https://www.bing.com/maps?q=x")
+
+
+@pytest.mark.parametrize("url", MAPS)
+def test_a_map_link_is_refused(url):
+    assert cp_page.public_link(url) is None
+
+
+def test_other_google_pages_are_not_mistaken_for_maps():
+    assert cp_page.public_link("https://docs.google.com/forms/d/e/abc/viewform") is not None
+
+
+def test_the_ticket_link_wins_over_a_map_link_written_first(tmp_path):
+    async def body(db):
+        eid = await event(db, "הופעה", "2026-12-15",
+                          desc="איך מגיעים: https://maps.app.goo.gl/AbC123\nכרטיסים: https://tickets.example.com/show")
+        _, one = await opened(db, eid)
+        assert 'class="xlink" href="https://tickets.example.com/show"' in one
+        assert "goo.gl" not in one and "AbC123" not in one
+    run(tmp_path, body)
+
+
+def test_a_map_only_event_shows_no_button_and_the_old_note(tmp_path):
+    async def body(db):
+        eid = await event(db, "פיקניק", "2026-12-16", request="approved",
+                          link="https://www.google.com/maps/place/Herzl+12",
+                          desc="נפגשים כאן: https://waze.com/ul?ll=32.1,34.8")
+        _, one = await opened(db, eid)
+        ics = (await dash.community_event_ics(eid, db)).body.decode().replace("\r\n ", "")
+        assert 'class="xlink"' not in one and "URL:" not in ics
+        for text in (one, ics):
+            assert "google.com/maps" not in text and "waze" not in text
+        assert html.escape(load_copy("community_page", "members_note")) in one
     run(tmp_path, body)
