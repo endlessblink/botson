@@ -281,6 +281,8 @@ events_calendar:
     next_month_words: ["חודש הבא", "next month"]
     word_prefixes: "ובהלמשכ"       # letters a Hebrew word may start with ("בלו״ז", "האירועים")
     quote_marks: ["״", "”", "“", "''"]  # typed in place of " in לו"ז
+    upcoming_count: 2            # nearest upcoming events listed in the caption under the picture (0 = none)
+    upcoming_title_max: 60       # longer event titles are cut with "…" in that list
   # Calendar entries offered on the public page (/welcome; /cal redirects there), bot/utils/calendar_page.py.
   page:
     event_length_minutes: 120    # events have a start time only; calendar entries assume this length
@@ -443,6 +445,13 @@ copy:
     # Second line under the calendar picture, leading to the full page. Telegram: these words
     # are the link. WhatsApp: these words, then the address on its own line.
     caption_more: "📲 הלוח המלא, עם כל הפרטים"
+    # The nearest events, listed between the title and the line above (only when there are any).
+    # {day} from events_calendar.day_names; city only, never an address.
+    upcoming_heading: "הבאים בתור:"
+    upcoming_line: "- {when} · {title}{place}"
+    upcoming_when: "{day} {d}.{m}"
+    upcoming_when_time: "{day} {d}.{m}, {time}"
+    upcoming_place: " · {place}"
   event_pins:
     # Events page: pin state of each upcoming event's post in the Telegram group.
     pinned: "📌 נעוץ בקבוצה"

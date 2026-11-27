@@ -444,3 +444,164 @@ def test_events_page_says_where_it_will_post():
     real = env.from_string(block).render(member_default_mode="real", calendar_copy=copy, calendar_topic="מצטרפים חדשים")
     test = env.from_string(block).render(member_default_mode="test", calendar_copy=copy, calendar_topic="x")
     assert "מצטרפים חדשים" in real and copy["send_where_test"] in test and "{topic}" not in real
+
+
+# ── The nearest events, listed in the caption ──
+
+from datetime import datetime as _dt  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+NOW = _dt(2026, 11, 27, 18, 0, tzinfo=ZoneInfo("Asia/Jerusalem"))  # a Friday
+
+
+@pytest.fixture
+def fixed_now(monkeypatch):
+    monkeypatch.setattr(events_calendar, "local_now", lambda: NOW)
+    return NOW
+
+
+async def add(db, title, day, time="20:00", *, place=None, desc=""):
+    eid = await db.create_event(title=title, description=desc, event_date=day, event_time=time, location=place,
+                                created_by=0)
+    await db.update_event(eid, message_id=5, tg_chat_id=MAIN)
+    return eid
+
+
+def event_lines(text):
+    head = load_copy("calendar_share", "upcoming_heading")
+    lines = [ln.strip(cs.RLM) for ln in text.split("\n")]
+    if head not in lines:
+        return []
+    start = lines.index(head) + 1
+    return [ln for ln in lines[start:] if ln.startswith(load_copy("calendar_share", "upcoming_line", when="", title="",
+                                                                        place="")[:1])]
+
+
+def test_the_two_nearest_upcoming_events_are_listed_with_city_only(tmp_path, fixed_now):
+    async def body(db):
+        await add(db, "היה כבר", "2026-11-20")
+        await add(db, "התחיל לפני שעה", "2026-11-27", "17:00")
+        await add(db, "ערב משחקים @maya 054-1234567", "2026-11-27", "20:30",
+                  place="בית קפה נחת, רחוב הרצל 12, ירושלים")
+        await add(db, "פיקניק", "2026-12-05", "", place="פארק, רחוב הרצל 12")
+        await add(db, "שלישי ברשימה", "2026-12-09")
+        ups = await cs.upcoming_events(db)
+        assert [e["title"] for e in ups] == ["ערב משחקים", "פיקניק"]
+        text = cs.caption("2026-11", ups)
+        lines = text.split("\n")
+        assert lines[0] == cs.caption("2026-11") and lines[1] == load_copy("calendar_share", "upcoming_heading")
+        days = load_copy("events_calendar", "day_names")
+        assert lines[2] == load_copy("calendar_share", "upcoming_line",
+                                     when=load_copy("calendar_share", "upcoming_when_time", day=days[5], d=27, m=11,
+                                                    time="20:30"),
+                                     title="ערב משחקים", place=load_copy("calendar_share", "upcoming_place",
+                                                                        place="ירושלים"))
+        assert lines[3] == load_copy("calendar_share", "upcoming_line",
+                                     when=load_copy("calendar_share", "upcoming_when", day=days[6], d=5, m=12),
+                                     title="פיקניק", place="")
+        for hidden in ("הרצל", "054", "@maya", "נחת", "שלישי ברשימה", "היה כבר", "התחיל לפני שעה"):
+            assert hidden not in text, hidden
+    run(tmp_path, body)
+
+
+def test_no_upcoming_events_leaves_the_caption_as_today_and_one_event_gives_one_line(tmp_path, fixed_now):
+    async def body(db):
+        month = "2026-11"
+        assert await cs.upcoming_events(db) == []
+        assert cs.telegram_caption(month, []) == cs.telegram_caption(month)
+        assert cs.whatsapp_caption(month, []) == cs.whatsapp_caption(month)
+        assert load_copy("calendar_share", "upcoming_heading") not in cs.whatsapp_caption(month, [])
+        await add(db, "רק אחד", "2026-12-01")
+        ups = await cs.upcoming_events(db)
+        assert len(ups) == 1 and len(cs.caption(month, ups).split("\n")) == 3
+    run(tmp_path, body)
+
+
+def test_the_count_and_title_length_come_from_config(tmp_path, fixed_now, monkeypatch):
+    async def body(db):
+        long = "ערב משחקי קופסה ארוך במיוחד עם הרבה שולחנות פיצה טבעונית ומשחקים חדשים שאף אחד עוד לא ניסה"
+        await add(db, long, "2026-12-01")
+        await add(db, "שני", "2026-12-02")
+        cfg = dict(cs.share_cfg(), upcoming_count=1, upcoming_title_max=20)
+        monkeypatch.setattr(cs, "share_cfg", lambda: cfg)
+        ups = await cs.upcoming_events(db)
+        assert len(ups) == 1
+        line = cs.caption("2026-11", ups).split("\n")[2]
+        assert "…" in line and long not in line and long[:10] in line
+        cfg["upcoming_count"] = 0
+        assert await cs.upcoming_events(db) == []
+    run(tmp_path, body)
+
+
+def test_telegram_link_still_lands_on_its_words_after_the_event_lines(tmp_path, fixed_now, monkeypatch):
+    monkeypatch.setattr(config, "PUBLIC_DASHBOARD_URL", "https://botson.example")
+
+    async def body(db):
+        await add(db, "ערב 🎲 משחקים", "2026-12-01", place="תל אביב")  # an emoji counts twice in UTF-16
+        await add(db, "פיקניק", "2026-12-02")
+        text, entities = cs.telegram_caption("2026-11", await cs.upcoming_events(db))
+        (e,) = entities
+        raw = text.encode("utf-16-le")
+        assert raw[e.offset * 2:(e.offset + e.length) * 2].decode("utf-16-le") == load_copy("calendar_share",
+                                                                                            "caption_more")
+        assert text.split("\n")[-1] == load_copy("calendar_share", "caption_more") and len(event_lines(text)) == 2
+    run(tmp_path, body)
+
+
+def test_whatsapp_event_lines_are_right_to_left_and_the_address_stays_bare(tmp_path, fixed_now, monkeypatch):
+    monkeypatch.setattr(config, "PUBLIC_DASHBOARD_URL", "https://botson.example")
+    from bot.utils.calendar_page import page_url
+
+    async def body(db):
+        await add(db, "פיקניק", "2026-12-02", place="חיפה")
+        wa = cs.whatsapp_caption("2026-11", await cs.upcoming_events(db))
+        lines = wa.split("\n")
+        assert lines[0] == cs.caption("2026-11")
+        for ln in lines[1:3]:
+            assert ln.startswith(cs.RLM) and ln.endswith(cs.RLM)
+        assert "•" not in wa
+        assert lines[-1] == page_url("2026-11") and lines[-1].startswith("https://botson.example")
+    run(tmp_path, body)
+
+
+def test_the_caption_never_passes_telegrams_limit(tmp_path, fixed_now, monkeypatch):
+    monkeypatch.setattr(config, "PUBLIC_DASHBOARD_URL", "https://botson.example")
+    async def body(db):
+        for i in range(30):
+            await add(db, "א" * 200 + str(i), f"2026-12-{i % 28 + 1:02d}")
+        cfg = dict(cs.share_cfg(), upcoming_count=30, upcoming_title_max=500)
+        monkeypatch.setattr(cs, "share_cfg", lambda: cfg)
+        ups = await cs.upcoming_events(db)
+        text, entities = cs.telegram_caption("2026-11", ups)
+        assert len(text.encode("utf-16-le")) // 2 <= cs.CAPTION_LIMIT and entities
+        assert 0 < len(event_lines(text)) < 30
+        assert len(cs.whatsapp_caption("2026-11", ups)) <= cs.CAPTION_LIMIT
+    run(tmp_path, body)
+
+
+def test_group_posts_list_the_events_and_a_changed_list_is_never_already_posted(tmp_path, fixed_now):
+    async def body(db):
+        c = ctx(db)
+        await add(db, "ערב בדיקה", "2026-11-28")
+        await cr.handle_calendar_words(update('לו"ז', message_id=50), c)
+        month = cs.month_for(False)
+        assert c.bot.photos[0]["caption"] == cs.caption(month, await cs.upcoming_events(db))
+        assert "ערב בדיקה" in c.bot.photos[0]["caption"]
+        # A new event NEXT month is not in this month's picture, but it enters the listed two.
+        await add(db, "חדש בדצמבר", "2026-12-01")
+        await cr.handle_calendar_words(update('לו"ז', message_id=51), c)
+        assert len(c.bot.photos) == 2 and "חדש בדצמבר" in c.bot.photos[1]["caption"]
+        # Nothing changed: pointed at the picture, short reply as before.
+        await cr.handle_calendar_words(update('לו"ז', message_id=52), c)
+        assert len(c.bot.photos) == 2
+        assert c.bot.texts[-1]["text"].startswith(load_copy("calendar_share", "already_posted"))
+    run(tmp_path, body)
+
+
+def test_botty_gets_the_listed_events_in_the_whatsapp_caption(tmp_path, fixed_now):
+    async def body(db):
+        await add(db, "פיקניק", "2026-12-02", place="חיפה")
+        first = await dash.agent_events_calendar_share(req({"chat_id": "111@g.us", "requester": MEMBER_WA}), db)
+        assert first["caption"] == cs.whatsapp_caption(first["month"], await cs.upcoming_events(db))
+        assert "פיקניק" in first["caption"] and "חיפה" in first["caption"]
+    run(tmp_path, body)

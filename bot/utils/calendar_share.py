@@ -10,6 +10,10 @@ wording in `copy.calendar_share`):
   the month it showed (the month plus every published event in it). When an event is
   added, changed or removed since, or a different month is asked for, the version no
   longer matches and a fresh picture is posted even inside the N days.
+- The caption also lists the nearest published events still ahead (up to `upcoming_count`,
+  from now on, whatever month the picture shows), reduced exactly like the public page
+  (community_page.public_events: title, day, time, city only). They are part of the
+  version, so a group whose list went stale gets a fresh picture.
 - In a private chat any group member may ask at any time, up to `private_per_day`
   pictures a day (Israel day). The operator is not capped. Membership is checked by
   the caller (Telegram: the group's member list; WhatsApp: Botson's member check).
@@ -88,11 +92,55 @@ def month_for(next_month: bool) -> str:
     return f"{year:04d}-{month:02d}"
 
 
-def caption(month: str) -> str:
+RLM = "\u200f"
+CAPTION_LIMIT = 1024  # Telegram's limit for a photo caption
+
+
+def caption(month: str, upcoming: list[dict] | None = None, *, rtl: bool = False) -> str:
+    """The title line, then (when any) a short heading and one line per upcoming event.
+    rtl=True wraps each event line in right-to-left marks (WhatsApp)."""
     year, mon = (int(x) for x in month.split("-"))
     names = load_copy("events_calendar", "month_names")
     name = names[mon - 1] if isinstance(names, list) and len(names) == 12 else month
-    return load_copy("calendar_share", "caption", month=name, year=year)
+    lines = [load_copy("calendar_share", "caption", month=name, year=year)]
+    events = [ev for ev in (upcoming or []) if ev.get("title")]
+    if events:
+        lines.append(load_copy("calendar_share", "upcoming_heading"))
+        lines += [upcoming_line(ev) for ev in events]
+    if rtl:
+        lines = [lines[0]] + [f"{RLM}{line}{RLM}" for line in lines[1:]]
+    return "\n".join(lines)
+
+
+def _short(title: str) -> str:
+    limit = max(2, int(share_cfg().get("upcoming_title_max", 60)))
+    title = " ".join(str(title).split())
+    return title if len(title) <= limit else title[:limit - 1].rstrip(" -–—·,") + "…"
+
+
+def upcoming_line(ev: dict) -> str:
+    """One event: weekday + date, time if set, title, city only (all wording from config)."""
+    days = load_copy("events_calendar", "day_names")
+    d = ev["date"]
+    day = days[(d.weekday() + 1) % 7] if isinstance(days, list) and len(days) == 7 else ""
+    when = load_copy("calendar_share", "upcoming_when_time" if ev.get("time") else "upcoming_when",
+                     day=day, d=d.day, m=d.month, time=ev.get("time") or "")
+    place = load_copy("calendar_share", "upcoming_place", place=ev["place"]) if ev.get("place") else ""
+    return load_copy("calendar_share", "upcoming_line", when=when, title=_short(ev["title"]), place=place)
+
+
+async def upcoming_events(db) -> list[dict]:
+    """The nearest published events not over yet (today's count until their start time), reduced by
+    the public page's own rules (community_page.public_events). At most `upcoming_count` (config)."""
+    from .community_page import public_events
+    from .events_calendar import local_now
+
+    now = local_now()
+    today, hhmm = now.date(), now.strftime("%H:%M")
+    limit = max(0, int(share_cfg().get("upcoming_count", 2)))
+    ahead = [ev for ev in await public_events(db, today)
+             if ev["date"] > today or (ev["date"] == today and (not ev["time"] or ev["time"].zfill(5) >= hhmm))]
+    return ahead[:limit]
 
 
 def _more_line(month: str) -> tuple[str, str] | None:
@@ -103,25 +151,43 @@ def _more_line(month: str) -> tuple[str, str] | None:
     return (load_copy("calendar_share", "caption_more"), url) if url else None
 
 
-def telegram_caption(month: str) -> tuple[str, list]:
-    """Caption + the clickable words leading to the page (no parse mode)."""
-    more = _more_line(month)
-    return text_with_link(caption(month), *more) if more else (caption(month), [])
+def _fit(month: str, upcoming: list[dict] | None, extra: int, rtl: bool) -> str:
+    """The caption, dropping event lines from the end while the whole would pass Telegram's limit."""
+    events = list(upcoming or [])
+    while True:
+        text = caption(month, events, rtl=rtl)
+        if not events or len(text.encode("utf-16-le")) // 2 + extra <= CAPTION_LIMIT:
+            return text
+        events.pop()
 
 
-def whatsapp_caption(month: str) -> str:
-    """Caption + the words, then the bare address on its own line (WhatsApp links only addresses)."""
+def telegram_caption(month: str, upcoming: list[dict] | None = None) -> tuple[str, list]:
+    """Caption (+ upcoming events) + the clickable words leading to the page (no parse mode)."""
     more = _more_line(month)
-    return f"{caption(month)}\n{more[0]}\n{more[1]}" if more else caption(month)
+    extra = 1 + len(more[0].encode("utf-16-le")) // 2 if more else 0
+    text = _fit(month, upcoming, extra, rtl=False)
+    return text_with_link(text, *more) if more else (text, [])
+
+
+def whatsapp_caption(month: str, upcoming: list[dict] | None = None) -> str:
+    """Caption (+ upcoming events, right-to-left) + the words, then the bare address on its own
+    line (WhatsApp links only addresses)."""
+    more = _more_line(month)
+    extra = len(f"\n{more[0]}\n{more[1]}") if more else 0
+    text = _fit(month, upcoming, extra, rtl=True)
+    return f"{text}\n{more[0]}\n{more[1]}" if more else text
 
 
 async def month_version(db, month: str) -> str:
-    """Changes whenever what the month's picture shows about events changes."""
+    """Changes whenever what the picture and its caption show about events changes: the month's
+    events, and the upcoming events the caption lists (so a stale list is never "already posted")."""
     events = await db.get_published_events(int(os.getenv("GROUP_ID", "0") or 0))
     shown = [[e.get("id"), e.get("title"), e.get("event_date"), e.get("event_time"), e.get("location"),
               e.get("cover_path"), e.get("organizer")]
              for e in events if str(e.get("event_date") or "").startswith(month)]
-    raw = json.dumps([month, shown], ensure_ascii=False, sort_keys=True)
+    listed = [[e["id"], e["title"], e["date"].isoformat(), e["time"], e.get("place")]
+              for e in await upcoming_events(db)]
+    raw = json.dumps([month, shown, listed], ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 

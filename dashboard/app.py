@@ -3297,7 +3297,7 @@ async def agent_events_calendar_share(request: Request, db: Database = Depends(g
         raise HTTPException(status_code=401, detail="unauthorized")
     import base64
 
-    from bot.utils.calendar_share import decide, month_for, share_cfg, whatsapp_caption
+    from bot.utils.calendar_share import decide, month_for, share_cfg, upcoming_events, whatsapp_caption
     from bot.utils.copy import load_copy
     from bot.utils.events_calendar import month_png
     from bot.utils.shared_events import is_known_member, person_ids
@@ -3327,7 +3327,7 @@ async def agent_events_calendar_share(request: Request, db: Database = Depends(g
     logger.info("[calendar_share] WhatsApp %s calendar for %s (%s)", month, "private" if private else chat_id,
                 "operator" if operator else "member")
     return {"status": "post", "image": base64.b64encode(png).decode("ascii"), "mime": "image/png",
-            "caption": whatsapp_caption(month), "month": month, "version": d["version"]}
+            "caption": whatsapp_caption(month, await upcoming_events(db)), "month": month, "version": d["version"]}
 
 
 @app.post("/api/agent/events-calendar/posted")
@@ -3362,7 +3362,7 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
 
     from bot.utils import whatsapp_sender
     from bot.utils.calendar_share import (month_version, record, send_telegram_picture, telegram_caption,
-                                          telegram_events_topic, whatsapp_caption)
+                                          telegram_events_topic, upcoming_events, whatsapp_caption)
     from bot.utils.events_calendar import local_now, month_png, parse_month
     from bot.utils.shared_events import default_mode, targets_for
 
@@ -3378,7 +3378,8 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
     tg_target, wa_target = targets_for(mode)
     png = await month_png(db, month, MEDIA_DIR)
     version = await month_version(db, month)
-    tg_text, tg_entities = telegram_caption(month)
+    upcoming = await upcoming_events(db)
+    tg_text, tg_entities = telegram_caption(month, upcoming)
     results: dict = {}
 
     try:
@@ -3400,7 +3401,7 @@ async def events_calendar_send(request: Request, db: Database = Depends(get_db))
     try:
         wa_chat = whatsapp_sender.resolve_chat_id(wa_target)
         msg_id = await whatsapp_sender.send_image_data(wa_chat, png, "image/png", "calendar.png",
-                                                       whatsapp_caption(month))
+                                                       whatsapp_caption(month, upcoming))
         await record(db, platform="whatsapp", chat_id=wa_chat, private=False, user_id="", operator=True,
                      message_id=msg_id or "", thread_id=None, month=month, version=version)
         results["whatsapp"] = {"ok": True}
