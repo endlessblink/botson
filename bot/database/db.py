@@ -73,6 +73,10 @@ class Database:
             "cover_path TEXT, submitted_at TEXT, decided_at TEXT, event_id INTEGER)",
             # Who is responsible for the event, when it is not the person who opened the form.
             "ALTER TABLE event_requests ADD COLUMN organizer TEXT",
+            # Where: 'in_person' (location) or 'online' (online_link). Older rows stay in person.
+            "ALTER TABLE event_requests ADD COLUMN place_type TEXT NOT NULL DEFAULT 'in_person'",
+            "ALTER TABLE event_requests ADD COLUMN online_link TEXT",
+            "ALTER TABLE events ADD COLUMN place_type TEXT NOT NULL DEFAULT 'in_person'",
             # Draft fields read from a picture (JSON): only fills the form, never published by itself.
             "ALTER TABLE event_requests ADD COLUMN prefill TEXT",
             # Long links in published event posts: /l/<code> redirects to the original.

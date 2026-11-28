@@ -3622,11 +3622,17 @@ async def whatsapp_event_vote(request: Request, db: Database = Depends(get_db)):
         bot = Bot(os.getenv("BOT_TOKEN", ""))
         kwargs = {"chat_id": event["tg_chat_id"], "message_id": event["message_id"],
                   "reply_markup": _event_rsvp_markup(event["id"])}
+        as_caption = lambda: bot.edit_message_caption(caption=text, **kwargs, **({"caption_entities": links} if links else {}))
+        as_text = lambda: bot.edit_message_text(text=text, **kwargs, **({"entities": links} if links else {}))
         try:
-            if event.get("cover_path"):
-                await bot.edit_message_caption(caption=text, **kwargs, **({"caption_entities": links} if links else {}))
-            else:
-                await bot.edit_message_text(text=text, **kwargs, **({"entities": links} if links else {}))
+            # A long card with a picture went out as the picture, then a text card: try the other kind on refusal.
+            first, other = (as_caption, as_text) if event.get("cover_path") else (as_text, as_caption)
+            try:
+                await first()
+            except Exception as e:
+                if "not modified" in str(e).lower():
+                    raise
+                await other()
         except Exception as e:
             if "not modified" not in str(e).lower():
                 logger.warning("[events] could not refresh Telegram card for event %d: %s", event["id"], e)
@@ -4029,7 +4035,9 @@ async def member_event_form(token: str, request: Request, db: Database = Depends
         "c": _member_form_copy(), "open": request_is_open(req), "token": token,
         "by": (req or {}).get("requester_name") or "", "today": today,
         "prefill": load_prefill(req), "max_link": int(cfg.get("max_link_chars", 2000)),
-        "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 400)),
+        "max_title": int(cfg.get("max_title_chars", 80)), "max_desc": int(cfg.get("max_description_chars", 1500)),
+        "platforms": [{"name": str(p.get("name") or ""), "hosts": [str(h) for h in p.get("hosts") or []]}
+                      for p in cfg.get("online_platforms") or []],
     })
 
 
@@ -4099,6 +4107,7 @@ async def member_event_submit(token: str, request: Request, db: Database = Depen
         req["id"], expect_status="open", status="submitted", title=title, event_date=event_date,
         event_time=event_time, location=location or None, description=description or None,
         link=link or None, organizer=organizer or None, cover_path=cover_path, prefill=None,
+        place_type=fields["place_type"], online_link=fields["online_link"] or None,
         submitted_at=datetime.now(ZoneInfo("Asia/Jerusalem")).isoformat(),
     ):
         return JSONResponse({"error": c.get("form_expired_title", "")}, status_code=410)

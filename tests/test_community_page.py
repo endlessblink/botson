@@ -126,7 +126,8 @@ def test_titles_lose_links_phones_emails_and_handles(tmp_path):
     ("רחוב ירושלים 5", None),
     ("אצל שרון בבית, שדרות רוטשילד 10", None),    # a first name is not an area, the street is never shown
     ("בזום", "online"),
-    ("Zoom", "online"),
+    ("Zoom", "online:Zoom"),                      # the platform's name is kept, never a link
+    ("https://meet.google.com/abc-defg-hij", "online:Google Meet"),  # an old bare meeting address
     ("ליד הים בבת ים", "בת ים"),
     ("מרכז קהילתי, קריית ביאליק", "הקריות"),
     ("", None),
@@ -136,6 +137,8 @@ def test_titles_lose_links_phones_emails_and_handles(tmp_path):
 def test_place_is_only_ever_a_listed_city_or_area(location, expected):
     if expected == "online":
         expected = load_copy("community_page", "online")
+    elif expected and expected.startswith("online:"):
+        expected = load_copy("member_events", "place_online_platform", platform=expected.split(":", 1)[1])
     assert cpage.public_place(location) == expected
 
 

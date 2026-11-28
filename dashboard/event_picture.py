@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 # What the AI calls each field -> what the form calls it.
 AI_FIELDS = {"title": "title", "event_date": "event_date", "start_time": "event_time",
-             "location": "location", "description": "description", "link": "link", "organizer": "organizer"}
+             "location": "location", "online_link": "online_link", "description": "description",
+             "link": "link", "organizer": "organizer"}
 _MIMES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 # The bot's own secrets never reach a process that looks at a stranger's picture.
 _ENV_KEYS = ("PATH", "LANG", "LC_ALL", "TZ", "USER", "LOGNAME", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
@@ -43,8 +44,9 @@ class PictureReadError(RuntimeError):
 
 def _prompt() -> str:
     now = _israel_now()
-    return str((member_cfg().get("picture") or {}).get("prompt") or "").replace(
-        "{now}", now.strftime("%A %Y-%m-%d %H:%M"))
+    return (str((member_cfg().get("picture") or {}).get("prompt") or "")
+            .replace("{now}", now.strftime("%A %Y-%m-%d %H:%M"))
+            .replace("{max_desc}", str(int(member_cfg().get("max_description_chars", 1500)))))
 
 
 def _schema() -> dict:
@@ -109,8 +111,16 @@ def clean_reply(data: dict) -> dict:
             given[field] = _plain(data[key], lines=field == "description")
     given["event_date"] = _iso_date(given.get("event_date", ""))
     given["event_time"] = _24h(given.get("event_time", ""))
+    from bot.utils.event_place import is_meeting_link
+
+    if not given.get("online_link") and not given.get("location") and is_meeting_link(given.get("link")):
+        given["online_link"], given["link"] = given["link"], ""  # the meeting address was read as the join link
+    given["place_type"] = "online" if given.get("online_link") else "in_person"
     fields, errors = clean_form_fields(given)
-    return {f: fields[f] for f in AI_FIELDS.values() if fields[f] and f not in errors}
+    out = {f: fields[f] for f in AI_FIELDS.values() if fields[f] and f not in errors}
+    if fields["place_type"] == "online" and out.get("online_link"):
+        out["place_type"] = "online"  # the form opens on "online" with the link filled
+    return out
 
 
 def load_prefill(req: dict | None) -> dict:

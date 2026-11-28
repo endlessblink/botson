@@ -50,6 +50,15 @@ input[type=date], input[type=time] { min-height: 48px; }
 input[dir=ltr] { text-align: left; }
 textarea { min-height: 96px; resize: vertical; }
 .row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 8px;
+       background: var(--field); border: 1.5px solid var(--line); border-radius: 12px; }
+.seg button { font: inherit; font-weight: 500; font-size: 15px; color: var(--muted); background: transparent; border: 0;
+              border-radius: 9px; min-height: 40px; cursor: pointer; transition: background .15s, color .15s; }
+.seg button[aria-checked=true] { background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--ink);
+                                 box-shadow: inset 0 0 0 1.5px var(--accent); font-weight: 700; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.place { margin-bottom: 12px; }
+.platform { color: var(--accent); font-weight: 500; }
 .count { text-align: left; font-size: 12px; color: var(--muted); margin-top: 4px; }
 .err { color: var(--err); font-size: 13px; margin-top: 5px; display: none; }
 .field.bad input, .field.bad textarea { border-color: var(--err); }
@@ -118,9 +127,21 @@ body.dropping .pick button { border-color: var(--accent); }
         <div class="err"></div>
       </div>
     </div>
-    <div class="field" data-f="location">
-      <label for="location">{{ c.form_location }} <small>{{ c.form_optional }}</small></label>
-      <input id="location" maxlength="120" value="{{ prefill.location }}" placeholder="{{ c.form_location_hint }}">
+    {%- set online = prefill.place_type == 'online' %}
+    <div class="field place" data-f="location">
+      <label id="place-label">{{ c.form_location }} <small>{{ c.form_optional }}</small></label>
+      <div class="seg" role="radiogroup" aria-labelledby="place-label">
+        <button type="button" role="radio" data-place="in_person" aria-checked="{{ 'false' if online else 'true' }}">{{ c.form_place_in_person }}</button>
+        <button type="button" role="radio" data-place="online" aria-checked="{{ 'true' if online else 'false' }}">{{ c.form_place_online }}</button>
+      </div>
+      <div id="place-in"{% if online %} hidden{% endif %}>
+        <input id="location" maxlength="120" value="{{ prefill.location }}" placeholder="{{ c.form_location_hint }}" aria-label="{{ c.form_location }}">
+      </div>
+    </div>
+    <div class="field" data-f="online_link" id="place-on"{% if not online %} hidden{% endif %}>
+      <label for="online_link">{{ c.form_online_link }} <small id="platform" class="platform"></small></label>
+      <input id="online_link" type="url" dir="ltr" inputmode="url" maxlength="{{ max_link }}" value="{{ prefill.online_link }}" placeholder="{{ c.form_online_link_hint }}">
+      <div class="err"></div>
     </div>
     <div class="field" data-f="organizer">
       <label for="organizer">{{ c.form_organizer }} <small>{{ c.form_optional }}</small></label>
@@ -170,6 +191,35 @@ body.dropping .pick button { border-color: var(--accent); }
 
 <script>
 var C = {{ c | tojson }};
+var PLATFORMS = {{ platforms | tojson }};
+var PLACE = {{ (prefill.place_type or 'in_person') | tojson }};
+function platformOf(url) {
+  var host = '';
+  try { host = new URL(url).hostname.toLowerCase(); } catch (e) { return null; }
+  for (var i = 0; i < PLATFORMS.length; i++) {
+    var hosts = PLATFORMS[i].hosts || [];
+    for (var j = 0; j < hosts.length; j++) {
+      var h = String(hosts[j]).toLowerCase();
+      if (host === h || host.endsWith('.' + h)) return PLATFORMS[i].name;
+    }
+  }
+  return null;
+}
+function placeLabel() {
+  var p = platformOf($('online_link').value.trim());
+  return p ? fill(C.place_online_platform, { platform: p }) : C.place_online;
+}
+function setPlace(kind) {
+  PLACE = kind;
+  document.querySelectorAll('[data-place]').forEach(function (b) { b.setAttribute('aria-checked', String(b.dataset.place === kind)); });
+  $('place-in').hidden = kind === 'online';   // both inputs keep their values, so switching back loses nothing
+  $('place-on').hidden = kind !== 'online';
+  showPlatform(); preview();
+}
+function showPlatform() {
+  var p = platformOf($('online_link').value.trim());
+  $('platform').textContent = p || ($('online_link').value.trim() ? C.form_online_unknown : '');
+}
 var BY = {{ by | tojson }};
 var imageData = '';
 var LOADED = '';
@@ -214,11 +264,15 @@ function preview() {
     when = fill(C.card_when, { day: (C.day_names || [])[dt.getDay()] || '', date: dt.getDate() + '.' + (dt.getMonth() + 1), time: v('event_time') });
   }
   if (when) lines.push(when);
-  if (v('location')) lines.push(fill(C.card_where, { location: v('location') }));
+  var online = PLACE === 'online', onl = v('online_link');
+  if (online) lines.push(fill(C.card_where_online, { location: placeLabel() }));
+  else if (v('location')) lines.push(fill(C.card_where, { location: v('location') }));
   if (v('description')) lines.push('', v('description'));
-  if (v('link') || BY || v('organizer')) lines.push('');
+  var postLink = v('link') || (online ? onl : '');
+  if (postLink || BY || v('organizer')) lines.push('');
   var linkAt = -1;
-  if (v('link')) { linkAt = lines.length; lines.push(''); }
+  if (postLink) { linkAt = lines.length; lines.push(''); }
+  if (online && onl && v('link') && onl !== v('link')) lines.push(fill(C.card_online_link, { link: onl }));
   if (v('organizer')) lines.push(fill(C.card_organizer, { name: v('organizer') }));
   else if (BY) lines.push(fill(C.card_by, { name: BY }));
   $('wa-note').hidden = linkAt < 0;
@@ -228,15 +282,27 @@ function preview() {
     if (i !== linkAt) { pv.appendChild(document.createTextNode(line)); return; }
     var around = String(C.card_link_telegram || '{words}').split('{words}');
     pv.appendChild(document.createTextNode(around[0]));
-    pv.appendChild(linkNode(v('link')));
+    pv.appendChild(linkNode(postLink));
     pv.appendChild(document.createTextNode(around[1] || ''));
   });
   $('desc-count').textContent = $('description').value.length;
 }
 
-['title', 'event_date', 'event_time', 'location', 'organizer', 'description', 'link'].forEach(function (id) {
+['title', 'event_date', 'event_time', 'location', 'online_link', 'organizer', 'description', 'link'].forEach(function (id) {
   $(id).addEventListener('input', function () { $(id).closest('.field').classList.remove('bad'); preview(); });
 });
+document.querySelectorAll('[data-place]').forEach(function (b) { b.addEventListener('click', function () { setPlace(b.dataset.place); }); });
+$('online_link').addEventListener('input', showPlatform);
+// A meeting address typed or pasted as the place: it is an online event.
+$('location').addEventListener('change', function () {
+  var t = this.value.trim();
+  if (/^https?:\/\/\S+$/.test(t) && platformOf(t)) {
+    $('online_link').value = t;  // what was just pasted is the meeting
+    this.value = '';
+    setPlace('online');
+  }
+});
+showPlatform();
 
 var CAN_DELETE = {{ 'true' if can_publish else 'false' }};
 function drawChips() {
@@ -348,6 +414,7 @@ function check() {
   if (!$('event_time').value) { showErr('event_time', C.form_error_time); ok = false; }
   var l = $('link').value.trim();
   if (l && !/^https?:\/\/\S+$/.test(l)) { showErr('link', C.form_error_link); ok = false; }
+  if (PLACE === 'online' && !/^https?:\/\/\S+$/.test($('online_link').value.trim())) { showErr('online_link', C.form_error_online_link); ok = false; }
   if (!ok) { var bad = document.querySelector('.field.bad'); if (bad) bad.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   return ok;
 }
@@ -363,6 +430,7 @@ $('send').addEventListener('click', async function () {
       body: JSON.stringify({
         title: $('title').value.trim(), event_date: $('event_date').value, event_time: $('event_time').value,
         location: $('location').value.trim(), description: $('description').value.trim(),
+        place_type: PLACE, online_link: $('online_link').value.trim(),
         link: $('link').value.trim(), organizer: $('organizer').value.trim(), image: imageData,
         live: $('live') ? $('live').checked : null,
         save_template: $('save-tpl') ? $('save-tpl').checked : false, template_name: LOADED,

@@ -44,10 +44,15 @@ async def publish_to_whatsapp(db, event_id: int, target: str, card_text: str, im
     """Send the event card (with its picture, when there is one) and its sign-up poll
     to WhatsApp. Returns the poll key."""
     chat_id = whatsapp_sender.resolve_chat_id(target)
+    from ..handlers.calendar import caption_fits
+
     sent = None
     if image_url:
-        try:
-            sent = await whatsapp_sender.send_image(chat_id, image_url, card_text)
+        fits = caption_fits(card_text)
+        try:  # a card too long for under the picture: the picture alone, then the whole text
+            sent = await whatsapp_sender.send_image(chat_id, image_url, card_text if fits else "")
+            if not fits:
+                sent = None
         except Exception:
             logger.warning("member_events: WhatsApp image failed, sending the text only", exc_info=True)
     if not sent:
@@ -123,7 +128,8 @@ def _israel_now():
 
 def _card_lines(*, title: str, description: str | None, event_date: str, event_time: str | None,
                 location: str | None, link: str | None, by: str | None, image_url: str | None = None,
-                organizer: str | None = None, link_line: str | None = None) -> tuple[list[str], int | None]:
+                organizer: str | None = None, link_line: str | None = None, online: bool = False,
+                online_link: str | None = None) -> tuple[list[str], int | None]:
     """The card's lines, and which of them is the link line."""
     from datetime import date
 
@@ -133,16 +139,18 @@ def _card_lines(*, title: str, description: str | None, event_date: str, event_t
     lines = [f"📅 {title}",
              load_copy("member_events", "card_when", day=day, date=f"{d.day}.{d.month}", time=event_time or "")]
     if location:
-        lines.append(load_copy("member_events", "card_where", location=location))
+        lines.append(load_copy("member_events", "card_where_online" if online else "card_where", location=location))
     if description:
         lines += ["", description]
     organizer = str(organizer or "").strip()
-    if link or image_url or by or organizer:
+    if link or image_url or by or organizer or online_link:
         lines.append("")
     link_at = None
     if link:
         link_at = len(lines)
         lines.append(link_line or load_copy("member_events", "card_link", link=link))
+    if online_link and online_link != link:
+        lines.append(load_copy("member_events", "card_online_link", link=online_link))
     if image_url:
         lines.append(load_copy("member_events", "card_image", url=image_url))
     # Opened for someone else: the post names the person responsible, not the opener.
@@ -402,14 +410,22 @@ def clean_form_fields(data: dict) -> tuple[dict, dict]:
     import unicodedata
     from datetime import date
 
+    from .event_place import ONLINE, normalize
+
     cfg = member_cfg()
     # Invisible marks picked up while copying would break the address.
-    link = "".join(ch for ch in str(data.get("link") or "") if unicodedata.category(ch) != "Cf").strip()
+    bare = lambda v: "".join(ch for ch in str(v or "") if unicodedata.category(ch) != "Cf").strip()
+    link = bare(data.get("link"))
+    place = normalize({"place_type": data.get("place_type"), "online_link": bare(data.get("online_link")),
+                       "location": data.get("location")})
     fields = {
         "title": str(data.get("title") or "").strip(),
         "event_date": str(data.get("event_date") or "").strip(),
         "event_time": str(data.get("event_time") or "").strip(),
-        "location": str(data.get("location") or "").strip()[:120],
+        "location": place["location"][:120],
+        # in_person / online; an online event keeps its typed place too, so switching back loses nothing.
+        "place_type": place["place_type"],
+        "online_link": place["online_link"],
         "description": str(data.get("description") or "").strip()[: int(cfg.get("max_description_chars", 400))],
         "link": link,
         # Optional: who is responsible, when the form is opened for someone else. One line, a name only.
@@ -428,6 +444,10 @@ def clean_form_fields(data: dict) -> tuple[dict, dict]:
     # Too long is refused, never cut: half an address is a dead link.
     if link and (len(link) > int(cfg.get("max_link_chars", 2000)) or not valid_link(link)):
         errors["link"] = "form_error_link"
+    online = fields["online_link"]
+    if fields["place_type"] == ONLINE and (not online or len(online) > int(cfg.get("max_link_chars", 2000))
+                                           or not valid_link(online)):
+        errors["online_link"] = "form_error_online_link"
     return fields, errors
 
 
@@ -480,9 +500,19 @@ def request_is_open(req: dict | None) -> bool:
 
 
 def _request_fields(req: dict, image_url: str | None = None) -> dict:
+    """The card's fields. An online event says "online · <platform>" where the place goes; its
+    meeting link is the post's link when there is no other join link, else a line of its own."""
+    from .event_place import ONLINE, normalize, place_label
+
+    place = normalize({"place_type": req.get("place_type"), "online_link": req.get("online_link"),
+                       "location": req.get("location")})
+    online = place["place_type"] == ONLINE
+    link = req.get("link") or (place["online_link"] if online else None)
     return dict(title=req["title"], description=req.get("description"), event_date=req["event_date"],
-                event_time=req.get("event_time"), location=req.get("location"), link=req.get("link"),
-                by=req.get("requester_name"), image_url=image_url, organizer=req.get("organizer"))
+                event_time=req.get("event_time"),
+                location=place_label(place["place_type"], place["online_link"], place["location"]),
+                link=link, by=req.get("requester_name"), image_url=image_url, organizer=req.get("organizer"),
+                online=online, online_link=place["online_link"] if online else None)
 
 
 def request_card(req: dict, *, image_url: str | None = None) -> str:
@@ -707,11 +737,19 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
                                                     status="publishing", decided_at=_israel_now().isoformat()):
         return {"status": "already_decided"}
     tg_target, wa_target = targets_for(mode)
+    from .event_place import normalize, place_label
+
+    place = normalize({"place_type": req.get("place_type"), "online_link": req.get("online_link"),
+                       "location": req.get("location")})
+    # The event keeps what every reader shows: the place, or "online · <platform>" (never the meeting
+    # link, which the month picture, calendar file and public pages must not carry).
     event_id = await db.create_event(
         title=req["title"], description=req.get("description") or "", event_date=req["event_date"],
-        event_time=req.get("event_time"), location=req.get("location"), created_by=0,
+        event_time=req.get("event_time"),
+        location=place_label(place["place_type"], place["online_link"], place["location"]), created_by=0,
         cover_path=req.get("cover_path"),
     )
+    await db.update_event(event_id, place_type=place["place_type"])
     chat_id = int(os.getenv("TEST_GROUP_ID" if tg_target == "test" else "GROUP_ID", "0"))
     topic_id = None
     if tg_target != "test":

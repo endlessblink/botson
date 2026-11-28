@@ -355,7 +355,9 @@ def render_png(model: MonthModel, media_dir: Path | None = None) -> bytes:
         line = (_copy("next_line", time=_hhmm(e.start), title=e.title, **when) if e.start
                 else _copy("next_line_no_time", title=e.title, **when))
         lines = p.wrap(line, "next", room, int(cfg["next_max_lines"]))
-        meta = p.clean(e.location)
+        from .event_place import place_label
+
+        meta = p.clean(place_label(None, None, e.location))  # an old bare meeting address reads "online · <platform>"
         if cfg.get("show_organizer") and p.clean(e.organizer):
             sep = _copy("meta_separator")
             full = (meta + sep if meta else "") + p.clean(_copy("organizer", name=e.organizer))

@@ -107,7 +107,22 @@ member_events:
     test: ["מצב בדיקה", "מצב בדיקות", "לקבוצות הבדיקה", "test mode"]
     status: ["איזה מצב", "באיזה מצב", "what mode", "current mode"]
   max_title_chars: 80
-  max_description_chars: 400
+  max_description_chars: 1500   # the event's own text, copied whole from a screenshot (was 400: long texts were cut)
+  # A post with a picture can hold only this much text under the picture (Telegram and WhatsApp
+  # caption limits). A longer card goes out as the picture, then the text as its own message.
+  caption_max_chars: 1024
+  # "Where" can be online: a meeting link instead of a place. The platform is named from the link's
+  # host (subdomains count); an unknown host is just "online". Also used to recognise a bare meeting
+  # address typed into the place field. Public pages never show these links (community_page block list).
+  online_platforms:
+    - {name: "Google Meet", hosts: ["meet.google.com"]}
+    - {name: "Zoom", hosts: ["zoom.us", "zoom.com"]}
+    - {name: "Microsoft Teams", hosts: ["teams.microsoft.com", "teams.live.com"]}
+    - {name: "Discord", hosts: ["discord.gg", "discord.com"]}
+    - {name: "Jitsi", hosts: ["meet.jit.si"]}
+    - {name: "Webex", hosts: ["webex.com"]}
+    - {name: "Whereby", hosts: ["whereby.com"]}
+    - {name: "Skype", hosts: ["join.skype.com"]}
   max_link_chars: 2000     # longer links are refused, never cut
   # Links in event posts are shortened by cleaning the real address (the form keeps what was typed).
   link_cleaning:
@@ -143,10 +158,12 @@ member_events:
       Read the attached picture, usually a screenshot of an event invitation, and copy out the event details.
       The current date and time in Israel is {now}. Work out relative dates ("this Thursday") from it.
       Answer with one JSON object only, no other text, with exactly these keys, all strings:
-      title, event_date (YYYY-MM-DD), start_time (HH:MM, 24 hours), location, description, link, organizer.
-      The title is short (up to 80 characters). The description is a few words copied from the picture, up to 400 characters.
+      title, event_date (YYYY-MM-DD), start_time (HH:MM, 24 hours), location, online_link, description, link, organizer.
+      The title is short (up to 80 characters).
+      The description is the event's own text copied in full, word for word, with its line breaks. Never shorten, summarize or rewrite it. Only when it is longer than {max_desc} characters, copy the first {max_desc}.
       Convert English dates and 12-hour times: "Thursday, December 3, 2026 at 8 PM" is 2026-12-03 and 20:00. For a range, use the start.
       The location is the venue name together with its city, once, even when the page shows it in several places. Never the name of the page or group that posted the event.
+      When the event happens online (a video call such as Google Meet, Zoom, Teams or Discord), put the meeting address written in the picture in online_link and leave location empty. Otherwise online_link is empty.
       The organizer is the person responsible: from "Event by <person> and <group>" take only the person. A group, page or business is not an organizer; with no person, leave it empty.
       The description is the event's own text, including prices. Leave out everything the site itself adds: how many are going and who, guest lists, buttons, menus, side panels such as "Thanks for your response" or "Invite members", tags and comments.
       The link is only a web address written out in full inside the event's text. Never the browser's address, and never one you made up.
@@ -184,6 +201,8 @@ community_page:
   event_link_blocked_hosts: ["whatsapp.com", "whatsapp.net", "wa.me", "wa.link", "t.me", "telegram.me",
                              "telegram.dog", "telegram.org", "signal.group", "signal.me", "discord.gg",
                              "discord.com", "m.me", "messenger.com",
+                             "meet.google.com", "zoom.us", "zoom.com", "teams.microsoft.com", "teams.live.com",
+                             "meet.jit.si", "webex.com", "whereby.com", "join.skype.com",
                              "goo.gl", "maps.app.goo.gl", "g.co", "maps.google.*", "maps.google.*.*",
                              "waze.com", "maps.apple.com", "maps.apple", "openstreetmap.org", "osm.org",
                              "here.com", "moovitapp.com", "moovit.com", "govmap.gov.il"]
@@ -545,6 +564,12 @@ copy:
     day_names: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"]
     card_when: "🕒 יום {day}, {date} · {time}"
     card_where: "📍 {location}"
+    card_where_online: "💻 {location}"
+    # An online event: "where" says this instead of an address (the platform comes from member_events.online_platforms).
+    place_online: "אונליין"
+    place_online_platform: "אונליין · {platform}"
+    # The meeting link in the group post, when the event also has a separate join link.
+    card_online_link: "💻 לשיחה: {link}"
     card_link: "🔗 לינק להצטרפות:\n{link}"
     # Telegram only: these words are the link, the address is not shown.
     card_link_telegram: "🔗 {words}"
@@ -579,7 +604,13 @@ copy:
     form_date: "תאריך"
     form_time: "שעת התחלה"
     form_location: "איפה"
-    form_location_hint: "כתובת, שם מקום או זום"
+    form_location_hint: "כתובת או שם מקום"
+    form_place_in_person: "📍 במקום"
+    form_place_online: "💻 אונליין"
+    form_online_link: "לינק לשיחה"
+    form_online_link_hint: "https://meet.google.com/..."
+    form_online_unknown: "אונליין"
+    form_error_online_link: "צריך לינק מלא לשיחה, שמתחיל ב-https://"
     form_organizer: "מי אחראי על האירוע"
     form_organizer_hint: "אם זה לא מי שפותח את הטופס, כתבו כאן את השם"
     form_description: "כמה מילים על האירוע"

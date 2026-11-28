@@ -412,19 +412,26 @@ async def send_message_with_optional_cover(bot, *, db: Database, chat_id: int, t
     if cover_path:
         full = _media_dir() / cover_path
         if full.exists():
+            if caption_fits(text):
+                with full.open("rb") as f:
+                    return await safe_send(
+                        bot,
+                        db,
+                        "send_photo",
+                        chat_id=chat_id,
+                        photo=f,
+                        caption=text,
+                        message_thread_id=message_thread_id,
+                        bypass_verification=bypass_verification,
+                        **({"caption_entities": entities} if entities else {}),
+                    )
+            # Too long to sit under a picture: the picture first, then the whole text as the card
+            # (the returned message, which gets the sign-up buttons and later edits).
             with full.open("rb") as f:
-                return await safe_send(
-                    bot,
-                    db,
-                    "send_photo",
-                    chat_id=chat_id,
-                    photo=f,
-                    caption=text,
-                    message_thread_id=message_thread_id,
-                    bypass_verification=bypass_verification,
-                    **({"caption_entities": entities} if entities else {}),
-                )
-        logger.warning("cover_path %s not found at %s — falling back to text", cover_path, full)
+                await safe_send(bot, db, "send_photo", chat_id=chat_id, photo=f,
+                                message_thread_id=message_thread_id, bypass_verification=bypass_verification)
+        else:
+            logger.warning("cover_path %s not found at %s — falling back to text", cover_path, full)
     return await safe_send(
         bot,
         db,
@@ -435,6 +442,14 @@ async def send_message_with_optional_cover(bot, *, db: Database, chat_id: int, t
         bypass_verification=bypass_verification,
         **({"entities": entities} if entities else {}),
     )
+
+
+def caption_fits(text: str) -> bool:
+    """Whether a card fits under a picture (Telegram counts UTF-16 units; settings member_events.caption_max_chars)."""
+    from ..utils.shared_events import member_cfg
+
+    limit = int(member_cfg().get("caption_max_chars", 1024))
+    return len(str(text or "").encode("utf-16-le")) // 2 <= limit
 
 
 async def _create_event_row_from_scheduled(db: Database, msg: dict) -> int:

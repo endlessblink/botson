@@ -139,10 +139,17 @@ def public_place(location: str | None) -> str | None:
     if not text:
         return None
     cfg = base_cfg()
+    from .event_place import is_meeting_link, place_label, platform_names
+
+    if is_meeting_link(text):  # an older event whose place is a bare meeting address: never shown
+        return place_label("online", text, None)
     for word in cfg.get("place_online_words") or []:
         if _alias_re(str(word)).search(text):
             from .copy import load_copy
 
+            for name in platform_names():  # "online · Google Meet" keeps the platform, never a link
+                if name and _alias_re(name).search(text):
+                    return load_copy("member_events", "place_online_platform", platform=name)
             return load_copy("community_page", "online")
     streets = [str(w) for w in cfg.get("place_street_words") or []]
     best: tuple[int, str] | None = None

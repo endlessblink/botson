@@ -24,7 +24,7 @@ from dashboard import event_picture as ep
 TOKEN = "agent-secret-value"
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 32 + b"IEND\xaeB`\x82").decode()
 GOOD = {"title": "Vinyl night", "event_date": "2099-01-01", "start_time": "20:30", "location": "Tel Aviv",
-        "description": "Bring a record", "link": "https://example.com/x", "organizer": "Yael Test"}
+        "online_link": "", "description": "Bring a record", "link": "https://example.com/x", "organizer": "Yael Test"}
 MEMBER, STRANGER, OPERATOR = "5@lid", "666@lid", "1@lid"
 
 
@@ -288,7 +288,7 @@ def test_hostile_answers_only_ever_become_a_harmless_draft(tmp_path, ai):
         fields = json.loads(row["prefill"])
         assert set(fields) == {"title", "event_date", "event_time", "location", "description", "link", "organizer"}
         assert len(fields["organizer"]) == 60 and "\n" not in fields["organizer"]
-        assert len(fields["description"]) == 400 and "‮" not in fields["description"] and fields["location"] == "a b"
+        assert len(fields["description"]) == shared_events.member_cfg()["max_description_chars"] and "‮" not in fields["description"] and fields["location"] == "a b"
         assert row["status"] == "open" and row["event_id"] is None and row["organizer"] is None and row["cover_path"] is None
         assert "<script>alert(1)" not in await page(db, r)
         assert admin.send_message.await_count == 0 and shared_events.default_mode() == "test"
