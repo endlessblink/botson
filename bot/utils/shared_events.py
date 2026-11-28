@@ -56,7 +56,10 @@ async def publish_to_whatsapp(db, event_id: int, target: str, card_text: str, im
         except Exception:
             logger.warning("member_events: WhatsApp image failed, sending the text only", exc_info=True)
     if not sent:
-        await whatsapp_sender.send_text(chat_id, card_text)
+        sent = await whatsapp_sender.send_text(chat_id, card_text)
+    # The post that carries the event's details (picture with caption, or the text) is the one
+    # pinned around the event's date (event_pins.py). The poll is never pinned.
+    await db.set_event_whatsapp_message(event_id, sent)
     poll_id = await whatsapp_sender.send_poll(chat_id, load_copy("whatsapp", "event_poll_question"), poll_options())
     stanza = stanza_of(poll_id)
     if not stanza:
@@ -779,6 +782,13 @@ async def approve_request(bot, db, request_id: int, mode: str | None = None) -> 
         except Exception as exc:
             logger.exception("member_events: WhatsApp publish failed for event %s", event_id)
             result.update(status="partial", whatsapp_error=str(exc)[:200])
+        else:
+            try:  # the WhatsApp post is pinned at once too when the event is near
+                from .event_pins import sync_whatsapp
+
+                await sync_whatsapp(db)
+            except Exception:
+                logger.warning("member_events: WhatsApp pin check failed after publishing %s", event_id, exc_info=True)
     return result
 
 

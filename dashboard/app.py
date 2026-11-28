@@ -3232,6 +3232,8 @@ async def events_page(request: Request, db: Database = Depends(get_db)):
         "event_pins": await db.list_event_pins(),
         "pins_copy": load_copy_block("event_pins", default={}),
         "pins_auto": bool((settings.get("event_pins") or {}).get("enabled", True)),
+        "wa_pins": await db.list_event_wa_pins(),
+        "wa_pins_on": bool(((settings.get("event_pins") or {}).get("whatsapp") or {}).get("enabled", False)),
         "today_iso": local_now().date().isoformat(),
     })
 
@@ -3580,6 +3582,13 @@ async def create_event(request: Request, db: Database = Depends(get_db)):
             except Exception as e:
                 logger.exception("[events] failed to post event %d to WhatsApp", event_id)
                 result.update(status="partial", whatsapp_error=str(e)[:300])
+            else:
+                try:  # a near event's WhatsApp post is pinned at once (bot/utils/event_pins.py)
+                    from bot.utils.event_pins import sync_whatsapp
+
+                    await sync_whatsapp(db)
+                except Exception:
+                    logger.warning("[events] WhatsApp pin check failed for event %d", event_id, exc_info=True)
         return result
     except Exception as e:
         logger.exception("[events] failed to post event %d to telegram", event_id)
@@ -4225,9 +4234,9 @@ async def delete_event(event_id: int, request: Request, db: Database = Depends(g
     try:  # a deleted event's post is unpinned at once, not only at the next periodic check
         from telegram import Bot
 
-        from bot.utils.event_pins import sync as sync_pins
+        from bot.utils.event_pins import sync_all
 
-        await sync_pins(Bot(os.getenv("BOT_TOKEN", "")), db)
+        await sync_all(Bot(os.getenv("BOT_TOKEN", "")), db)
     except Exception:
         logger.warning("[events] pin check after deleting event %s failed", event_id, exc_info=True)
     return {"status": "ok"}

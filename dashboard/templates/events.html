@@ -333,13 +333,19 @@
                         {% else %}
                         <span class="bg-[#1f1f1f] text-[#71717a] text-xs font-medium px-2 py-0.5 rounded-md">לא פעיל</span>
                         {% endif %}
-                        {% if e.active and e.message_id and e.event_date >= today_iso %}
-                        {% set pinned = event_pins.get(e.id) and event_pins[e.id].pinned %}
+                        {% set has_wa = wa_pins_on and e.wa_message_id %}
+                        {% if e.active and (e.message_id or has_wa) and e.event_date >= today_iso %}
+                        {% set tg_pinned = e.message_id and event_pins.get(e.id) and event_pins[e.id].pinned %}
+                        {% set wa_pinned = has_wa and wa_pins.get(e.id) and wa_pins[e.id].pinned %}
+                        {% set pinned = tg_pinned if e.message_id else wa_pinned %}
                         <div class="mt-1.5 flex items-center gap-2 whitespace-nowrap">
-                            <span class="text-xs {{ 'text-amber-300' if pinned else 'text-[#71717a]' }}">{{ pins_copy.pinned if pinned else pins_copy.not_pinned }}</span>
+                            {% if e.message_id %}<span class="text-xs {{ 'text-amber-300' if tg_pinned else 'text-[#71717a]' }}">{{ pins_copy.pinned if tg_pinned else pins_copy.not_pinned }}</span>{% endif %}
                             <button onclick="setEventPin({{ e.id }}, {{ 'false' if pinned else 'true' }})" class="text-xs text-[#a1a1aa] hover:text-[#fafafa] underline underline-offset-2">{{ pins_copy.unpin if pinned else pins_copy.pin }}</button>
                             {% if not pins_auto %}<span class="text-xs text-[#71717a]">{{ pins_copy.auto_off }}</span>{% endif %}
                         </div>
+                        {% if has_wa %}
+                        <div class="mt-1 text-xs whitespace-nowrap {{ 'text-amber-300' if wa_pinned else 'text-[#71717a]' }}">{{ pins_copy.wa_pinned if wa_pinned else pins_copy.wa_not_pinned }}</div>
+                        {% endif %}
                         {% endif %}
                     </td>
                     <td class="px-5 py-3">
@@ -891,7 +897,11 @@ const PINS_COPY = {{ pins_copy | tojson }};
 async function setEventPin(eventId, pin) {
     try {
         const r = await apiCall('/api/events/' + eventId + '/pin', {pin: pin});
-        showToast(r.status === 'ok' ? (pin ? PINS_COPY.done_pin : PINS_COPY.done_unpin) : PINS_COPY.failed, r.status === 'ok' ? undefined : 'error');
+        if (r.status === 'ok' && r.whatsapp_status === 'failed') {
+            showToast(PINS_COPY.failed_whatsapp, 'error');
+        } else {
+            showToast(r.status === 'ok' ? (pin ? PINS_COPY.done_pin : PINS_COPY.done_unpin) : PINS_COPY.failed, r.status === 'ok' ? undefined : 'error');
+        }
         setTimeout(function() { location.reload(); }, 800);
     } catch (e) {
         showToast(PINS_COPY.failed + ' ' + e.message, 'error');

@@ -266,3 +266,30 @@ async def send_poll(chat_id: str, question: str, options: list[str]) -> str | No
         "/api/sendPoll",
         {"chatId": chat_id, "poll": {"name": question, "options": options, "multipleAnswers": False}},
     )
+
+
+async def _message_action(chat_id: str, msg_id: str, action: str, payload: dict | None = None) -> None:
+    """POST /api/{session}/chats/{chat}/messages/{message}/{action}. The message id goes into the
+    path URL-escaped (its "@" must be %40). Raises when WhatsApp does not confirm success."""
+    from urllib.parse import quote
+
+    base, key, session = _config()
+    url = f"{base}/api/{session}/chats/{chat_id}/messages/{quote(str(msg_id), safe='')}/{action}"
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(url, json=payload or {}, headers={"X-Api-Key": key})
+    resp.raise_for_status()
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    if not (isinstance(data, dict) and data.get("success") is True):
+        raise RuntimeError(f"WhatsApp did not confirm the {action}: {str(data)[:120]}")
+
+
+async def pin_message(chat_id: str, msg_id: str, duration_s: int) -> None:
+    """Pin a message for duration_s seconds (WhatsApp takes only 24 hours, 7 days or 30 days)."""
+    await _message_action(chat_id, msg_id, "pin", {"duration": int(duration_s)})
+
+
+async def unpin_message(chat_id: str, msg_id: str) -> None:
+    await _message_action(chat_id, msg_id, "unpin")

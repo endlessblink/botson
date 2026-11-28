@@ -60,6 +60,8 @@ class Database:
             # Shared events: the same event also posted to WhatsApp as a poll.
             "ALTER TABLE events ADD COLUMN wa_target TEXT",
             "ALTER TABLE events ADD COLUMN wa_poll_stanza TEXT",
+            # The WhatsApp event post itself (picture or text card, not the poll), for pinning it.
+            "ALTER TABLE events ADD COLUMN wa_message_id TEXT",
             "ALTER TABLE events ADD COLUMN tg_chat_id INTEGER",
             "ALTER TABLE events ADD COLUMN card_text TEXT",
             # Where the link sits in card_text (JSON), so every edit of the card keeps it.
@@ -99,6 +101,10 @@ class Database:
             # manual: 'pin' / 'unpin' when the operator decided by hand, else NULL.
             "CREATE TABLE IF NOT EXISTS event_pins (event_id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, "
             "message_id INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, manual TEXT, updated_at TEXT)",
+            # The same for the WhatsApp group, tracked apart so one side failing never touches the other.
+            # expires_at: when WhatsApp drops the pin by itself (pins there always carry a duration).
+            "CREATE TABLE IF NOT EXISTS event_wa_pins (event_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, "
+            "message_id TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, manual TEXT, expires_at TEXT, updated_at TEXT)",
             # Members the operator trusts: their events publish without waiting for approval.
             "CREATE TABLE IF NOT EXISTS event_trusted_creators (platform TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, added_at TEXT NOT NULL, PRIMARY KEY (platform, user_id))",
             "CREATE TABLE IF NOT EXISTS event_whatsapp_rsvps (event_id INTEGER NOT NULL, voter_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (event_id, voter_id))",
@@ -955,6 +961,47 @@ class Database:
             "UPDATE events SET wa_target = ?, wa_poll_stanza = ? WHERE id = ?",
             (target, poll_stanza, event_id),
         )
+        await self._db.commit()
+
+    async def set_event_whatsapp_message(self, event_id: int, message_id: str | None):
+        await self._db.execute("UPDATE events SET wa_message_id = ? WHERE id = ?", (message_id, event_id))
+        await self._db.commit()
+
+    async def get_whatsapp_event_posts(self, target: str) -> list[dict]:
+        """Event posts the bot made in one WhatsApp group ('whatsapp' or 'whatsapp_test'), for pinning."""
+        async with self._db.execute(
+            """SELECT e.id, e.event_date, e.wa_message_id FROM events e
+               WHERE e.active = 1 AND e.wa_target = ? AND e.wa_message_id IS NOT NULL AND e.wa_message_id != ''
+                 AND NOT EXISTS (SELECT 1 FROM event_requests r WHERE r.event_id = e.id AND r.status != 'approved')
+               ORDER BY e.event_date, e.event_time, e.id""",
+            (target,),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def list_event_wa_pins(self) -> dict[int, dict]:
+        async with self._db.execute("SELECT * FROM event_wa_pins") as cursor:
+            return {int(r["event_id"]): dict(r) for r in await cursor.fetchall()}
+
+    async def save_event_wa_pin(self, event_id: int, *, chat_id: str, message_id: str, pinned: bool | None = None,
+                                manual: str | None = "keep", expires_at: str | None = "keep") -> None:
+        """Record the WhatsApp pin state. "keep" leaves that field as it is."""
+        now = datetime.now(timezone.utc).isoformat()
+        await self._db.execute(
+            "INSERT INTO event_wa_pins (event_id, chat_id, message_id, pinned, manual, expires_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING",
+            (event_id, chat_id, message_id, 1 if pinned else 0, None if manual == "keep" else manual,
+             None if expires_at == "keep" else expires_at, now))
+        sets, args = ["chat_id = ?", "message_id = ?", "updated_at = ?"], [chat_id, message_id, now]
+        if pinned is not None:
+            sets.append("pinned = ?")
+            args.append(1 if pinned else 0)
+        if manual != "keep":
+            sets.append("manual = ?")
+            args.append(manual)
+        if expires_at != "keep":
+            sets.append("expires_at = ?")
+            args.append(expires_at)
+        await self._db.execute(f"UPDATE event_wa_pins SET {', '.join(sets)} WHERE event_id = ?", (*args, event_id))
         await self._db.commit()
 
     async def get_event_by_whatsapp_poll(self, poll_stanza: str) -> dict | None:

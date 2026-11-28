@@ -76,13 +76,19 @@ whatsapp_watch:
   bad_checks: 2        # consecutive bad checks before anything happens
   repeat_hours: 3      # reminder interval while it stays down
 
-# Event posts pinned silently in the Telegram group around their date (bot/utils/event_pins.py).
-# WhatsApp is not pinned: see the module notes and the report of 2026-11-26.
+# Event posts pinned silently around their date, in the Telegram group and the WhatsApp group
+# (bot/utils/event_pins.py). The two are tracked apart: one failing never touches the other.
 event_pins:
   enabled: true                  # automatic pinning; manual pin / unpin on the Events page works either way
   days_before: 7                 # pinned from this many days before the event until the end of its day
   check_minutes: 10              # how often the bot checks (also right after an event is approved)
   test_group_in_test_mode: true  # while the live / test switch is on test, test-group posts are pinned too
+  whatsapp:
+    enabled: true                # false = no WhatsApp pin calls at all; pins already placed run out by themselves
+    max_pins: 3                  # WhatsApp holds at most 3 pins per chat; over this, the nearest events win
+    # WhatsApp pins only for 24 hours, 7 days or 30 days. Each pin takes the shortest one that lasts
+    # until the end of the event's day; it is still unpinned explicitly the day after.
+    durations_s: [86400, 604800, 2592000]
 
 member_events:
   enabled: true
@@ -472,9 +478,12 @@ copy:
     upcoming_when_time: "{day} {d}.{m}, {time}"
     upcoming_place: " · {place}"
   event_pins:
-    # Events page: pin state of each upcoming event's post in the Telegram group.
-    pinned: "📌 נעוץ בקבוצה"
-    not_pinned: "לא נעוץ"
+    # Events page: pin state of each upcoming event's post in the Telegram and WhatsApp groups.
+    pinned: "📌 נעוץ בטלגרם"
+    not_pinned: "לא נעוץ בטלגרם"
+    wa_pinned: "📌 נעוץ בוואטסאפ"
+    wa_not_pinned: "לא נעוץ בוואטסאפ"
+    failed_whatsapp: "בטלגרם זה עבד, בוואטסאפ לא. ייתכן שבוטי לא מחובר או שאין לו הרשאת מנהל בקבוצה."
     pin: "לנעוץ"
     unpin: "לבטל נעיצה"
     done_pin: "האירוע ננעץ"
