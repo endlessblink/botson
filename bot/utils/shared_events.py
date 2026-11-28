@@ -59,7 +59,10 @@ async def publish_to_whatsapp(db, event_id: int, target: str, card_text: str, im
         sent = await whatsapp_sender.send_text(chat_id, card_text)
     # The post that carries the event's details (picture with caption, or the text) is the one
     # pinned around the event's date (event_pins.py). The poll is never pinned.
-    await db.set_event_whatsapp_message(event_id, sent)
+    try:  # never let bookkeeping for pins break the publish itself
+        await db.set_event_whatsapp_message(event_id, sent if isinstance(sent, str) and sent else None)
+    except Exception:
+        logger.warning("member_events: could not store the WhatsApp post id of event %s", event_id, exc_info=True)
     poll_id = await whatsapp_sender.send_poll(chat_id, load_copy("whatsapp", "event_poll_question"), poll_options())
     stanza = stanza_of(poll_id)
     if not stanza:

@@ -274,8 +274,8 @@ def test_no_rights_and_a_gone_message_each_log_one_clear_line(tmp_path, waha, ca
             waha.status = 404
             await ep.sync_whatsapp(db)
             await ep.sync_whatsapp(db)
-        lines = [r.message for r in caplog.records]
-        assert len(lines) == 2
+        lines = [r.getMessage() for r in caplog.records if r.name == "bot.utils.event_pins"]
+        assert len(lines) == 2, lines
         assert sum("no admin right" in m for m in lines) == 1 and sum("is gone" in m for m in lines) == 1
         assert all("Telegram pinning is not affected" in m for m in lines)
     run(tmp_path, body)
